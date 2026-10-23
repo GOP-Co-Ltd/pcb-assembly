@@ -234,6 +234,7 @@ class DispenseSettings:
         retract_accel_factor: リトラクション加速度係数（> 1.0）
         lift_height: 塗布後の上昇高さ [mm]
         micro_line_settle_seconds: 微小線で上空に押し出してから下降するまでの静定待ち [sec]
+        post_dispense_settle_seconds: 塗布の移動が終わってからヘッドを上げるまでの静定待ち [sec]
     """
 
     max_fill_speed: float
@@ -244,6 +245,7 @@ class DispenseSettings:
     retract_accel_factor: float
     lift_height: float
     micro_line_settle_seconds: float
+    post_dispense_settle_seconds: float
 
     @property
     def retract_accel(self) -> float:
@@ -263,4 +265,5 @@ class DispenseSettings:
             retract_accel_factor=config.retract_accel_factor,
             lift_height=config.lift_height if lift_height is None else lift_height,
             micro_line_settle_seconds=config.micro_line_settle_seconds,
+            post_dispense_settle_seconds=config.post_dispense_settle_seconds,
         )

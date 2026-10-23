@@ -1,7 +1,7 @@
 """FillSequence のテスト.
 
 FillSequence は1ポリゴンの塗布動作
-（接近→下降→prime同期吐出→速度0→リトラクト・上昇同時開始→同期）を1本のGCodeに組む
+（接近→下降→prime同期吐出→速度0→塗布後の静定待ち→リトラクト・上昇同時開始→同期）を1本のGCodeに組む
 オーケストレーター。ここでは stage / dispenser（いずれも pcbasm 自前の HAL ABC）を
 mock し、発行される動作の順序・量・速度を call assertion で検証する。個々の GCode 文字列は
 stage/dispenser 側の責務なので（mock は空 GCode を返す）、 本テストは FillSequence が両 HAL
@@ -35,6 +35,7 @@ _SETTINGS = DispenseSettings(
     retract_accel_factor=4.0,
     lift_height=3.0,
     micro_line_settle_seconds=1.5,
+    post_dispense_settle_seconds=0.0,
 )
 
 
@@ -369,3 +370,73 @@ class TestMicroLineSequence:
         assert actual is not None
         assert actual.resolve(100.0) == pytest.approx(2.0)
         assert sequence.effective_rate == pytest.approx(10.0)
+
+
+class TestPostDispenseSettle:
+    """塗布の移動が終わってから静定待ちし、そのあとでヘッドを上げる."""
+
+    @staticmethod
+    def _settled(settle: float = 0.25) -> DispenseSettings:
+        return attrs.evolve(_SETTINGS, post_dispense_settle_seconds=settle)
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            Path([Point3d(0.0, 0.0, 5.0), Point3d(10.0, 0.0, 5.0)]),
+            Path([Point3d(0.0, 0.0, 5.0)]),  # 点塗布
+        ],
+    )
+    def test_fill_waits_then_retracts_and_ascends_together(
+        self, mock_stage, mock_dispenser, path
+    ):
+        mock_stage.move.side_effect = [
+            GCode("TRAVEL"),
+            GCode("DESCEND"),
+            GCode("ASCEND"),
+        ]
+        mock_dispenser.continue_pushpull.return_value = GCode("RETRACT")
+        mock_dispenser.sync.return_value = GCode("SYNC_DISPENSER")
+        sequence = attrs.evolve(_sequence(path), settings=self._settled())
+
+        commands = sequence.to_gcode(mock_stage, mock_dispenser).to_list()
+
+        stop = commands.index("G4 P0")
+        settle = commands.index("G4 P250")
+        retract = commands.index("RETRACT")
+        ascent = commands.index("ASCEND")
+        # リトラクトの MOVE は冒頭でツールヘッドの時刻へ揃うので、待ちの後に上昇と同時に始まる
+        assert stop < settle < retract < ascent
+
+    def test_zero_settle_keeps_the_sequence_unchanged(self, mock_stage, mock_dispenser):
+        path = Path([Point3d(0.0, 0.0, 5.0), Point3d(10.0, 0.0, 5.0)])
+
+        mock_stage.to_gcode.return_value = GCode("FILL")
+        settled = attrs.evolve(_sequence(path), settings=self._settled(0.0))
+
+        commands = settled.to_gcode(mock_stage, mock_dispenser).to_list()
+
+        # 待ちが 0 なら、prime 待ちと速度 0 の G4 P0 のほかに G4 を足さない
+        after_fill = commands[commands.index("FILL") + 1 :]
+        assert [line for line in after_fill if line.startswith("G4")] == ["G4 P0"]
+
+    def test_micro_line_waits_after_fill_before_ascent(
+        self, mock_stage, mock_dispenser
+    ):
+        mock_stage.move.side_effect = [
+            GCode("TRAVEL"),
+            GCode("DESCEND"),
+            GCode("ASCEND"),
+        ]
+        mock_stage.to_gcode.return_value = GCode("FILL")
+        mock_dispenser.pushpull.side_effect = [GCode("PUSH"), GCode("RETRACT")]
+        sequence = MicroLineSequence(
+            path=_MICRO_PATH, total_amount_ul=0.5, settings=self._settled()
+        )
+
+        commands = sequence.to_gcode(mock_stage, mock_dispenser).to_list()
+
+        fill = commands.index("FILL")
+        settle = commands.index("G4 P250")
+        ascent = commands.index("ASCEND")
+        retract = commands.index("RETRACT")
+        assert fill < settle < ascent < retract

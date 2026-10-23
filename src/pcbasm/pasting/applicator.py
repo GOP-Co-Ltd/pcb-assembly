@@ -327,7 +327,7 @@ class PasteApplicator:
     ) -> PasteApplicationResult:
         """指定点へ ``amount_ul`` [μL] を点塗布する.
 
-        通常塗布と同じ ``FillSequence`` を使い、接近→下降→prime+吐出→速度 0 から
+        通常塗布と同じ ``FillSequence`` を使い、接近→下降→prime+吐出→速度 0→塗布後の静定待ち→
         リトラクション・上昇同時開始の protocol で実行する。
 
         Args:

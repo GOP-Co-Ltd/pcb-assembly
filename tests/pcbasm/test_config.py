@@ -231,6 +231,7 @@ class TestMachine:
             ("micro_line_z_end", -0.01),
             ("micro_line_z_end", "fast"),
             ("micro_line_settle_seconds", -0.1),
+            ("post_dispense_settle_seconds", -0.1),
         ],
     )
     def test_paste_settings_out_of_range_are_rejected(self, key, value):
@@ -259,6 +260,9 @@ class TestMachine:
     def test_nozzle_outer_diameter_smaller_than_inner_is_rejected(self):
         with pytest.raises(ValueError, match="nozzle_outer_diameter"):
             _paste_dispenser(nozzle_diameter=0.3, nozzle_outer_diameter=0.29)
+
+    def test_post_dispense_settle_defaults_to_a_tenth_of_a_second(self):
+        assert _paste_dispenser().post_dispense_settle_seconds == pytest.approx(0.1)
 
     def test_micro_line_heights_default_to_auto(self):
         dispenser = _paste_dispenser()

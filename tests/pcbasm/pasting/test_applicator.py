@@ -705,3 +705,27 @@ class TestMicroLine:
         assert g1[0] < stepper[0] < settle < g1[1]
         assert stepper[1] > g1[-1]
         assert all("SYNC=0" not in lines[i] for i in stepper)
+
+
+class TestPostDispenseSettle:
+    """塗布後の静定待ちは、塗布移動の終わりとリトラクト・上昇の間に入る（実 G-code）."""
+
+    def test_line_pad_waits_before_retract_and_ascent(self, klipper):
+        applicator = _applicator(
+            klipper, dispense_mode="line", post_dispense_settle_seconds=0.3
+        )
+
+        applicator.apply(
+            box(0.0, 0.0, 1.0, 4.0),
+            params=applicator.default_params,
+            transform=Identity(),
+        )
+
+        lines = klipper.sent_lines
+        g1 = [i for i, line in enumerate(lines) if line.startswith("G1")]
+        settle = lines.index("G4 P300")
+        retract = next(
+            i for i, line in enumerate(lines) if i > settle and _MOVE_RE.match(line)
+        )
+        # 塗布移動の終点（上昇の直前の G1）→ 待ち → リトラクト → 上昇（最後の G1）
+        assert g1[-2] < settle < retract < g1[-1]

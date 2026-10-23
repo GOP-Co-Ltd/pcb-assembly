@@ -184,5 +184,12 @@ class TestDispenseSettings:
         assert settings.retract_rate == pytest.approx(config.effective_retract_rate)
         assert settings.lift_height == pytest.approx(config.lift_height)
 
+    def test_from_config_copies_post_dispense_settle(self, config):
+        settings = DispenseSettings.from_config(config)
+
+        assert settings.post_dispense_settle_seconds == pytest.approx(
+            config.post_dispense_settle_seconds
+        )
+
     def test_lift_height_override(self, config):
         assert DispenseSettings.from_config(config, lift_height=5.0).lift_height == 5.0
