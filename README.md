@@ -39,6 +39,7 @@ WebUI は装置を実際に動かす。変更操作の前に画面で操作権�
 | 装置・OS・マシン設定を準備する         | [セットアップ](docs/setup.md)                                                      |
 | 機体を選び、PCB を開いて作業する       | [WebUI の使い方](docs/webui.md)                                                    |
 | サービスを常駐させ、更新・復旧する     | [運用ガイド](docs/operations.md)                                                   |
+| バックアップを取り、設定や版を戻す     | [保守ガイド](docs/maintenance.md)                                                  |
 | 不具合を報告し、コードを変更・検証する | [CONTRIBUTING](CONTRIBUTING.md)                                                    |
 | 変更を実機で確かめる                   | [実機受け入れ試験](docs/acceptance.md)                                             |
 | コードの責務と依存方向を知る           | [アーキテクチャ](docs/architecture.md)                                             |
