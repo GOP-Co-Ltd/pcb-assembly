@@ -434,6 +434,9 @@ class PasteDispenser:
     micro_line_settle_seconds: float = (
         0.1  # 微小線で上空に押し出してから下降するまでの静定待ち [sec]
     )
+    post_dispense_settle_seconds: float = (
+        0.1  # 塗布の移動が終わってからヘッドを上げるまでの静定待ち [sec]（全方式）
+    )
     pad_align: PadAlign = attrs.field(factory=PadAlign)  # pad 位置合わせ設定
     flow_calibration: FlowCalibration = attrs.field(
         factory=FlowCalibration
@@ -477,6 +480,7 @@ class PasteDispenser:
             "initial_purge_ul",
             "prime_extra_delay",
             "micro_line_settle_seconds",
+            "post_dispense_settle_seconds",
         }
         numeric = positive | above_one | non_negative | {"overlap", "boundary_margin"}
         for name, value in values.items():

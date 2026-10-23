@@ -123,6 +123,9 @@ class TestMachineSettingsApi:
                 "paste_dispenser.micro_line_z_start", "auto", id="micro_line_auto"
             ),
             pytest.param(
+                "paste_dispenser.post_dispense_settle_seconds", 0.3, id="post_settle"
+            ),
+            pytest.param(
                 "paste_dispenser.line_direction", "outward", id="line_direction"
             ),
             pytest.param("paste_dispenser.paste_height", "auto", id="float_or_auto"),

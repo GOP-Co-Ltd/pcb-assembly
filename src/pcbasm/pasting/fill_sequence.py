@@ -40,7 +40,7 @@ def _trapezoidal_time(distance: float, rate: float, accel: float) -> float:
 class FillSequence:
     """1 ポリゴンの塗布動作を 1 本の送信可能な GCode に組むプログラムオブジェクト.
 
-    接近→下降→prime 同期吐出→速度 0→リトラクト・上昇同時開始→同期の順で実行する。
+    接近→下降→prime 同期吐出→速度 0→塗布後の静定待ち→リトラクト・上昇同時開始→同期の順で実行する。
 
     移動速度（``fill_speed``、既定 ``settings.max_fill_speed``）を主設定とし、吐出レートは
     これに追従して導出する。導出レートが吐出レート上限を超える（吐出が移動に追いつかない）
@@ -169,7 +169,11 @@ class FillSequence:
         # queue され、直後の Z 上昇も同じ時刻から始まる。
         gc.append(GCode("G4 P0"))
 
-        # 5. 速度 0 からリトラクションを非同期開始
+        # 5. 塗布後の静定待ち。Klipper の MANUAL_STEPPER は MOVE のたびに冒頭でツールヘッドの
+        # 時刻へ揃えるので、続くリトラクションも Z 上昇も待ちの後から同時に始まる。
+        gc.append(GCode.wait(self.settings.post_dispense_settle_seconds))
+
+        # 6. リトラクションを非同期開始
         gc.append(
             dispenser.continue_pushpull(
                 amount,
@@ -180,7 +184,7 @@ class FillSequence:
             )
         )
 
-        # 6. リトラクションと同時に Z 上昇（明示座標）
+        # 7. リトラクションと同時に Z 上昇（明示座標）
         gc.append(stage.move(x=last.x, y=last.y, z=last.z + lift, speed=_TRAVEL_SPEED))
         gc.append(dispenser.sync())
         return gc
@@ -193,7 +197,8 @@ class MicroLineSequence:
     始点上空で prime と塗布量 ``total_amount_ul`` を押し出し、静定待ち
     （``settings.micro_line_settle_seconds``）でノズル先端のドームを落ち着かせる。
     その後に始点へ下降し、経路を ``max_fill_speed`` で走行して基板へこすりつける。
-    終点上空へ上昇してからリトラクトする（接触中に引くと塗った膜を吸い戻す）。
+    走行後は塗布後の静定待ち（``settings.post_dispense_settle_seconds``）を置いてから
+    終点上空へ上昇し、上昇してからリトラクトする（接触中に引くと塗った膜を吸い戻す）。
 
     吐出と移動を同期させないので、吐出の立ち上がり遅れが始点・終点の量に影響しない。
     Z は ``path`` の各点の高さに従う。始点 z_start から終点 z_end への線形変化は、
@@ -238,8 +243,9 @@ class MicroLineSequence:
         gc.append(GCode.wait(self.settings.micro_line_settle_seconds))
         gc.append(stage.move(x=first.x, y=first.y, z=first.z, speed=_TRAVEL_SPEED))
 
-        # 3. こすりつけて終点上空へ上昇し、上昇後にリトラクトする
+        # 3. こすりつけ、静定を待って終点上空へ上昇し、上昇後にリトラクトする
         gc.append(stage.to_gcode(self.path, speed=self.actual_fill_speed()))
+        gc.append(GCode.wait(self.settings.post_dispense_settle_seconds))
         gc.append(stage.move(x=last.x, y=last.y, z=last.z + lift, speed=_TRAVEL_SPEED))
         gc.append(GCode.wait_for_done())
         gc.append(

@@ -91,6 +91,12 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("paste_dispenser.paste_height", "塗布面のZ高さ", "float_or_auto", "mm"),
     FieldSpec("paste_dispenser.lift_height", "吐出後の上昇高さ", "float", "mm"),
     FieldSpec(
+        "paste_dispenser.post_dispense_settle_seconds",
+        "塗布後の静定待ち（上昇前）",
+        "float",
+        "s",
+    ),
+    FieldSpec(
         "paste_dispenser.ul_per_mm2", "面積あたりのペースト量", "float", "uL/mm^2"
     ),
     FieldSpec(

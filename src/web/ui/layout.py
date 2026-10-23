@@ -440,7 +440,11 @@ SETTINGS_SECTIONS: tuple[SettingsSectionSpec, ...] = (
             ),
             SettingsGroupSpec(
                 "Z 高さ",
-                ("paste_dispenser.paste_height", "paste_dispenser.lift_height"),
+                (
+                    "paste_dispenser.paste_height",
+                    "paste_dispenser.lift_height",
+                    "paste_dispenser.post_dispense_settle_seconds",
+                ),
             ),
             SettingsGroupSpec(
                 "ツールヘッド",
