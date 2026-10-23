@@ -736,6 +736,11 @@ h2 {
   width: 100%;
 }
 
+.settings-triple {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: min(100%, 18rem);
+}
+
 .unit {
   margin-left: 0.3rem;
   color: var(--quiet);

@@ -9,7 +9,8 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from pcbasm.atomic import write_bytes_atomic, write_text_atomic
-from pcbasm.config import Machine, NozzleCap, NozzleClean
+from pcbasm.config import Klipper, Machine, NozzleClean, load_klipper, load_machine
+from pcbasm.geometry import Point3d
 from pcbasm.hal import Camera, FrameHub, create_camera
 from pcbasm.hal.fake import FakeCamera
 from pcbasm.machine.journal import Journal
@@ -107,8 +108,20 @@ class AppState:
                 self._selected_pcb = relative
 
     def machine(self) -> Machine:
-        """Machine 設定を読み込んで返す（毎回ロード）."""
-        return Machine(self._store.machine_toml_path())
+        """machine.toml をディスクから読み、全体を検証して返す（毎回ロード）.
+
+        Raises:
+            ConfigError: machine.toml が読めない・検証に通らない場合
+        """
+        return load_machine(self._store.machine_toml_path())
+
+    def klipper(self) -> Klipper:
+        """machine.toml の [klipper] 節だけを読む（他の節の誤りで緊急停止を送れなくしない）.
+
+        Raises:
+            ConfigError: [klipper] が読めない場合
+        """
+        return load_klipper(self._store.machine_toml_path())
 
     def journal(self) -> Journal:
         """ジョブの外の操作（REST）を書く当日の G-code ジャーナルを返す."""
@@ -143,28 +156,17 @@ class AppState:
         except Exception:
             return None
 
-    def nozzle_cap(self) -> NozzleCap | None:
-        """ノズルキャップ位置を返す（未記録・取得できなければ None）.
-
-        ``[nozzle_cap]`` テーブルが x/y/z の一部しか持たない（設定画面から 1 軸だけ
-        保存した）場合、``Machine.nozzle_cap`` は「未記録」として ``None`` を返す。この値を
-        読むのは ``/api/state``・ノズルキャップページ・``move_to_cap`` の 3 経路なので、
-        ここで None を返して「未記録」として扱えるようにする。
-        """
+    def nozzle_cap(self) -> Point3d | None:
+        """ノズルキャップ位置を返す（未教示・取得できなければ None）."""
         try:
-            return self.machine().nozzle_cap
+            return self.machine().paste_dispenser.nozzle_cap.position
         except Exception:
             return None
 
     def nozzle_clean(self) -> NozzleClean | None:
-        """ノズルクリーニング位置を返す（未記録・取得できなければ None）.
-
-        設定画面から動作値だけを保存すると座標の無い ``[nozzle_clean]`` ができる。
-        座標必須の ``Machine.nozzle_clean`` はこれを「未記録」として ``None`` を返す。
-        ``nozzle_cap`` と同じく、ここで None を返して「未記録」として扱う。
-        """
+        """ノズルクリーニング設定を返す（取得できなければ None）."""
         try:
-            return self.machine().nozzle_clean
+            return self.machine().paste_dispenser.nozzle_clean
         except Exception:
             return None
 

@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from pcbasm.config import FlowCalibration, Machine
+from pcbasm.config import FlowCalibration, Machine, load_machine
 from pcbasm.geometry import Point2d
 from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeCamera, FakeKlipper
 from pcbasm.pasting.paste_volume.calibration import (
@@ -83,7 +83,7 @@ def _machine_with_prime_extra_delay(tmp_path: Path, delay: float) -> Machine:
     )
     path = tmp_path / "machine.toml"
     path.write_text(text, encoding="utf-8")
-    return Machine(path)
+    return load_machine(path)
 
 
 def _outcome(**overrides: object) -> FlowCalibrationOutcome:
@@ -295,7 +295,7 @@ class TestRunFlowCalibration:
         record = self._run(flow_manager, wait_until, name)
 
         assert record.status == JobStatus.SUCCEEDED, record.error
-        retract_ul = Machine(
+        retract_ul = load_machine(
             TESTING_CONFIG_DIR / "machine.toml"
         ).paste_dispenser.retract_amount
         expected = retract_ul + FlowCalibration().amount_ul

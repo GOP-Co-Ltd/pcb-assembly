@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from pcbasm.config import Machine
+from pcbasm.config import load_machine
 from pcbasm.geometry import Identity, Point2d, Shift
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeKlipper
@@ -23,7 +23,7 @@ from pcbasm.pasting.flowcalib.procedure import FlowCalibrationProcedure
 from pcbasm.pasting.session import PasteSession
 from tests.support.paths import TESTING_DATA_DIR
 
-MACHINE = Machine(TESTING_DATA_DIR / "machine.toml")
+MACHINE = load_machine(TESTING_DATA_DIR / "machine.toml")
 ROTATION_DISTANCE = float(
     FAKE_PRINTER_CONFIG["manual_stepper paste_dispenser"]["rotation_distance"]
 )

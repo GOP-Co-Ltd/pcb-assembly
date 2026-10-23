@@ -3,9 +3,10 @@
 {% block layout_class %}single-pane{% endblock %}
 {% block content %}
 {% macro settings_control(field, prefix) %}
-{% if field.value_type == 'float_pair' %}
-<div class="settings-pair" data-pair-key="{{ field.key }}">
-  {% for axis in ['X', 'Y'] %}
+{% if field.value_type in ('float_pair', 'float_triple') %}
+{# 組の値は全部そろったときだけ一度に送る（座標の一部だけを書いた machine.toml は読めない） #}
+<div class="settings-pair{% if field.value_type == 'float_triple' %} settings-triple{% endif %}" data-pair-key="{{ field.key }}">
+  {% for axis in (['X', 'Y', 'Z'] if field.value_type == 'float_triple' else ['X', 'Y']) %}
   <input id="{{ prefix }}-{{ field.key }}-{{ axis|lower }}"
          data-pair-key="{{ field.key }}"
          data-pair-index="{{ loop.index0 }}"

@@ -6,8 +6,7 @@ tmp_path に `data/testing/config` をコピーした Settings を `create_app` 
 - `open_klipper` は root conftest が塞いでいる。Moonraker 不通の経路を確かめるテストは
   `unreachable_klipper` を要求する
 - `data/testing/config/machine.toml` は WebUI / E2E 用（コメント保持・欠落キーの
-  テスト素材を含む）。pcbasm コア層の単体テストが使う `data/testing/machine.toml` /
-  `machine_minimal.toml` とは別物
+  テスト素材を含む）。pcbasm コア層の単体テストが使う `data/testing/machine.toml` とは別物
 - 通知音は `FakeAudioPlayer` を注入する。既定の `AlsaAudioPlayer` だと完了通知付き
   ジョブが実 `aplay` を起動して実スピーカーが鳴るため
 - Settings は env ではなく直接構築して注入する（env はプロセスグローバルで leak するため）

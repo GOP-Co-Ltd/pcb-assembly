@@ -173,13 +173,16 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("paste_dispenser.pad_align.canny_high", "Canny上側閾値", "float"),
     FieldSpec("paste_dispenser.pad_align.blur_ksize", "ブラーカーネルサイズ", "int"),
     # [paste_dispenser.nozzle_cap] タスク終了時の駐機先（マシン座標）
-    FieldSpec("paste_dispenser.nozzle_cap.x", "キャップ位置 X", "float", "mm"),
-    FieldSpec("paste_dispenser.nozzle_cap.y", "キャップ位置 Y", "float", "mm"),
-    FieldSpec("paste_dispenser.nozzle_cap.z", "キャップ位置 Z", "float", "mm"),
+    FieldSpec(
+        "paste_dispenser.nozzle_cap.position", "キャップ位置", "float_triple", "mm"
+    ),
     # [paste_dispenser.nozzle_clean] ノズル先端クリーニング（マシン座標）
-    FieldSpec("paste_dispenser.nozzle_clean.x", "クリーニング位置 X", "float", "mm"),
-    FieldSpec("paste_dispenser.nozzle_clean.y", "クリーニング位置 Y", "float", "mm"),
-    FieldSpec("paste_dispenser.nozzle_clean.z", "クリーニング面のZ高さ", "float", "mm"),
+    FieldSpec(
+        "paste_dispenser.nozzle_clean.position",
+        "クリーニング位置（Zは面の高さ）",
+        "float_triple",
+        "mm",
+    ),
     FieldSpec("paste_dispenser.nozzle_clean.press_depth", "押し込み量", "float", "mm"),
     FieldSpec(
         "paste_dispenser.nozzle_clean.purge_ul", "クリーニング前パージ量", "float", "uL"
@@ -352,16 +355,20 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
             if isinstance(value, str) and value in LINE_DIRECTIONS:
                 return value
         case "float_pair":
-            pair = _coerce_float_pair(value)
+            pair = _coerce_floats(value, 2)
             if pair is not None:
                 return pair
+        case "float_triple":
+            triple = _coerce_floats(value, 3)
+            if triple is not None:
+                return triple
     raise UnknownFieldError(
         f"{spec.key}: {spec.value_type} 型の値が必要です（与えられた値: {value!r}）"
     )
 
 
-def _coerce_float_pair(value: object) -> list[float] | None:
-    if not isinstance(value, (list, tuple)) or len(value) != 2:
+def _coerce_floats(value: object, count: int) -> list[float] | None:
+    if not isinstance(value, (list, tuple)) or len(value) != count:
         return None
     pair: list[float] = []
     for item in value:
@@ -403,7 +410,7 @@ class ConfigStore:
         doc = tomlkit.parse(self.machine_toml_path().read_text())
         values: dict[str, MachineSettingValue | None] = {}
         for spec in MACHINE_FIELDS:
-            raw = _lookup_toml(doc, spec.key)
+            raw = _lookup_setting(doc, spec)
             values[spec.key] = None if raw is None else _coerce(spec, raw)
         return values
 
@@ -464,7 +471,13 @@ class ConfigStore:
                 child = table[table_key]
                 assert isinstance(child, Table)
                 table = child
-            table[option] = value
+            if _MACHINE_FIELDS_BY_KEY[key].value_type == "float_triple":
+                # 座標は TOML では x / y / z の 3 キー（3 つそろえて書く）
+                assert isinstance(value, list)
+                for axis, item in zip("xyz", value, strict=True):
+                    table[axis] = item
+            else:
+                table[option] = value
         updated = tomlkit.dumps(doc)
         for filename, content in (files or {}).items():
             write_bytes_atomic(path.parent / filename, content)
@@ -555,6 +568,15 @@ def _migrate_legacy_nozzle_sections(doc: tomlkit.TOMLDocument) -> None:
         if name not in parent:
             parent[name] = legacy
         del doc[name]
+
+
+def _lookup_setting(doc: tomlkit.TOMLDocument, spec: FieldSpec) -> object | None:
+    """設定項目の記載値を返す（座標は x / y / z の 3 つがそろったときだけ [x, y, z]）."""
+    if spec.value_type != "float_triple":
+        return _lookup_toml(doc, spec.key)
+    table = spec.key.removesuffix(".position")
+    axes = [_lookup_toml(doc, f"{table}.{axis}") for axis in "xyz"]
+    return None if None in axes else axes
 
 
 def _lookup_toml(doc: tomlkit.TOMLDocument, key: str) -> object | None:

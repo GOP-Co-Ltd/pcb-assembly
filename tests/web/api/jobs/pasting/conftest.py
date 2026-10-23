@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 import shapely
 
-from pcbasm.config import Machine
+from pcbasm.config import Machine, load_machine
 from pcbasm.geometry import Identity, Point2d, Shift
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FakeCamera, FakeKlipper
@@ -72,7 +72,7 @@ def paste_session(
     ``machine`` を省くと testing の machine.toml を使う。
     """
     result = BoardCalibrationResult(
-        machine=machine or Machine(TESTING_CONFIG_DIR / "machine.toml"),
+        machine=machine or load_machine(TESTING_CONFIG_DIR / "machine.toml"),
         klipper=klipper,
         stage=XYZStage(klipper.readonly),
         camera=camera,

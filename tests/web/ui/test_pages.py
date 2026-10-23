@@ -160,10 +160,8 @@ def machine_toml_without_required_paste_dispenser_key(config_dir: Path) -> Path:
     """`[paste_dispenser]` の必須キー（既定値なし）を 1 本落とす（そのパスを返す）.
 
     TOML としては読めるので backend の `/api/settings/machine` は 200 を返すが、
-    cattrs が `PasteDispenser` を組めないため `paste_dispenser.*` の実効値
-    （`resolved`）が全て None になる（backend は 1 セクションの不備で他セクションの
-    実効値まで失わせないよう、キー単位で例外を潰す）。テンプレートから作った
-    machine.toml に必須キーが無い実機で普通に起きる状態。
+    全体の検証に通らないので実効値（`resolved`）は全て None になる。
+    テンプレートから作った machine.toml に必須キーが無い実機で普通に起きる状態。
     """
     path = config_dir / "machine.toml"
     path.write_text(
@@ -730,7 +728,7 @@ class TestNozzleCapPage:
         assert 'data-testid="nozzle-clean-settings"' in response.text
         assert 'name="paste_dispenser.nozzle_clean.press_depth"' in response.text
         # 座標は記録ボタンの管轄なので手打ち欄を並べない
-        assert 'name="paste_dispenser.nozzle_clean.x"' not in response.text
+        assert "paste_dispenser.nozzle_clean.position" not in response.text
 
     def test_partially_recorded_clean_shows_placeholder(
         self, partial_nozzle_clean: Path, client: TestClient
@@ -891,9 +889,8 @@ class TestUnresolvableMachineSettingsAreNotFabricated:
         assert response.status_code == 200
         fields = {field["key"]: field for field in response.json()["fields"]}
         assert fields["paste_dispenser.pad_align.canny_low"]["resolved"] is None
+        assert fields["probe.min_samples"]["resolved"] is None
         assert fields["paste_dispenser.rotations_per_ul"]["value"] == 45.783133
-        # 欠けているのは [paste_dispenser] だけ = 他セクションの実効値は残る
-        assert fields["probe.min_samples"]["resolved"] == 6
 
     def test_copper_detection_returns_503_instead_of_zero(
         self,

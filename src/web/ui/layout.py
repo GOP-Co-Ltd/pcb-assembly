@@ -479,18 +479,12 @@ SETTINGS_SECTIONS: tuple[SettingsSectionSpec, ...] = (
             ),
             SettingsGroupSpec(
                 "ノズルキャップ",
-                (
-                    "paste_dispenser.nozzle_cap.x",
-                    "paste_dispenser.nozzle_cap.y",
-                    "paste_dispenser.nozzle_cap.z",
-                ),
+                ("paste_dispenser.nozzle_cap.position",),
             ),
             SettingsGroupSpec(
                 "ノズルクリーニング",
                 (
-                    "paste_dispenser.nozzle_clean.x",
-                    "paste_dispenser.nozzle_clean.y",
-                    "paste_dispenser.nozzle_clean.z",
+                    "paste_dispenser.nozzle_clean.position",
                     "paste_dispenser.nozzle_clean.press_depth",
                     "paste_dispenser.nozzle_clean.purge_ul",
                     "paste_dispenser.nozzle_clean.stroke",

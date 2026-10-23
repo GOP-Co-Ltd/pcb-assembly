@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from pcbasm.config import Machine
+from pcbasm.config import load_machine
 from pcbasm.pcb import PadHierarchy, PcbFile
 from tests.support.paths import TESTING_DATA_DIR
 from web.api.board_settings import BoardSettingsStore
@@ -54,7 +54,7 @@ class TestBoardSettingsV1:
         hierarchy = _hierarchy("led_blinker")
         signature = hierarchy.signature()
         source_pcb = doc["source_pcb"]
-        base = Machine(GOLDEN_DIR / "machine.toml").paste_dispenser
+        base = load_machine(GOLDEN_DIR / "machine.toml").paste_dispenser
         store = BoardSettingsStore(tmp_path)
 
         model = store.model_from_doc(

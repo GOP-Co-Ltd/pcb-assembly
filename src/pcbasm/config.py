@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import logging
+import copy
 import os
 import tomllib
 from collections.abc import Callable, Mapping
@@ -13,11 +13,10 @@ from typing import Any, Literal
 
 import attrs
 import cattrs
+from cattrs.gen import make_dict_structure_fn
 
-from pcbasm.geometry import Point2d, Shift, Transform
+from pcbasm.geometry import Point2d, Point3d, Shift, Transform
 from pcbasm.utils import PROJECT_ROOT, is_finite_number
-
-logger = logging.getLogger(__name__)
 
 DISPENSE_MODES = ("auto", "dot", "line", "area", "micro_line")
 DispenseMode = Literal["auto", "dot", "line", "area", "micro_line"]
@@ -311,36 +310,36 @@ class Detection:
 
 @attrs.frozen
 class NozzleCap:
-    """ノズルキャップ位置の設定（マシン座標 [mm]）."""
+    """ノズルキャップ位置の設定.
 
-    x: float
-    y: float
-    z: float
+    Attributes:
+        position: キャップ位置（マシン座標 [mm]）。未教示なら None で、駐機は PRESENT へ落ちる
+    """
+
+    position: Point3d | None = None
 
 
 @attrs.frozen
 class NozzleClean:
     """ノズルクリーニング位置と動作の設定（マシン座標 [mm]）.
 
-    クリーニング時は ``(x, y)`` へ移動し、その場で ``purge_ul`` だけ押し出してから
+    クリーニング時は ``position`` の XY へ移動し、その場で ``purge_ul`` だけ押し出してから
     十字に往復してノズル先端をシリコンクリーナーへこすりつける。塗布ジョブがこれを
     行うのは、初回パージを撮って塗布を検出できなかったときだけ。
 
-    ``z`` はクリーニング面（シリコン表面）の高さで、ノズル先端が面に触れる位置を教示して
-    記録する。実際にこする高さは ``press_z``（面から ``press_depth`` だけ押し込んだ位置）。
+    ``position.z`` はクリーニング面（シリコン表面）の高さで、ノズル先端が面に触れる位置を
+    教示して記録する。実際にこする高さは面から ``press_depth`` だけ押し込んだ位置。
     面と押し込み量を分けてあるので、シリコンが摩耗したら ``press_depth`` だけ増やせばよい。
 
-    座標は既定値を持たない。既定値があると、設定画面から動作値だけを保存したときに
-    座標の欠けたテーブルが読み込めてしまい、原点をクリーニング位置として移動してしまう。
+    座標は既定値を持たない。原点を既定にすると、そこをクリーニング位置として移動してしまう。
+    設定画面から動作値だけを保存した節は、未教示（``position`` が None）として読む。
 
-    ``press_depth`` の上限はここで検証しない。妥当性は ``press_z`` が可動域に入るかでしか
+    ``press_depth`` の上限はここで検証しない。妥当性は押し込んだ高さが可動域に入るかでしか
     決まらず、それは printer.cfg 依存なので
     :func:`~pcbasm.pasting.nozzle_clean.validate_reach` が判定する。
 
     Attributes:
-        x: クリーニング位置 X
-        y: クリーニング位置 Y
-        z: クリーニング面（シリコン表面）の Z 高さ
+        position: クリーニング面の位置。未教示なら None で、塗布ジョブはこすらない
         press_depth: 面からの押し込み量。0 で押し込まない
         purge_ul: こすり前にその場で押し出す量 [uL]。0 でパージしない
         stroke: 十字往復の片振幅。0 でこすらない
@@ -348,9 +347,7 @@ class NozzleClean:
         wipe_speed: こすり移動速度 [mm/sec]
     """
 
-    x: float
-    y: float
-    z: float
+    position: Point3d | None = None
     press_depth: float = 0.5
     purge_ul: float = 0.2
     stroke: float = 2.0
@@ -358,9 +355,10 @@ class NozzleClean:
     wipe_speed: float = 10.0
 
     def __attrs_post_init__(self) -> None:
-        for name in ("x", "y", "z"):
-            if error := validate_finite_number(name, getattr(self, name)):
-                raise ValueError(error)
+        if self.position is not None:
+            for name in ("x", "y", "z"):
+                if error := validate_finite_number(name, getattr(self.position, name)):
+                    raise ValueError(error)
         for name in ("press_depth", "purge_ul", "stroke"):
             if error := validate_non_negative_number(name, getattr(self, name)):
                 raise ValueError(error)
@@ -374,11 +372,6 @@ class NozzleClean:
             raise ValueError(
                 f"passesは0以上の整数である必要があります: {self.passes!r}"
             )
-
-    @property
-    def press_z(self) -> float:
-        """こすり中の Z（面から押し込んだ絶対高さ）."""
-        return self.z - self.press_depth
 
 
 @attrs.frozen
@@ -441,8 +434,8 @@ class PasteDispenser:
     flow_calibration: FlowCalibration = attrs.field(
         factory=FlowCalibration
     )  # 運転時流量キャリブレーション設定
-    nozzle_cap: NozzleCap | None = None  # タスク終了時の駐機先（未記録なら None）
-    nozzle_clean: NozzleClean | None = None  # クリーニング位置（未記録なら None）
+    nozzle_cap: NozzleCap = attrs.field(factory=NozzleCap)  # タスク終了時の駐機先
+    nozzle_clean: NozzleClean = attrs.field(factory=NozzleClean)  # ノズルクリーニング
 
     def __attrs_post_init__(self) -> None:
         if error := self.validate_values(attrs.asdict(self, recurse=False)):
@@ -747,43 +740,6 @@ def _merge_legacy_nozzle_sections(data: dict[str, Any]) -> None:
             parent.setdefault(name, legacy)
 
 
-def _structure_or_none(
-    value: object, cls: type[Any], converter: cattrs.Converter
-) -> Any:
-    """省略可能なサブテーブルを structure し、読めなければ None にする.
-
-    設定画面から座標以外の値だけを保存すると、座標の無いサブテーブルができる。素直に
-    structure させると親テーブル全体が読めなくなり、塗布パラメータがすべて失われる。
-    未記録（``None``）として扱えば、その機能がスキップされるだけで他の設定は読める。
-
-    座標へ既定値を与えて回避しないのは、原点をクリーニング位置とみなして移動するのを
-    防ぐため。
-    """
-    if value is None:
-        return None
-    try:
-        return converter.structure(value, cls)
-    except Exception as exc:
-        logger.warning(
-            "%s の設定を読めないため未記録として扱います: %s（%r）",
-            cls.__name__,
-            exc,
-            value,
-        )
-        return None
-
-
-def _optional_section_hook(
-    cls: type[Any], converter: cattrs.Converter
-) -> Callable[[object, object], Any]:
-    """:func:`_structure_or_none` を cattrs の structure hook として使う形にする."""
-
-    def structure(value: object, _: object) -> Any:
-        return _structure_or_none(value, cls, converter)
-
-    return structure
-
-
 def _structure_dispense_mode(value: object, _: object) -> DispenseMode:
     if isinstance(value, str) and value in DISPENSE_MODES:
         return value
@@ -796,6 +752,12 @@ def _structure_line_direction(value: object, _: object) -> LineDirection:
     raise ValueError(f"未知の線走行方向です: {value!r}")
 
 
+def _structure_machine_type(value: object, _: object) -> MachineType:
+    if isinstance(value, str) and value in MACHINE_TYPES:
+        return value
+    raise ValueError(f"未知のマシン種別です: {value!r}")
+
+
 def _structure_paste_height(value: object, _: object) -> PasteHeight:
     if value == "auto":
         return "auto"
@@ -804,126 +766,132 @@ def _structure_paste_height(value: object, _: object) -> PasteHeight:
     return float(value)
 
 
-class Machine:
-    """マシン設定をまとめるクラス.
+def _position_hook(
+    cls: type[Any], converter: cattrs.Converter
+) -> Callable[[Mapping[str, Any], object], Any]:
+    """TOML の x / y / z を ``position`` の 1 組へ束ねる structure hook を作る.
 
-    各設定はアクセス時に遅延生成される。
+    3 つそろえば教示済み、すべて無ければ未教示（None）。一部だけなら設定エラーにする。
     """
+    structure = make_dict_structure_fn(cls, converter)
 
-    def __init__(self, path: str | Path) -> None:
-        """Machine を初期化する.
+    def hook(value: Mapping[str, Any], _: object) -> Any:
+        data = dict(value)
+        axes = {axis: data.pop(axis) for axis in ("x", "y", "z") if axis in data}
+        if axes:
+            if len(axes) < 3:
+                raise ValueError(
+                    "座標は x / y / z の 3 つをそろえて書く必要があります"
+                    f"（書かれているのは {', '.join(axes)} だけです）"
+                )
+            data["position"] = axes
+        return structure(data, cls)
 
-        Args:
-            path: TOML ファイルのパス
-        """
-        path = Path(path)
+    return hook
+
+
+def _make_converter() -> cattrs.Converter:
+    converter = cattrs.Converter()
+    converter.register_structure_hook_func(
+        lambda t: t == DispenseMode, _structure_dispense_mode
+    )
+    converter.register_structure_hook_func(
+        lambda t: t == LineDirection, _structure_line_direction
+    )
+    converter.register_structure_hook_func(
+        lambda t: t == MachineType, _structure_machine_type
+    )
+    converter.register_structure_hook_func(
+        lambda t: t == PasteHeight, _structure_paste_height
+    )
+    for cls in (NozzleCap, NozzleClean):
+        converter.register_structure_hook(cls, _position_hook(cls, converter))
+    return converter
+
+
+_CONVERTER = _make_converter()
+
+
+class ConfigError(Exception):
+    """machine.toml を読めない・検証に通らない（WebAPI はこの間 degraded で動く）."""
+
+
+@attrs.frozen
+class Machine:
+    """machine.toml 全体の設定（:func:`load_machine` が一括で検証して作る）."""
+
+    machine_type: MachineType
+    klipper: Klipper
+    paste_dispenser: PasteDispenser
+    camera: Camera
+    reference_point: ReferencePoint
+    probe: Probe
+    audio: Audio = attrs.field(factory=Audio)
+    settle: Settle = attrs.field(factory=Settle)
+    detection: Detection = attrs.field(factory=Detection)
+
+
+def _describe(exc: BaseException, _: object) -> str:
+    if isinstance(exc, KeyError):
+        return "必須の項目がありません"
+    return str(exc) or type(exc).__name__
+
+
+def _structure[T](value: object, cls: type[T]) -> T:
+    """Machine.toml の値を ``cls`` へ structure する（不正なら全件を挙げた ConfigError）."""
+    try:
+        return _CONVERTER.structure(value, cls)
+    except cattrs.BaseValidationError as exc:
+        errors = cattrs.transform_error(exc, "machine.toml", _describe)
+        raise ConfigError(" / ".join(errors)) from exc
+
+
+def _read_toml(path: Path) -> dict[str, Any]:
+    try:
         with open(path, "rb") as f:
-            self._data = tomllib.load(f)
-        _merge_legacy_nozzle_sections(self._data)
-        self._config_dir = path.parent.resolve()
-        self._converter = cattrs.Converter()
-        self._converter.register_structure_hook_func(
-            lambda t: t == DispenseMode, _structure_dispense_mode
-        )
-        self._converter.register_structure_hook_func(
-            lambda t: t == LineDirection, _structure_line_direction
-        )
-        self._converter.register_structure_hook_func(
-            lambda t: t == PasteHeight, _structure_paste_height
-        )
-        for cls in (NozzleCap, NozzleClean):
-            self._converter.register_structure_hook(
-                cls | None, _optional_section_hook(cls, self._converter)
-            )
+            return tomllib.load(f)
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigError(f"{path.name} を TOML として読めません: {exc}") from exc
 
-    def _get_config(self, key: str, cls: type[Any]) -> Any:
-        """指定されたキーの設定を取得する."""
-        if key not in self._data:
-            raise KeyError(f"'{key}' は設定ファイルに定義されていません")
-        return self._converter.structure(self._data[key], cls)
 
-    @property
-    def machine_type(self) -> MachineType:
-        """マシン種別を取得する.
+def parse_machine(data: Mapping[str, Any], config_dir: Path) -> Machine:
+    """machine.toml の内容を全体で 1 回だけ検証して Machine にする.
 
-        Raises:
-            KeyError: machine_type が設定ファイルに定義されていない場合
-            ValueError: paste / pnp 以外の値の場合
-        """
-        if "machine_type" not in self._data:
-            raise KeyError("'machine_type' は設定ファイルに定義されていません")
-        value = self._data["machine_type"]
-        if value not in MACHINE_TYPES:
-            raise ValueError(f"未知のマシン種別です: machine_type={value!r}")
-        return value
+    書き込む前の内容の検証にも使う。``camera.calibration_file`` は ``config_dir`` からの相対パスとして解決する。
 
-    @property
-    def nozzle_cap(self) -> NozzleCap | None:
-        """ノズルキャップ位置設定を取得する（未記録なら None）."""
-        return self._nozzle_section("nozzle_cap", NozzleCap)
+    Raises:
+        ConfigError: 検証に通らない場合（不正な項目をすべて挙げる）
+    """
+    data = copy.deepcopy(dict(data))
+    _merge_legacy_nozzle_sections(data)
+    machine = _structure(data, Machine)
+    calibration_file = config_dir.resolve() / machine.camera.calibration_file
+    return attrs.evolve(
+        machine,
+        camera=attrs.evolve(machine.camera, calibration_file=calibration_file),
+    )
 
-    @property
-    def nozzle_clean(self) -> NozzleClean | None:
-        """ノズルクリーニング位置設定を取得する（未記録なら None）."""
-        return self._nozzle_section("nozzle_clean", NozzleClean)
 
-    def _nozzle_section(self, name: str, cls: type[Any]) -> Any:
-        """[paste_dispenser] 配下のノズル位置サブテーブルだけを読む.
+def load_machine(path: str | Path) -> Machine:
+    """machine.toml をディスクから読み、全体を 1 回で検証する.
 
-        ``paste_dispenser`` プロパティを経由しないのは、他のキーの不備で一緒に読めなく
-        なるのを避けるため。キャップ駐機はタスク終了時のクリーンアップ経路で、設定の
-        不備で例外を投げると脱力すらできなくなる。読めないサブテーブルは ``None``（未記録）にする。
-        """
-        parent = self._data.get("paste_dispenser")
-        section = parent.get(name) if isinstance(parent, dict) else None
-        return _structure_or_none(section, cls, self._converter)
+    Raises:
+        ConfigError: TOML として読めない・検証に通らない場合
+    """
+    path = Path(path)
+    return parse_machine(_read_toml(path), path.parent)
 
-    @property
-    def audio(self) -> Audio:
-        """通知音の出力設定を取得する（[audio] 未設定・キー欠落は既定値）."""
-        return self._converter.structure(self._data.get("audio", {}), Audio)
 
-    @property
-    def settle(self) -> Settle:
-        """静定待ちの設定を取得する（[settle] 未設定・キー欠落は既定値）."""
-        return self._converter.structure(self._data.get("settle", {}), Settle)
+def load_klipper(path: str | Path) -> Klipper:
+    """machine.toml の [klipper] 節だけを読む（設定エラーの間も緊急停止を送れるように）.
 
-    @property
-    def detection(self) -> Detection:
-        """統計検出のサンプリング設定を取得する（[detection] 未設定・キー欠落は既定値）."""
-        return self._converter.structure(self._data.get("detection", {}), Detection)
-
-    @property
-    def klipper(self) -> Klipper:
-        """Klipper 設定を取得する."""
-        return self._get_config("klipper", Klipper)
-
-    @property
-    def paste_dispenser(self) -> PasteDispenser:
-        """ペーストディスペンサー設定を取得する."""
-        return self._get_config("paste_dispenser", PasteDispenser)
-
-    @property
-    def camera(self) -> Camera:
-        """カメラ設定を取得する."""
-        if "camera" not in self._data:
-            raise KeyError("'camera' は設定ファイルに定義されていません")
-        camera_data = self._data["camera"].copy()
-        if "calibration_file" in camera_data and self._config_dir is not None:
-            camera_data["calibration_file"] = (
-                self._config_dir / camera_data["calibration_file"]
-            )
-        return self._converter.structure(camera_data, Camera)
-
-    @property
-    def reference_point(self) -> ReferencePoint:
-        """基準点設定を取得する."""
-        return self._get_config("reference_point", ReferencePoint)
-
-    @property
-    def probe(self) -> Probe:
-        """プローブ設定を取得する."""
-        return self._get_config("probe", Probe)
+    Raises:
+        ConfigError: TOML として読めない・[klipper] が無いか不正な場合
+    """
+    data = _read_toml(Path(path))
+    if "klipper" not in data:
+        raise ConfigError("machine.toml に [klipper] がありません")
+    return _structure(data["klipper"], Klipper)
 
 
 def get_config_dir() -> Path:
@@ -942,7 +910,7 @@ def get_config_dir() -> Path:
 def get_machine_config() -> Machine:
     """:func:`get_config_dir` の machine.toml を読み込む.
 
-    Returns:
-        Machine 設定オブジェクト
+    Raises:
+        ConfigError: TOML として読めない・検証に通らない場合
     """
-    return Machine(get_config_dir() / "machine.toml")
+    return load_machine(get_config_dir() / "machine.toml")

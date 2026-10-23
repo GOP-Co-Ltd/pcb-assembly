@@ -6,13 +6,13 @@ from pcbasm.config import (
     Audio,
     Camera,
     CameraCrop,
+    ConfigError,
     Corner,
     CornerOffsets,
     Detection,
     FlowCalibration,
     Klipper,
     Machine,
-    NozzleCap,
     NozzleClean,
     PadAlign,
     PasteDispenser,
@@ -22,19 +22,29 @@ from pcbasm.config import (
     Toolhead,
     get_config_dir,
     get_machine_config,
+    load_klipper,
+    load_machine,
     resolve_paste_height,
 )
-from pcbasm.geometry import Point2d
+from pcbasm.geometry import Point2d, Point3d
 from pcbasm.utils import PROJECT_ROOT
 from tests.support.paths import TESTING_DATA_DIR
 
 
-def _machine_with(tmp_path: Path, extra: str) -> Machine:
-    """検証用 machine.toml の末尾に ``extra`` を足した Machine を作る."""
+def _write_with(tmp_path: Path, extra: str = "", **replace: str) -> Path:
+    """検証用 machine.toml の文字列を置き換え、末尾に ``extra`` を足して書く."""
     path = tmp_path / "machine.toml"
     source = (TESTING_DATA_DIR / "machine.toml").read_text()
+    for old, new in replace.items():
+        assert old in source
+        source = source.replace(old, new, 1)
     path.write_text(f"{source}\n{extra}", encoding="utf-8")
-    return Machine(path)
+    return path
+
+
+def _machine_with(tmp_path: Path, extra: str) -> Machine:
+    """検証用 machine.toml の末尾に ``extra`` を足した Machine を作る."""
+    return load_machine(_write_with(tmp_path, extra))
 
 
 def _paste_dispenser(**overrides):
@@ -62,7 +72,7 @@ class TestMachine:
     """Machineクラスのテスト."""
 
     def test_load_config(self):
-        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+        machine = load_machine(TESTING_DATA_DIR / "machine.toml")
 
         assert machine.klipper == Klipper(host="192.168.1.100", port=7125)
         assert machine.paste_dispenser == PasteDispenser(
@@ -104,26 +114,22 @@ class TestMachine:
             ),
         )
 
-    def test_default_values(self):
-        machine = Machine(TESTING_DATA_DIR / "machine_minimal.toml")
+    def test_default_values(self, tmp_path):
+        path = _write_with(tmp_path, **{"device_id = 0\n": "", 'format = "YUYV"\n': ""})
+
+        machine = load_machine(path)
 
         assert machine.camera.device_id == 0
         assert machine.camera.format == "YUYV"
 
     def test_rejects_legacy_three_corner_offsets(self, tmp_path):
-        source = (TESTING_DATA_DIR / "machine.toml").read_text()
-        path = tmp_path / "machine.toml"
-        path.write_text(
-            source.replace("bottom_right = [5.0, 5.0]\n", ""),
-            encoding="utf-8",
-        )
-        machine = Machine(path)
+        path = _write_with(tmp_path, **{"bottom_right = [5.0, 5.0]\n": ""})
 
-        with pytest.raises(ExceptionGroup):
-            machine.reference_point
+        with pytest.raises(ConfigError, match="reference_point.offsets"):
+            load_machine(path)
 
     def test_pad_align_defaults_when_section_absent(self):
-        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+        machine = load_machine(TESTING_DATA_DIR / "machine.toml")
 
         assert machine.paste_dispenser.pad_align == PadAlign()
         assert machine.paste_dispenser.pad_align.region_size_px == 100
@@ -149,7 +155,7 @@ class TestMachine:
         path = tmp_path / "machine.toml"
         path.write_text(source, encoding="utf-8")
 
-        dispenser = Machine(path).paste_dispenser
+        dispenser = load_machine(path).paste_dispenser
 
         assert getattr(dispenser, attribute) == pytest.approx(expected)
 
@@ -163,7 +169,7 @@ class TestMachine:
             "blur_ksize = 3\n"
         )
 
-        pad_align = Machine(path).paste_dispenser.pad_align
+        pad_align = load_machine(path).paste_dispenser.pad_align
 
         assert pad_align.region_size_px == 160
         assert pad_align.region_overlap == pytest.approx(0.25)
@@ -184,7 +190,7 @@ class TestMachine:
             encoding="utf-8",
         )
 
-        machine = Machine(path)
+        machine = load_machine(path)
 
         assert machine.paste_dispenser.initial_purge_ul == pytest.approx(amount)
 
@@ -275,13 +281,60 @@ class TestMachine:
 
         assert dispenser.dispense_mode == "micro_line"
 
-    def test_raises_key_error_when_config_not_defined(self):
-        machine = Machine(TESTING_DATA_DIR / "machine_minimal.toml")
+    def test_missing_required_section_is_a_config_error(self, tmp_path):
+        source = (TESTING_DATA_DIR / "machine.toml").read_text()
+        path = tmp_path / "machine.toml"
+        path.write_text(source.split("[probe]")[0], encoding="utf-8")
 
         with pytest.raises(
-            KeyError, match="'paste_dispenser' は設定ファイルに定義されていません"
+            ConfigError, match="必須の項目がありません @ machine.toml.probe"
         ):
-            machine.paste_dispenser
+            load_machine(path)
+
+
+class TestLoadMachine:
+    """machine.toml 全体の一括検証（設定エラーは ConfigError にまとめる）."""
+
+    def test_reports_every_invalid_section_at_once(self, tmp_path):
+        """1 つ直すたびに次の誤りが出てくる、を繰り返させない."""
+        path = _write_with(
+            tmp_path,
+            "[settle]\nmove_sec = -1.0\n",
+            **{"lift_height = 3.0": "lift_height = 0.0"},
+        )
+
+        with pytest.raises(ConfigError) as raised:
+            load_machine(path)
+
+        assert "move_sec" in str(raised.value)
+        assert "lift_height" in str(raised.value)
+
+    def test_unparsable_toml_is_a_config_error(self, tmp_path):
+        path = _write_with(tmp_path, 'broken = "unterminated\n')
+
+        with pytest.raises(ConfigError, match="TOML として読めません"):
+            load_machine(path)
+
+    def test_calibration_file_resolves_against_the_config_dir(self, tmp_path):
+        machine = load_machine(_write_with(tmp_path))
+
+        assert machine.camera.calibration_file == tmp_path / "calibration.json"
+
+
+class TestLoadKlipper:
+    """設定エラーの間も緊急停止を送れるよう、[klipper] 節だけを読む."""
+
+    def test_reads_klipper_even_when_the_rest_is_invalid(self, tmp_path):
+        path = _write_with(tmp_path, **{"lift_height = 3.0": "lift_height = 0.0"})
+
+        assert load_klipper(path) == Klipper(host="192.168.1.100", port=7125)
+
+    def test_missing_section_is_a_config_error(self, tmp_path):
+        path = tmp_path / "machine.toml"
+        path.write_text('machine_type = "paste"\n', encoding="utf-8")
+
+        with pytest.raises(ConfigError, match="klipper"):
+            load_klipper(path)
 
 
 class TestAudio:
@@ -318,22 +371,19 @@ class TestMachineAudio:
     """Machine.audio の任意 [audio] section 読み込み（欠落は既定値）."""
 
     def test_reads_audio_section(self, tmp_path: Path):
-        path = tmp_path / "machine.toml"
-        path.write_text(
-            '[audio]\ndevice = "  hw:0,0  "\nvolume = 0.35\n',
-            encoding="utf-8",
+        machine = _machine_with(
+            tmp_path, '[audio]\ndevice = "  hw:0,0  "\nvolume = 0.35\n'
         )
 
-        assert Machine(path).audio == Audio(device="hw:0,0", volume=0.35)
+        assert machine.audio == Audio(device="hw:0,0", volume=0.35)
 
     def test_defaults_volume_when_omitted(self, tmp_path: Path):
-        path = tmp_path / "machine.toml"
-        path.write_text('[audio]\ndevice = "plughw:CARD=X,DEV=0"\n', encoding="utf-8")
+        machine = _machine_with(tmp_path, '[audio]\ndevice = "plughw:CARD=X,DEV=0"\n')
 
-        assert Machine(path).audio == Audio(device="plughw:CARD=X,DEV=0", volume=0.75)
+        assert machine.audio == Audio(device="plughw:CARD=X,DEV=0", volume=0.75)
 
     def test_defaults_whole_config_when_section_is_absent(self):
-        assert Machine(TESTING_DATA_DIR / "machine_minimal.toml").audio == Audio()
+        assert load_machine(TESTING_DATA_DIR / "machine.toml").audio == Audio()
 
 
 class TestPadAlignRegionSettings:
@@ -464,85 +514,94 @@ class TestMachinePasteDispenserFlowCalibration:
 
 
 class TestMachineType:
-    """Machine.machine_type のテスト（nozzle-cap-parking 計画書「公開インターフェース」節）.
-
-    machine_type は必須キー: 欠落はアクセス時 KeyError、paste / pnp 以外は ValueError。
-    """
+    """Machine.machine_type は必須キー（欠落・paste / pnp 以外は設定エラー）."""
 
     def test_reads_paste_from_config(self):
-        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+        machine = load_machine(TESTING_DATA_DIR / "machine.toml")
 
         assert machine.machine_type == "paste"
 
     def test_reads_pnp_from_config(self, tmp_path):
-        source = (TESTING_DATA_DIR / "machine.toml").read_text()
-        path = tmp_path / "machine.toml"
-        path.write_text(
-            source.replace('machine_type = "paste"', 'machine_type = "pnp"', 1),
-            encoding="utf-8",
+        path = _write_with(
+            tmp_path, **{'machine_type = "paste"': 'machine_type = "pnp"'}
         )
 
-        machine = Machine(path)
+        assert load_machine(path).machine_type == "pnp"
 
-        assert machine.machine_type == "pnp"
+    @pytest.mark.parametrize(
+        ("replacement", "message"),
+        [
+            ("", "必須の項目がありません"),
+            ('machine_type = "sander"', "未知のマシン種別"),
+        ],
+        ids=["missing", "unknown"],
+    )
+    def test_missing_or_unknown_machine_type_is_a_config_error(
+        self, tmp_path, replacement: str, message: str
+    ):
+        path = _write_with(tmp_path, **{'machine_type = "paste"': replacement})
 
-    def test_missing_machine_type_raises_key_error(self):
-        machine = Machine(TESTING_DATA_DIR / "machine_minimal.toml")
-
-        with pytest.raises(KeyError, match="machine_type"):
-            machine.machine_type
-
-    def test_unknown_machine_type_raises_value_error(self, tmp_path):
-        source = (TESTING_DATA_DIR / "machine.toml").read_text()
-        path = tmp_path / "machine.toml"
-        path.write_text(
-            source.replace('machine_type = "paste"', 'machine_type = "sander"', 1),
-            encoding="utf-8",
-        )
-
-        machine = Machine(path)
-
-        with pytest.raises(ValueError, match="machine_type"):
-            machine.machine_type
+        with pytest.raises(
+            ConfigError, match=f"{message}.* @ machine.toml.machine_type"
+        ):
+            load_machine(path)
 
 
-class TestNozzleCap:
-    """Machine.nozzle_cap のテスト（nozzle-cap-parking 計画書「公開インターフェース」節）.
+@pytest.mark.parametrize("section", ["nozzle_cap", "nozzle_clean"])
+class TestNozzlePosition:
+    """ノズル位置の座標は「3 つそろうか、すべて無いか」の 1 組.
 
-    未記録（[paste_dispenser.nozzle_cap] セクションなし）が正常状態なので None を返す。
+    座標が無いのは立ち上げ途中の正常な状態（未教示）。一部だけなら設定エラーにする。
     """
 
-    def test_missing_section_returns_none(self):
-        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+    def test_missing_section_is_untaught(self, section: str):
+        dispenser = load_machine(TESTING_DATA_DIR / "machine.toml").paste_dispenser
 
-        assert machine.nozzle_cap is None
+        assert getattr(dispenser, section).position is None
 
-    def test_reads_recorded_position(self, tmp_path: Path):
+    def test_reads_recorded_position(self, tmp_path: Path, section: str):
         machine = _machine_with(
-            tmp_path, "[paste_dispenser.nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n"
+            tmp_path, f"[paste_dispenser.{section}]\nx = 10.0\ny = 20.0\nz = 3.5\n"
         )
 
-        assert machine.nozzle_cap == NozzleCap(x=10.0, y=20.0, z=3.5)
+        position = getattr(machine.paste_dispenser, section).position
+        assert position == Point3d(10.0, 20.0, 3.5)
+
+    def test_partial_coordinates_are_a_config_error(self, tmp_path: Path, section: str):
+        """原点や未記録で埋めて動かさず、設定エラーとして運転者に見せる."""
+        path = _write_with(tmp_path, f"[paste_dispenser.{section}]\nx = 12.5\n")
+
+        with pytest.raises(ConfigError, match="x / y / z の 3 つ"):
+            load_machine(path)
+
+    def test_legacy_top_level_section_is_read(self, tmp_path: Path, section: str):
+        """旧トップレベルの節も [paste_dispenser] 配下として読む."""
+        machine = _machine_with(tmp_path, f"[{section}]\nx = 10.0\ny = 20.0\nz = 3.5\n")
+
+        position = getattr(machine.paste_dispenser, section).position
+        assert position == Point3d(10.0, 20.0, 3.5)
+
+    def test_new_section_wins_over_the_legacy_one(self, tmp_path: Path, section: str):
+        machine = _machine_with(
+            tmp_path,
+            f"[{section}]\nx = 1.0\ny = 2.0\nz = 3.0\n"
+            f"[paste_dispenser.{section}]\nx = 10.0\ny = 20.0\nz = 3.5\n",
+        )
+
+        position = getattr(machine.paste_dispenser, section).position
+        assert position == Point3d(10.0, 20.0, 3.5)
 
 
 class TestNozzleClean:
-    """Machine.nozzle_clean と NozzleClean のテスト.
+    """NozzleClean の動作値（座標が未教示でも読み、検証する）."""
 
-    未記録（[paste_dispenser.nozzle_clean] セクションなし）が正常状態なので None を返す。
-    座標は既定値を持たず、欠けたテーブルは未記録として扱う（原点へ行く事故を防ぐ）。
-    """
-
-    def test_missing_section_returns_none(self):
-        machine = Machine(TESTING_DATA_DIR / "machine.toml")
-
-        assert machine.nozzle_clean is None
-
-    def test_reads_position_with_defaults(self, tmp_path: Path):
+    def test_motion_only_section_is_untaught_but_keeps_its_values(self, tmp_path: Path):
+        """設定ページから押し込み量だけ保存した状態（座標はまだ教示していない）."""
         machine = _machine_with(
-            tmp_path, "[paste_dispenser.nozzle_clean]\nx = 10.0\ny = 20.0\nz = -30.0\n"
+            tmp_path, "[paste_dispenser.nozzle_clean]\npress_depth = 0.4\n"
         )
 
-        assert machine.nozzle_clean == NozzleClean(x=10.0, y=20.0, z=-30.0)
+        assert machine.paste_dispenser.nozzle_clean == NozzleClean(press_depth=0.4)
 
     def test_reads_recorded_values(self, tmp_path: Path):
         machine = _machine_with(
@@ -553,38 +612,14 @@ class TestNozzleClean:
             "stroke = 1.5\npasses = 3\nwipe_speed = 8.0\n",
         )
 
-        assert machine.nozzle_clean == NozzleClean(
-            x=10.0,
-            y=20.0,
-            z=-30.0,
+        assert machine.paste_dispenser.nozzle_clean == NozzleClean(
+            position=Point3d(10.0, 20.0, -30.0),
             press_depth=0.4,
             purge_ul=0.3,
             stroke=1.5,
             passes=3,
             wipe_speed=8.0,
         )
-
-    def test_press_z_subtracts_press_depth_from_surface(self):
-        """こすり Z は面 Z から押し込み量だけ下がる（Z は 0 が上・負が下）."""
-        clean = NozzleClean(x=1.0, y=2.0, z=-30.0, press_depth=0.4)
-
-        assert clean.press_z == pytest.approx(-30.4)
-
-    def test_missing_coordinate_keeps_the_rest_of_paste_dispenser_readable(
-        self, tmp_path: Path
-    ):
-        """不完全なサブテーブルで塗布パラメータ全体を巻き添えにしない.
-
-        設定ページから押し込み量だけ保存すればこの状態になる。巻き添えにすると /settings
-        の塗布パラメータが全て「未設定」になり、装置ページが 503 する。
-        """
-        machine = _machine_with(
-            tmp_path, "[paste_dispenser.nozzle_clean]\npress_depth = 0.4\n"
-        )
-
-        assert machine.paste_dispenser.nozzle_diameter > 0
-        assert machine.paste_dispenser.nozzle_clean is None
-        assert machine.nozzle_clean is None
 
     @pytest.mark.parametrize(
         ("key", "value"),
@@ -597,69 +632,32 @@ class TestNozzleClean:
             ("passes", True),
             ("wipe_speed", 0.0),
             ("wipe_speed", -1.0),
-            ("x", float("inf")),
-            ("y", float("nan")),
-            ("z", "auto"),
         ],
     )
     def test_rejects_invalid_values(self, key, value):
         with pytest.raises(ValueError, match=key):
-            NozzleClean(**{"x": 10.0, "y": 20.0, "z": -30.0, key: value})
+            NozzleClean(**{key: value})
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [("x", float("inf")), ("y", float("nan")), ("z", float("-inf"))],
+    )
+    def test_rejects_non_finite_position(self, key, value):
+        coordinates = {"x": 10.0, "y": 20.0, "z": -30.0, key: value}
+
+        with pytest.raises(ValueError, match=key):
+            NozzleClean(position=Point3d(**coordinates))
 
     @pytest.mark.parametrize("passes", [0, 1])
     def test_accepts_zero_and_one_pass(self, passes):
         """こすり回数 0 はこすり無効として受理する."""
-        assert NozzleClean(x=1.0, y=2.0, z=-3.0, passes=passes).passes == passes
+        assert NozzleClean(passes=passes).passes == passes
 
     def test_accepts_zero_for_optional_steps(self):
         """0 は「その工程を行わない」を意味するので受理する."""
-        assert NozzleClean(x=1.0, y=2.0, z=-3.0, press_depth=0.0).press_depth == 0.0
-        assert NozzleClean(x=1.0, y=2.0, z=-3.0, purge_ul=0.0).purge_ul == 0.0
-        assert NozzleClean(x=1.0, y=2.0, z=-3.0, stroke=0.0).stroke == 0.0
-
-
-@pytest.mark.parametrize(
-    ("section", "expected"),
-    [
-        pytest.param("nozzle_cap", NozzleCap(x=10.0, y=20.0, z=3.5), id="cap"),
-        pytest.param("nozzle_clean", NozzleClean(x=10.0, y=20.0, z=-30.0), id="clean"),
-    ],
-)
-class TestLegacyNozzleSections:
-    """旧トップレベル [nozzle_cap] / [nozzle_clean] の読み替え.
-
-    設定ファイルを書き換えなくても動き続けるよう、読み込み時に [paste_dispenser]
-    配下へ写す。ファイル自体の移行は設定を書き込むときに ConfigStore が行う
-    （契約は tests/web/api/test_config_store.py::TestLegacyNozzleSectionMigration）。
-    """
-
-    def test_legacy_section_is_visible_through_both_accessors(
-        self, tmp_path: Path, section: str, expected: NozzleCap | NozzleClean
-    ):
-        """ノズル専用のアクセサと paste_dispenser 経由で同じ値が見える.
-
-        ここが食い違うと、/settings が「未設定」でノズル位置ページが「記録済み」と 並ぶような表示になる。
-        """
-        machine = _machine_with(
-            tmp_path,
-            f"[{section}]\nx = {expected.x}\ny = {expected.y}\nz = {expected.z}\n",
-        )
-
-        assert getattr(machine, section) == expected
-        assert getattr(machine.paste_dispenser, section) == expected
-
-    def test_new_section_wins_over_the_legacy_one(
-        self, tmp_path: Path, section: str, expected: NozzleCap | NozzleClean
-    ):
-        machine = _machine_with(
-            tmp_path,
-            f"[{section}]\nx = 1.0\ny = 2.0\nz = 3.0\n"
-            f"[paste_dispenser.{section}]\n"
-            f"x = {expected.x}\ny = {expected.y}\nz = {expected.z}\n",
-        )
-
-        assert getattr(machine, section) == expected
-        assert getattr(machine.paste_dispenser, section) == expected
+        assert NozzleClean(press_depth=0.0).press_depth == 0.0
+        assert NozzleClean(purge_ul=0.0).purge_ul == 0.0
+        assert NozzleClean(stroke=0.0).stroke == 0.0
 
 
 class TestCornerOffsets:
@@ -829,31 +827,6 @@ class TestGetMachineConfig:
     PCBASM_CONFIG_DIR env が唯一の注入口（コア層には Settings が無い）。
     """
 
-    _MINIMAL_TOML = """\
-[klipper]
-
-[camera]
-width = 640
-height = 480
-fps = 30.0
-calibration_file = "calibration.json"
-
-[camera.crop]
-width = 400
-height = 400
-
-[reference_point]
-x = 20.0
-y = 10.0
-target_diameter = 3.0
-
-[reference_point.offsets]
-top_left = [0.0, 0.0]
-top_right = [0.0, 0.0]
-bottom_left = [0.0, 0.0]
-bottom_right = [0.0, 0.0]
-"""
-
     def test_defaults_to_project_root_config(self, monkeypatch):
         monkeypatch.delenv("PCBASM_CONFIG_DIR", raising=False)
 
@@ -862,14 +835,14 @@ bottom_right = [0.0, 0.0]
     def test_loads_machine_config_from_env_dir(self, tmp_path, monkeypatch):
         config_dir = tmp_path / "config"
         config_dir.mkdir()
-        (config_dir / "machine.toml").write_text(self._MINIMAL_TOML)
+        source = (TESTING_DATA_DIR / "machine.toml").read_text()
+        (config_dir / "machine.toml").write_text(source)
         monkeypatch.setenv("PCBASM_CONFIG_DIR", str(config_dir))
 
         machine = get_machine_config()
 
         assert get_config_dir() == config_dir
-        assert isinstance(machine, Machine)
-        assert machine.klipper == Klipper(host="localhost", port=7125)
+        assert machine.camera.calibration_file == config_dir / "calibration.json"
 
     def test_raises_file_not_found_when_machine_toml_missing(
         self, tmp_path, monkeypatch
@@ -894,7 +867,7 @@ class TestMachineSettle:
     """`[settle]`: 装置の静定待ち（セクションごと省略可）."""
 
     def test_defaults_whole_section_when_absent(self):
-        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+        machine = load_machine(TESTING_DATA_DIR / "machine.toml")
 
         assert machine.settle == Settle()
 
@@ -918,7 +891,7 @@ class TestMachineDetection:
     """`[detection]`: 統計検出のサンプリング（セクションごと省略可）."""
 
     def test_defaults_whole_section_when_absent(self):
-        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+        machine = load_machine(TESTING_DATA_DIR / "machine.toml")
 
         assert machine.detection == Detection()
 

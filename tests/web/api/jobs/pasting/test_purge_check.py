@@ -16,8 +16,8 @@ from collections.abc import Callable
 
 import pytest
 
-from pcbasm.config import Machine, NozzleClean
-from pcbasm.geometry import Point2d
+from pcbasm.config import NozzleClean, load_machine
+from pcbasm.geometry import Point2d, Point3d
 from pcbasm.hal.fake import FakeCamera, FakeKlipper
 from pcbasm.pasting.initial_purge import ResolvedInitialPurge, purge_point_label
 from pcbasm.vision import Image
@@ -41,7 +41,8 @@ from web.api.jobs.pasting.purge_check import purge_with_cleaning
 from web.api.settings import Settings
 
 # クリーニング位置（マシン座標）。fake の可動域 x/y 0-300・z -5..50 の内側
-CLEAN = NozzleClean(x=50.0, y=60.0, z=1.0)
+CLEAN_POSITION = Point3d(50.0, 60.0, 1.0)
+CLEAN = NozzleClean(position=CLEAN_POSITION)
 # パージ点（board 座標）。board_transform=Shift(100, 50) でマシン (110, 62)
 PURGE_POINT = Point2d(10.0, 12.0)
 # カメラだけが可動域外になる点。撮影はマシン Y = board Y + 50、塗布はさらに
@@ -68,7 +69,7 @@ _STEPPER_MOVE_RE = re.compile(r"MANUAL_STEPPER STEPPER=paste_dispenser MOVE=(\S+
 
 
 def _dispenser():
-    return Machine(TESTING_CONFIG_DIR / "machine.toml").paste_dispenser
+    return load_machine(TESTING_CONFIG_DIR / "machine.toml").paste_dispenser
 
 
 def _blocking_loads_ul(klipper: FakeKlipper) -> list[float]:
@@ -140,7 +141,9 @@ class TestPurgeWithCleaning:
                             if ctx.params["unreachable"]
                             else PURGE_POINT
                         ),
-                        nozzle_clean=CLEAN if ctx.params["with_clean"] else None,
+                        nozzle_clean=(
+                            CLEAN if ctx.params["with_clean"] else NozzleClean()
+                        ),
                     )
                 finally:
                     moves.extend(klipper.g1_moves())
@@ -176,8 +179,8 @@ class TestPurgeWithCleaning:
     def _is_clean_approach(move: dict[str, float]) -> bool:
         """クリーニング位置への XY 移動（approach の 1 手）か."""
         return (
-            move.get("x") == pytest.approx(CLEAN.x)
-            and move.get("y") == pytest.approx(CLEAN.y)
+            move.get("x") == pytest.approx(CLEAN_POSITION.x)
+            and move.get("y") == pytest.approx(CLEAN_POSITION.y)
             and "z" not in move
         )
 

@@ -3,7 +3,7 @@
 import attrs
 import pytest
 
-from pcbasm.config import Machine
+from pcbasm.config import load_machine
 from pcbasm.pasting.params import (
     PASTE_PARAM_FIELDS,
     PASTE_PARAM_NAMES,
@@ -20,7 +20,7 @@ TESTING_MACHINE_TOML = TESTING_DATA_DIR / "machine.toml"
 
 @pytest.fixture
 def config():
-    return Machine(TESTING_MACHINE_TOML).paste_dispenser
+    return load_machine(TESTING_MACHINE_TOML).paste_dispenser
 
 
 def _params(**overrides: object) -> PasteParams:

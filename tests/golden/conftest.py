@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from shapely import Point, Polygon
 
-from pcbasm.config import Corner, Machine
+from pcbasm.config import Corner, Machine, load_machine
 from pcbasm.geometry import Compose, Point2d, Rotation, Shift, transform_polygon
 from pcbasm.hal import Camera
 from pcbasm.hal.fake import Checkerboard, FakeAudioPlayer, FakeKlipper, SceneCamera
@@ -40,7 +40,7 @@ GOLDEN_DIR = Path(__file__).parent
 JOBS = GOLDEN_DIR / "jobs"
 CONFIG_FILES = (GOLDEN_DIR / "machine.toml", GOLDEN_DIR / "camera_calibration.json")
 CALIBRATION = CalibrationResult.load(GOLDEN_DIR / "camera_calibration.json")
-DISPENSER = Machine(GOLDEN_DIR / "machine.toml").paste_dispenser
+DISPENSER = load_machine(GOLDEN_DIR / "machine.toml").paste_dispenser
 LED_BLINKER = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
 CALIBRATION_PIN = TESTING_DATA_DIR / "schemas" / "paste_volume_calibration_v1.json"
 # 運転時補正で塗る点（board 座標）。pad の無い下側のベタに、crop が重ならない間隔で置く

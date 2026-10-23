@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 import shapely
 
-from pcbasm.config import Machine
+from pcbasm.config import Machine, load_machine
 from pcbasm.geometry import Identity, Point2d, Shift
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FakeCamera, FakeKlipper
@@ -48,7 +48,7 @@ def _session(
     camera: FakeCamera, klipper: FakeKlipper, machine: Machine | None = None
 ) -> PasteSession:
     result = BoardCalibrationResult(
-        machine=machine or Machine(TESTING_CONFIG_DIR / "machine.toml"),
+        machine=machine or load_machine(TESTING_CONFIG_DIR / "machine.toml"),
         klipper=klipper,
         stage=XYZStage(klipper.readonly),
         camera=camera,
@@ -234,7 +234,7 @@ def _machine_with_settle(tmp_path, *, move_sec: float, probe_sec: float) -> Mach
         f"{source}\n[settle]\nmove_sec = {move_sec}\nprobe_sec = {probe_sec}\n",
         encoding="utf-8",
     )
-    return Machine(path)
+    return load_machine(path)
 
 
 class TestSettleWiring:

@@ -17,7 +17,8 @@ import httpx
 from fastapi import HTTPException
 
 from pcbasm import hal
-from pcbasm.config import Machine, NozzleClean
+from pcbasm.config import Machine
+from pcbasm.geometry import Point3d
 from pcbasm.hal import Klipper
 from pcbasm.pasting.nozzle_clean import clean_position_label
 from web.api.config_store import (
@@ -51,10 +52,8 @@ from web.api.state import AppState
 
 
 def create_klipper(state: AppState, timeout: float) -> Klipper:
-    """マシン設定で Klipper クライアントを生成する."""
-    return hal.open_klipper(
-        state.machine().klipper, timeout=timeout, journal=state.journal()
-    )
+    """[klipper] 節だけで Klipper クライアントを生成する（degraded でも緊急停止を送れる）."""
+    return hal.open_klipper(state.klipper(), timeout=timeout, journal=state.journal())
 
 
 def fetch_status(klipper: Klipper) -> KlipperStatus:
@@ -101,13 +100,13 @@ def control_payload(info: LeaseInfo) -> ControlInfo:
     )
 
 
-def nozzle_clean_payload(clean: NozzleClean) -> NozzleCleanInfo:
-    """クリーニング設定を API 表現へ変換する（唯一の変換点）.
+def nozzle_clean_payload(position: Point3d) -> NozzleCleanInfo:
+    """クリーニング位置を API 表現へ変換する（唯一の変換点）.
 
     表示文字列は `pcbasm` が組んだものをそのまま詰める。
     """
     return NozzleCleanInfo(
-        x=clean.x, y=clean.y, z=clean.z, label=clean_position_label(clean)
+        x=position.x, y=position.y, z=position.z, label=clean_position_label(position)
     )
 
 
@@ -124,7 +123,8 @@ def build_state_response(
     pcb = state.selected_pcb
     record = jobs.current()
     cap = state.nozzle_cap()
-    clean = state.nozzle_clean()
+    nozzle_clean = state.nozzle_clean()
+    clean = None if nozzle_clean is None else nozzle_clean.position
     return StateResponse(
         control=control_payload(control),
         you=ClientInfo(key=identity.key),
@@ -287,6 +287,9 @@ def _as_setting_value(value: object) -> MachineSettingValue | None:
     if isinstance(value, tuple):
         # reference_point.offsets.* の [x, y]
         return [float(item) for item in value]
+    if isinstance(value, Point3d):
+        # nozzle_cap / nozzle_clean の position
+        return [value.x, value.y, value.z]
     if isinstance(value, bool | int | float | str):
         return value
     return None

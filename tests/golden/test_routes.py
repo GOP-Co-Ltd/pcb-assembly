@@ -116,7 +116,7 @@ class TestNozzleMaintenance:
         response = client.post(path)
 
         assert response.status_code == 200, response.text
-        position = getattr(job_state.machine().paste_dispenser, table)
+        position = getattr(job_state.machine().paste_dispenser, table).position
         assert (position.x, position.y, position.z) == tuple(START_POSITION[:3])
         assert homed_klipper.sent == ()
 
