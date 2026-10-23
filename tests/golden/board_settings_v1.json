@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "source_pcb": "real/led_blinker.kicad_pcb",
+  "board_signature": "9c26117008626ef7e3f4de14dc20b4c07a359d269813bb6da077c3ace413e039",
+  "settings": {
+    "levels": [
+      {
+        "key": ["L0"],
+        "enabled": null,
+        "override": {"ul_per_mm2": 0.12}
+      },
+      {
+        "key": ["L1", "SOT-23-6"],
+        "enabled": null,
+        "override": {"dispense_mode": "line", "line_direction": "outward"}
+      },
+      {
+        "key": ["L2", "D1"],
+        "enabled": false,
+        "override": {}
+      },
+      {
+        "key": ["L3", "U1", "0.65x1.06mm"],
+        "enabled": null,
+        "override": {"boundary_margin": -0.05, "paste_height": "auto"}
+      },
+      {
+        "key": ["L4", "R1", "2"],
+        "enabled": true,
+        "override": {
+          "dispense_mode": "micro_line",
+          "micro_line_z_start": 0.09,
+          "micro_line_z_end": "auto"
+        }
+      }
+    ],
+    "initial_purge_point": [10.0, 20.0],
+    "flow_calibration_points": [[3.0, 3.0], [17.0, 3.0]]
+  }
+}

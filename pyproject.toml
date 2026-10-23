@@ -53,6 +53,9 @@ dev = [
 
 
 [tool.pytest.ini_options]
+# 送信 G-code の golden（tests/golden/）は環境変数 PCBASM_UPDATE_GOLDEN=1 のときだけ書き換わる。
+# 送信列を意図して変えたときに限り、次で更新して差分を PR の主題にする:
+#   PCBASM_UPDATE_GOLDEN=1 uv run pytest tests/golden -m "not hardware"
 addopts = [
   "--color=yes",
   "--durations=0",
