@@ -339,7 +339,8 @@ class SceneCamera(Camera):
     この式は現行の position.py / copper.py の向きに合わせて凍結したもので、posctrl の関数を使わずにここへ直書きする。
     描く側と読む側が同じだけ変わって golden をすり抜けるのを防ぐため。
     図形（銅箔・基準円）は shapely の多角形で受け取り、円は ``buffer`` で多角形にして渡す。
-    塗布痕は FakeKlipper が記録した manual_stepper の ``MOVE`` を XY ごとに足し、正なら体積の半球の径で描く（線も始点の 1 点に描く）。
+    塗布痕は FakeKlipper が記録した manual_stepper の ``MOVE`` を XY ごとに送った順に足し、正なら体積の半球の径で描く（線も始点の 1 点に描く）。
+    引き戻しは、その XY に出ている分までしか減らさない（基板に出ていないペーストは吸い戻せない）。
     痕はノズルの位置から toolhead だけ戻した点、つまりカメラで見る機械座標に描く。
 
     FrameHub の専有スレッドから撮られている間、FakeKlipper の送信は新しい位置で描いたフレームが配られるまで返らない。
@@ -484,7 +485,7 @@ class SceneCamera(Camera):
         """塗布痕を（カメラで見る機械座標, 体積 [μL]）で返す."""
         distances: defaultdict[Point2d, float] = defaultdict(float)
         for move in self._klipper.stepper_moves:
-            distances[move.at] += move.distance
+            distances[move.at] = max(0.0, distances[move.at] + move.distance)
         return [
             (at - self._toolhead, distance / self._rotations_per_ul)
             for at, distance in distances.items()
