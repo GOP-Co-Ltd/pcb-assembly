@@ -1,0 +1,3 @@
+# send timeout=60.0
+G28 X Y
+M400

@@ -6,7 +6,7 @@
 """
 
 import shutil
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 
 import pytest
@@ -16,19 +16,25 @@ from pcbasm import hal
 from pcbasm.config import Corner, Machine
 from pcbasm.geometry import Compose, Point2d, Rotation, Shift, transform_polygon
 from pcbasm.hal import Camera
-from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper
+from pcbasm.hal.fake import Checkerboard, FakeAudioPlayer, FakeKlipper, SceneCamera
 from pcbasm.pcb import Layer, PcbFile
+from pcbasm.pcb.generate import generate_grid_pcb
+from pcbasm.vision import CalibrationResult
+from tests.support import polling
 from web.api import state as state_module
 from web.api.board_settings import BoardSettingsStore
 from web.api.config_store import ConfigStore
 from web.api.jobs.catalog import JobCatalog, default_catalog
-from web.api.jobs.manager import JobManager
+from web.api.jobs.manager import JobManager, JobRecord, JobStatus
 from web.api.preview import PreviewService
 from web.api.settings import Settings
 from web.api.state import AppState
 
 GOLDEN_DIR = Path(__file__).parent
+JOBS = GOLDEN_DIR / "jobs"
 CONFIG_FILES = (GOLDEN_DIR / "machine.toml", GOLDEN_DIR / "camera_calibration.json")
+CALIBRATION = CalibrationResult.load(GOLDEN_DIR / "camera_calibration.json")
+DISPENSER = Machine(GOLDEN_DIR / "machine.toml").paste_dispenser
 
 # 基板の実際の置き方（board → 機械座標）。左上の基準円は reference_point から 0.3 mm ほどずれる
 BOARD_PLACEMENT = Compose([Rotation(0.3), Shift(6.2, 10.5)])
@@ -64,17 +70,57 @@ def board_shapes(pcb: PcbFile, machine: Machine) -> list[Polygon]:
     ]
 
 
+def scene_camera(
+    klipper: FakeKlipper,
+    rotation: float,
+    *,
+    shapes: Sequence[Polygon] = (),
+    checkerboard: Checkerboard | None = None,
+) -> SceneCamera:
+    """校正ファイルと machine.toml のとおりに、klipper の位置から見える画像を描くカメラ."""
+    return SceneCamera(
+        klipper,
+        pixel_per_mm=CALIBRATION.pixel_per_mm,
+        toolhead=Point2d(DISPENSER.toolhead.x, DISPENSER.toolhead.y),
+        rotations_per_ul=DISPENSER.rotations_per_ul,
+        rotation=rotation,
+        size=CALIBRATION.resolution,
+        shapes=shapes,
+        checkerboard=checkerboard,
+    )
+
+
+def finish(
+    state: AppState, record: JobRecord, status: JobStatus = JobStatus.SUCCEEDED
+) -> None:
+    """終了時の駐機が済む（装置のロックが外れる）まで待ち、ジョブの終わり方を確かめる."""
+    polling.wait_until(
+        lambda: record.status.terminal and state.busy_owner is None, timeout=120.0
+    )
+    assert record.status == status, record.error
+
+
 @pytest.fixture
-def machine_klipper(monkeypatch: pytest.MonkeyPatch) -> FakeKlipper:
+def mount_klipper(monkeypatch: pytest.MonkeyPatch) -> Callable[[FakeKlipper], None]:
+    """``open_klipper`` がどれも同じ fake 機体への接続を返すようにする関数を返す."""
+
+    def mount(klipper: FakeKlipper) -> None:
+        monkeypatch.setattr(
+            hal,
+            "open_klipper",
+            lambda config, *, timeout=None, journal=None: klipper.connection(
+                timeout=timeout
+            ),
+        )
+
+    return mount
+
+
+@pytest.fixture
+def machine_klipper(mount_klipper: Callable[[FakeKlipper], None]) -> FakeKlipper:
     """``open_klipper`` がどれも接続を返す 1 台の fake 機体（送信の記録は全接続で 1 列）."""
     klipper = FakeKlipper()
-    monkeypatch.setattr(
-        hal,
-        "open_klipper",
-        lambda config, *, timeout=None, journal=None: klipper.connection(
-            timeout=timeout
-        ),
-    )
+    mount_klipper(klipper)
     return klipper
 
 
@@ -119,13 +165,52 @@ def job_state(job_settings: Settings) -> Iterator[AppState]:
 
 
 @pytest.fixture
+def place_board(
+    job_settings: Settings, job_state: AppState
+) -> Callable[[Path], list[Polygon]]:
+    """PCB を選び、置いた基板の基準円と銅箔を返す関数を返す."""
+
+    def place(pcb: Path) -> list[Polygon]:
+        shutil.copy(pcb, job_settings.pcb_browse_root)
+        job_state.select_pcb(Path(pcb.name))
+        return board_shapes(PcbFile(pcb), job_state.machine())
+
+    return place
+
+
+@pytest.fixture(scope="session")
+def grid_pcb(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """2x2 グリッド PCB（20 mm 角、pad の辺 0.4 mm は pad 中心照合の対象）."""
+    path = tmp_path_factory.mktemp("grid") / "grid.kicad_pcb"
+    generate_grid_pcb(20.0, 2, 0.4, path)
+    return path
+
+
+@pytest.fixture
+def grid_shapes(
+    grid_pcb: Path, place_board: Callable[[Path], list[Polygon]]
+) -> list[Polygon]:
+    """グリッド PCB を選び、置いた基板の基準円と銅箔を返す."""
+    return place_board(grid_pcb)
+
+
+@pytest.fixture
 def catalog() -> JobCatalog:
     return default_catalog()
 
 
 @pytest.fixture
+def audio_player() -> FakeAudioPlayer:
+    """ジョブが鳴らす通知音を記録する（入力待ち音でオペレータ待ちに入ったと分かる）."""
+    return FakeAudioPlayer()
+
+
+@pytest.fixture
 def manager(
-    job_state: AppState, job_settings: Settings, catalog: JobCatalog
+    job_state: AppState,
+    job_settings: Settings,
+    catalog: JobCatalog,
+    audio_player: FakeAudioPlayer,
 ) -> Iterator[JobManager]:
     manager = JobManager(
         job_state,
@@ -133,7 +218,7 @@ def manager(
         catalog,
         job_settings,
         BoardSettingsStore(job_settings.webui_data_dir),
-        audio_player=FakeAudioPlayer(),
+        audio_player=audio_player,
     )
     yield manager
     manager.shutdown()

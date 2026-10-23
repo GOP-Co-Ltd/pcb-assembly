@@ -39,12 +39,6 @@ x = 120.0
 y = 10.0
 z = -3.0
 
-[probe]
-min_radius = 0.7
-board_edge_margin = 2.5
-min_samples = 6
-max_samples = 15
-
 [paste_dispenser.pad_align]
 max_correction = 0.5
 search_window = 1.0
@@ -55,6 +49,12 @@ region_size_px = 200
 board_edge_margin = 1.0
 converge_tolerance = 0.015
 region_overlap = 0.2
+
+[probe]
+min_radius = 0.7
+board_edge_margin = 2.5
+min_samples = 6
+max_samples = 15
 
 [camera]
 width = 1280
