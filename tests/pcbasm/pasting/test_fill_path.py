@@ -522,6 +522,74 @@ class TestExteriorMargin:
         assert dist_margin > dist_zero
 
 
+class TestNegativeExteriorMargin:
+    """boundary_margin<0 はビード外縁を pad 外形から -margin だけはみ出させる."""
+
+    @pytest.mark.parametrize("boundary_margin", [0.3, -0.3, -0.8])
+    def test_outline_trace_sits_at_inset_from_exterior(self, boundary_margin):
+        # Arrange: inset = margin + w / 2。負なら外周トレースは pad の外を回る
+        polygon = _rectangle(12.0, 10.0)
+        nozzle_diameter = 1.0
+        inset = boundary_margin + nozzle_diameter / 2.0
+
+        # Act
+        result = build_paste_fill_path(
+            polygon, nozzle_diameter=nozzle_diameter, boundary_margin=boundary_margin
+        )
+
+        # Assert: 内側を正とした外周からの符号付き距離の最小値が inset
+        def signed_distance(p: Point2d) -> float:
+            point = ShapelyPoint(p.x, p.y)
+            distance = polygon.exterior.distance(point)
+            return distance if polygon.covers(point) else -distance
+
+        assert min(
+            signed_distance(p) for polyline in result for p in polyline
+        ) == pytest.approx(inset, abs=1e-3)
+
+    def test_line_ends_extend_beyond_pad(self):
+        # Arrange: 長さ 5 の細長 pad。inset = -1.0 + 0.5 = -0.5 で両端が 0.5 ずつ外へ延びる
+        polygon = _rectangle(0.4, 5.0)
+
+        # Act
+        result = build_paste_fill_path(
+            polygon,
+            nozzle_diameter=1.0,
+            dispense_mode="line",
+            boundary_margin=-1.0,
+        )
+
+        # Assert
+        assert len(result) == 1
+        start, end = result[0]
+        assert (end - start).norm == pytest.approx(6.0)
+
+    def test_negative_margin_turns_too_small_pad_into_area(self):
+        # Arrange: margin=0 では buffer(-0.5) が消えて線も引けず点になる 0.8 角の pad
+        polygon = _rectangle(0.8, 0.8)
+        config = _config(nozzle_diameter=1.0)
+        base = PasteParams.from_config(config)
+        params = attrs.evolve(base, dispense_mode="area")
+
+        # Act
+        zero = FillPlan.for_pad(polygon, config=config, params=params)
+        negative = FillPlan.for_pad(
+            polygon, config=config, params=attrs.evolve(params, boundary_margin=-0.6)
+        )
+
+        # Assert
+        assert zero.dispense_mode == "dot"
+        assert negative.dispense_mode == "area"
+        assert (
+            FillPlan.mode_for_pad(
+                polygon,
+                config=config,
+                params=attrs.evolve(params, boundary_margin=-0.6),
+            )
+            == "area"
+        )
+
+
 class TestInvalidInput:
     """空 / 不正ポリゴンは空の計画になる（値の検証は params / config 側の責務）."""
 

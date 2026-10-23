@@ -41,7 +41,6 @@ class TestPasteSettingsValidation:
             ("bead_width_factor", 0.0),
             ("overlap", -0.1),
             ("overlap", 1.0),
-            ("boundary_margin", -0.1),
             ("ul_per_mm2", 0.0),
             ("prime_extra_delay", -0.1),
         ],
@@ -124,6 +123,10 @@ class TestMachineSettingsApi:
             pytest.param("paste_dispenser.pad_align.region_size_px", 160, id="int"),
             pytest.param(
                 "paste_dispenser.pad_align.region_overlap", 0.25, id="region-overlap"
+            ),
+            # 負の外周余白は pad 外形をはみ出して塗る指定
+            pytest.param(
+                "paste_dispenser.boundary_margin", -0.2, id="negative-boundary-margin"
             ),
         ],
     )

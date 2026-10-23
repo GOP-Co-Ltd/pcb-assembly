@@ -73,7 +73,7 @@ class PasteParams:
         prime_extra_delay: プライム後の追加遅延 [sec]
         bead_width_factor: ビード幅係数（w = nozzle_diameter * bead_width_factor）
         overlap: ジグザグ行間オーバーラップ [0, 1)
-        boundary_margin: 外周マージン [mm]
+        boundary_margin: 外周マージン [mm]（負なら pad 外形をはみ出して塗る）
     """
 
     dispense_mode: DispenseMode

@@ -413,7 +413,7 @@ class PasteDispenser:
         1.0  # ビード幅係数 w = nozzle_diameter * bead_width_factor
     )
     overlap: float = 0.0  # ジグザグ行間オーバーラップ [0,1)
-    boundary_margin: float = 0.0  # 外周マージン [mm]
+    boundary_margin: float = 0.0  # 外周マージン [mm]（負なら pad 外形をはみ出して塗る）
     pad_align: PadAlign = attrs.field(factory=PadAlign)  # pad 位置合わせ設定
     flow_calibration: FlowCalibration = attrs.field(
         factory=FlowCalibration
@@ -445,8 +445,8 @@ class PasteDispenser:
             "ul_per_mm2",
         }
         above_one = {"auto_line_aspect_ratio", "retract_accel_factor"}
-        non_negative = {"initial_purge_ul", "boundary_margin", "prime_extra_delay"}
-        numeric = positive | above_one | non_negative | {"overlap"}
+        non_negative = {"initial_purge_ul", "prime_extra_delay"}
+        numeric = positive | above_one | non_negative | {"overlap", "boundary_margin"}
         for name, value in values.items():
             if name == "dispense_mode":
                 if not isinstance(value, str) or value not in DISPENSE_MODES:

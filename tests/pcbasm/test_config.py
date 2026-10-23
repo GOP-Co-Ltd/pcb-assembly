@@ -220,7 +220,7 @@ class TestMachine:
             ("bead_width_factor", 0.0),
             ("overlap", -0.1),
             ("overlap", 1.0),
-            ("boundary_margin", -0.01),
+            ("boundary_margin", float("nan")),
             ("ul_per_mm2", 0.0),
             ("prime_extra_delay", -0.1),
             ("paste_height", float("nan")),
@@ -238,6 +238,12 @@ class TestMachine:
 
         assert dispenser.overlap == 0.0
         assert dispenser.boundary_margin == 0.0
+
+    def test_negative_boundary_margin_is_accepted(self):
+        # 負の外周余白は pad 外形をはみ出して塗る指定
+        dispenser = _paste_dispenser(boundary_margin=-0.2)
+
+        assert dispenser.boundary_margin == -0.2
 
     def test_raises_key_error_when_config_not_defined(self):
         machine = Machine(TESTING_DATA_DIR / "machine_minimal.toml")
