@@ -25,6 +25,8 @@ def _base() -> PasteParams:
         bead_width_factor=1.0,
         overlap=0.0,
         boundary_margin=0.0,
+        micro_line_z_start=0.07,
+        micro_line_z_end=0.07,
     )
 
 
@@ -69,6 +71,22 @@ class TestEncode:
 
         assert doc["board_signature"] == "sig"
         assert doc["settings"]["initial_purge_point"] == [4.0, 5.0]
+
+
+class TestMicroLineOverride:
+    def test_round_trip_restores_micro_line_override(self):
+        patch = PasteParamsPatch(
+            dispense_mode="micro_line",
+            micro_line_z_start=0.09,
+            micro_line_z_end="auto",
+        )
+        model = PasteSettingsModel(
+            base=_base(), levels=(LevelSetting(("L1", "0402"), patch=patch),)
+        )
+
+        restored = _decode(encode_board_settings(model, source_pcb="a"))
+
+        assert restored.levels[0].patch == patch
 
 
 class TestInitialPurgePoint:

@@ -4,7 +4,7 @@
 方式が決まるように選ぶ。
 
 - 4 x 4: auto で面、線指定でも線が成立する
-- 0.8 x 5: auto で線、面指定は inset で消えて線へ落ちる
+- 0.8 x 5: auto で微小線（短辺 0.8 <= ノズル内径 1.0）、面指定は inset で消えて線へ落ちる
 - 0.8 x 0.8: auto で点、線指定は長さが 2 * inset 以下で点へ落ちる
 """
 
@@ -86,6 +86,8 @@ def _base() -> PasteParams:
         bead_width_factor=1.0,
         overlap=0.0,
         boundary_margin=0.0,
+        micro_line_z_start=0.07,
+        micro_line_z_end=0.07,
     )
 
 
@@ -126,17 +128,17 @@ class TestAutoNodes:
         summaries = _summaries()
 
         root = summaries[("L0",)]
-        assert root.counts == {"dot": 1, "line": 2, "area": 1}
-        assert list(root.counts) == ["dot", "line", "area"]
-        assert root.label == "→ 点 1 / 線 2 / 面 1"
+        assert root.counts == {"dot": 1, "area": 1, "micro_line": 2}
+        assert list(root.counts) == ["dot", "area", "micro_line"]
+        assert root.label == "→ 点 1 / 面 1 / 微小線 2"
         assert "有効 pad 4 件" in root.title
-        assert "線 2 件" in root.title
+        assert "微小線 2 件" in root.title
 
     def test_a_single_mode_shows_only_the_mode(self):
         summaries = _summaries()
 
-        assert summaries[("L2", "R1")].label == "→ 線"
-        assert summaries[("L2", "R1")].counts == {"line": 2}
+        assert summaries[("L2", "R1")].label == "→ 微小線"
+        assert summaries[("L2", "R1")].counts == {"micro_line": 2}
         assert summaries[("L4", "U1", "1")].label == "→ 面"
 
 
@@ -178,7 +180,7 @@ class TestDisabledPads:
     def test_disabled_pads_are_left_out_of_the_counts(self):
         summaries = _summaries((("L4", "U1", "2"), None, False))
 
-        assert summaries[("L0",)].counts == {"line": 2, "area": 1}
+        assert summaries[("L0",)].counts == {"area": 1, "micro_line": 2}
         assert ("L4", "U1", "2") not in summaries
 
     def test_a_node_without_enabled_pads_has_nothing_to_show(self):
@@ -186,4 +188,4 @@ class TestDisabledPads:
 
         for key in (("L1", "QFN-8"), ("L2", "U1"), ("L4", "U1", "1")):
             assert key not in summaries
-        assert summaries[("L0",)].counts == {"line": 2}
+        assert summaries[("L0",)].counts == {"micro_line": 2}

@@ -1,4 +1,8 @@
-"""1 ポリラインの塗布動作を 1 本の GCode プログラムに組む."""
+"""1 ポリラインの塗布動作を 1 本の GCode プログラムに組む.
+
+:class:`FillSequence` は移動と吐出を同期させる通常の塗布、:class:`MicroLineSequence` は
+上空で先に押し出してからこすりつける微小線の塗布。
+"""
 
 import math
 
@@ -179,4 +183,70 @@ class FillSequence:
         # 6. リトラクションと同時に Z 上昇（明示座標）
         gc.append(stage.move(x=last.x, y=last.y, z=last.z + lift, speed=_TRAVEL_SPEED))
         gc.append(dispenser.sync())
+        return gc
+
+
+@attrs.frozen
+class MicroLineSequence:
+    """微小線の塗布動作を 1 本の送信可能な GCode に組むプログラムオブジェクト.
+
+    始点上空で prime と塗布量 ``total_amount_ul`` を押し出し、静定待ち
+    （``settings.micro_line_settle_seconds``）でノズル先端のドームを落ち着かせる。
+    その後に始点へ下降し、経路を ``max_fill_speed`` で走行して基板へこすりつける。
+    終点上空へ上昇してからリトラクトする（接触中に引くと塗った膜を吸い戻す）。
+
+    吐出と移動を同期させないので、吐出の立ち上がり遅れが始点・終点の量に影響しない。
+    Z は ``path`` の各点の高さに従う。始点 z_start から終点 z_end への線形変化は、
+    呼び出し側が path の各点の高さとして与える。
+
+    path は 2 点以上で長さが正であること（呼び出し側が保証する）。
+    """
+
+    path: Path
+    total_amount_ul: float
+    settings: DispenseSettings
+
+    @property
+    def effective_rate(self) -> float:
+        """上空での押し出しレート [μL/sec]（吐出レート上限）."""
+        return self.settings.max_dispense_rate
+
+    def actual_fill_speed(self) -> Speed:
+        """こすりつけの移動速度（``max_fill_speed``）."""
+        return Speed.absolute(self.settings.max_fill_speed)
+
+    def to_gcode(self, stage: XYZStage, dispenser: PasteDispenser) -> GCode:
+        """微小線の塗布プログラムを 1 本の GCode として組み立てる（明示座標のみ使用）."""
+        first = self.path[0]
+        last = self.path[-1]
+        lift = self.settings.lift_height
+        gc = GCode()
+
+        # 1. 始点の上空へ移動し、到達を待ってから押し出す
+        gc.append(
+            stage.move(x=first.x, y=first.y, z=first.z + lift, speed=_TRAVEL_SPEED)
+        )
+        gc.append(GCode.wait_for_done())
+        gc.append(
+            dispenser.pushpull(
+                self.settings.retract_amount + self.total_amount_ul,
+                self.effective_rate,
+                self.settings.dispense_accel,
+            )
+        )
+        # 2. 吐出の遅れで後から出てくる分が出きるまで待ってから下降する
+        gc.append(GCode.wait(self.settings.micro_line_settle_seconds))
+        gc.append(stage.move(x=first.x, y=first.y, z=first.z, speed=_TRAVEL_SPEED))
+
+        # 3. こすりつけて終点上空へ上昇し、上昇後にリトラクトする
+        gc.append(stage.to_gcode(self.path, speed=self.actual_fill_speed()))
+        gc.append(stage.move(x=last.x, y=last.y, z=last.z + lift, speed=_TRAVEL_SPEED))
+        gc.append(GCode.wait_for_done())
+        gc.append(
+            dispenser.pushpull(
+                -self.settings.retract_amount,
+                self.settings.retract_rate,
+                self.settings.retract_accel,
+            )
+        )
         return gc

@@ -226,6 +226,11 @@ class TestMachine:
             ("paste_height", float("nan")),
             ("nozzle_diameter", float("inf")),
             ("max_fill_speed", True),
+            ("nozzle_outer_diameter", 0.0),
+            ("micro_line_z_start", 0.0),
+            ("micro_line_z_end", -0.01),
+            ("micro_line_z_end", "fast"),
+            ("micro_line_settle_seconds", -0.1),
         ],
     )
     def test_paste_settings_out_of_range_are_rejected(self, key, value):
@@ -238,6 +243,27 @@ class TestMachine:
 
         assert dispenser.overlap == 0.0
         assert dispenser.boundary_margin == 0.0
+
+    def test_nozzle_outer_diameter_defaults_to_inner_diameter(self):
+        dispenser = _paste_dispenser(nozzle_diameter=0.3)
+
+        assert dispenser.nozzle_outer_diameter is None
+        assert dispenser.effective_nozzle_outer_diameter == pytest.approx(0.3)
+
+    def test_nozzle_outer_diameter_smaller_than_inner_is_rejected(self):
+        with pytest.raises(ValueError, match="nozzle_outer_diameter"):
+            _paste_dispenser(nozzle_diameter=0.3, nozzle_outer_diameter=0.29)
+
+    def test_micro_line_heights_default_to_auto(self):
+        dispenser = _paste_dispenser()
+
+        assert dispenser.micro_line_z_start == "auto"
+        assert dispenser.micro_line_z_end == "auto"
+
+    def test_micro_line_mode_is_accepted(self):
+        dispenser = _paste_dispenser(dispense_mode="micro_line")
+
+        assert dispenser.dispense_mode == "micro_line"
 
     def test_raises_key_error_when_config_not_defined(self):
         machine = Machine(TESTING_DATA_DIR / "machine_minimal.toml")

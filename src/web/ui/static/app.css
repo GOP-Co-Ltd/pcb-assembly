@@ -1863,6 +1863,29 @@ h2 {
   min-width: 12rem;
 }
 
+/* 項目見出しは入力欄の幅で折り返し、列を見出しの文字数で広げない */
+.pad-table thead th.pad-col-field {
+  white-space: normal;
+  vertical-align: bottom;
+}
+
+/* 列のセルに縦に並べる項目（微小線の始点高・終点高） */
+.pad-subfield {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.pad-subfield + .pad-subfield {
+  margin-top: 0.15rem;
+}
+
+.pad-subfield-label {
+  min-width: 2.6rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
 .pad-row-toggle {
   min-height: 1.5rem;
   margin-right: 0.25rem;

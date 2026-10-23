@@ -3,8 +3,12 @@
 // 塗布パラメータの列順・ラベル・入力種別・選択肢は API（pad-config の
 // `fields`、サーバ側 PASTE_PARAM_FIELDS）だけを出典とし、ここには複製しない。
 
+export function fieldInfo(config, field) {
+  return config?.fields?.find((item) => item.name === field);
+}
+
 export function fieldLabel(config, field) {
-  const info = config?.fields?.find((item) => item.name === field);
+  const info = fieldInfo(config, field);
   return info ? info.label : field;
 }
 
