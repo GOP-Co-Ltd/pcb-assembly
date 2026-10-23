@@ -6,6 +6,10 @@
 ``_outline_and_zigzag`` / ``_line_fill`` / ``_dot_fill``）に委譲する。汎用の
 計算幾何（外接矩形・オフセット成分・線分クリップ等）は :mod:`pcbasm.geometry` にある。
 
+:meth:`FillPlan.mode_for_pad` は経路を作らずに実際の方式だけを返す（pad 編集表の表示用）。
+
+フォールバック判定（``_applied_mode``）は ``build`` と共有する。
+
 アルゴリズムは「面塗布（外周トレース＋牛耕式ジグザグ）→ 線塗布（最長軸中心線）
 → 点塗布（代表点 1 点）」のフォールバック階層からなる。微小線は線塗布と同じ中心線を
 ノズル外径基準の inset で引き、成立しなければ点塗布に落ちる。面塗布は
@@ -106,40 +110,40 @@ class FillPlan:
 
         w = nozzle_diameter * bead_width_factor
         line_spacing = w * (1.0 - overlap)
-        inset = boundary_margin + w / 2.0
-        mode = _resolve_auto_mode(
+        inset = _inset(nozzle_diameter, bead_width_factor, boundary_margin)
+        micro_inset = _micro_inset(
+            nozzle_diameter, nozzle_outer_diameter, boundary_margin
+        )
+        mode = _applied_mode(
             polygon,
-            dispense_mode,
-            nozzle_diameter,
-            auto_line_aspect_ratio=auto_line_aspect_ratio,
-            auto_area_short_side_factor=auto_area_short_side_factor,
+            _resolve_auto_mode(
+                polygon,
+                dispense_mode,
+                nozzle_diameter,
+                auto_line_aspect_ratio=auto_line_aspect_ratio,
+                auto_area_short_side_factor=auto_area_short_side_factor,
+            ),
+            inset,
+            micro_inset,
         )
 
-        dot = cls(dispense_mode="dot", paths=(tuple(_dot_fill(polygon)),))
         match mode:
             case "dot":
-                return dot
+                return cls(dispense_mode="dot", paths=(tuple(_dot_fill(polygon)),))
             case "line":
-                if line := _line_fill(polygon, inset):
-                    return cls(dispense_mode="line", paths=(tuple(line),))
-                return dot
-            case "micro_line":
-                outer = (
-                    nozzle_diameter
-                    if nozzle_outer_diameter is None
-                    else nozzle_outer_diameter
+                return cls(
+                    dispense_mode="line", paths=(tuple(_line_fill(polygon, inset)),)
                 )
-                if line := _line_fill(polygon, boundary_margin + outer / 2.0):
-                    return cls(dispense_mode="micro_line", paths=(tuple(line),))
-                return dot
+            case "micro_line":
+                return cls(
+                    dispense_mode="micro_line",
+                    paths=(tuple(_line_fill(polygon, micro_inset)),),
+                )
             case "area":
-                if paths := _area_fill(polygon, line_spacing, inset):
-                    return cls(
-                        dispense_mode="area", paths=tuple(tuple(path) for path in paths)
-                    )
-                if line := _line_fill(polygon, inset):
-                    return cls(dispense_mode="line", paths=(tuple(line),))
-                return dot
+                paths = _area_fill(polygon, line_spacing, inset)
+                return cls(
+                    dispense_mode="area", paths=tuple(tuple(path) for path in paths)
+                )
             case _:
                 assert_never(mode)
 
@@ -196,6 +200,77 @@ class FillPlan:
                 for path in plan.paths
             ),
         )
+
+    @staticmethod
+    def mode_for_pad(
+        polygon: Polygon, *, config: PasteDispenserConfig, params: PasteParams
+    ) -> AppliedDispenseMode:
+        """:meth:`for_pad` と同じ判定で、経路を作らずに実際の方式だけを返す.
+
+        面塗布のジグザグは pad の面積に比例して重い。
+
+        pad 編集表は GET のたびに全 pad の方式を出すので、成立判定だけで済ませる。
+        """
+        if polygon.is_empty or not polygon.is_valid:
+            return "dot"
+        return _applied_mode(
+            polygon,
+            _resolve_auto_mode(
+                polygon,
+                params.dispense_mode,
+                config.nozzle_diameter,
+                auto_line_aspect_ratio=config.auto_line_aspect_ratio,
+                auto_area_short_side_factor=config.auto_area_short_side_factor,
+            ),
+            _inset(
+                config.nozzle_diameter, params.bead_width_factor, params.boundary_margin
+            ),
+            _micro_inset(
+                config.nozzle_diameter,
+                config.effective_nozzle_outer_diameter,
+                params.boundary_margin,
+            ),
+        )
+
+
+def _inset(
+    nozzle_diameter: float, bead_width_factor: float, boundary_margin: float
+) -> float:
+    """面塗布領域の内側オフセットと線塗布の両端補正（``boundary_margin + w / 2``）."""
+    return boundary_margin + nozzle_diameter * bead_width_factor / 2.0
+
+
+def _micro_inset(
+    nozzle_diameter: float, nozzle_outer_diameter: float | None, boundary_margin: float
+) -> float:
+    """微小線の両端補正（``boundary_margin + 外径 / 2``。外径 ``None`` は内径と同じ）."""
+    outer = nozzle_diameter if nozzle_outer_diameter is None else nozzle_outer_diameter
+    return boundary_margin + outer / 2.0
+
+
+def _applied_mode(
+    polygon: Polygon, mode: AppliedDispenseMode, inset: float, micro_inset: float
+) -> AppliedDispenseMode:
+    """成立しない方式を area → line → dot の順に落とし、実際の方式を返す.
+
+    微小線は ``micro_inset`` で線が引けなければ dot に落とす。
+
+    面塗布は ``buffer(-inset)`` の成分が 1 つでもあれば外周トレースが必ず作れるので、
+    ジグザグを生成せずに成分の有無だけで判定する。
+    """
+    match mode:
+        case "dot":
+            return "dot"
+        case "line":
+            return "line" if _line_fill(polygon, inset) else "dot"
+        case "micro_line":
+            return "micro_line" if _line_fill(polygon, micro_inset) else "dot"
+        case "area":
+            if offset_components(polygon, inset):
+                return "area"
+            return _applied_mode(polygon, "line", inset, micro_inset)
+        case _:
+            assert_never(mode)
 
 
 def _orient_line_path(

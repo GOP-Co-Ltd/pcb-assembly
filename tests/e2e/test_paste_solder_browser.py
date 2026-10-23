@@ -736,6 +736,27 @@ class TestPasteSolderBrowserPadInteraction:
         )
         assert "sublabel" in (clear.get_attribute("aria-describedby") or "")
 
+    def test_applied_dispense_mode_is_shown_next_to_auto_and_hidden_when_explicit(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
+        _select_led_blinker(live_server)
+        applied = _get_pad_config(live_server)["tree"]["applied"]["dispense_mode"]
+
+        _open_paste_solder(browser_page, live_ui)
+        root_row = browser_page.locator(_row_selector("L0"))
+        marker = root_row.locator(
+            '[data-testid="pad-applied-value"][data-field="dispense_mode"]'
+        )
+        # 表示文字列はサーバーが組んだものをそのまま出す
+        expect(marker).to_have_text(applied["label"], timeout=_BROWSER_TIMEOUT_MS)
+        assert marker.get_attribute("title") == applied["title"]
+
+        _field_select(
+            root_row, "dispense_mode", "pad-dispense-mode-select"
+        ).select_option("dot")
+        _wait_for_override(live_server, "L0", "dispense_mode", "dot")
+        expect(marker).to_have_count(0, timeout=_BROWSER_TIMEOUT_MS)
+
     def test_tree_row_highlights_pads_by_node_id_membership(
         self, live_server: LiveServer, live_ui: LiveUi, browser_page
     ):

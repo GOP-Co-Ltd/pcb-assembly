@@ -297,8 +297,22 @@ function buildChoiceCell(
   });
   appendOverrideControls(td, actions, node.id, field, isOverride, select.id);
   td.appendChild(select);
+  appendAppliedValue(td, node, field);
   appendDescendantFieldMarker(td, state, field, descendantCount);
   return td;
+}
+
+// 選択値から読み取れない実際の値（Auto の解決結果など）。文字列も表示の要否もサーバが決める
+function appendAppliedValue(td, node, field) {
+  const applied = node.applied[field];
+  if (!applied) return;
+  const span = document.createElement("span");
+  span.className = "pad-applied-value";
+  span.dataset.testid = "pad-applied-value";
+  span.dataset.field = field;
+  span.textContent = applied.label;
+  span.title = applied.title;
+  td.appendChild(span);
 }
 
 function buildHeightCell(state, actions, node, field, descendantSummary) {

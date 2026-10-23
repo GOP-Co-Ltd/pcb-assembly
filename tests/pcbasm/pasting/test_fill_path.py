@@ -1,4 +1,4 @@
-"""FillPlan.build / FillPlan.for_pad のテスト.
+"""FillPlan.build / FillPlan.for_pad / FillPlan.mode_for_pad のテスト.
 
 面塗布（外周＋牛耕式ジグザグ）・線塗布・点塗布のフォールバック階層は
 「ポリゴン形状 × ノズル径」の組み合わせで誘発し、公開 API 経由で振る舞い
@@ -19,7 +19,11 @@ from shapely import LineString, Polygon
 from shapely.affinity import rotate
 from shapely.geometry import Point as ShapelyPoint
 
-from pcbasm.config import PasteDispenser as PasteDispenserConfig, Toolhead
+from pcbasm.config import (
+    DISPENSE_MODES,
+    PasteDispenser as PasteDispenserConfig,
+    Toolhead,
+)
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.fill_path import FillPlan
 from pcbasm.pasting.params import PasteParams
@@ -735,3 +739,37 @@ class TestFillPlanForPad:
         )
 
         assert outward.paths == unconstrained.paths
+
+    # FillPlan.mode_for_pad は経路を作らずに、for_pad と同じ実際の方式を返す。
+    # pad 編集表が GET のたびに全 pad の方式を出すための判定で、経路生成とずれると
+    # 表示と実際の塗布が食い違うので、全方式 × 形状で突き合わせる。
+    @pytest.mark.parametrize("dispense_mode", DISPENSE_MODES)
+    @pytest.mark.parametrize(
+        "polygon",
+        [
+            pytest.param(_rectangle(10.0, 6.0), id="large-area"),
+            pytest.param(_rectangle(4.0, 4.0), id="square-area"),
+            # 面塗布の inset で消える細長 pad（面 → 線へ落ちる）
+            pytest.param(_rectangle(0.8, 5.0), id="thin-line"),
+            # 面・線とも成立しない小 pad（点へ落ちる）
+            pytest.param(_rectangle(0.2, 0.2), id="tiny-dot"),
+            pytest.param(_rectangle(2.0, 2.0), id="small-square"),
+            pytest.param(_split_dumbbell_h(), id="split-components"),
+            pytest.param(Polygon(), id="empty"),
+            pytest.param(
+                Polygon([(0, 0), (1, 1), (1, 0), (0, 1)]), id="invalid-bowtie"
+            ),
+        ],
+    )
+    def test_mode_for_pad_matches_the_mode_of_the_built_plan(
+        self, polygon: Polygon, dispense_mode: str
+    ):
+        params = self._paste(dispense_mode=dispense_mode)
+        config = _config(1.0)
+
+        mode = FillPlan.mode_for_pad(polygon, config=config, params=params)
+
+        assert (
+            mode
+            == FillPlan.for_pad(polygon, config=config, params=params).dispense_mode
+        )

@@ -24,6 +24,7 @@ from pydantic import BaseModel
 
 from pcbasm.config import FlowCalibration, PasteDispenser
 from pcbasm.geometry import Point2d, display_rings
+from pcbasm.pasting.applied_mode import AppliedModeSummary, applied_mode_summaries
 from pcbasm.pasting.fill_path import FillPlan
 from pcbasm.pasting.initial_purge import (
     purge_point_label,
@@ -116,6 +117,14 @@ class OwnSummary(BaseModel):
     count: int  # fields + enabled の総数
 
 
+class AppliedValueInfo(BaseModel):
+    """解決値の選択から読み取れない、実際に使われる値の表示（UI の補足表示用）."""
+
+    label: str  # 表示文字列（例: "→ 点 12 / 線 6"）
+    title: str  # ツールチップ
+    counts: dict[str, int]  # 値ごとの有効 pad 数（選択肢の並び順）
+
+
 class HierNodeInfo(BaseModel):
     """階層ツリーの 1 ノード（構造 + 解決値・own override・子孫集計）."""
 
@@ -127,6 +136,8 @@ class HierNodeInfo(BaseModel):
     own_override: NodeOverrideInfo  # このノードの明示 override（疎）
     own_summary: OwnSummary  # own_override の表示用集計
     descendant_summary: DescendantSummary  # 子孫ノードの override 集計
+    # field 名 -> 実際に使われる値（選択から読み取れるノードには載せない）
+    applied: dict[str, AppliedValueInfo]
     children: list[HierNodeInfo]
 
 
@@ -367,6 +378,7 @@ def tree(
     node: PadHierarchyNode,
     model: PasteSettingsModel,
     resolved: dict[tuple[str, ...], ResolvedSetting],
+    applied_modes: dict[tuple[str, ...], AppliedModeSummary],
 ) -> HierNodeInfo:
     setting = model.level(node.key)
     own = NodeOverrideInfo(
@@ -384,7 +396,14 @@ def tree(
         descendant_summary=DescendantSummary(
             **attrs.asdict(descendant_override_summary(node, model))
         ),
-        children=[tree(child, model, resolved) for child in node.children],
+        applied=(
+            {"dispense_mode": AppliedValueInfo(**attrs.asdict(mode))}
+            if (mode := applied_modes.get(node.key)) is not None
+            else {}
+        ),
+        children=[
+            tree(child, model, resolved, applied_modes) for child in node.children
+        ],
     )
 
 
@@ -620,7 +639,14 @@ def build_pad_config(loaded: Loaded) -> PadConfigResponse:
         defaults=resolved_default(model),
         initial_purge=build_initial_purge(loaded),
         flow_calibration=build_flow_calibration(loaded),
-        tree=tree(hierarchy.root, model, node_resolved),
+        tree=tree(
+            hierarchy.root,
+            model,
+            node_resolved,
+            applied_mode_summaries(
+                hierarchy, resolved, node_resolved, loaded.base_config
+            ),
+        ),
         pads=pads,
         overrides=overrides(model),
         fields=param_fields(),
