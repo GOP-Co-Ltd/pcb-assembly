@@ -12,6 +12,7 @@ import attrs
 
 from pcbasm.config import Machine
 from pcbasm.hal import Camera, FrameHub
+from pcbasm.machine.journal import Journal
 from pcbasm.vision import Image
 from web.api.board_settings import BoardSettingsStore
 
@@ -138,6 +139,7 @@ class JobContext:
         pcb_path: Path | None,
         machine: Machine,
         artifacts_dir: Path,
+        journal: Journal,
         machine_id: str,
         paste_dataset_dir: Path,
         paste_volume_calibration_dir: Path,
@@ -149,6 +151,7 @@ class JobContext:
         self._pcb_path = pcb_path
         self._machine = machine
         self._artifacts_dir = artifacts_dir
+        self._journal = journal
         self._machine_id = machine_id
         self._paste_dataset_dir = paste_dataset_dir
         self._paste_volume_calibration_dir = paste_volume_calibration_dir
@@ -178,6 +181,11 @@ class JobContext:
     def artifacts_dir(self) -> Path:
         """成果物ディレクトリ data/webui/<job_id>/（作成済み）."""
         return self._artifacts_dir
+
+    @property
+    def journal(self) -> Journal:
+        """このジョブの送信を書く G-code ジャーナル（Klipper を作るときに渡す）."""
+        return self._journal
 
     @property
     def machine_id(self) -> str:

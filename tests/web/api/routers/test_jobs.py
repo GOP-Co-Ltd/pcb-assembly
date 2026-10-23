@@ -42,6 +42,7 @@ from fastapi.testclient import TestClient
 from starlette.testclient import WebSocketTestSession
 
 from pcbasm.vision import CalibrationResult
+from tests.support import polling
 from tests.web.api.jobs.conftest import register_gated, register_synthetic
 from web.api.config_store import ConfigStore
 from web.api.jobs.catalog import ParamSpec
@@ -1150,6 +1151,31 @@ class TestArtifacts:
         response = client.get(url)
         assert response.status_code == 200
         assert response.text == "hello artifacts"
+
+    @pytest.mark.usefixtures("unreachable_klipper")
+    @pytest.mark.parametrize("fails", [False, True], ids=["succeeded", "failed"])
+    def test_machine_job_links_its_journal(
+        self, client: TestClient, app: FastAPI, appstate: AppState, fails: bool
+    ):
+        """装置を動かすジョブは、失敗しても送信の G-code ジャーナルを成果物に出す."""
+
+        def run(ctx: JobContext) -> None:
+            if fails:
+                raise RuntimeError("意図的な失敗")
+
+        register_synthetic(app.state.catalog, run, uses_machine=True)
+        assert client.post("/api/jobs/synthetic", json={}).status_code == 201
+        polling.wait_until(lambda: appstate.busy_owner is None)
+        job = _current_job(client)
+
+        assert job is not None
+        assert job["status"] == ("failed" if fails else "succeeded")
+        [artifact] = job["result"]["artifacts"]
+        assert artifact["label"] == "G-code ジャーナル"
+        assert artifact["url"].startswith("/artifacts/journal/")
+        response = client.get(artifact["url"])
+        assert response.status_code == 200
+        assert "M84" in response.text
 
     def test_path_traversal_is_rejected(self, client: TestClient):
         response = client.get("/artifacts/%2e%2e/webui_state.json")

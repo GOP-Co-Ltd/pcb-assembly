@@ -12,6 +12,7 @@ from pcbasm.atomic import write_bytes_atomic, write_text_atomic
 from pcbasm.config import Machine, NozzleCap, NozzleClean
 from pcbasm.hal import Camera, FrameHub, create_camera
 from pcbasm.hal.fake import FakeCamera
+from pcbasm.machine.journal import Journal
 from pcbasm.vision import CalibrationResult, Image
 from web.api.config_store import ConfigStore, MachineSettingValue
 from web.api.settings import Settings
@@ -108,6 +109,10 @@ class AppState:
     def machine(self) -> Machine:
         """Machine 設定を読み込んで返す（毎回ロード）."""
         return Machine(self._store.machine_toml_path())
+
+    def journal(self) -> Journal:
+        """ジョブの外の操作（REST）を書く当日の G-code ジャーナルを返す."""
+        return Journal.for_today(self._settings.journal_dir)
 
     def write_machine_settings(self, values: Mapping[str, MachineSettingValue]) -> None:
         """machine.toml へホワイトリスト項目を書き込む.

@@ -416,7 +416,9 @@ class TestPosctrlHardware:
         assert record.status == JobStatus.SUCCEEDED
         result = record.result
         assert result is not None
-        json_artifact = next(a for a in result.artifacts if a.kind == "file")
+        json_artifact = next(
+            a for a in result.artifacts if a.label == "キャリブレーション JSON"
+        )
         loaded = CalibrationResult.load(
             real_settings.webui_data_dir / json_artifact.path
         )

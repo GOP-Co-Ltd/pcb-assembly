@@ -62,7 +62,9 @@ def unreachable_klipper(monkeypatch: pytest.MonkeyPatch) -> None:
     # localhost でなく 127.0.0.1 なのは、IPv6 を試す分だけ失敗が遅れるため
     monkeypatch.setattr(
         "pcbasm.hal.open_klipper",
-        lambda config, *, timeout=None: Klipper("127.0.0.1", 7126, timeout=timeout),
+        lambda config, *, timeout=None, journal=None: Klipper(
+            "127.0.0.1", 7126, timeout=timeout, journal=journal
+        ),
     )
 
 

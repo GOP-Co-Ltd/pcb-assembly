@@ -17,11 +17,14 @@ from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any, override
 
+import attrs
+
 from pcbasm import hal
 from pcbasm.config import Audio, Machine
 from pcbasm.hal import AudioPlayer, FrameHub
 from pcbasm.hal.audio import Sound
 from pcbasm.hal.klipper import PRESENT_TIMEOUT
+from pcbasm.machine.journal import Journal
 from pcbasm.parking import park_or_present
 from pcbasm.utils import is_finite_number
 from pcbasm.vision import Image
@@ -30,6 +33,7 @@ from web.api.jobs.catalog import JobCatalog, JobDefinition
 from web.api.jobs.context import (
     Answer,
     ApplyPayload,
+    Artifact,
     JobAborted,
     JobContext,
     JobResult,
@@ -193,6 +197,12 @@ class JobRecord:
             self._status = status
             self._error = error
             self._result = result
+
+    def add_artifact(self, artifact: Artifact) -> None:
+        """成果物を足す（失敗・中止で result が無ければ作る）."""
+        with self._lock:
+            result = self._result or JobResult()
+            self._result = attrs.evolve(result, artifacts=(*result.artifacts, artifact))
 
     def update_params(self, updates: Mapping[str, ParamValue]) -> None:
         """実行中編集をレコードへ反映する（GET /jobs/current が新値を映す）."""
@@ -488,6 +498,7 @@ class JobManager:
                 pcb_path=pcb_path,
                 machine=machine,
                 artifacts_dir=artifacts_dir,
+                journal=Journal.for_job(self._settings.journal_dir, record.id),
                 machine_id=resolve_machine_id(self._settings),
                 paste_dataset_dir=self._settings.paste_dataset_dir,
                 paste_volume_calibration_dir=(
@@ -755,6 +766,7 @@ class JobManager:
             # 装置を動かすジョブは終了時に best-effort で退避する
             if definition.uses_machine:
                 self._park_machine(runtime, context)
+            self._link_journal(record, context.journal)
             self._play_completion_sound(definition, record, context)
             # 終端ステータス確定 → job_status 発行 → ロック解放の順を守る
             runtime.publish_status()
@@ -766,12 +778,22 @@ class JobManager:
     def _park_machine(self, runtime: _JobRuntime, context: JobContext) -> None:
         """ジョブ終了時にノズルキャップ駐機（フォールバックは PRESENT / M84）を行う（失敗は log のみ）。"""
         try:
-            klipper = hal.open_klipper(context.machine.klipper, timeout=PRESENT_TIMEOUT)
+            klipper = hal.open_klipper(
+                context.machine.klipper,
+                timeout=PRESENT_TIMEOUT,
+                journal=context.journal,
+            )
             park_or_present(
                 klipper, context.machine, warn=runtime.log, timeout=PRESENT_TIMEOUT
             )
         except Exception as exc:
             runtime.log(f"タスク終了時の退避に失敗: {exc}")
+
+    def _link_journal(self, record: JobRecord, journal: Journal) -> None:
+        """送信があったジョブの成果物に G-code ジャーナルへのリンクを足す."""
+        if journal.path.exists():
+            path = journal.path.relative_to(self._artifacts_root).as_posix()
+            record.add_artifact(Artifact("G-code ジャーナル", path, "file"))
 
     def _operator_notifier(self, machine: Machine) -> Callable[[], None]:
         """オペレータ待ちで鳴らす入力待ち音の再生関数を作る.

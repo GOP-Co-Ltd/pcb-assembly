@@ -114,6 +114,7 @@ JS に `fetch()` を直接書かない。機体の prefix が付かず、テス�
 | Klipper 設定の実体                      | `~/printer_data/config/printer.cfg` | Klipper。`config/printer.cfg` はリンク      |
 | 静的な機体登録                          | `config/machines.toml`              | frontend が起動時に読む                     |
 | 選択 PCB・基板別 override・ジョブ成果物 | `data/webui/`                       | backend                                     |
+| G-code ジャーナル                       | `data/webui/journal/`               | backend。直近 200 ファイルを残す            |
 | 塗布画像データセット                    | `data/paste-volume-datasets/`       | backend                                     |
 | 塗布量校正                              | `data/paste-volume-calibrations/`   | backend。再現に必要な校正資産               |
 | 自己更新の記録・ロック                  | `data/selfupdate/`                  | 同じ worktree の backend と frontend が共有 |

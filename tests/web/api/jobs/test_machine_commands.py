@@ -48,7 +48,7 @@ def _run_handler_job(
     results: list[bool] = []
 
     def run(ctx: JobContext) -> None:
-        klipper = create_command_klipper(ctx.machine)
+        klipper = create_command_klipper(ctx)
         stage = XYZStage(klipper.readonly)
         for command in commands:
             results.append(

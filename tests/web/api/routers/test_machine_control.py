@@ -24,6 +24,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tests.helpers import mark_hardware
+from web.api.settings import Settings
 from web.api.state import AppState
 
 
@@ -57,6 +58,24 @@ class TestMachineControlValidation:
         response = client.post("/api/machine-control", json={"action": "focus_z"})
 
         assert response.status_code == 400
+
+
+@pytest.mark.usefixtures("unreachable_klipper")
+class TestJournal:
+    """REST の操作は当日の G-code ジャーナルに残る."""
+
+    def test_send_is_journaled_even_when_moonraker_is_down(
+        self, client: TestClient, webui_settings: Settings
+    ):
+        response = client.post(
+            "/api/machine-control", json={"action": "home", "axes": ["x"]}
+        )
+
+        assert response.status_code == 502
+        [journal] = webui_settings.journal_dir.glob("*-rest.gcode")
+        assert (
+            journal.read_text(encoding="utf-8") == "# send timeout=60.0\nG28 X\nM400\n"
+        )
 
 
 class TestGcodeAction:

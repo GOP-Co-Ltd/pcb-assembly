@@ -52,7 +52,9 @@ from web.api.state import AppState
 
 def create_klipper(state: AppState, timeout: float) -> Klipper:
     """マシン設定で Klipper クライアントを生成する."""
-    return hal.open_klipper(state.machine().klipper, timeout=timeout)
+    return hal.open_klipper(
+        state.machine().klipper, timeout=timeout, journal=state.journal()
+    )
 
 
 def fetch_status(klipper: Klipper) -> KlipperStatus:

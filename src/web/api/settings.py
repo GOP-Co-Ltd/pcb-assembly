@@ -82,6 +82,11 @@ class Settings:
         return self.data_dir / "webui"
 
     @property
+    def journal_dir(self) -> Path:
+        """G-code ジャーナルの置き場所（成果物と同じく ``/artifacts`` から配信する）."""
+        return self.webui_data_dir / "journal"
+
+    @property
     def paste_dataset_dir(self) -> Path:
         """ペースト塗布画像 dataset の永続保存先."""
         return self.data_dir / "paste-volume-datasets"

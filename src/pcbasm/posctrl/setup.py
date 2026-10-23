@@ -16,6 +16,7 @@ from pcbasm.config import Machine
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Shift, Transform
 from pcbasm.hal import Camera, Klipper, XYZStage, create_camera
+from pcbasm.machine.journal import Journal
 from pcbasm.parking import park_or_present
 from pcbasm.pcb import PcbFile
 from pcbasm.posctrl.board import BoardTransformMeasurer
@@ -199,6 +200,7 @@ def setup_board_calibration(
     *,
     camera: Camera | None = None,
     frame_sink: FrameSink | None = None,
+    journal: Journal | None = None,
 ) -> BoardCalibrationResult:
     """マシン初期化から Board 変換計測までの共通セットアップを実行する.
 
@@ -215,6 +217,7 @@ def setup_board_calibration(
         tolerance: 位置合わせの許容誤差 (mm)
         camera: 使用するカメラ。None の場合はマシン設定から生成する
         frame_sink: 検出注釈画像を送る sink。None の場合は表示しない
+        journal: 送信ブロックを書く G-code ジャーナル。None の場合は書かない
 
     Returns:
         接続済みの Klipper・ステージ・カメラと、計測した 2 つの変換
@@ -234,7 +237,7 @@ def setup_board_calibration(
 
     # Klipper 接続
     logger.info("=== Klipper接続 ===")
-    klipper = hal.open_klipper(machine.klipper)
+    klipper = hal.open_klipper(machine.klipper, journal=journal)
     logger.info("接続先: %s:%s", machine.klipper.host, machine.klipper.port)
     stage = XYZStage(klipper.readonly)
 
