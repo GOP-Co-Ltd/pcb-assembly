@@ -32,6 +32,17 @@
       </thead>
       <tbody>
         {% for machine in section.machines %}
+        {% if machine.update_only %}
+        {# 版のずれた機体は更新と緊急停止しか中継されないので、行の操作を持たせず
+           更新専用ページへ案内する（data-row-base が無いので bulk.js も触らない） #}
+        <tr data-testid="bulk-row-{{ machine.machine_id }}">
+          <th scope="row"><a href="/m/{{ machine.machine_id }}">{{ machine.label }}</a></th>
+          <td colspan="{{ 3 if section.machine_type == 'paste' else 2 }}">
+            <span class="bulk-status" data-testid="bulk-update-only">UI サーバーと版が違います。</span>
+            <a href="/m/{{ machine.machine_id }}/dev/update">更新・緊急停止</a>
+          </td>
+        </tr>
+        {% else %}
         <tr data-testid="bulk-row-{{ machine.machine_id }}"
             data-row-base="/m/{{ machine.machine_id }}"
             data-label="{{ machine.label }}">
@@ -55,6 +66,7 @@
           </td>
           {% endif %}
         </tr>
+        {% endif %}
         {% endfor %}
       </tbody>
     </table>

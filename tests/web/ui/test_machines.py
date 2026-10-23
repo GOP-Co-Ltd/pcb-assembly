@@ -12,6 +12,7 @@
 import tomllib
 from pathlib import Path
 
+import attrs
 import pytest
 
 from web.ui.machines import (
@@ -44,6 +45,11 @@ class TestMachineEndpoint:
 
     def test_label_shows_the_hostname_and_host(self):
         assert KUROUSAGI.label == "kurousagi002: kurousagi002.local"
+
+    def test_label_marks_an_update_only_machine(self):
+        endpoint = attrs.evolve(KUROUSAGI, update_only=True)
+
+        assert endpoint.label == "kurousagi002: kurousagi002.local（更新専用）"
 
 
 class TestMachineRegistry:
@@ -246,6 +252,20 @@ class TestSetDiscovered:
         (merged,) = registry.list()
         assert merged.machine_type == "paste"
         assert merged.host == "kurousagi.local"
+
+    @pytest.mark.parametrize("update_only", [True, False])
+    def test_update_only_follows_the_advertised_api_version(self, update_only: bool):
+        """静的登録は API 版を知らないので、同じ機体の広告に従う."""
+        static = MachineEndpoint(
+            machine_id="kurousagi", host="kurousagi.local", port=8081
+        )
+        registry = MachineRegistry((static,))
+
+        registry.set_discovered(
+            (attrs.evolve(DISCOVERED_KUROUSAGI, update_only=update_only),)
+        )
+
+        assert registry.resolve("kurousagi").update_only is update_only
 
     def test_resolve_finds_a_discovered_only_machine(self):
         registry = MachineRegistry()

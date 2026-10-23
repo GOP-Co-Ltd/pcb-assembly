@@ -37,12 +37,12 @@ from tests.e2e.conftest import (
     LiveServer,
     LiveUi,
     acquire_control as _acquire_control,
-    make_ui_settings,
     select_led_blinker as _select_led_blinker,
     session_headers as _session_headers,
     start_app,
 )
 from tests.support.polling import wait_until
+from tests.support.settings import make_ui_settings
 from web.ui.app import create_app
 from web.ui.machines import MachineEndpoint
 

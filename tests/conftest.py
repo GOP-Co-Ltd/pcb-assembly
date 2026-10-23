@@ -6,10 +6,16 @@ Raspberry Pi と KiCAD が無い環境では読み込めない。root conftest �
 実機依存の import はそれを必要とする fixture の中だけで行う。
 """
 
+from __future__ import annotations
+
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import pytest
+
+if TYPE_CHECKING:
+    from pcbasm.hal.fake import FakeKlipper
 
 
 @pytest.fixture(autouse=True)
@@ -58,6 +64,31 @@ def unreachable_klipper(monkeypatch: pytest.MonkeyPatch) -> None:
             "127.0.0.1", 7126, timeout=timeout, journal=journal
         ),
     )
+
+
+@pytest.fixture
+def mount_klipper(monkeypatch: pytest.MonkeyPatch) -> Callable[[FakeKlipper], None]:
+    """``open_klipper`` がどれも同じ fake 機体への接続を返すようにする関数を返す."""
+
+    def mount(klipper: FakeKlipper) -> None:
+        monkeypatch.setattr(
+            "pcbasm.hal.open_klipper",
+            lambda config, *, timeout=None, journal=None: klipper.connection(
+                timeout=timeout
+            ),
+        )
+
+    return mount
+
+
+@pytest.fixture
+def machine_klipper(mount_klipper: Callable[[FakeKlipper], None]) -> FakeKlipper:
+    """``open_klipper`` がどれも接続を返す 1 台の fake 機体（送信の記録は全接続で 1 列）."""
+    from pcbasm.hal.fake import FakeKlipper
+
+    klipper = FakeKlipper()
+    mount_klipper(klipper)
+    return klipper
 
 
 @pytest.fixture(scope="session")

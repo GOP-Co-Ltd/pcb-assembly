@@ -22,6 +22,7 @@ URL 空間は次のとおり。
 - ``/bulk`` は一括管理ページ。全マシンを並べるマシン非依存のページで、``/{tab}`` より先に登録する（後だと入口の ``/{tab}`` としてマッチする）
 - ``/m/{machine_id}/…`` が実体。``/m/{machine_id}/settings`` は ``/m/{machine_id}/{tab}``
   より先に登録する（後だと tab としてマッチしてしまう）
+- API 版のずれた機体（`MachineEndpoint.update_only`）の ``/m/{machine_id}/…`` は、どの URL も更新専用ページになる
 """
 
 from __future__ import annotations
@@ -85,6 +86,20 @@ _MACHINE_SETTINGS_FEATURES = frozenset(
 router = APIRouter()
 
 
+class UpdateOnlyMachine(Exception):
+    """API 版のずれた機体のページを開こうとした（→ 更新専用ページ）."""
+
+    def __init__(self, endpoint: MachineEndpoint) -> None:
+        """例外を初期化する.
+
+        Args:
+            endpoint: 更新専用の機体
+        """
+        super().__init__(f"{endpoint.label} は UI サーバーと版が違います")
+        # 更新専用ページの宛先に使うため public
+        self.endpoint = endpoint
+
+
 def _registry(request: Request) -> MachineRegistry:
     return request.app.state.registry
 
@@ -100,8 +115,11 @@ def _resolve(
 
     Raises:
         UnknownMachine: 未登録の machine_id（→ 404 ページ）
+        UpdateOnlyMachine: 版のずれた機体（→ 更新専用ページ。backend の応答を描けない）
     """
     endpoint = _registry(request).resolve(machine_id)
+    if endpoint.update_only:
+        raise UpdateOnlyMachine(endpoint)
     gateway: BackendGateway = request.app.state.gateway
     return endpoint, MachineClient(endpoint, gateway)
 
@@ -216,6 +234,8 @@ def _chrome_context(
         "bulk_label": BULK_LABEL,
         "active_tab": None,
         "active_feature": None,
+        # 更新専用ページでは、中継されない機体コマンド（操作権・PCB・再起動）を出さない
+        "update_only": False,
     }
 
 
@@ -335,6 +355,21 @@ def render_message(
         status_code=status_code,
         headers=headers,
     )
+
+
+def render_update_only(request: Request, endpoint: MachineEndpoint) -> HTMLResponse:
+    """版のずれた機体の更新専用ページを描く（``/m/{machine_id}/…`` のどの URL でも）.
+
+    proxy がこの機体へ中継するのは更新と緊急停止だけなので、backend の値を使わずに描く。
+    """
+    context = _chrome_context(
+        request,
+        machine_id=endpoint.machine_id,
+        current_suffix=_suffix_of(request.url.path),
+    )
+    # どのタブも同じこのページになるので、作業分野のタブは並べない（一括管理だけ残す）
+    context.update(title=endpoint.label, update_only=True, tabs=[])
+    return _html_page(request, "update_only.html", context)
 
 
 async def _open_default(request: Request, suffix: str) -> Response:

@@ -3,7 +3,7 @@
 計画書「routers」節:
 
 - GET /api/klipper/status は常に 200。接続失敗は connected=false + error
-- POST /api/emergency-stop は接続不能で 502、ロック非経由
+- POST /api/emergency-stop は接続不能で 502（ロック・操作権に妨げられないことは tests/repo/test_update_contract.py）
 - POST /api/firmware-restart は接続不能で 502、ロック非経由、
   先頭で jobs.request_abort()
 - 実 Moonraker での status と、emergency_stop / firmware_restart の成功経路は
@@ -55,14 +55,6 @@ class TestEmergencyStop:
 
     def test_unreachable_moonraker_returns_502(self, client: TestClient):
         response = client.post("/api/emergency-stop")
-
-        assert response.status_code == 502
-
-    def test_bypasses_machine_lock(self, client: TestClient, appstate: AppState):
-        # E-STOP はロック非経由: busy 中でも 409 にはならない
-        # （Moonraker 不達のため 502 に到達する = ロックで弾かれていない）
-        with appstate.machine_lock("pytest-job"):
-            response = client.post("/api/emergency-stop")
 
         assert response.status_code == 502
 

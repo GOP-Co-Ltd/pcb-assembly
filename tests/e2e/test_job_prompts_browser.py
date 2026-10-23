@@ -17,9 +17,9 @@ from tests.e2e.conftest import (
     LiveUi,
     acquire_control,
     configure_synthetic_job,
-    make_ui_settings,
     start_app,
 )
+from tests.support.settings import make_ui_settings
 from web.api.app import create_app as create_api_app
 from web.api.jobs.context import JobContext, JobResult, PromptSpec
 from web.api.settings import Settings

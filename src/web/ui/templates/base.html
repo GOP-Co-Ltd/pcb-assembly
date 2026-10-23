@@ -22,8 +22,9 @@
   </nav>
   <div class="global-controls">
     {% include "partials/machine_selector.html" %}
-    {# 対象未選択の案内画面には機体コマンドを出さない #}
+    {# 対象未選択の案内画面には機体コマンドを出さない。更新専用の機体には中継されないので出さない #}
     {% if base %}
+    {% if not update_only %}
     <details class="topbar-menu" data-testid="topbar-menu" data-responsive-menu="(max-width: 1180px)" open>
       <summary>操作・設定</summary>
       <div class="topbar-menu-content">
@@ -45,8 +46,10 @@
                 data-confirm="ファームウェアと WebUI のサービスを再起動します。この画面も一時的に切れます。実行しますか？">ファームウェア再起動</button>
       </div>
     </details>
+    {% endif %}
     {# 緊急停止は安全操作なので操作権に依らず誰でも押せる（data-requires-control 禁止）。
-       実行中のジョブも中止する。Klipper は停止状態になり、復帰にはファームウェア再起動が要る #}
+       実行中のジョブも中止する。Klipper は停止状態になり、復帰にはファームウェア再起動が要る。
+       更新専用の機体にも中継されるので、ここでも出す #}
     <button id="estop" class="estop" title="緊急停止（実行中のジョブも中止。復帰には「ファームウェア再起動」）" data-testid="estop">緊急停止</button>
     {% else %}
     {% include "partials/update_notice.html" %}

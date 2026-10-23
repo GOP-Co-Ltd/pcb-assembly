@@ -16,10 +16,10 @@ from tests.e2e.conftest import (
     LiveServer,
     LiveUi,
     acquire_control,
-    make_ui_settings,
     start_app,
     wait_machine_field,
 )
+from tests.support.settings import make_ui_settings
 from web.ui.app import create_app
 from web.ui.machines import MachineEndpoint
 

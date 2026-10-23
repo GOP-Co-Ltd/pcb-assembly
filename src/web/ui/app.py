@@ -158,6 +158,12 @@ def create_app(
             machine_id=exc.endpoint.machine_id,
         )
 
+    @app.exception_handler(pages.UpdateOnlyMachine)
+    async def update_only_machine_handler(
+        request: Request, exc: pages.UpdateOnlyMachine
+    ) -> HTMLResponse:
+        return pages.render_update_only(request, exc.endpoint)
+
     @app.exception_handler(UnknownMachine)
     async def unknown_machine_handler(
         request: Request, exc: UnknownMachine

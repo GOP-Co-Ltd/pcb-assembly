@@ -12,7 +12,8 @@ from typing import Literal
 from pydantic import BaseModel
 
 # backend が `GET /api/machine-info` で自己申告する API 契約のバージョン。
-# frontend / discovery 側の互換判定はこの定数を共有する（定義箇所はここだけ）
+# mDNS の広告がこの版を載せ、frontend の探索は版のずれた機体を更新専用にする（定義箇所はここだけ）。
+# frontend は machine-info の api_version を見ないので、静的登録だけの機体は更新専用にならない
 API_VERSION = 1
 
 type JobStatusName = Literal[

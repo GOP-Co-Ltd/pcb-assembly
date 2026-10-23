@@ -356,3 +356,45 @@ class TestUnknownMachine:
             response = client.get("/m/bravo/api/state")
 
         assert _echoed(response)["headers"]["host"] == "10.0.0.2:8081"
+
+
+class TestUpdateOnlyMachine:
+    """版のずれた機体へは更新と緊急停止だけを中継する（契約が凍結されているのはそれだけ）."""
+
+    @pytest.fixture
+    def update_only_client(self) -> Iterator[TestClient]:
+        machines = (
+            MachineEndpoint(
+                machine_id=MACHINE_ID, host="127.0.0.1", port=8081, update_only=True
+            ),
+        )
+        with _proxy_client(machines, httpx.ASGITransport(app=_echo_upstream)) as client:
+            yield client
+
+    @pytest.mark.parametrize(
+        ("method", "path"),
+        [
+            ("GET", "/api/update/status"),
+            ("POST", "/api/update/check"),
+            ("POST", "/api/update/run"),
+            ("POST", "/api/emergency-stop"),
+        ],
+    )
+    def test_update_and_emergency_stop_are_relayed(
+        self, update_only_client: TestClient, method: str, path: str
+    ):
+        response = update_only_client.request(method, f"/m/{MACHINE_ID}{path}")
+
+        assert _echoed(response)["path"] == path
+
+    @pytest.mark.parametrize(
+        "path",
+        ["/api/state", "/api/control/acquire", "/artifacts/job-1/plot.png"],
+    )
+    def test_other_paths_are_refused_with_409(
+        self, update_only_client: TestClient, path: str
+    ):
+        response = update_only_client.post(f"/m/{MACHINE_ID}{path}")
+
+        assert response.status_code == 409
+        assert "更新と緊急停止だけ" in response.json()["detail"]

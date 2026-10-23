@@ -45,12 +45,11 @@ from tests.e2e.conftest import (
     LiveServer,
     LiveUi,
     drive_job_demo as _drive_job_demo,
-    make_api_settings,
-    make_ui_settings,
     start_app,
     wait_first_prompt as _wait_first_prompt,
 )
 from tests.support.polling import before_deadline, wait_until
+from tests.support.settings import make_api_settings, make_ui_settings
 from web.api.app import create_app as create_backend_app
 from web.ui.app import create_app as create_ui_app
 from web.ui.machines import MachineEndpoint
