@@ -80,7 +80,7 @@ def handle_machine_command(
                 else:
                     klipper.send_gcode(stage.move(z=focus_z) + GCode.wait_for_done())
             case {"type": "move_to_cap"}:
-                cap = ctx.machine.nozzle_cap
+                cap = ctx.machine.paste_dispenser.nozzle_cap.position
                 if cap is None:
                     ctx.log("ノズルキャップ位置が未記録のため移動しません")
                 else:

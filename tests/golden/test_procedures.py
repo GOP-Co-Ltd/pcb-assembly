@@ -17,7 +17,7 @@ import shapely
 from shapely import Polygon
 
 from pcbasm import geometry, hal
-from pcbasm.config import Machine
+from pcbasm.config import Machine, load_machine
 from pcbasm.gcode import GCode
 from pcbasm.geometry import (
     Compose,
@@ -142,7 +142,7 @@ CORRECTION = PasteCorrection(
 
 @pytest.fixture
 def machine() -> Machine:
-    return Machine(MACHINE_TOML)
+    return load_machine(MACHINE_TOML)
 
 
 @pytest.fixture
@@ -327,11 +327,11 @@ class TestNozzleClean:
         """パージが写らなかったときのクリーニング（prime → パージとこすり → retract）."""
         stage = XYZStage(klipper.readonly)
         clean = resolve_nozzle_clean(machine, stage)
-        assert clean is not None
+        assert clean.position is not None
 
         with build_applicator(klipper, stage, machine.paste_dispenser) as applicator:
             applicator.prime()
-            clean_nozzle(klipper, stage, applicator, clean)
+            clean_nozzle(klipper, stage, applicator, clean.position, clean)
             applicator.retract()
 
         assert_transcript(klipper.sent, PROCEDURES / "nozzle_clean.gcode")
@@ -345,7 +345,7 @@ class TestNozzleClean:
         path.write_text(text.replace("x = 120.0", "x = 299.0"), encoding="utf-8")
 
         with pytest.raises(ValueError, match="可動域外"):
-            resolve_nozzle_clean(Machine(path), XYZStage(klipper.readonly))
+            resolve_nozzle_clean(load_machine(path), XYZStage(klipper.readonly))
 
         assert klipper.sent == ()
 
@@ -371,10 +371,12 @@ class TestParking:
     ):
         """キャップ未記録なら PRESENT マクロ、無ければ M84 に退避する."""
         path = tmp_path / "machine.toml"
-        path.write_text('machine_type = "paste"\n', encoding="utf-8")
+        text = MACHINE_TOML.read_text(encoding="utf-8")
+        cap = "[paste_dispenser.nozzle_cap]\nx = 150.0\ny = 10.0\nz = -2.0\n"
+        path.write_text(text.replace(cap, ""), encoding="utf-8")
         klipper = FakeKlipper(printer_config)
 
-        park_or_present(klipper, Machine(path), warn=lambda message: None)
+        park_or_present(klipper, load_machine(path), warn=lambda message: None)
 
         assert_transcript(klipper.sent, PROCEDURES / f"park_{name}.gcode")
 

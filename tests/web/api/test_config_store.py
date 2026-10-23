@@ -14,6 +14,7 @@
 """
 
 import re
+import tomllib
 from pathlib import Path
 from typing import cast
 
@@ -129,8 +130,8 @@ class TestMachineSettings:
             ("paste_dispenser.auto_area_short_side_factor", 4.0),
             ("probe.board_edge_margin", 3.0),
             ("reference_point.offsets.bottom_right", [-4.0, 4.0]),
-            ("paste_dispenser.nozzle_cap.x", 10.123),
-            ("paste_dispenser.nozzle_clean.x", 10.123),
+            ("paste_dispenser.nozzle_cap.position", [10.123, 20.0, -3.5]),
+            ("paste_dispenser.nozzle_clean.position", [10.123, 20.0, -3.5]),
             ("paste_dispenser.nozzle_clean.wipe_speed", 8.0),
             # 境界: 0 は「その工程を行わない」設定として受理する
             ("paste_dispenser.nozzle_clean.press_depth", 0.0),
@@ -345,8 +346,7 @@ class TestLegacyNozzleSectionMigration:
         store.write_machine_settings({"paste_dispenser.max_fill_speed": 0.9})
 
         values = store.read_machine_settings()
-        assert values["paste_dispenser.nozzle_cap.x"] == 10.0
-        assert values["paste_dispenser.nozzle_cap.z"] == 3.5
+        assert values["paste_dispenser.nozzle_cap.position"] == [10.0, 20.0, 3.5]
         assert "[nozzle_cap]" not in (config_dir / "machine.toml").read_text()
 
     def test_write_migrates_every_legacy_section(
@@ -361,8 +361,8 @@ class TestLegacyNozzleSectionMigration:
         store.write_machine_settings({"paste_dispenser.max_fill_speed": 0.9})
 
         values = store.read_machine_settings()
-        assert values["paste_dispenser.nozzle_cap.x"] == 1.0
-        assert values["paste_dispenser.nozzle_clean.x"] == 4.0
+        assert values["paste_dispenser.nozzle_cap.position"] == [1.0, 2.0, 3.0]
+        assert values["paste_dispenser.nozzle_clean.position"] == [4.0, 5.0, 6.0]
         assert values["paste_dispenser.nozzle_clean.press_depth"] == 0.4
         text = (config_dir / "machine.toml").read_text()
         assert "[nozzle_cap]" not in text
@@ -371,17 +371,14 @@ class TestLegacyNozzleSectionMigration:
     def test_already_migrated_value_is_kept(self, store: ConfigStore, config_dir: Path):
         """移行済みの値を旧セクションの残骸で上書きしない."""
         store.write_machine_settings(
-            {
-                "paste_dispenser.nozzle_cap.x": 10.0,
-                "paste_dispenser.nozzle_cap.y": 20.0,
-                "paste_dispenser.nozzle_cap.z": 3.5,
-            }
+            {"paste_dispenser.nozzle_cap.position": [10.0, 20.0, 3.5]}
         )
         self._write_legacy(config_dir, "\n[nozzle_cap]\nx = 1.0\ny = 2.0\nz = 3.0\n")
 
         store.write_machine_settings({"paste_dispenser.max_fill_speed": 0.9})
 
-        assert store.read_machine_settings()["paste_dispenser.nozzle_cap.x"] == 10.0
+        values = store.read_machine_settings()
+        assert values["paste_dispenser.nozzle_cap.position"] == [10.0, 20.0, 3.5]
         assert "[nozzle_cap]" not in (config_dir / "machine.toml").read_text()
 
     def test_migration_is_idempotent(self, store: ConfigStore, config_dir: Path):
@@ -392,7 +389,7 @@ class TestLegacyNozzleSectionMigration:
         store.write_machine_settings({"paste_dispenser.max_fill_speed": 1.1})
 
         values = store.read_machine_settings()
-        assert values["paste_dispenser.nozzle_cap.x"] == 10.0
+        assert values["paste_dispenser.nozzle_cap.position"] == [10.0, 20.0, 3.5]
         assert values["paste_dispenser.max_fill_speed"] == 1.1
 
     def test_out_of_order_paste_dispenser_keeps_the_legacy_section(
@@ -452,7 +449,7 @@ class TestLegacyNozzleSectionMigration:
         )
 
         values = ConfigStore(config_dir).read_machine_settings()
-        assert values["paste_dispenser.nozzle_cap.x"] == 10.0
+        assert values["paste_dispenser.nozzle_cap.position"] == [10.0, 20.0, 3.5]
         assert "[nozzle_cap]" not in path.read_text()
 
     def test_write_keeps_other_lines_when_there_is_nothing_to_migrate(
@@ -468,25 +465,118 @@ class TestLegacyNozzleSectionMigration:
         assert len(after) == len(before)
 
 
-class TestNozzleCapFields:
-    """Nozzle_cap.x/y/z フィールドの読み書き（nozzle-cap-parking 計画書「WebUI」節）.
+class TestNozzlePositionFields:
+    """ノズル位置の座標は x / y / z の 3 つを 1 項目（position）として読み書きする.
 
-    Repo fixture には [paste_dispenser.nozzle_cap] を入れない（未記録が既定状態）ため、欠落時は
-    None。
+    Repo fixture には座標を入れない（未教示が既定状態）ため、欠落時は None。
     """
 
-    def test_missing_nozzle_cap_reads_as_none(self, store: ConfigStore):
+    def test_missing_positions_read_as_none(self, store: ConfigStore):
         values = store.read_machine_settings()
 
-        assert values["paste_dispenser.nozzle_cap.x"] is None
-        assert values["paste_dispenser.nozzle_cap.y"] is None
-        assert values["paste_dispenser.nozzle_cap.z"] is None
-
-    def test_missing_nozzle_clean_reads_as_none(self, store: ConfigStore):
-        values = store.read_machine_settings()
-
-        assert values["paste_dispenser.nozzle_clean.x"] is None
+        assert values["paste_dispenser.nozzle_cap.position"] is None
+        assert values["paste_dispenser.nozzle_clean.position"] is None
         assert values["paste_dispenser.nozzle_clean.press_depth"] is None
+
+    def test_position_is_written_as_three_toml_keys(
+        self, store: ConfigStore, config_dir: Path
+    ):
+        """TOML の形（x / y / z）は変えない."""
+        store.write_machine_settings(
+            {"paste_dispenser.nozzle_cap.position": [10.0, 20.0, 3.5]}
+        )
+
+        document = tomllib.loads((config_dir / "machine.toml").read_text())
+        cap = document["paste_dispenser"]["nozzle_cap"]
+        assert cap == {"x": 10.0, "y": 20.0, "z": 3.5}
+
+    @pytest.mark.parametrize(
+        "value", [[10.0, 20.0], [10.0, 20.0, 3.5, 1.0]], ids=["two", "four"]
+    )
+    def test_rejects_anything_but_three_coordinates(
+        self, store: ConfigStore, config_dir: Path, value: list[float]
+    ):
+        path = config_dir / "machine.toml"
+        original = path.read_bytes()
+
+        with pytest.raises(UnknownFieldError):
+            store.write_machine_settings({"paste_dispenser.nozzle_cap.position": value})
+
+        assert path.read_bytes() == original
+
+    def test_rejects_a_single_coordinate(self, store: ConfigStore, config_dir: Path):
+        """座標の一部だけを書く要求は拒否され、ファイルは変わらない（1 軸ずつ書くキーは無い）."""
+        path = config_dir / "machine.toml"
+        original = path.read_bytes()
+
+        with pytest.raises(UnknownFieldError, match="未知のマシン設定キー"):
+            store.write_machine_settings({"paste_dispenser.nozzle_cap.x": 12.5})
+
+        assert path.read_bytes() == original
+
+
+class TestWholeDocumentValidation:
+    """書き込みはディスクの最新に差分を当て、全体を load_machine と同じ検証にかける."""
+
+    def test_rejects_a_write_that_makes_a_valid_config_unloadable(
+        self, store: ConfigStore, config_dir: Path
+    ):
+        """項目単体では通っても、全体で読めなくなる書き込みは拒否する（Probe は 6 点以上）."""
+        path = config_dir / "machine.toml"
+        original = path.read_bytes()
+
+        with pytest.raises(UnknownFieldError, match="min_samples"):
+            store.write_machine_settings({"probe.min_samples": 5})
+
+        assert path.read_bytes() == original
+
+    def test_applies_the_change_onto_hand_edits_made_after_start(
+        self, store: ConfigStore, config_dir: Path
+    ):
+        """手編集（ssh）した値を、後から WebUI で別の項目を書いても上書きしない."""
+        path = config_dir / "machine.toml"
+        path.write_text(
+            path.read_text().replace("max_fill_speed = 0.8", "max_fill_speed = 0.6")
+        )
+
+        store.write_machine_settings({"paste_dispenser.lift_height": 2.5})
+
+        values = store.read_machine_settings()
+        assert values["paste_dispenser.max_fill_speed"] == 0.6
+        assert values["paste_dispenser.lift_height"] == 2.5
+
+    def test_fixes_one_error_at_a_time_while_degraded(
+        self, store: ConfigStore, config_dir: Path
+    ):
+        """設定エラーの間も、もとから誤りのある節にだけ誤りが残る書き込みは受け付ける.
+
+        同じ節に誤りが 2 つあると、1 つ直すと理由の文言は変わる。節で比べるので直せる。
+        """
+        path = config_dir / "machine.toml"
+        path.write_text(
+            path.read_text()
+            .replace("max_fill_speed = 0.8", "max_fill_speed = -1.0")
+            .replace("lift_height = 2.0", "lift_height = 0.0")
+        )
+
+        store.write_machine_settings({"paste_dispenser.max_fill_speed": 0.8})
+
+        assert store.read_machine_settings()["paste_dispenser.max_fill_speed"] == 0.8
+
+    def test_rejects_breaking_another_section_while_degraded(
+        self, store: ConfigStore, config_dir: Path
+    ):
+        """設定エラーの間も、誤りの無かった節を新たに壊す書き込みは拒否する."""
+        path = config_dir / "machine.toml"
+        path.write_text(
+            path.read_text().replace("lift_height = 2.0", "lift_height = 0.0")
+        )
+        broken = path.read_bytes()
+
+        with pytest.raises(UnknownFieldError, match="min_samples"):
+            store.write_machine_settings({"probe.min_samples": 5})
+
+        assert path.read_bytes() == broken
 
 
 class TestPadAlignRegionSettings:

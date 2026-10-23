@@ -41,7 +41,7 @@ def purge_with_cleaning(
     applicator: PasteApplicator,
     purge: ResolvedInitialPurge,
     *,
-    nozzle_clean: NozzleClean | None,
+    nozzle_clean: NozzleClean,
 ) -> None:
     """初回パージを実行し、写らなければ掃除してもう一度だけパージする.
 
@@ -55,7 +55,7 @@ def purge_with_cleaning(
         correction: 位置合わせと高さ面の補正
         applicator: 塗布に使うディスペンサー（有効化済み）
         purge: パージ点と量
-        nozzle_clean: クリーニング設定（未記録なら ``None``）
+        nozzle_clean: クリーニング設定（位置が未教示ならこすらない）
 
     Raises:
         ValueError: 掃除してパージし直しても塗布が写らない場合
@@ -201,7 +201,7 @@ def _clean(
     ctx: JobContext,
     session: PasteSession,
     applicator: PasteApplicator,
-    nozzle_clean: NozzleClean | None,
+    nozzle_clean: NozzleClean,
 ) -> str:
     """ノズル先端を掃除する（実施した処置の名前を返す）.
 
@@ -210,12 +210,20 @@ def _clean(
     垂れを止めるためにまた引き戻す。掃除しないなら引き込んだままでよく、続くパージの
     :meth:`PasteApplicator.deposit_at` が自分で prime する。
     """
-    if nozzle_clean is None:
+    position = nozzle_clean.position
+    if position is None:
         ctx.log("ノズルクリーニング: 位置が未記録のためこすらずにパージし直します")
         return "パージのやり直し"
     ctx.progress("ノズルクリーニング")
     ctx.checkpoint()
     applicator.prime()
-    clean_nozzle(session.klipper, session.stage, applicator, nozzle_clean, log=ctx.log)
+    clean_nozzle(
+        session.klipper,
+        session.stage,
+        applicator,
+        position,
+        nozzle_clean,
+        log=ctx.log,
+    )
     applicator.retract()
     return "クリーニングとパージのやり直し"

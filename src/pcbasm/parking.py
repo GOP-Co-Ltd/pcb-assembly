@@ -11,8 +11,9 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
-from pcbasm.config import Machine, NozzleCap
+from pcbasm.config import Machine
 from pcbasm.gcode import GCode
+from pcbasm.geometry import Point3d
 from pcbasm.hal import Klipper, Speed, XYZStage
 from pcbasm.hal.klipper import PRESENT_TIMEOUT
 
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 CAP_PARK_VELOCITY = 20.0
 
 
-def move_to_cap(stage: XYZStage, cap: NozzleCap) -> GCode:
+def move_to_cap(stage: XYZStage, cap: Point3d) -> GCode:
     """ノズルキャップ位置への移動コマンドを生成する.
 
     Z を 0 へ退避してからキャップ XY へ移動し、最後にキャップ Z へ下ろす。
@@ -58,9 +59,9 @@ def park_or_present(
     """ノズルキャップへ駐機し、できなければ PRESENT / M84 にフォールバックする.
 
     paste マシンでキャップ位置が記録済みなら「Z0 → キャップ XY → キャップ Z →
-    M400 → M84」を 1 回の send_gcode で送る。machine_type が欠落・不正、
-    キャップ未記録、キャップ位置が可動域外、printer.cfg の limits 設定不備の
-    場合は警告して ``send_present_or_relax`` に退避する。
+    M400 → M84」を 1 回の send_gcode で送る。キャップ未記録、キャップ位置が
+    可動域外、printer.cfg の limits 設定不備の場合は警告して
+    ``send_present_or_relax`` に退避する。
     paste 以外のマシンは警告なしで ``send_present_or_relax`` を使う。
 
     Args:
@@ -70,23 +71,14 @@ def park_or_present(
         timeout: G-code 送信のタイムアウト秒数
     """
     warning = warn if warn is not None else logger.warning
-    cap: NozzleCap | None = None
-    try:
-        machine_type = machine.machine_type
-    except (KeyError, ValueError) as exc:
-        warning(
-            f"machine_type が取得できません: {exc}。"
-            "PRESENT / relax (M84) にフォールバックします"
-        )
-    else:
-        # paste 以外（pnp 等）は正常系としてフォールバック（警告なし）
-        if machine_type == "paste":
-            cap = machine.nozzle_cap
-            if cap is None:
-                warning(
-                    "nozzle_cap が未記録です。"
-                    "PRESENT / relax (M84) にフォールバックします"
-                )
+    cap: Point3d | None = None
+    # paste 以外（pnp 等）は正常系としてフォールバック（警告なし）
+    if machine.machine_type == "paste":
+        cap = machine.paste_dispenser.nozzle_cap.position
+        if cap is None:
+            warning(
+                "nozzle_cap が未記録です。PRESENT / relax (M84) にフォールバックします"
+            )
 
     commands: GCode | None = None
     if cap is not None:

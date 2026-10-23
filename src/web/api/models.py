@@ -14,7 +14,7 @@ from pydantic import BaseModel
 # backend が `GET /api/machine-info` で自己申告する API 契約のバージョン。
 # mDNS の広告がこの版を載せ、frontend の探索は版のずれた機体を更新専用にする（定義箇所はここだけ）。
 # frontend は machine-info の api_version を見ないので、静的登録だけの機体は更新専用にならない
-API_VERSION = 2
+API_VERSION = 3
 
 type JobStatusName = Literal[
     "pending", "running", "waiting_input", "succeeded", "failed", "aborted"
@@ -25,6 +25,7 @@ type SettingValueType = Literal[
     "int",
     "str",
     "float_pair",
+    "float_triple",
     "float_or_auto",
     "dispense_mode",
     "line_direction",
@@ -171,6 +172,8 @@ class StateResponse(BaseModel):
     control: ControlInfo = ControlInfo()
     you: ClientInfo = ClientInfo()
     nozzle_clean: NozzleCleanInfo | None = None
+    # machine.toml が読めない・検証に通らないときの理由（degraded。直せば次の取得で消える）
+    config_error: str | None = None
 
 
 class SettingsField(BaseModel):

@@ -10,9 +10,14 @@ from pydantic import BaseModel
 from pcbasm.gcode import GCode
 from pcbasm.hal import XYZStage
 from pcbasm.parking import move_to_cap
+from pcbasm.vision import load_focus_z
 from web.api.dependencies import ControlDep, StateDep
 from web.api.models import KlipperStatus
-from web.api.routers.common import create_klipper, fetch_status, klipper_errors_to_502
+from web.api.routers.common import (
+    create_klipper,
+    fetch_status,
+    klipper_errors_to_502,
+)
 from web.api.state import AppState
 
 MOVE_TIMEOUT = 60.0  # wait_for_done (M400) を含むため長め
@@ -85,14 +90,14 @@ def _build_gcode(
                 raise ValueError("gcode が空です")
             commands = GCode(body.gcode)
         case "focus_z":
-            focus_z = state.focus_z()
-            if focus_z is None:
+            z = load_focus_z(state.machine().camera.calibration_file)
+            if z is None:
                 raise ValueError(
                     "フォーカスZが取得できません（カメラキャリブレーション未設定）"
                 )
-            commands = stage.move(z=focus_z)
+            commands = stage.move(z=z)
         case "move_to_cap":
-            cap = state.nozzle_cap()
+            cap = state.machine().paste_dispenser.nozzle_cap.position
             if cap is None:
                 raise ValueError("ノズルキャップ位置が未記録です")
             commands = move_to_cap(stage, cap)

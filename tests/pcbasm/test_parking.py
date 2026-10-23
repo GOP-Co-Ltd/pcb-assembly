@@ -6,10 +6,8 @@
   送り、フォールバック（send_present_or_relax）は呼ばない
 - キャップ未記録 → warn（"nozzle_cap" を含む文言）+ send_present_or_relax
 - machine_type != "paste"（pnp）→ 警告なしで send_present_or_relax
-- machine_type 欠落 / 不正 → warn（"machine_type" を含む文言）+
-  send_present_or_relax（クリーンアップ経路のため例外にしない）
 - キャップ位置が可動域外（ValueError）/ printer.cfg の limits 設定不備
-  （KeyError）→ warn + send_present_or_relax（同上）
+  （KeyError）→ warn + send_present_or_relax（クリーンアップ経路のため例外にしない）
 
 `move_to_cap` の G-code 列契約:
 
@@ -28,37 +26,17 @@ from pathlib import Path
 import pytest
 from pytest_mock import MockerFixture
 
-from pcbasm.config import Machine, NozzleCap
+from pcbasm.config import Machine, load_machine
 from pcbasm.gcode import GCode
+from pcbasm.geometry import Point3d
 from pcbasm.hal import XYZStage
 from pcbasm.hal.klipper import Klipper
 from pcbasm.parking import move_to_cap, park_or_present
+from tests.support.paths import TESTING_DATA_DIR
 
-_PASTE_WITH_CAP = """\
-machine_type = "paste"
+_CAP = "[paste_dispenser.nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n"
 
-[paste_dispenser.nozzle_cap]
-x = 10.0
-y = 20.0
-z = 3.5
-"""
-
-_PASTE_WITH_CAP_OUT_OF_LIMITS = """\
-machine_type = "paste"
-
-[paste_dispenser.nozzle_cap]
-x = 999.0
-y = 20.0
-z = 3.5
-"""
-
-_PASTE_WITHOUT_CAP = 'machine_type = "paste"\n'
-
-_PNP = 'machine_type = "pnp"\n'
-
-_MISSING_MACHINE_TYPE = "[klipper]\n"
-
-_INVALID_MACHINE_TYPE = 'machine_type = "sander"\n'
+_CAP_OUT_OF_LIMITS = "[paste_dispenser.nozzle_cap]\nx = 999.0\ny = 20.0\nz = 3.5\n"
 
 _LIMITS_CONFIG = {
     "stepper_x": {"position_min": "0", "position_max": "100"},
@@ -68,10 +46,15 @@ _LIMITS_CONFIG = {
 }
 
 
-def _machine(tmp_path: Path, content: str) -> Machine:
+def _machine(tmp_path: Path, extra: str = "", machine_type: str = "paste") -> Machine:
+    """検証用 machine.toml の machine_type を差し替え、末尾に ``extra`` を足して読む."""
+    source = (TESTING_DATA_DIR / "machine.toml").read_text()
+    source = source.replace(
+        'machine_type = "paste"', f'machine_type = "{machine_type}"'
+    )
     path = tmp_path / "machine.toml"
-    path.write_text(content, encoding="utf-8")
-    return Machine(path)
+    path.write_text(f"{source}\n{extra}", encoding="utf-8")
+    return load_machine(path)
 
 
 class TestMoveToCap:
@@ -101,7 +84,7 @@ class TestMoveToCap:
         mocker.patch.object(klipper.readonly, "get_config", return_value=limits_config)
         stage = XYZStage(klipper.readonly)
 
-        result = move_to_cap(stage, NozzleCap(x=10.0, y=20.0, z=3.5))
+        result = move_to_cap(stage, Point3d(10.0, 20.0, 3.5))
 
         assert result.to_list() == [
             "G90",
@@ -111,7 +94,7 @@ class TestMoveToCap:
         ]
 
     def test_sequence_contains_no_m400_or_m84(self, stage: XYZStage):
-        lines = move_to_cap(stage, NozzleCap(x=10.0, y=20.0, z=3.5)).to_list()
+        lines = move_to_cap(stage, Point3d(10.0, 20.0, 3.5)).to_list()
 
         assert "M400" not in lines
         assert "M84" not in lines
@@ -119,7 +102,7 @@ class TestMoveToCap:
     def test_out_of_limits_cap_raises(self, stage: XYZStage):
         # x=999 は x∈[0,100] の範囲外。
         with pytest.raises(ValueError, match="制限外"):
-            move_to_cap(stage, NozzleCap(x=999.0, y=20.0, z=3.5))
+            move_to_cap(stage, Point3d(999.0, 20.0, 3.5))
 
 
 class TestParkOrPresent:
@@ -131,7 +114,7 @@ class TestParkOrPresent:
         """Paste + cap 記録済みは Z0→XY→Z→M400→M84 を 1 回の send_gcode で送る."""
         klipper = mocker.Mock()
         klipper.readonly.get_config.return_value = _LIMITS_CONFIG
-        machine = _machine(tmp_path, _PASTE_WITH_CAP)
+        machine = _machine(tmp_path, _CAP)
         warnings: list[str] = []
 
         park_or_present(klipper, machine, warn=warnings.append, timeout=12.5)
@@ -155,7 +138,7 @@ class TestParkOrPresent:
     ):
         """キャップ未記録は "nozzle_cap" を含む警告を出して PRESENT にフォールバックする."""
         klipper = mocker.Mock()
-        machine = _machine(tmp_path, _PASTE_WITHOUT_CAP)
+        machine = _machine(tmp_path)
         warnings: list[str] = []
 
         park_or_present(klipper, machine, warn=warnings.append)
@@ -169,7 +152,7 @@ class TestParkOrPresent:
     ):
         """Pnp マシンは正常系としてキャップ駐機せず PRESENT 経路を使う（警告なし）."""
         klipper = mocker.Mock()
-        machine = _machine(tmp_path, _PNP)
+        machine = _machine(tmp_path, machine_type="pnp")
         warnings: list[str] = []
 
         park_or_present(klipper, machine, warn=warnings.append)
@@ -178,41 +161,13 @@ class TestParkOrPresent:
         klipper.send_gcode.assert_not_called()
         assert warnings == []
 
-    def test_missing_machine_type_warns_and_falls_back_without_raising(
-        self, mocker: MockerFixture, tmp_path: Path
-    ):
-        """machine_type 欠落はクリーンアップ経路のため例外にせず警告 + フォールバックする."""
-        klipper = mocker.Mock()
-        machine = _machine(tmp_path, _MISSING_MACHINE_TYPE)
-        warnings: list[str] = []
-
-        park_or_present(klipper, machine, warn=warnings.append)
-
-        klipper.send_present_or_relax.assert_called_once()
-        klipper.send_gcode.assert_not_called()
-        assert any("machine_type" in message for message in warnings)
-
-    def test_invalid_machine_type_warns_and_falls_back_without_raising(
-        self, mocker: MockerFixture, tmp_path: Path
-    ):
-        """machine_type 不正値も例外にせず警告 + フォールバックする."""
-        klipper = mocker.Mock()
-        machine = _machine(tmp_path, _INVALID_MACHINE_TYPE)
-        warnings: list[str] = []
-
-        park_or_present(klipper, machine, warn=warnings.append)
-
-        klipper.send_present_or_relax.assert_called_once()
-        klipper.send_gcode.assert_not_called()
-        assert any("machine_type" in message for message in warnings)
-
     def test_cap_out_of_limits_warns_and_falls_back_without_raising(
         self, mocker: MockerFixture, tmp_path: Path
     ):
         """可動域外のキャップ位置は例外にせず警告 + フォールバックする."""
         klipper = mocker.Mock()
         klipper.readonly.get_config.return_value = _LIMITS_CONFIG
-        machine = _machine(tmp_path, _PASTE_WITH_CAP_OUT_OF_LIMITS)
+        machine = _machine(tmp_path, _CAP_OUT_OF_LIMITS)
         warnings: list[str] = []
 
         park_or_present(klipper, machine, warn=warnings.append)
@@ -227,7 +182,7 @@ class TestParkOrPresent:
         """printer.cfg の limits 設定不備（KeyError）も例外にせず警告 + フォールバックする."""
         klipper = mocker.Mock()
         klipper.readonly.get_config.return_value = {}
-        machine = _machine(tmp_path, _PASTE_WITH_CAP)
+        machine = _machine(tmp_path, _CAP)
         warnings: list[str] = []
 
         park_or_present(klipper, machine, warn=warnings.append)

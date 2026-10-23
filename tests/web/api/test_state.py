@@ -439,26 +439,6 @@ class TestMachineConfig:
     def test_machine_loads_config_dir_machine(self, state: AppState):
         assert state.machine().klipper.port == 7126
 
-    def test_focus_z_returns_calibration_z_position(self, state: AppState):
-        assert state.focus_z() == -25.0
-
-    def test_focus_z_is_none_when_calibration_file_missing(
-        self, state: AppState, config_dir: Path
-    ):
-        (config_dir / "ov9281_test_fixture.json").unlink()
-
-        assert state.focus_z() is None
-
-    def test_focus_z_is_none_when_z_position_absent(
-        self, state: AppState, config_dir: Path
-    ):
-        path = config_dir / "ov9281_test_fixture.json"
-        data = json.loads(path.read_text(encoding="utf-8"))
-        data["z_position"] = None
-        path.write_text(json.dumps(data), encoding="utf-8")
-
-        assert state.focus_z() is None
-
 
 class TestCameraLifecycle:
     """FrameHub の遅延構築・再構築・後始末（Phase 2）."""

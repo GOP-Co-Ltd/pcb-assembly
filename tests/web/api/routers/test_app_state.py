@@ -61,30 +61,25 @@ class TestStateApi:
         self, client: TestClient, store: ConfigStore
     ):
         store.write_machine_settings(
-            {
-                "paste_dispenser.nozzle_cap.x": 10.0,
-                "paste_dispenser.nozzle_cap.y": 20.0,
-                "paste_dispenser.nozzle_cap.z": -3.5,
-            }
+            {"paste_dispenser.nozzle_cap.position": [10.0, 20.0, -3.5]}
         )
 
         data = client.get("/api/state").json()
 
         assert data["nozzle_cap"] == {"x": 10.0, "y": 20.0, "z": -3.5}
 
-    def test_partially_recorded_nozzle_cap_reports_null_without_error(
+    def test_partially_recorded_nozzle_cap_reports_the_config_error(
         self, partial_nozzle_cap: Path, client: TestClient
     ):
-        """X だけ保存された `[paste_dispenser.nozzle_cap]` でも /api/state は 200 + null
-        を返す.
+        """X だけ書かれた `[paste_dispenser.nozzle_cap]` は設定エラー（degraded）.
 
-        `Machine.nozzle_cap` は x/y/z 必須の structure なので、防御しないと全ページの
-        SSR と全クライアントのポーリングが 500 する（MR2 の要）。
+        全ページの SSR と全クライアントのポーリングが読むので、500 にせず理由を返す。
         """
         response = client.get("/api/state")
 
         assert response.status_code == 200
         assert response.json()["nozzle_cap"] is None
+        assert "x / y / z の 3 つ" in response.json()["config_error"]
 
     def test_state_reports_recorded_nozzle_clean_with_server_built_label(
         self, client: TestClient, store: ConfigStore
@@ -92,9 +87,7 @@ class TestStateApi:
         """表示文字列はサーバーが組んで返す（JS に整形させない）."""
         store.write_machine_settings(
             {
-                "paste_dispenser.nozzle_clean.x": 10.0,
-                "paste_dispenser.nozzle_clean.y": 20.0,
-                "paste_dispenser.nozzle_clean.z": -30.0,
+                "paste_dispenser.nozzle_clean.position": [10.0, 20.0, -30.0],
                 "paste_dispenser.nozzle_clean.press_depth": 0.4,
             }
         )
@@ -132,7 +125,7 @@ class TestMachineInfoApi:
             # frontend / discovery の互換判定に使う値なので、`web.api.models.API_VERSION`
             # を import せずリテラルで固定する（import すると同語反復になり、うっかりの
             # バンプが無音で通る）。バンプは意図的な契約変更なのでここも同時に更新する
-            "api_version": 2,
+            "api_version": 3,
         }
 
     def test_mainsail_url_resolves_from_machine_id_not_request_host(

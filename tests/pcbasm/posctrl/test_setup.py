@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 from pytest_mock import MockerFixture
 
-from pcbasm.config import Machine
+from pcbasm.config import load_machine
 from pcbasm.geometry import Point2d
 from pcbasm.hal.fake import FakeCamera
 from pcbasm.posctrl.setup import (
@@ -194,7 +194,7 @@ class TestMachineSession:
         """例外の有無によらず park_or_present(klipper, machine) が 1 回呼ばれる."""
         park = mocker.patch("pcbasm.posctrl.setup.park_or_present")
         klipper = mocker.Mock()
-        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+        machine = load_machine(TESTING_DATA_DIR / "machine.toml")
         expected = pytest.raises(ValueError, match="test error")
 
         with expected if raises else nullcontext():

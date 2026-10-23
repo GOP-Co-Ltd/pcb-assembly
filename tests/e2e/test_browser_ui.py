@@ -424,6 +424,28 @@ class TestSettingsOverBrowser:
             live_server.base_url, "reference_point.offsets.top_left", [6.5, -4.5]
         )
 
+    def test_nozzle_position_saves_three_coordinates_together(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
+        """座標は X/Y/Z の 3 つがそろって初めて 1 回で送る（一部だけの座標は書かない）."""
+        _open_settings_section(browser_page, live_ui, "paste_dispenser")
+        _acquire_control(browser_page)
+        triple = 'input[data-pair-key="paste_dispenser.nozzle_cap.position"]'
+        inputs = [
+            browser_page.locator(f'{triple}[data-pair-index="{index}"]')
+            for index in range(3)
+        ]
+        inputs[0].wait_for(state="visible", timeout=10_000)
+
+        for control, value in zip(inputs, ("10.5", "20.5", "-3.5"), strict=True):
+            control.fill(value)
+
+        _wait_machine_field(
+            live_server.base_url,
+            "paste_dispenser.nozzle_cap.position",
+            [10.5, 20.5, -3.5],
+        )
+
 
 class TestCopperDetectionOverBrowser:
     """銅箔前処理スライダーを実ブラウザで保存し、backend の設定 API まで通す."""

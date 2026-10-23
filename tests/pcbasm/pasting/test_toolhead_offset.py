@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 from shapely import Point as ShapelyPoint, Polygon
 
-from pcbasm.config import Machine
+from pcbasm.config import load_machine
 from pcbasm.geometry import Identity, Point2d, Shift
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FakeCamera, FakeKlipper
@@ -354,7 +354,7 @@ class TestToolheadOffsetDiagnostics:
 
 def _board_result(klipper: FakeKlipper, camera: FakeCamera) -> BoardCalibrationResult:
     return BoardCalibrationResult(
-        machine=Machine(TESTING_CONFIG_DIR / "machine.toml"),
+        machine=load_machine(TESTING_CONFIG_DIR / "machine.toml"),
         klipper=klipper,
         stage=XYZStage(klipper.readonly),
         camera=camera,

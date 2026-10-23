@@ -736,6 +736,11 @@ h2 {
   width: 100%;
 }
 
+.settings-triple {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: min(100%, 18rem);
+}
+
 .unit {
   margin-left: 0.3rem;
   color: var(--quiet);
@@ -880,6 +885,17 @@ h2 {
 #job-run:hover:not(:disabled) {
   border-color: #15528d;
   background: #15528d;
+}
+
+/* ---- config error (degraded) ---- */
+.config-error {
+  margin: 0.6rem 1rem 0;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  color: var(--danger);
+  background: var(--danger-weak);
+  overflow-wrap: anywhere;
 }
 
 /* ---- toasts ---- */

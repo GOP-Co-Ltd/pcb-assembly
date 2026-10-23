@@ -29,7 +29,7 @@ import pytest
 import tomlkit
 from fastapi.testclient import TestClient
 
-from pcbasm.config import Machine
+from pcbasm.config import Machine, load_machine
 from web.api.config_store import MACHINE_FIELDS
 from web.api.state import AppState
 
@@ -69,7 +69,7 @@ class TestPasteSettingsValidation:
         assert response.status_code == 400, response.text
         assert field in response.json()["detail"]
         assert path.read_bytes() == original
-        assert Machine(path).paste_dispenser.nozzle_diameter > 0
+        assert load_machine(path).paste_dispenser.nozzle_diameter > 0
 
     def test_an_existing_invalid_setting_can_be_repaired_one_field_at_a_time(
         self, client: TestClient, config_dir: Path
@@ -88,7 +88,7 @@ class TestPasteSettingsValidation:
                 json={"values": {f"paste_dispenser.{field}": value}},
             )
             assert response.status_code == 200, response.text
-        dispenser = Machine(path).paste_dispenser
+        dispenser = load_machine(path).paste_dispenser
         assert dispenser.nozzle_diameter == 0.3
         assert dispenser.max_fill_speed == 2.0
 
@@ -248,7 +248,7 @@ class TestMachineSettingsApi:
 
         assert response.status_code == 400
         assert "nozzle_outer_diameter" in response.text
-        assert Machine(config_dir / "machine.toml").paste_dispenser is not None
+        assert load_machine(config_dir / "machine.toml").paste_dispenser is not None
 
     def test_get_reports_none_for_missing_keys(self, client: TestClient):
         fields = {
@@ -277,14 +277,13 @@ class TestMachineSettingsApi:
         assert fields["paste_dispenser.paste_height"]["resolved"] == "auto"
         assert fields["reference_point.offsets.top_left"]["resolved"] == [5.0, -5.0]
 
-    def test_get_resolves_each_section_independently(
+    def test_get_returns_written_values_without_resolved_while_degraded(
         self, client: TestClient, config_dir: Path
     ):
-        """必須キーを欠いたセクションだけが `resolved` を失う（他セクションは残る）.
+        """設定エラーの間も記載値は返し、設定ページから直せるようにする.
 
-        `[probe]` の `min_radius` は既定値を持たないので、消すと cattrs が `Probe` を
-        組めない。1 セクションの不備で全項目の実効値を失うと、無関係なページまで
-        現在値を描けなくなる。
+        `[probe]` の `min_radius` は既定値を持たないので、消すと全体の検証に通らない。
+        部分的に解決した実効値は混ぜない（理由は `/api/state` の config_error に出る）。
         """
         path = config_dir / "machine.toml"
         path.write_text(
@@ -303,7 +302,8 @@ class TestMachineSettingsApi:
 
         assert fields["probe.min_samples"]["resolved"] is None
         assert fields["probe.min_samples"]["value"] == 6
-        assert fields["paste_dispenser.pad_align.canny_low"]["resolved"] == 81.0
+        assert fields["paste_dispenser.pad_align.canny_low"]["resolved"] is None
+        assert fields["paste_dispenser.pad_align.canny_low"]["value"] == 81.0
 
     def test_put_writes_file_and_preserves_comments(
         self, client: TestClient, config_dir: Path

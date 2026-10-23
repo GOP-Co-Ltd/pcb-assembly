@@ -17,8 +17,8 @@
 
 テスト用の `machine.toml` が 2 系統あるのは用途が違うため。`data/testing/config/machine.toml`（79 行）は
 「マシン設定ディレクトリ」として丸ごと `tmp_path` に複製され、WebUI / E2E が読み書きする。コメント保持
-（tomlkit）や欠落キー → `None` の検証素材を意図的に含む。`data/testing/machine.toml`（47 行）と
-`machine_minimal.toml` は `pcbasm.config.Machine` の単体テストがパス指定で直接読むだけのフィクスチャ。
+（tomlkit）や欠落キー → `None` の検証素材を意図的に含む。`data/testing/machine.toml`（51 行）は
+`pcbasm.config.load_machine` の単体テストがパス指定で直接読むだけのフィクスチャ。
 
 `config/` を追跡しないのは、WebUI が実測値（カメラキャリブレーション結果・ツールヘッドオフセット・
 ノズルキャップ座標など）を常時書き込むため。追跡すると装置を動かすたびにリポジトリが dirty になる。

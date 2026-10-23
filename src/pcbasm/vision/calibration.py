@@ -57,6 +57,13 @@ class CalibrationResult:
         return cls.from_dict(json.loads(path.read_text(encoding="utf-8")))
 
 
+def load_focus_z(path: Path) -> float | None:
+    """校正時に記録したカメラの焦点 Z [mm] を読む（未校正・Z の記録が無ければ None）."""
+    if not path.is_file():
+        return None
+    return CalibrationResult.load(path).z_position
+
+
 class CheckerboardCalibrator:
     """チェッカーボードを使った pixel/mm 比率キャリブレーション."""
 

@@ -13,8 +13,10 @@ Phase 3 追記（計画書 webui-phase3.md「既存ルーター・app への変�
 
 MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
 
-- action="move_to_cap" は `AppState.nozzle_cap()` を読む。x/y/z が揃っていない
-  `[paste_dispenser.nozzle_cap]` も「未記録」として 400 で断る（500 にしない）
+- action="move_to_cap" はキャップ位置が未記録なら 400 で断る
+
+設定エラー（degraded）の契約: x/y/z が揃っていない `[paste_dispenser.nozzle_cap]` は
+未記録ではなく設定エラーとして 503 で断り、理由を返す（原点や PRESENT へ動かさない）
 """
 
 import json
@@ -108,17 +110,17 @@ class TestMoveToCap:
         assert response.status_code == 400
         assert "ノズルキャップ" in response.text
 
-    def test_partially_recorded_cap_returns_400(
+    def test_partially_recorded_cap_is_refused_as_a_config_error(
         self, partial_nozzle_cap: Path, client: TestClient
     ):
-        """X だけ保存された `[paste_dispenser.nozzle_cap]` は「未記録」として 400 で断る（MR2）.
+        """X だけ書かれた `[paste_dispenser.nozzle_cap]` は設定エラーとして 503 で断る.
 
-        座標の欠けたテーブルは「未記録」として扱われるので、未記録と同じ 400 へ落ちる。
+        未記録として扱って原点や PRESENT へ動かさない。理由は応答に載せる。
         """
         response = client.post("/api/machine-control", json={"action": "move_to_cap"})
 
-        assert response.status_code == 400
-        assert response.json()["detail"] == "ノズルキャップ位置が未記録です"
+        assert response.status_code == 503
+        assert "x / y / z の 3 つ" in response.json()["detail"]
 
     def test_recorded_cap_passes_validation_and_returns_502(
         self, client: TestClient, config_dir: Path
