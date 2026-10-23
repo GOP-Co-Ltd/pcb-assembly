@@ -5,6 +5,7 @@
 カメラは AppState が組むものを差し替える（カメラの生成口は AppState の中にしか無い）。
 """
 
+import json
 import shutil
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
@@ -17,10 +18,16 @@ from pcbasm.config import Corner, Machine
 from pcbasm.geometry import Compose, Point2d, Rotation, Shift, transform_polygon
 from pcbasm.hal import Camera
 from pcbasm.hal.fake import Checkerboard, FakeAudioPlayer, FakeKlipper, SceneCamera
-from pcbasm.pcb import Layer, PcbFile
+from pcbasm.pasting.paste_volume.calibration import (
+    CALIBRATION_SUFFIX,
+    parse_calibration,
+    write_calibration,
+)
+from pcbasm.pcb import Layer, PadHierarchy, PcbFile
 from pcbasm.pcb.generate import generate_grid_pcb
 from pcbasm.vision import CalibrationResult
 from tests.support import polling
+from tests.support.paths import TESTING_DATA_DIR
 from web.api import state as state_module
 from web.api.board_settings import BoardSettingsStore
 from web.api.config_store import ConfigStore
@@ -35,6 +42,10 @@ JOBS = GOLDEN_DIR / "jobs"
 CONFIG_FILES = (GOLDEN_DIR / "machine.toml", GOLDEN_DIR / "camera_calibration.json")
 CALIBRATION = CalibrationResult.load(GOLDEN_DIR / "camera_calibration.json")
 DISPENSER = Machine(GOLDEN_DIR / "machine.toml").paste_dispenser
+LED_BLINKER = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
+CALIBRATION_PIN = TESTING_DATA_DIR / "schemas" / "paste_volume_calibration_v1.json"
+# 運転時補正で塗る点（board 座標）。pad の無い下側のベタに、crop が重ならない間隔で置く
+FLOW_POINTS = (Point2d(5.0, 20.0), Point2d(10.0, 20.0), Point2d(15.0, 20.0))
 
 # 基板の実際の置き方（board → 機械座標）。左上の基準円は reference_point から 0.3 mm ほどずれる
 BOARD_PLACEMENT = Compose([Rotation(0.3), Shift(6.2, 10.5)])
@@ -98,6 +109,41 @@ def finish(
         lambda: record.status.terminal and state.busy_owner is None, timeout=120.0
     )
     assert record.status == status, record.error
+
+
+def wait_operator(
+    record: JobRecord, audio_player: FakeAudioPlayer, stage: str, calls: int = 1
+) -> None:
+    """``stage`` にいて、ジョブ開始からの入力待ち音が通算 ``calls`` 回鳴る（入口で滞留コマンドを捨て終える）まで待つ."""
+    polling.wait_until(
+        lambda: record.progress_stage == stage
+        and sum(sound == "prompt" for sound, _ in audio_player.played) >= calls,
+        timeout=60.0,
+    )
+
+
+def enable_flow_calibration(settings: Settings, state: AppState, pcb: Path) -> None:
+    """校正ファイルと基板ごとの測定点を置き、運転時補正を有効にする."""
+    calibration, error = parse_calibration(
+        json.loads(CALIBRATION_PIN.read_text(encoding="utf-8"))
+    )
+    assert calibration is not None, error
+    name = f"golden{CALIBRATION_SUFFIX}"
+    write_calibration(settings.paste_volume_calibration_dir / name, calibration)
+    ConfigStore(settings.config_dir).write_machine_settings(
+        {
+            "paste_dispenser.flow_calibration.calibration_file": name,
+            "paste_dispenser.flow_calibration.settle_seconds": 0.0,
+        }
+    )
+    board = PcbFile(pcb)
+    store = BoardSettingsStore(settings.webui_data_dir)
+    model = store.load_or_init(pcb.name, state.machine().paste_dispenser)
+    store.save(
+        pcb.name,
+        model.with_flow_calibration_points(FLOW_POINTS),
+        board_signature=PadHierarchy.build(board.components, board.pads).signature(),
+    )
 
 
 @pytest.fixture
@@ -192,6 +238,12 @@ def grid_shapes(
 ) -> list[Polygon]:
     """グリッド PCB を選び、置いた基板の基準円と銅箔を返す."""
     return place_board(grid_pcb)
+
+
+@pytest.fixture
+def led_blinker_shapes(place_board: Callable[[Path], list[Polygon]]) -> list[Polygon]:
+    """led_blinker（高さ計測できる TOP のベタを持つ）を選び、置いた基板の基準円と銅箔を返す."""
+    return place_board(LED_BLINKER)
 
 
 @pytest.fixture

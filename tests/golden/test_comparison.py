@@ -1,12 +1,13 @@
-"""Golden の比べ方（``tests.support.golden.assert_transcript``）の仕様."""
+"""Golden の比べ方（assert_transcript と assert_document）の仕様."""
 
+import json
 from pathlib import Path
 
 import pytest
 
 from pcbasm.gcode import GCode
 from pcbasm.hal.fake import SentGCode
-from tests.support.golden import UPDATE_ENV, assert_transcript
+from tests.support.golden import UPDATE_ENV, assert_document, assert_transcript
 
 
 def _golden(tmp_path: Path, text: str) -> Path:
@@ -70,3 +71,48 @@ class TestAssertTranscript:
         assert_transcript(_sent("M400"), golden)
 
         assert golden.read_text(encoding="utf-8") == "# send timeout=60.0\nM400\n"
+
+
+class TestAssertDocument:
+    DOCUMENT = {"model": {"coefficients": [0.3, 2]}, "accepted": True, "name": "a"}
+
+    @pytest.fixture(autouse=True)
+    def compare(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv(UPDATE_ENV, raising=False)
+
+    @pytest.fixture
+    def golden(self, tmp_path: Path) -> Path:
+        path = tmp_path / "golden.json"
+        path.write_text(json.dumps(self.DOCUMENT), encoding="utf-8")
+        return path
+
+    def test_numbers_within_tolerance_match(self, golden: Path):
+        document = {
+            **self.DOCUMENT,
+            "model": {"coefficients": [0.30000000000000004, 2.0]},
+        }
+
+        assert_document(document, golden)
+
+    @pytest.mark.parametrize(
+        "change",
+        [
+            {"model": {"coefficients": [0.300001, 2]}},  # 数値が 1e-9 を超えてずれる
+            {"model": {"coefficients": [0.3]}},  # 要素が足りない
+            {"model": {"coefficients": [0.3, 2], "extra": 1}},  # キーが多い
+            {"accepted": 1},  # bool と数値は区別する
+            {"name": "b"},  # 文字列が違う
+        ],
+    )
+    def test_any_other_difference_fails(self, golden: Path, change: dict[str, object]):
+        with pytest.raises(pytest.fail.Exception):
+            assert_document({**self.DOCUMENT, **change}, golden)
+
+    def test_update_env_rewrites_golden(
+        self, golden: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv(UPDATE_ENV, "1")
+
+        assert_document({"name": "b"}, golden)
+
+        assert json.loads(golden.read_text(encoding="utf-8")) == {"name": "b"}
