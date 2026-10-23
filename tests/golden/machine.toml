@@ -44,3 +44,35 @@ min_radius = 0.7
 board_edge_margin = 2.5
 min_samples = 6
 max_samples = 15
+
+[paste_dispenser.pad_align]
+max_correction = 0.5
+search_window = 1.0
+canny_low = 104.0
+canny_high = 235.0
+blur_ksize = 1
+region_size_px = 200
+board_edge_margin = 1.0
+converge_tolerance = 0.015
+region_overlap = 0.2
+
+[camera]
+width = 1280
+height = 800
+fps = 30.0
+calibration_file = "camera_calibration.json"
+
+[camera.crop]
+width = 600
+height = 600
+
+[reference_point]
+x = 8.5
+y = 5.7
+target_diameter = 3.0
+
+[reference_point.offsets]
+top_left = [2.5, -5.0]
+top_right = [-2.5, -5.0]
+bottom_left = [2.5, 5.0]
+bottom_right = [-2.5, 5.0]
