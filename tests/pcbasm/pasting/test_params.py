@@ -127,6 +127,9 @@ class TestValidateParamValues:
             is None
         )
 
+    def test_negative_boundary_margin_is_accepted(self):
+        assert validate_param_values({"boundary_margin": -0.2}) is None
+
     def test_micro_line_values_are_accepted(self):
         values = {
             "dispense_mode": "micro_line",
@@ -158,7 +161,7 @@ class TestValidateParamValues:
             {"ul_per_mm2": 0.0},
             {"bead_width_factor": 0.0},
             {"prime_extra_delay": -1.0},
-            {"boundary_margin": -0.01},
+            {"boundary_margin": float("nan")},
             {"micro_line_z_start": 0.0},
             {"micro_line_z_end": -0.05},
             # 装置設定。pad では上書きできない

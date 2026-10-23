@@ -111,10 +111,11 @@ def offset_components(polygon: Polygon, depth: float) -> list[Polygon]:
     """``polygon.buffer(-depth)`` の結果から ``Polygon`` のみを抽出する.
 
     MultiPolygon は連結成分に分解する。Point/LineString/GeometryCollection
-    内の非 Polygon 要素は除外する。``depth <= 0`` なら ``polygon`` 自身を返す。
+    内の非 Polygon 要素は除外する。``depth == 0`` なら ``polygon`` 自身を返し、
+    ``depth < 0`` なら外側へ ``-depth`` だけ広げる。
     空・不正な結果は空リストとなる。
     """
-    offset = polygon.buffer(-depth) if depth > 0 else polygon
+    offset = polygon.buffer(-depth) if depth != 0 else polygon
 
     if offset.is_empty:
         return []

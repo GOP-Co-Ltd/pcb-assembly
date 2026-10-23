@@ -80,7 +80,7 @@ class FillPlan:
 
         ノズル径と塗布パラメータからビード幅・線間隔・インセットを決定し、
         指定された方式に従って塗布経路を構築する。引数は検証済みの値を受け取る
-        （``nozzle_diameter > 0``、``0 <= overlap < 1``、``boundary_margin >= 0``、
+        （``nozzle_diameter > 0``、``0 <= overlap < 1``、``boundary_margin`` は有限値、
         ``bead_width_factor > 0``、``auto_line_aspect_ratio > 1``、
         ``auto_area_short_side_factor > 0``、``nozzle_outer_diameter >= nozzle_diameter``。
         検証は ``PasteDispenser`` 読込と
@@ -93,6 +93,10 @@ class FillPlan:
             line_spacing   = w * (1 - overlap)
             inset          = boundary_margin + w / 2     # 面塗布領域 = buffer(-inset)、線塗布の両端内側補正
             micro_inset    = boundary_margin + nozzle_outer_diameter / 2  # 微小線の両端内側補正
+
+        ``boundary_margin < 0`` はビード外縁を pad 外形から ``-boundary_margin`` だけはみ出させる。
+        inset が負になると面塗布は pad を外側へ広げた領域を塗り、線塗布は両端を pad の外へ延ばす。
+        微小線も ``micro_inset`` が負なら両端を外へ延ばす。
 
         方式::
 
@@ -354,7 +358,7 @@ def _area_fill(
 ) -> list[list[Point2d]]:
     """面塗布パスを成分別ポリラインのリストとして生成する.
 
-    ``polygon.buffer(-inset)`` の各連結成分（``offset_components``）に
+    ``polygon.buffer(-inset)``（inset が負なら外側へ広げる）の各連結成分（``offset_components``）に
     ``_outline_and_zigzag`` を適用し、空でないポリラインを集めて返す。
     成分が無い（buffer 後が空）場合は ``[]``。
     """
@@ -493,12 +497,12 @@ def _generate_linear_path(
     """ポリゴンの最長軸に沿った 2 点パスを生成する.
 
     ``polygon.minimum_rotated_rectangle`` の長軸の中央線を求め、両端を
-    ``end_inset`` だけ内側に補正した 2 点パスを返す。長軸長が
+    ``end_inset`` だけ内側に補正した 2 点パスを返す（負なら外側へ延ばす）。長軸長が
     ``2 * end_inset`` 以下の場合は ``[]`` を返す。
 
     Args:
         polygon: 対象ポリゴン（mm 単位）
-        end_inset: 両端の内側補正量（mm、検証済みで 0 以上）
+        end_inset: 両端の内側補正量（mm、負なら外側へ延ばす）
 
     Returns:
         ``[start, end]`` の 2 点パス。長軸が短すぎる、または入力が空／不正な

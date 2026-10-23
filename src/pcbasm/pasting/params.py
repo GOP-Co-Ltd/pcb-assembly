@@ -75,7 +75,7 @@ class PasteParams:
         prime_extra_delay: プライム後の追加遅延 [sec]
         bead_width_factor: ビード幅係数（w = nozzle_diameter * bead_width_factor）
         overlap: ジグザグ行間オーバーラップ [0, 1)
-        boundary_margin: 外周マージン [mm]
+        boundary_margin: 外周マージン [mm]（負なら pad 外形をはみ出して塗る）
         micro_line_z_start: 微小線の始点で基板表面から取る隙間 [mm]、または ``auto``（塗布量から計算）
         micro_line_z_end: 微小線の終点で基板表面から取る隙間 [mm]、または ``auto``（塗布量から計算）
     """
