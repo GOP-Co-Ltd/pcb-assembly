@@ -53,7 +53,7 @@ git switch -c fix/YYYY-MM-DD/short-description origin/main
 1. 再現条件または成功条件を先に決める。
 2. 必要な範囲を実装し、公開インターフェースを使って動作を確かめる。
 3. 下記の検証を通してからコミットする。
-4. PR に問題、変更後の動作、検証コマンドと結果、未確認の範囲を書く。
+4. PR テンプレートに沿って、問題、変更後の動作、検証コマンドと結果、実施した受け入れ試験、未確認の範囲を書く。
 
 main に直接コミットしない。main が進んでいる場合は作業ブランチへ
 `git merge origin/main` で取り込み、検証する。push 済みの履歴は書き換えない。
@@ -65,30 +65,26 @@ main へのマージはメンテナーが判断する。
 コミット前に次の基本検証を実行する。
 
 ```sh
-make format
-make type
-make test-no-hardware
+make check  # make format、make type、make test を順に実行する
 ```
 
 WebUI の画面・HTTP・WebSocket・動画配信を変更したら `make test-e2e` も実行する。
 Chromium がシステムにない場合は `make playwright-install` でブラウザを用意する。
 
-| 検証                     | 用途                                              | 実行例                                                              |
-| ------------------------ | ------------------------------------------------- | ------------------------------------------------------------------- |
-| 非実機テスト             | 計算、ファイル、HAL fake を通す結合、SSR / JSON   | `make test-no-hardware`                                             |
-| 対象を絞った非実機テスト | 修正中の短い検証                                  | `uv run pytest tests/pcbasm/geometry -m "not hardware and not e2e"` |
-| E2E                      | 隔離した実サーバーを通すブラウザ・HTTP・WS・MJPEG | `make test-e2e`                                                     |
-| 実機テスト               | 接続された装置での動作。担当者が現場で実行        | `make test`                                                         |
+| 検証               | 用途                                              | 実行例                                |
+| ------------------ | ------------------------------------------------- | ------------------------------------- |
+| テスト             | 計算、ファイル、HAL fake を通す結合、SSR / JSON   | `make test`                           |
+| 対象を絞ったテスト | 修正中の短い検証                                  | `uv run pytest tests/pcbasm/geometry` |
+| E2E                | 隔離した実サーバーを通すブラウザ・HTTP・WS・MJPEG | `make test-e2e`                       |
+| 実機受け入れ試験   | 接続された装置での動作。担当者が merge 前に実施   | [acceptance.md](docs/acceptance.md)   |
 
-**`make test` と `make run` はカメラ・ステージ・サーボ等を動かし得る。**
-無人の開発作業や自動エージェントは `make test-no-hardware` と隔離 E2E までを実行する。
-pytest を直接起動する場合も `-m "not hardware"`（必要なら `and not e2e`）を付ける。
+テストは実機に触れない。Klipper への接続と systemctl の呼び出しは、テスト中は必ず失敗する。
 
 `make format` は git が追跡するファイルだけを検査する。新規ファイルは `git add` してから実行する。
 `make format` がファイルを書き換えた場合は diff を確認して再実行する。
 日本語 docstring は 1 文を 1 行に書く。複数行にまたがる文は docformatter が崩す。
-GitHub Actions は専用 Raspberry Pi runner で pre-commit、pyright、非実機テストと
-隔離 E2E を実行する。`pytest` チェックは非実機テストに続けてブラウザ・HTTP・WS・MJPEG を
+GitHub Actions は専用 Raspberry Pi runner で pre-commit、pyright、テストと
+隔離 E2E を実行する。`pytest` チェックはテストに続けてブラウザ・HTTP・WS・MJPEG を
 検証し、`pytest-report` artifact に両スイートの JUnit レポートを残す。
 
 ## テストの書き方
@@ -99,7 +95,7 @@ GitHub Actions は専用 Raspberry Pi runner で pre-commit、pyright、非実�
 - 公開 API の入出力と観測可能な振る舞いを検証する。private 属性や呼出順を固定しない。
 - 実データと一時ファイルを優先する。fake は自前 HAL の抽象だけに使い、
     OpenCV、picamera2、Klipper RPC、`time.sleep`、内部関数をモックしない。
-- 実機テストには `tests.helpers.mark_hardware` と必要な接続確認を付ける。
+- 実機でしか確かめられないことはテストにせず、[実機受け入れ試験](docs/acceptance.md) に項目を足す。
 - getter の追試や定数の複写だけのテストを増やさない。失敗がどの回帰を示すかを説明できる内容にする。
 
 JSON / SSR は in-process の実 backend で検証できる。

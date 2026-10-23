@@ -1,6 +1,5 @@
 """通知音 HAL の公開契約テスト."""
 
-import re
 import wave
 from pathlib import Path
 from typing import get_args
@@ -17,7 +16,6 @@ from pcbasm.hal.audio import (
     parse_aplay_devices,
     selectable_devices,
 )
-from tests.helpers import mark_hardware, skip_if_no_alsa_audio
 
 # 実機（Raspberry Pi 5 + HifiBerry DAC）で採取した `aplay -L` の出力
 APLAY_OUTPUT = """\
@@ -67,8 +65,6 @@ hdmi:CARD=vc4hdmi1,DEV=0
     vc4-hdmi-1, MAI PCM i2s-hifi-0
     HDMI Audio Output
 """
-
-HARDWARE_DEVICE_PATTERN = re.compile(r"^(default|plughw:CARD=[^,]+,DEV=0)$")
 
 
 def write_8bit_wav(path: Path) -> Path:
@@ -158,7 +154,7 @@ class TestSoundAssets:
 
 
 class TestAlsaAudioPlayer:
-    """AlsaAudioPlayer の終了契約と実 ALSA での再生."""
+    """AlsaAudioPlayer の終了契約."""
 
     @pytest.mark.parametrize("close_count", [1, 2], ids=["once", "idempotent"])
     def test_play_after_close_fails_with_playback_error(self, close_count: int):
@@ -185,29 +181,5 @@ class TestAlsaAudioPlayer:
         try:
             with pytest.raises(AudioPlaybackError, match="16-bit PCM"):
                 player.play("success", Audio()).result(timeout=5.0)
-        finally:
-            player.close()
-
-    @mark_hardware
-    @skip_if_no_alsa_audio
-    def test_lists_default_and_plughw_devices(self):
-        player = AlsaAudioPlayer()
-        try:
-            devices = player.list_devices()
-        finally:
-            player.close()
-
-        assert devices[0].name == "default"
-        assert all(HARDWARE_DEVICE_PATTERN.match(device.name) for device in devices)
-
-    @mark_hardware
-    @skip_if_no_alsa_audio
-    def test_plays_success_and_failure_sounds(self):
-        player = AlsaAudioPlayer()
-        try:
-            assert player.play("success", Audio()).result(timeout=30.0) is None
-            assert (
-                player.play("failure", Audio(volume=0.3)).result(timeout=30.0) is None
-            )
         finally:
             player.close()

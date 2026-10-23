@@ -18,7 +18,6 @@ import pytest
 from pcbasm.hal import AudioPlayer
 from tests.support import polling
 from web.api.board_settings import BoardSettingsStore
-from web.api.config_store import ConfigStore
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import JobContext, JobResult
 from web.api.jobs.manager import JobManager, JobRecord
@@ -176,27 +175,3 @@ def manager(make_manager: ManagerFactory, catalog: JobCatalog) -> JobManager:
 def wait_until() -> WaitUntil:
     """条件成立までポーリングする共有ポーラ（tests.support.polling.wait_until）を返す."""
     return polling.wait_until
-
-
-@pytest.fixture
-def real_state(real_settings: Settings) -> Iterator[AppState]:
-    """実機（実 Moonraker）向け AppState。`@mark_hardware` 専用."""
-    state = AppState(real_settings, ConfigStore(real_settings.config_dir))
-    yield state
-    state.close()
-
-
-@pytest.fixture
-def real_manager(
-    real_state: AppState, real_settings: Settings, catalog: JobCatalog
-) -> Iterator[JobManager]:
-    """実機向け JobManager。`@mark_hardware` 専用（catalog は各モジュールの override）."""
-    manager = JobManager(
-        real_state,
-        PreviewService(real_state),
-        catalog,
-        real_settings,
-        make_board_store(real_settings),
-    )
-    yield manager
-    manager.shutdown(timeout=60.0)

@@ -20,10 +20,9 @@ from typing import override
 import numpy as np
 import pytest
 
-from pcbasm.hal import FrameHub, create_camera
+from pcbasm.hal import FrameHub
 from pcbasm.hal.fake import FakeCamera
 from pcbasm.vision import CircleDetector, Image
-from tests.helpers import mark_hardware, skip_if_no_csi_camera
 from tests.support.paths import TESTING_DATA_DIR
 from tests.support.polling import wait_until
 
@@ -135,26 +134,6 @@ class TestFrameHubLifecycle:
         hub.stop()
 
         assert isinstance(camera.capture(), Image)
-
-    @mark_hardware
-    @skip_if_no_csi_camera
-    def test_real_csi_camera_smoke(self):
-        camera = create_camera(
-            device_id=0, width=1280, height=720, fps=30.0, backend="csi"
-        )
-        hub = FrameHub(camera)
-
-        hub.start()
-        try:
-            assert hub.latest(timeout=10.0).size == (1280, 720)
-            source_a = hub.subscribe(timeout=10.0)
-            source_b = hub.subscribe(timeout=10.0)
-            assert source_a.capture().size == (1280, 720)
-            assert source_b.capture().size == (1280, 720)
-        finally:
-            hub.stop()
-
-        assert not hub.running
 
 
 class TestFrameSource:

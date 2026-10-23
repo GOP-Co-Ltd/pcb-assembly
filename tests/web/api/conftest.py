@@ -10,7 +10,6 @@ tmp_path に `data/testing/config` をコピーした Settings を `create_app` 
   `machine_minimal.toml` とは別物
 - 通知音は `FakeAudioPlayer` を注入する。既定の `AlsaAudioPlayer` だと完了通知付き
   ジョブが実 `aplay` を起動して実スピーカーが鳴るため
-- 実機系（`@mark_hardware`）はリポジトリの実 `config/`（port 7125）を使う
 - Settings は env ではなく直接構築して注入する（env はプロセスグローバルで leak するため）
 """
 
@@ -26,7 +25,6 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from pcbasm.hal.fake import FakeAudioPlayer
-from pcbasm.utils import PROJECT_ROOT
 from pcbasm.vision import ImageArray
 from tests.helpers import copy_testing_config
 from tests.support.paths import TESTING_DATA_DIR
@@ -245,35 +243,3 @@ def checkerboard_camera_client(
     checkerboard_camera_app: FastAPI,
 ) -> Iterator[TestClient]:
     yield from _lifespan_client(checkerboard_camera_app)
-
-
-@pytest.fixture
-def real_settings(tmp_path: Path) -> Settings:
-    """実機向け Settings。`@mark_hardware` テスト専用.
-
-    実機の `config/`（`scripts/setup-machine-config.sh` 実行済み）を読む。`config/` は
-    git 管理外なので実機以外には 存在しないが、`@mark_hardware` は `make test-no-hardware`
-    では collect されるだけで fixture が評価されない。
-    """
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
-    return Settings(
-        config_dir=PROJECT_ROOT / "config",
-        data_dir=data_dir,
-        pcb_browse_root=PROJECT_ROOT,
-        pcb_browse_allowed=(PROJECT_ROOT,),
-        discovery_enabled=False,
-    )
-
-
-@pytest.fixture
-def real_client(
-    real_settings: Settings, paste_test_board_footprint_root: Path
-) -> Iterator[TestClient]:
-    with TestClient(
-        create_app(
-            real_settings,
-            paste_test_board_footprint_root=paste_test_board_footprint_root,
-        )
-    ) as test_client:
-        yield test_client

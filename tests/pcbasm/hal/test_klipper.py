@@ -10,7 +10,6 @@ from pcbasm.gcode import PRESENT_MACRO, GCode
 from pcbasm.hal.fake import FakeKlipper
 from pcbasm.hal.klipper import GCodeMacro, Klipper, open_klipper
 from pcbasm.machine.journal import Journal, format_block
-from tests.helpers import mark_hardware
 
 
 class TestKlipper:
@@ -19,40 +18,6 @@ class TestKlipper:
     @pytest.fixture
     def klipper(self) -> Klipper:
         return Klipper()
-
-    @mark_hardware
-    def test_send_gcode(self, klipper: Klipper):
-        result = klipper.send_gcode("M115")
-
-        assert "result" in result
-
-    @mark_hardware
-    def test_get_status(self, klipper: Klipper):
-        homed_axes = klipper.get_status("toolhead", "homed_axes")
-
-        assert isinstance(homed_axes, str)
-
-    @mark_hardware
-    def test_get_status_gcode_position(self, klipper: Klipper):
-        position = klipper.get_status("gcode_move", "gcode_position")
-
-        assert isinstance(position, list)
-        assert len(position) >= 3  # X, Y, Zはあるはず
-
-    @mark_hardware
-    def test_get_config(self, klipper: Klipper):
-        config = klipper.get_config()
-
-        assert isinstance(config, dict)
-
-    @mark_hardware
-    def test_get_macros(self, klipper: Klipper):
-        macros = klipper.get_macros()
-
-        assert isinstance(macros, dict)
-        for name, macro in macros.items():
-            assert isinstance(name, str)
-            assert isinstance(macro, GCodeMacro)
 
     def test_get_macros_parses_config(self, mocker):
         klipper = Klipper()

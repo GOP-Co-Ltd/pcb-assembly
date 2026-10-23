@@ -55,12 +55,11 @@ dev = [
 [tool.pytest.ini_options]
 # 送信 G-code の golden（tests/golden/）は環境変数 PCBASM_UPDATE_GOLDEN=1 のときだけ書き換わる。
 # 送信列を意図して変えたときに限り、次で更新して差分を PR の主題にする:
-#   PCBASM_UPDATE_GOLDEN=1 uv run pytest tests/golden -m "not hardware"
+#   PCBASM_UPDATE_GOLDEN=1 uv run pytest tests/golden
 addopts = [
   "--color=yes",
   "--durations=0",
   "--strict-markers",
-  "--doctest-modules",
 ]
 filterwarnings = [
   "ignore::DeprecationWarning",
@@ -74,7 +73,6 @@ log_level = "INFO"
 minversion = "6.0"
 testpaths = "tests/"
 markers = [
-  "hardware: tests that require physical hardware (deselect with '-m \"not hardware\"')",
   "e2e: full-stack tests against a live uvicorn server (run with 'make test-e2e')",
   "browser: tests that drive a real Playwright browser",
 ]

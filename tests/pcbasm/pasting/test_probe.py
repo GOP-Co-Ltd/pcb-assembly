@@ -12,10 +12,8 @@ import pytest
 from pytest_mock import MockerFixture
 
 from pcbasm.gcode import GCode
-from pcbasm.hal import XYZStage
 from pcbasm.hal.klipper import Klipper
 from pcbasm.pasting.probe import ProbeExecutor
-from tests.helpers import mark_hardware
 
 
 def _patch_config(mocker: MockerFixture, klipper: Klipper, config: dict) -> None:
@@ -44,12 +42,6 @@ class TestProbeExecutor:
         stage = mocker.Mock()
         stage.move.return_value = GCode("G1 Z1.25")
         return stage
-
-    @mark_hardware
-    def test_init(self):
-        """実機の printer.cfg に [load_cell_probe] が構成済みであること."""
-        klipper = Klipper()
-        ProbeExecutor(klipper, XYZStage(klipper.readonly), settle_sec=0.0)
 
     def test_init_without_load_cell_probe_section_raises(self, mocker: MockerFixture):
         klipper = Klipper()

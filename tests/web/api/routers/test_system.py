@@ -6,9 +6,8 @@
 - POST /api/emergency-stop は接続不能で 502、ロック非経由
 - POST /api/firmware-restart は接続不能で 502、ロック非経由、
   先頭で jobs.request_abort()
-- 実 Moonraker への status は `@mark_hardware`（ユーザー実行）。
-  emergency_stop / firmware_restart の実機テストは書かない
-  （装置への副作用が大きい）
+- 実 Moonraker での status と、emergency_stop / firmware_restart の成功経路は
+  受け入れ試験（docs/acceptance.md の A1、A14）で確かめる
 
 Phase 3 追記（計画書 webui-phase3.md「既存ルーター・app への変更」節）:
 
@@ -26,7 +25,6 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from pcbasm.hal.fake import FakeAudioPlayer
-from tests.helpers import mark_hardware
 from tests.web.api.jobs.conftest import register_gated
 from tests.web.update_support import UpdateSandbox, make_update_sandbox
 from web.api.app import create_app
@@ -49,22 +47,6 @@ class TestKlipperStatus:
         assert data["connected"] is False
         assert data["error"]
         assert data["position"] is None
-
-    @mark_hardware
-    def test_real_moonraker_reports_position_and_homed_axes(
-        self, real_client: TestClient
-    ):
-        response = real_client.get("/api/klipper/status")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["connected"] is True
-        assert data["error"] is None
-        position = data["position"]
-        assert isinstance(position["x"], float)
-        assert isinstance(position["y"], float)
-        assert isinstance(position["z"], float)
-        assert isinstance(data["homed_axes"], str)
 
 
 @pytest.mark.usefixtures("unreachable_klipper")
@@ -149,23 +131,16 @@ class TestStageLimits:
 
         assert response.status_code == 502
 
-    @mark_hardware
-    def test_real_stage_reports_min_max_per_axis(self, real_client: TestClient):
-        response = real_client.get("/api/stage/limits")
-
-        assert response.status_code == 200
-        data = response.json()
-        for axis in ("x", "y", "z"):
-            assert data[axis]["min"] < data[axis]["max"]
-
 
 @pytest.mark.usefixtures("unreachable_klipper")
 class TestFirmwareRestartAlsoRestartsServices:
     """ファームウェア再起動は WebUI のサービス（api / ui）も再起動する.
 
-    成功経路は実 Moonraker が要る（`@mark_hardware` でも書かない: 装置への副作用が
-    大きい）。ここで固定するのは **Klipper へ送れなかったときに unit を落とさない**
-    こと。落とすと、装置が応答しない状態で画面まで一緒に消える。
+    成功経路は実 Moonraker が要るので、受け入れ試験（A14）で確かめる。
+
+    ここで固定するのは、Klipper へ送れなかったときに unit を落とさないこと。
+
+    落とすと、装置が応答しない状態で画面まで一緒に消える。
     """
 
     @pytest.fixture
