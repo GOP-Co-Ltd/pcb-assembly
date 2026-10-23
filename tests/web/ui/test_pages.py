@@ -6,7 +6,7 @@
 
 - **URL 空間**: `/` の 307、未 prefix URL の 307、`/m/{machine_id}` prefix、プロキシ経路が
   pages ルータに食われないこと、未知タブ / 未知 feature の 404
-- **backend が居ないとき**: 登録 0 台での案内ページ、到達不能の 503、版ずれの 503
+- **backend が居ないとき**: 登録 0 台での案内ページ、到達不能の 503、版ずれの 503、更新専用ページ
 - **値を捏造しないこと**: 未記載キーは backend の `resolved` で描き、解決できないときは
   0 で埋めず 503 にする（スライダーの value がそのまま machine.toml へ書き戻るため）
 - **machine.toml が壊れても SSR が 500 しない**（設定の現在値を要る
@@ -1212,6 +1212,49 @@ class TestUnreachableBackendPage:
             response = client.get("/m/dead/posctrl")
 
         assert response.headers["retry-after"] == "5"
+
+
+class TestUpdateOnlyMachinePage:
+    """API 版のずれた機体のページ（どの URL も更新専用ページになる）.
+
+    proxy はこの機体へ更新と緊急停止だけを中継するので、ページは backend に問い合わせずに描き、
+    更新パネルと緊急停止だけを出す。上流は誰も listen していない port で、到達を試みれば 503 になる。
+    """
+
+    @staticmethod
+    def _old() -> tuple[MachineEndpoint, ...]:
+        return (
+            MachineEndpoint(
+                machine_id="old", host="127.0.0.1", port=1, update_only=True
+            ),
+        )
+
+    @pytest.mark.parametrize(
+        "path", ["/m/old/posctrl", "/m/old/settings", "/m/old/dev/update"]
+    )
+    def test_every_machine_page_is_the_update_panel(self, tmp_path: Path, path: str):
+        with _frontend_only(self._old(), tmp_path) as client:
+            response = client.get(path)
+
+        assert response.status_code == 200
+        assert 'data-machine-base="/m/old"' in response.text
+        assert 'data-status-url="/api/update/status"' in response.text
+
+    def test_keeps_the_emergency_stop_but_no_unrelayed_commands(self, tmp_path: Path):
+        with _frontend_only(self._old(), tmp_path) as client:
+            text = client.get("/m/old/posctrl").text
+
+        assert 'data-testid="estop"' in text
+        assert 'data-testid="topbar-menu"' not in text
+        # 操作権は更新の要求で backend が取るので、パネルを閉じない
+        assert '<div class="update-actions">' in text
+
+    def test_has_no_tabs_that_lead_back_to_itself(self, tmp_path: Path):
+        with _frontend_only(self._old(), tmp_path) as client:
+            text = client.get("/m/old/posctrl").text
+
+        assert 'href="/m/old/posctrl"' not in text
+        assert 'href="/bulk"' in text
 
 
 class TestBackendContractMismatch:

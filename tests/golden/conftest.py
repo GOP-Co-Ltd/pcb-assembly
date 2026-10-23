@@ -13,7 +13,6 @@ from pathlib import Path
 import pytest
 from shapely import Point, Polygon
 
-from pcbasm import hal
 from pcbasm.config import Corner, Machine
 from pcbasm.geometry import Compose, Point2d, Rotation, Shift, transform_polygon
 from pcbasm.hal import Camera
@@ -144,30 +143,6 @@ def enable_flow_calibration(settings: Settings, state: AppState, pcb: Path) -> N
         model.with_flow_calibration_points(FLOW_POINTS),
         board_signature=PadHierarchy.build(board.components, board.pads).signature(),
     )
-
-
-@pytest.fixture
-def mount_klipper(monkeypatch: pytest.MonkeyPatch) -> Callable[[FakeKlipper], None]:
-    """``open_klipper`` がどれも同じ fake 機体への接続を返すようにする関数を返す."""
-
-    def mount(klipper: FakeKlipper) -> None:
-        monkeypatch.setattr(
-            hal,
-            "open_klipper",
-            lambda config, *, timeout=None, journal=None: klipper.connection(
-                timeout=timeout
-            ),
-        )
-
-    return mount
-
-
-@pytest.fixture
-def machine_klipper(mount_klipper: Callable[[FakeKlipper], None]) -> FakeKlipper:
-    """``open_klipper`` がどれも接続を返す 1 台の fake 機体（送信の記録は全接続で 1 列）."""
-    klipper = FakeKlipper()
-    mount_klipper(klipper)
-    return klipper
 
 
 @pytest.fixture

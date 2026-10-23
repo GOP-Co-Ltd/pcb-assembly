@@ -56,19 +56,8 @@ def _instance_id(info: ServiceInfo) -> str:
 
 
 def _api_compatible(properties: Mapping[bytes, bytes | None]) -> bool:
-    """広告の ``api`` がこの frontend で描画できる版か.
-
-    欠損・decode 不能・数値でない場合は互換扱いで通す。
-
-    版を読めて、かつ版が違うときだけ除外する（描画できない backend を一覧に出さない）。
-    """
-    raw = _text(properties, TXT_KEY_API)
-    if raw is None:
-        return True
-    try:
-        return int(raw) == API_VERSION
-    except ValueError:
-        return True
+    """広告の ``api`` がこの frontend で描画できる版か（読めない版は描画できない扱い）."""
+    return _text(properties, TXT_KEY_API) == str(API_VERSION)
 
 
 def endpoint_from_service_info(info: ServiceInfo) -> MachineEndpoint | None:
@@ -79,11 +68,10 @@ def endpoint_from_service_info(info: ServiceInfo) -> MachineEndpoint | None:
 
     Returns:
         変換した MachineEndpoint。machine_id が判らない / IPv4 アドレスが無い /
-        port が無い / API 版が違う場合は None（一覧に出さない）
+        port が無い場合は None（一覧に出さない）。API 版が違う backend も一覧から
+        外さず、更新専用にする（WebUI から更新して版を揃え、緊急停止もできるように）
     """
     properties = info.properties
-    if not _api_compatible(properties):
-        return None
     machine_id = _text(properties, TXT_KEY_ID) or _instance_id(info)
     if not machine_id:
         return None
@@ -97,6 +85,7 @@ def endpoint_from_service_info(info: ServiceInfo) -> MachineEndpoint | None:
         port=info.port,
         machine_type=_text(properties, TXT_KEY_TYPE),
         source="mdns",
+        update_only=not _api_compatible(properties),
     )
 
 

@@ -12,9 +12,9 @@ from tests.e2e.conftest import (
     LiveServer,
     LiveUi,
     acquire_control,
-    make_api_settings,
 )
 from tests.e2e.network import DelayedHttp, delayed_ui
+from tests.support.settings import make_api_settings
 from tests.web.api.conftest import CHECKERBOARD_CAMERA_IMAGE
 from web.api.config_store import ConfigStore
 from web.api.settings import Settings

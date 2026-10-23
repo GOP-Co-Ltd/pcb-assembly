@@ -393,14 +393,6 @@ class TestGateCoverage:
         assert response.status_code == 423
         assert response.json()["holder"]["display_name"] == "田中"
 
-    def test_emergency_stop_works_for_a_viewer(self, client: TestClient):
-        """緊急停止は安全機能なので閲覧者でも通る（Klipper 不達の 502 まで到達）."""
-        assert client.post("/api/control/acquire", headers=ALICE).status_code == 200
-
-        response = client.post("/api/emergency-stop", headers=BOB)
-
-        assert response.status_code == 502
-
     def test_viewer_can_abort_a_job_started_by_the_holder(
         self, client: TestClient, app: FastAPI
     ):

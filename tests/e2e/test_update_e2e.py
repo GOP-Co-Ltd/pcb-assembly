@@ -29,11 +29,13 @@ from tests.e2e.conftest import (
     LiveServer,
     LiveUi,
     acquire_control as _acquire_control,
-    make_api_settings as _make_api_settings,
-    make_ui_settings as _make_ui_settings,
     start_app as _start_app,
 )
 from tests.support.polling import wait_until
+from tests.support.settings import (
+    make_api_settings as _make_api_settings,
+    make_ui_settings as _make_ui_settings,
+)
 from tests.web.update_support import UpdateSandbox, make_update_sandbox
 from web.api.app import create_app
 from web.selfupdate.runner import UpdateRunner

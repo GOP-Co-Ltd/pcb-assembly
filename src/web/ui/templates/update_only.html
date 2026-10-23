@@ -1,0 +1,37 @@
+{# 版のずれた機体のページ（/m/<machine_id>/… のどの URL もこれになる）。
+   proxy はこの機体へ更新と緊急停止だけを中継するので、その 2 つだけを出す
+   （緊急停止はトップバー）。更新の要求は空いていれば backend が操作権を取るので、
+   操作権バーは出さず、パネルにも data-requires-control を付けない。
+   /api/control/* は中継しないので、ほかの端末が操作権を持つときは案内だけを出す #}
+{% extends "base.html" %}
+{% block title %}{{ title }} — PCB Assembly WebUI{% endblock %}
+{% block layout_class %}single-pane{% endblock %}
+{% block content %}
+<section class="main-pane" data-testid="main-pane">
+  <h1>{{ title }}</h1>
+  <p class="placeholder" data-testid="update-only-detail">
+    この機体と UI サーバーはソフトウェアの版が違うため、更新と緊急停止だけを使えます。
+    古いほうを更新して版を揃えると、通常の画面に戻ります。
+  </p>
+  <p class="placeholder">
+    ほかの端末がこの機体の操作権を持っていると、更新は断られます。この画面では操作権を取れないので、
+    その端末でこのページを開いて更新してください。
+  </p>
+  {% with update_status_url = "/api/update/status",
+          update_check_url = "/api/update/check",
+          update_run_url = "/api/update/run",
+          update_transport = "backend",
+          update_requires_control = False %}
+  {% include "partials/update_panel.html" %}
+  {% endwith %}
+  <section class="status-card">
+    <h3>UI サーバーの更新</h3>
+    <p>UI サーバーのほうが古いときは、UI サーバーを更新します。</p>
+    {# base を付けない: frontend 自身のページで、機体には中継しない #}
+    <p><a href="/update">UI サーバーの更新ページを開く</a></p>
+  </section>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ static_asset('js/update.js') }}"></script>
+{% endblock %}

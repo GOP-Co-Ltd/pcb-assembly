@@ -15,6 +15,7 @@
 from collections.abc import Iterator
 from pathlib import Path
 
+import attrs
 import pytest
 from fastapi.testclient import TestClient
 
@@ -115,6 +116,25 @@ class TestBulkPage:
         assert ('data-testid="bulk-paste-run"' in _row(html, machine.machine_id)) is (
             has_run
         )
+
+    def test_update_only_row_links_to_the_update_page_instead_of_row_controls(
+        self, tmp_path: Path
+    ):
+        """版のずれた機体は取得・塗布実行を中継できないので、更新専用ページへ案内する."""
+        old = attrs.evolve(_PASTE, update_only=True)
+        settings = UiSettings(
+            machines=(old,),
+            machines_file=tmp_path / "machines.toml",
+            discovery_enabled=False,
+            update_state_dir=tmp_path / "selfupdate",
+        )
+        with TestClient(create_app(settings)) as client:
+            row = _row(client.get(BULK_PATH).text, old.machine_id)
+
+        assert old.label in row
+        assert 'href="/m/paste1/dev/update"' in row
+        assert "data-row-base" not in row
+        assert 'data-testid="bulk-acquire"' not in row
 
     def test_pnp_section_says_not_implemented(self, bulk_client: TestClient):
         html = bulk_client.get(BULK_PATH).text

@@ -94,30 +94,31 @@ class TestEndpointFromServiceInfo:
     def test_advertisement_without_port_is_dropped(self):
         assert endpoint_from_service_info(make_info(port=0)) is None
 
-    def test_mismatched_api_version_is_dropped(self):
-        """描けない版の backend はドロップダウンに出さない（D3）."""
-        info = make_info(
-            properties={b"id": b"alpha", b"api": str(API_VERSION + 1).encode()}
-        )
+    def test_matching_api_version_is_fully_usable(self):
+        endpoint = endpoint_from_service_info(make_info())
 
-        assert endpoint_from_service_info(info) is None
+        assert endpoint is not None
+        assert endpoint.update_only is False
 
     @pytest.mark.parametrize(
         "properties",
         (
+            {b"id": b"alpha", b"api": str(API_VERSION + 1).encode()},
             {b"id": b"alpha"},
             {b"id": b"alpha", b"api": b"\xff"},
             {b"id": b"alpha", b"api": b"not-a-number"},
         ),
-        ids=("missing", "non_utf8", "not_a_number"),
+        ids=("mismatched", "missing", "non_utf8", "not_a_number"),
     )
-    def test_unreadable_api_version_is_treated_as_compatible(
+    def test_other_api_version_is_listed_as_update_only(
         self, properties: dict[bytes, bytes]
     ):
+        """描けない版の backend も一覧に残し、更新と緊急停止だけを使えるようにする."""
         endpoint = endpoint_from_service_info(make_info(properties=properties))
 
         assert endpoint is not None
         assert endpoint.machine_id == "alpha"
+        assert endpoint.update_only is True
 
 
 class TestDiscoveryWithoutMulticast:

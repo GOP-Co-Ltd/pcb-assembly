@@ -22,9 +22,9 @@ from tests.e2e.conftest import (
     E2E_MACHINE_ID,
     LiveServer,
     LiveUi,
-    make_ui_settings,
     start_app,
 )
+from tests.support.settings import make_ui_settings
 from web.ui.app import create_app
 from web.ui.machines import MachineEndpoint
 
