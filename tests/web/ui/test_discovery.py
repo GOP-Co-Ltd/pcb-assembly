@@ -37,7 +37,6 @@ def make_info(
     if properties is None:
         properties = {
             b"id": b"kurousagi",
-            b"type": b"paste",
             b"api": str(API_VERSION).encode(),
         }
     return ServiceInfo(
@@ -60,13 +59,12 @@ class TestEndpointFromServiceInfo:
         assert endpoint.machine_id == "kurousagi"
         assert endpoint.host == "192.168.100.201"
         assert endpoint.port == 8081
-        assert endpoint.machine_type == "paste"
         assert endpoint.source == "mdns"
 
     @pytest.mark.parametrize(
         "properties",
         (
-            pytest.param({b"type": b"paste"}, id="id 欠落"),
+            pytest.param({}, id="id 欠落"),
             pytest.param({b"id": b"\xff\xfe"}, id="id が非 UTF-8"),
         ),
     )
@@ -79,14 +77,6 @@ class TestEndpointFromServiceInfo:
 
         assert endpoint is not None
         assert endpoint.machine_id == "alpha"
-
-    def test_non_utf8_machine_type_is_dropped(self):
-        endpoint = endpoint_from_service_info(
-            make_info(properties={b"id": b"alpha", b"type": b"\xfe"})
-        )
-
-        assert endpoint is not None
-        assert endpoint.machine_type is None
 
     def test_advertisement_without_ipv4_address_is_dropped(self):
         assert endpoint_from_service_info(make_info(addresses=[])) is None

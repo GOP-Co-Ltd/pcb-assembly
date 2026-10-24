@@ -28,7 +28,6 @@ def register(catalog: JobCatalog) -> None:
         JobDefinition(
             name="paste_dataset_finalize",
             label="未完了ペーストdatasetの確定",
-            tab="pasting",
             run=_run_paste_dataset_finalize,
             params=(
                 ParamSpec(

@@ -1,4 +1,4 @@
-"""Posctrl タブのジョブ定義（基準点設定 / カメラキャリブレーション / 巡回系 / グリッド PCB 生成）."""
+"""位置合わせのジョブ定義（基準点設定 / カメラキャリブレーション / 巡回系 / グリッド PCB 生成）."""
 
 from __future__ import annotations
 
@@ -58,12 +58,11 @@ _TEXT_COLOR = (0, 255, 255)  # 現在位置テキストの色 (BGR: 黄)
 
 
 def register_posctrl_jobs(catalog: JobCatalog) -> None:
-    """Posctrl タブの 5 ジョブを登録する."""
+    """位置合わせの 5 ジョブを登録する."""
     catalog.register(
         JobDefinition(
             name="reference_point_setup",
             label="基準点設定",
-            tab="posctrl",
             run=_run_reference_point_setup,
             uses_machine=True,
             accepts_commands=True,
@@ -73,7 +72,6 @@ def register_posctrl_jobs(catalog: JobCatalog) -> None:
         JobDefinition(
             name="camera_calibration",
             label="カメラキャリブレーション",
-            tab="posctrl",
             run=_run_camera_calibration,
             params=(
                 ParamSpec(
@@ -88,7 +86,6 @@ def register_posctrl_jobs(catalog: JobCatalog) -> None:
         JobDefinition(
             name="board_tour",
             label="ボード巡回",
-            tab="posctrl",
             run=_run_board_tour,
             params=(
                 ParamSpec("tolerance", "位置合わせ許容誤差", "float", 0.1, unit="mm"),
@@ -101,7 +98,6 @@ def register_posctrl_jobs(catalog: JobCatalog) -> None:
         JobDefinition(
             name="orthogonality_test",
             label="直行性テスト",
-            tab="posctrl",
             run=_run_orthogonality_test,
             params=(
                 ParamSpec("tolerance", "位置合わせ許容誤差", "float", 0.1, unit="mm"),
@@ -114,7 +110,6 @@ def register_posctrl_jobs(catalog: JobCatalog) -> None:
         JobDefinition(
             name="generate_grid_pcb",
             label="グリッド PCB 生成",
-            tab="posctrl",
             run=_run_generate_grid_pcb,
             params=(
                 ParamSpec("size", "基板の一辺", "float", 40.0, unit="mm"),

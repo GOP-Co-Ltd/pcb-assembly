@@ -21,8 +21,6 @@ DISPENSE_MODES = ("auto", "dot", "line", "area", "micro_line")
 DispenseMode = Literal["auto", "dot", "line", "area", "micro_line"]
 LINE_DIRECTIONS = ("unconstrained", "outward", "inward")
 LineDirection = Literal["unconstrained", "outward", "inward"]
-MACHINE_TYPES = ("paste", "pnp")
-MachineType = Literal["paste", "pnp"]
 PasteHeight = float | Literal["auto"]
 DEFAULT_AUTO_LINE_ASPECT_RATIO = 1.618
 DEFAULT_AUTO_AREA_SHORT_SIDE_FACTOR = 3.0
@@ -723,12 +721,6 @@ def _structure_line_direction(value: object, _: object) -> LineDirection:
     raise ValueError(f"未知の線走行方向です: {value!r}")
 
 
-def _structure_machine_type(value: object, _: object) -> MachineType:
-    if isinstance(value, str) and value in MACHINE_TYPES:
-        return value
-    raise ValueError(f"未知のマシン種別です: {value!r}")
-
-
 def _structure_paste_height(value: object, _: object) -> PasteHeight:
     if value == "auto":
         return "auto"
@@ -770,9 +762,6 @@ def _make_converter() -> cattrs.Converter:
         lambda t: t == LineDirection, _structure_line_direction
     )
     converter.register_structure_hook_func(
-        lambda t: t == MachineType, _structure_machine_type
-    )
-    converter.register_structure_hook_func(
         lambda t: t == PasteHeight, _structure_paste_height
     )
     for cls in (NozzleCap, NozzleClean):
@@ -797,9 +786,11 @@ class ConfigError(Exception):
 
 @attrs.frozen
 class Machine:
-    """machine.toml 全体の設定（:func:`load_machine` が一括で検証して作る）."""
+    """machine.toml 全体の設定（:func:`load_machine` が一括で検証して作る）.
 
-    machine_type: MachineType
+    未知のキーは読み飛ばす（稼働機の machine.toml には、もう読まない ``machine_type`` が残っている）。
+    """
+
     klipper: Klipper
     paste_dispenser: PasteDispenser
     camera: Camera

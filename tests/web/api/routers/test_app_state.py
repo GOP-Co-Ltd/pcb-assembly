@@ -118,14 +118,13 @@ class TestMachineInfoApi:
         assert response.status_code == 200
         assert response.json() == {
             "machine_id": "paste-01",
-            "machine_type": "paste",
             "mainsail_url": settings.mainsail_url,
             # pcb_browse_start == pcb_browse_root なので初期表示は root
             "fb_start": "",
             # frontend / discovery の互換判定に使う値なので、`web.api.models.API_VERSION`
             # を import せずリテラルで固定する（import すると同語反復になり、うっかりの
             # バンプが無音で通る）。バンプは意図的な契約変更なのでここも同時に更新する
-            "api_version": 5,
+            "api_version": 6,
         }
 
     def test_mainsail_url_resolves_from_machine_id_not_request_host(
@@ -155,19 +154,6 @@ class TestMachineInfoApi:
             info = client.get("/api/machine-info").json()
 
         assert info["mainsail_url"] == "http://paste-01.local"
-
-    def test_unreadable_machine_type_reports_null(
-        self, client: TestClient, config_dir: Path
-    ):
-        """Machine_type が読めない config でも 200 を返す（プローブが死なない）."""
-        path = config_dir / "machine.toml"
-        path.write_text("machine_type = 42\n", encoding="utf-8")
-
-        response = client.get("/api/machine-info")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["machine_type"] is None
 
     def test_fb_start_is_relative_to_browse_root(self, webui_settings: Settings):
         settings = attrs.evolve(

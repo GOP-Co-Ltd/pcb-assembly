@@ -8,7 +8,7 @@
   {% block main %}
   <header class="feature-overview-heading">
     <h2>{{ tab_labels[active_tab] }}</h2>
-    {% if feature_groups %}<p>作業に合わせて機能を選んでください。</p>{% endif %}
+    <p>作業に合わせて機能を選んでください。</p>
   </header>
   <div class="feature-overview" data-testid="feature-overview">
     {% for label, description, slugs in feature_groups %}
@@ -21,8 +21,6 @@
         {% endfor %}
       </ul>
     </section>
-    {% else %}
-    <p class="placeholder">部品実装の操作画面は準備中です。現在は位置合わせとはんだ塗布を利用できます。</p>
     {% endfor %}
   </div>
   {% endblock %}

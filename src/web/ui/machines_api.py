@@ -25,10 +25,8 @@ def _summary(endpoint: MachineEndpoint, current: str | None) -> MachineSummary:
         machine_id=endpoint.machine_id,
         # 表示名はサーバが組む（表示規則を JS に複製しない）
         label=endpoint.label,
-        name=endpoint.name,
         host=endpoint.host,
         port=endpoint.port,
-        machine_type=endpoint.machine_type,
         source=endpoint.source,
         current=endpoint.machine_id == current,
     )

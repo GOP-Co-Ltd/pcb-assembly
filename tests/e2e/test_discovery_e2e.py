@@ -139,7 +139,6 @@ async def advertising(
     advertiser = ServiceAdvertiser(
         machine_id=machine_id,
         port=18081,
-        machine_type="paste",
         addresses=(LOOPBACK,),
         service_type=service_type,
         interfaces=(LOOPBACK,),
@@ -171,7 +170,6 @@ class TestAdvertiseAndDiscover:
                 found = collector.find("e2emdns")
                 assert found is not None
                 assert (found.host, found.port) == (LOOPBACK, 18081)
-                assert found.machine_type == "paste"
                 assert found.source == "mdns"
 
         run(scenario)

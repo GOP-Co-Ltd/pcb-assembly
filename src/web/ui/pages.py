@@ -64,7 +64,6 @@ from web.ui.layout import (
     POSITIVE_ONLY_MACHINE_KEYS,
     TAB_LABELS,
     TABS,
-    bulk_sections,
     settings_sections,
 )
 from web.ui.machine_client import BackendGateway, BackendUnavailable, MachineClient
@@ -258,7 +257,6 @@ def _base_context(
         # frontend 機を指してしまう）
         mainsail_url=info.mainsail_url,
         focus_z=state.focus_z,
-        machine_type=info.machine_type,
         config_error=state.config_error,
     )
     return context
@@ -410,9 +408,9 @@ async def settings_entry(request: Request) -> Response:
 # `/{tab}` より先に登録する（後だと tab="bulk" としてマッチし、マシンへ振り分けられる）
 @router.get(BULK_PATH, response_class=HTMLResponse)
 async def bulk_page(request: Request) -> HTMLResponse:
-    """一括管理ページ（登録済みの全マシンを machine_type ごとに並べる）.
+    """一括管理ページ（登録済みの全マシンを登録順に並べる）.
 
-    SSR は登録済みマシンの一覧（``MachineRegistry``）だけで描き、backend へは問い合わせない。
+    SSR は chrome の ``machines``（``MachineRegistry.list()``）だけで描き、backend へは問い合わせない。
     行ごとの操作権・更新・PCB の状態は ``bulk.js`` が各機体の ``/m/{machine_id}/api/**`` から取る。
     こうすると 1 台の backend が落ちていてもページ全体は 503 にならず、他の機体の行は使える。
     """
@@ -420,11 +418,7 @@ async def bulk_page(request: Request) -> HTMLResponse:
     return render_standalone(
         request,
         "bulk.html",
-        {
-            "active_tab": "bulk",
-            "title": BULK_LABEL,
-            "sections": bulk_sections(_registry(request).list()),
-        },
+        {"active_tab": "bulk", "title": BULK_LABEL},
         current_suffix=DEFAULT_TAB,
     )
 

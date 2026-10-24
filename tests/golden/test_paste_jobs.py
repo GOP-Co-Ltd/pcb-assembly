@@ -34,7 +34,7 @@ from tests.support.golden import assert_transcript
 from tests.web.api.jobs.conftest import answer_next_prompt
 from web.api.config_store import ConfigStore
 from web.api.jobs.manager import JobManager, JobStatus
-from web.api.jobs.pasting import LOADING_STAGE
+from web.api.jobs.pasting.common import LOADING_STAGE
 from web.api.settings import Settings
 from web.api.state import AppState
 

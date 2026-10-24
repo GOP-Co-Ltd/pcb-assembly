@@ -49,7 +49,7 @@ from web.ui.layout import (
 from web.ui.machines import MachineEndpoint
 from web.ui.settings import Settings as UiSettings
 
-TABS = ["dev", "pasting", "pnp", "posctrl"]
+TABS = ["dev", "pasting", "posctrl"]
 
 # SSR で描画される全ページ（/ は 307 なので除く）
 ALL_PAGE_URLS = ["/settings"] + [
@@ -377,9 +377,6 @@ class TestDevJobPages:
         assert "job-console" in response.text
         # data-job-name 等でページのジョブ名が宣言される
         assert feature in response.text
-
-    def test_job_demo_is_hidden_from_sidebar(self, client: TestClient):
-        assert "job_demo" not in client.get("/dev").text
 
 
 class TestConfigHistoryPage:
@@ -916,44 +913,13 @@ class TestUnresolvableMachineSettingsAreNotFabricated:
 
 
 class TestMachineControlCapButton:
-    """マシン操作パネルの「キャップ位置に移動」ボタン（paste マシン限定表示）.
+    """マシン操作パネルの「キャップ位置へ」ボタン（全機体がペースト機なので常に出す）."""
 
-    nozzle-cap-parking 計画書「WebUI」節: machine_control.html は machine_type
-    == "paste" のときのみ #mc-move-to-cap を出す。machine_type が無い config は設定エラー
-    （degraded）で、ページは 500 にならずボタンを隠す（machine-info の machine_type が None）。
-    """
-
-    @pytest.mark.parametrize(
-        ("drop_machine_type", "expected"),
-        (
-            pytest.param(False, True, id="paste マシン"),
-            pytest.param(True, False, id="machine_type が読めない"),
-        ),
-    )
-    def test_move_to_cap_button_follows_the_machine_type(
-        self,
-        client: TestClient,
-        config_dir: Path,
-        drop_machine_type: bool,
-        expected: bool,
-    ):
-        if drop_machine_type:
-            path = config_dir / "machine.toml"
-            path.write_text(
-                "".join(
-                    line
-                    for line in path.read_text(encoding="utf-8").splitlines(
-                        keepends=True
-                    )
-                    if not line.startswith("machine_type")
-                ),
-                encoding="utf-8",
-            )
-
+    def test_move_to_cap_button_is_shown(self, client: TestClient):
         response = client.get("/posctrl")
 
         assert response.status_code == 200
-        assert ("mc-move-to-cap" in response.text) is expected
+        assert "mc-move-to-cap" in response.text
 
 
 class TestPasteVolumeCalibrationLoading:
@@ -983,16 +949,15 @@ class TestPasteVolumeCalibrationLoading:
 
 
 class TestTabsCatalogConsistency:
-    """TABS（サイドバー掲載）と catalog（ジョブ登録）の整合."""
+    """FEATURE_GROUPS（サイドバー掲載）と catalog（ジョブ登録）の整合."""
 
-    def test_every_visible_job_is_listed_in_its_tab(self):
-        """Hidden 以外の全ジョブは所属タブの TABS に掲載されている."""
-        for definition in default_catalog().list():
-            if definition.hidden:
-                continue
-            assert (
-                definition.name in PAGE_TABS[definition.tab]
-            ), f"{definition.name} が TABS[{definition.tab!r}] に掲載されていません"
+    def test_every_job_is_listed_in_feature_groups(self):
+        """Backend が公開する全ジョブに、どこかのタブのページがある."""
+        listed = {slug for slugs in PAGE_TABS.values() for slug in slugs}
+
+        jobs = {definition.name for definition in default_catalog().list()}
+
+        assert jobs - listed == set()
 
 
 def _frontend_only(machines: tuple[MachineEndpoint, ...], tmp_path: Path) -> TestClient:
@@ -1181,9 +1146,7 @@ class TestMultipleMachines:
     def _machines() -> tuple[MachineEndpoint, ...]:
         return (
             MachineEndpoint(machine_id="alpha", host="alpha.local", port=8081),
-            MachineEndpoint(
-                machine_id="bravo", host="bravo.local", port=8081, name="2 号機"
-            ),
+            MachineEndpoint(machine_id="bravo", host="bravo.local", port=8081),
         )
 
     def test_root_shows_a_picker_instead_of_redirecting(self, tmp_path: Path):

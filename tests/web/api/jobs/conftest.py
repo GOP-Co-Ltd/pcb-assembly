@@ -61,14 +61,12 @@ def register_synthetic(
     notify_on_completion: bool = False,
     accepts_commands: bool = False,
     persisted_params: tuple[str, ...] = (),
-    hidden: bool = False,
 ) -> None:
-    """Dev タブの合成ジョブを catalog へ登録する（テスト専用の共通形）."""
+    """合成ジョブを catalog へ登録する（テスト専用の共通形）."""
     catalog.register(
         JobDefinition(
             name=name,
             label=label,
-            tab="dev",
             run=run,
             params=params,
             requires_pcb=requires_pcb,
@@ -76,7 +74,6 @@ def register_synthetic(
             notify_on_completion=notify_on_completion,
             accepts_commands=accepts_commands,
             persisted_params=persisted_params,
-            hidden=hidden,
         )
     )
 
@@ -88,7 +85,6 @@ def register_gated(
     uses_machine: bool = False,
     accepts_commands: bool = False,
     notify_on_completion: bool = False,
-    hidden: bool = False,
 ) -> threading.Event:
     """gate.set() で成功終了し、abort 要求は checkpoint で拾う合成ジョブを登録する."""
     gate = threading.Event()
@@ -104,7 +100,6 @@ def register_gated(
         uses_machine=uses_machine,
         accepts_commands=accepts_commands,
         notify_on_completion=notify_on_completion,
-        hidden=hidden,
     )
     return gate
 

@@ -26,7 +26,6 @@ SERVICE_TYPE = "_pcbasm._tcp.local."
 
 # TXT レコードのキー（値は UTF-8 bytes で載る）
 TXT_KEY_ID = "id"
-TXT_KEY_TYPE = "type"
 TXT_KEY_API = "api"
 
 # 広告に載せないアドレスの prefix（loopback と APIPA のリンクローカル）。
@@ -65,19 +64,10 @@ def select_advertise_addresses(candidates: Iterable[str]) -> tuple[str, ...]:
     return tuple(selected)
 
 
-def _txt_properties(machine_id: str, machine_type: str | None) -> dict[str, str]:
-    """広告する TXT レコード（未設定の項目はキー自体を載せない）."""
-    properties = {TXT_KEY_ID: machine_id, TXT_KEY_API: str(API_VERSION)}
-    if machine_type:
-        properties[TXT_KEY_TYPE] = machine_type
-    return properties
-
-
 def build_service_info(
     *,
     machine_id: str,
     port: int,
-    machine_type: str | None,
     addresses: Sequence[str],
     service_type: str = SERVICE_TYPE,
 ) -> ServiceInfo:
@@ -91,7 +81,6 @@ def build_service_info(
     Args:
         machine_id: backend の自己申告 ID（instance 名と TXT の ``id``）
         port: backend WebAPI の port
-        machine_type: マシン種別（None なら TXT に載せない）
         addresses: 広告する IPv4 アドレス（`select_advertise_addresses` の結果）
         service_type: DNS-SD のサービス型（テストはランダム型に閉じる）
 
@@ -103,7 +92,7 @@ def build_service_info(
         name=f"{machine_id}.{service_type}",
         port=port,
         server=f"{machine_id}-pcbasm.local.",
-        properties=_txt_properties(machine_id, machine_type),
+        properties={TXT_KEY_ID: machine_id, TXT_KEY_API: str(API_VERSION)},
         parsed_addresses=list(addresses),
     )
 
@@ -120,7 +109,6 @@ class ServiceAdvertiser:
         *,
         machine_id: str,
         port: int,
-        machine_type: str | None,
         addresses: Sequence[str],
         service_type: str = SERVICE_TYPE,
         interfaces: Sequence[str] | None = None,
@@ -130,7 +118,6 @@ class ServiceAdvertiser:
         Args:
             machine_id: backend の自己申告 ID
             port: backend WebAPI の port
-            machine_type: マシン種別
             addresses: 広告する IPv4 アドレス
             service_type: DNS-SD のサービス型
             interfaces: 使うインターフェース（None は zeroconf 既定 = 全 IF。
@@ -138,7 +125,6 @@ class ServiceAdvertiser:
         """
         self._machine_id = machine_id
         self._port = port
-        self._machine_type = machine_type
         self._addresses = tuple(addresses)
         self._service_type = service_type
         self._interfaces = tuple(interfaces) if interfaces is not None else None
@@ -149,7 +135,6 @@ class ServiceAdvertiser:
         return build_service_info(
             machine_id=self._machine_id,
             port=self._port,
-            machine_type=self._machine_type,
             addresses=self._addresses,
             service_type=self._service_type,
         )
@@ -160,10 +145,9 @@ class ServiceAdvertiser:
         マルチキャストが使えない環境では WARNING を出して広告なしで続行する
         （装置操作は mDNS に依存しない）。失敗後の `stop` は no-op。
 
-        ``_build_info`` も try の内側に置く。machine.toml 由来の値（長すぎる
-        ``machine_id`` / TXT 値）で ServiceInfo の組み立て自体が失敗しうるため、
-        外に置くと lifespan で例外が抜けて起動不能になる（machine.toml を手で直す
-        まで復旧しない）。
+        ``_build_info`` も try の内側に置く。長すぎる ``machine_id``（ホスト名）で
+        ServiceInfo の組み立て自体が失敗しうるため、外に置くと lifespan で例外が
+        抜けて起動不能になる。
         """
         if self._zeroconf is not None:
             return
@@ -181,9 +165,8 @@ class ServiceAdvertiser:
             # 返る Awaitable は announce の送信タスク。await しない（`stop` の
             # コメント参照。待つと lifespan が約 0.5s 余分にブロックする）
             await zeroconf.async_register_service(info, allow_name_change=True)
-        # ValueError は TXT / instance 名が長すぎるとき（BadTypeInNameException は
-        # ZeroconfError のサブクラス）
-        except (OSError, ValueError, ZeroconfError) as exc:
+        # instance 名が長すぎると BadTypeInNameException（ZeroconfError のサブクラス）
+        except (OSError, ZeroconfError) as exc:
             logger.warning("mDNS 広告を開始できません: %s: %s", type(exc).__name__, exc)
             if zeroconf is not None:
                 await zeroconf.async_close()

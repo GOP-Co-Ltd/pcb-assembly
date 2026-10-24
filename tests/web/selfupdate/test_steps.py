@@ -64,15 +64,17 @@ class TestSmokeCommand:
 
     def test_runs_python_without_resyncing(self, settings: UpdateSettings):
         """`--no-sync` が無いと smoke 自体が依存を書き換えてしまう."""
-        command = smoke_command(settings)
+        command = smoke_command(settings, ("web.ui.app",))
 
         assert command[0] == settings.uv_bin
         assert command[1:4] == ("run", "--no-sync", "python")
         assert command[4] == "-c"
 
-    def test_imports_both_web_applications(self, settings: UpdateSettings):
-        """同居機・専用機のどちらでも壊れていないことを 1 回で確かめる."""
-        assert "import web.api.app, web.ui.app" in smoke_command(settings)[5]
+    def test_imports_the_given_modules_in_one_process(self, settings: UpdateSettings):
+        """同居機は両アプリを 1 回の起動で確かめる."""
+        modules = ("web.api.app", "web.ui.app")
+
+        assert smoke_command(settings, modules)[5] == "import web.api.app, web.ui.app"
 
 
 class TestRestartCommand:

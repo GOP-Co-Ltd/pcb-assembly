@@ -172,7 +172,7 @@ def _default_mainsail_url(machine_id: str) -> str:
     return f"http://{host}"
 
 
-def build_machine_info(state: AppState, settings: Settings) -> MachineInfo:
+def build_machine_info(settings: Settings) -> MachineInfo:
     """Backend の自己申告情報を組み立てる.
 
     ホスト名の解決といった環境依存の処理はここに集約する（pcbasm 層は machine.toml に
@@ -180,10 +180,8 @@ def build_machine_info(state: AppState, settings: Settings) -> MachineInfo:
     （プロキシ配下で必ず誤るため）。
     """
     machine_id = resolve_machine_id(settings)
-    machine, _ = state.machine_or_error()
     return MachineInfo(
         machine_id=machine_id,
-        machine_type=None if machine is None else machine.machine_type,
         mainsail_url=settings.mainsail_url or _default_mainsail_url(machine_id),
         fb_start=_fb_start(settings),
         api_version=API_VERSION,

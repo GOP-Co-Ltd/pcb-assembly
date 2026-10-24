@@ -1,34 +1,22 @@
-"""Dev タブのジョブ定義（PCB 抽出 / 塗布カバレッジ PCB 生成 / 機構検証デモ）.
+"""開発用のジョブ定義（PCB 抽出 / 塗布カバレッジ PCB 生成）.
 
 pcbnew に依存するジョブは関数内で遅延 import する（KiCAD 未導入環境でも webui 自体は起動できるようにするため）。
 """
 
 from __future__ import annotations
 
-import time
-
-import cv2
-import numpy as np
-
 from pcbasm.pcb import PcbFile
-from pcbasm.vision import Image
 from pcbasm.visualization import render_pcb
-from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
-from web.api.jobs.context import (
-    ApplyPayload,
-    JobContext,
-    JobResult,
-    PromptSpec,
-)
+from web.api.jobs.catalog import JobCatalog, JobDefinition
+from web.api.jobs.context import JobContext, JobResult
 
 
 def register_dev_jobs(catalog: JobCatalog) -> None:
-    """Dev タブの 2 ジョブと hidden の job_demo を登録する."""
+    """開発用の 2 ジョブを登録する."""
     catalog.register(
         JobDefinition(
             name="extract_pcb",
             label="PCB 情報抽出",
-            tab="dev",
             run=_run_extract_pcb,
             requires_pcb=True,
             uses_machine=False,
@@ -38,29 +26,8 @@ def register_dev_jobs(catalog: JobCatalog) -> None:
         JobDefinition(
             name="make_fill_coverage_pcb",
             label="塗布カバレッジ PCB 生成",
-            tab="dev",
             run=_run_make_fill_coverage_pcb,
             uses_machine=False,
-        )
-    )
-    catalog.register(
-        JobDefinition(
-            name="job_demo",
-            label="ジョブデモ",
-            tab="dev",
-            run=_run_job_demo,
-            params=(
-                ParamSpec("steps", "ステップ数", "int", 5),
-                ParamSpec("interval", "ステップ間隔", "float", 0.2, unit="s"),
-                ParamSpec("fail", "途中で失敗させる", "bool", False),
-                ParamSpec("command_phase", "コマンド待機フェーズ", "bool", False),
-                ParamSpec(
-                    "live_value", "実行中編集値", "float", 1.0, runtime_editable=True
-                ),
-            ),
-            uses_machine=False,
-            accepts_commands=True,
-            hidden=True,
         )
     )
 
@@ -127,71 +94,4 @@ def _run_make_fill_coverage_pcb(ctx: JobContext) -> JobResult:
     return JobResult(
         summary="fill 要件網羅フィクスチャを生成しました",
         artifacts=(ctx.artifact("Fill Coverage PCB", filename, "file"),),
-    )
-
-
-def _demo_frame() -> Image:
-    """ctx.frame() 経路の通電確認用フレームを作る."""
-    img = np.full((240, 320, 3), 48, dtype=np.uint8)
-    cv2.putText(
-        img, "job_demo", (40, 130), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2
-    )
-    return Image(img)
-
-
-def _run_job_demo(ctx: JobContext) -> JobResult:
-    """ジョブ機構（log/progress/prompt/command/abort/apply）の検証用デモ.
-
-    UI には出ない（hidden）が POST 可能。E2E とテストが使う。
-    """
-    steps = int(ctx.params["steps"])
-    interval = float(ctx.params["interval"])
-
-    for index in range(steps):
-        ctx.checkpoint()
-        ctx.log(f"step {index + 1}/{steps}")
-        ctx.progress("demo", 100.0 * (index + 1) / steps)
-        time.sleep(interval)
-
-    ctx.frame(_demo_frame())
-
-    if ctx.params["fail"]:
-        raise RuntimeError("デモ失敗（fail=True）")
-
-    proceed = ctx.prompt(
-        PromptSpec(
-            kind="confirm",
-            message="続行しますか?",
-            default=True,
-            true_label="続行",
-            false_label="中止",
-        )
-    )
-    ctx.log(f"confirm 応答: {proceed}")
-
-    canny_low = ctx.prompt(
-        PromptSpec(kind="number", message="canny_low を入力してください", default=60.0)
-    )
-    assert isinstance(canny_low, float)
-    ctx.log(f"number 応答: {canny_low}")
-    ctx.log(f"live_value = {ctx.params['live_value']}")
-
-    if ctx.params["command_phase"]:
-        ctx.log("コマンド待機中（quit で離脱）")
-        ctx.notify_operator()
-        while True:
-            command = ctx.next_command(timeout=None)
-            if command is None:
-                continue
-            if command["type"] == "quit":
-                ctx.log("command: quit")
-                break
-            ctx.log(f"command: {command}")
-
-    return JobResult(
-        summary=f"demo 完了（canny_low = {canny_low:g}）",
-        apply=ApplyPayload(
-            label=f"canny_low = {canny_low:g} を設定に反映",
-            values={"paste_dispenser.pad_align.canny_low": canny_low},
-        ),
     )

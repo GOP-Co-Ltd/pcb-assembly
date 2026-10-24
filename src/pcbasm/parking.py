@@ -58,11 +58,9 @@ def park_or_present(
 ) -> None:
     """ノズルキャップへ駐機し、できなければ PRESENT / M84 にフォールバックする.
 
-    paste マシンでキャップ位置が記録済みなら「Z0 → キャップ XY → キャップ Z →
-    M400 → M84」を 1 回の send_gcode で送る。キャップ未記録、キャップ位置が
-    可動域外、printer.cfg の limits 設定不備の場合は警告して
-    ``send_present_or_relax`` に退避する。
-    paste 以外のマシンは警告なしで ``send_present_or_relax`` を使う。
+    キャップ位置が記録済みなら「Z0 → キャップ XY → キャップ Z → M400 → M84」を
+    1 回の send_gcode で送る。キャップ未記録、キャップ位置が可動域外、
+    printer.cfg の limits 設定不備の場合は警告して ``send_present_or_relax`` に退避する。
 
     Args:
         klipper: 送信先の Klipper クライアント
@@ -71,14 +69,9 @@ def park_or_present(
         timeout: G-code 送信のタイムアウト秒数
     """
     warning = warn if warn is not None else logger.warning
-    cap: Point3d | None = None
-    # paste 以外（pnp 等）は正常系としてフォールバック（警告なし）
-    if machine.machine_type == "paste":
-        cap = machine.paste_dispenser.nozzle_cap.position
-        if cap is None:
-            warning(
-                "nozzle_cap が未記録です。PRESENT / relax (M84) にフォールバックします"
-            )
+    cap = machine.paste_dispenser.nozzle_cap.position
+    if cap is None:
+        warning("nozzle_cap が未記録です。PRESENT / relax (M84) にフォールバックします")
 
     commands: GCode | None = None
     if cap is not None:

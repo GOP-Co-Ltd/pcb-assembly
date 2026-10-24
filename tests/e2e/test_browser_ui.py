@@ -85,7 +85,7 @@ def _current_job(base_url: str) -> dict | None:
 
 
 def _start_completion_notice_job(live_ui: LiveUi, browser_page, job_name: str) -> None:
-    """実ページのフォームをテスト用 hiddenジョブへ向けて開始する。"""
+    """実ページのフォームをテスト用ジョブへ向けて開始する。"""
     browser_page.goto(
         f"{live_ui.base_url}/pasting/paste_solder",
         wait_until="domcontentloaded",

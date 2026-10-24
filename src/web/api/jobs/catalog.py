@@ -47,7 +47,6 @@ class JobDefinition:
     Attributes:
         name: URL の {name}。feature slug と一致させる
         label: UI 表示名
-        tab: 所属タブ
         run: ワーカースレッドで実行するジョブ関数
         params: パラメータ定義
         requires_pcb: True で PCB 未選択なら開始 400
@@ -57,7 +56,6 @@ class JobDefinition:
             （画面表示のみ。機体スピーカーは ``uses_machine`` で決まる）
         accepts_commands: ジョブモード対話（next_command）を受けるか
         persisted_params: 起動時の値を次回フォーム既定値として保存するパラメータ名
-        hidden: UI のフォーム導出から除外（POST は可）
         provides_preview: ジョブがカメラフレームを提供するか（preview ペインの有無）
         loading_param: ローディング UI の既定量に使う ParamSpec 名
             （None ならローディング UI を出さない）
@@ -67,7 +65,6 @@ class JobDefinition:
 
     name: str
     label: str
-    tab: Literal["dev", "pasting", "posctrl"]
     run: Callable[[JobContext], JobResult | None]
     params: tuple[ParamSpec, ...] = ()
     requires_pcb: bool = False
@@ -75,7 +72,6 @@ class JobDefinition:
     notify_on_completion: bool = False
     accepts_commands: bool = False
     persisted_params: tuple[str, ...] = ()
-    hidden: bool = False
     provides_preview: bool = False
     loading_param: str | None = None
     loading_stages: str = "ローディング"
@@ -112,17 +108,9 @@ class JobCatalog:
             raise KeyError(f"未知のジョブです: {name}")
         return self._definitions[name]
 
-    def list(self, tab: str | None = None) -> tuple[JobDefinition, ...]:
-        """登録済みジョブ定義を登録順で返す（hidden を含む）.
-
-        Args:
-            tab: 指定時はそのタブのジョブのみに絞り込む
-        """
-        return tuple(
-            definition
-            for definition in self._definitions.values()
-            if tab is None or definition.tab == tab
-        )
+    def list(self) -> tuple[JobDefinition, ...]:
+        """登録済みジョブ定義を登録順で返す."""
+        return tuple(self._definitions.values())
 
     def validate_params(
         self, definition: JobDefinition, values: Mapping[str, object]
@@ -200,7 +188,7 @@ class JobCatalog:
 
 
 def default_catalog() -> JobCatalog:
-    """Dev・posctrl・pasting の全ジョブを登録したカタログを返す（登録順 = UI の並び順）."""
+    """Dev・posctrl・pasting の全ジョブを登録したカタログを返す."""
     # 循環 import（dev/posctrl/pasting → manager → catalog）を避けるため遅延 import する
     from web.api.jobs.dev import register_dev_jobs
     from web.api.jobs.pasting import register_pasting_jobs

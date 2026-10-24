@@ -30,7 +30,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.responses import Response
 
-from tests.web.ui.conftest import BACKEND_MACHINE_ID, BACKEND_MACHINE_NAME
+from tests.web.ui.conftest import BACKEND_MACHINE_ID
 from web.api.models import API_VERSION
 from web.ui.machine_client import BackendGateway, BackendUnavailable, MachineClient
 from web.ui.machines import MachineEndpoint
@@ -49,7 +49,6 @@ def endpoint() -> MachineEndpoint:
         machine_id=BACKEND_MACHINE_ID,
         host="127.0.0.1",
         port=8081,
-        name=BACKEND_MACHINE_NAME,
     )
 
 
@@ -118,12 +117,10 @@ class TestMachineClient:
         assert info.machine_id == BACKEND_MACHINE_ID
         assert info.api_version == API_VERSION
 
-    async def test_jobs_includes_hidden_definitions(self, client: MachineClient):
-        """Hidden も返る（e2e が hidden ジョブを実行時登録する）."""
+    async def test_jobs_returns_the_backend_catalog(self, client: MachineClient):
         catalog = await client.jobs()
 
-        assert catalog.jobs
-        assert any(job.hidden for job in catalog.jobs)
+        assert "paste_solder" in {job.name for job in catalog.jobs}
 
     async def test_responses_are_not_cached(
         self, client: MachineClient, backend_app: FastAPI

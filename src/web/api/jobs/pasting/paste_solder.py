@@ -25,7 +25,6 @@ def register(catalog: JobCatalog) -> None:
         JobDefinition(
             name="paste_solder",
             label="はんだ塗布",
-            tab="pasting",
             run=_run_paste_solder,
             params=(
                 ParamSpec("tolerance", "位置合わせ許容誤差", "float", 0.1, unit="mm"),

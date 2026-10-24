@@ -73,7 +73,7 @@ def update_stack(
         )
     )
     endpoint = MachineEndpoint(
-        machine_id=_E2E_MACHINE_ID, host="127.0.0.1", port=backend.port, name="E2E 機"
+        machine_id=_E2E_MACHINE_ID, host="127.0.0.1", port=backend.port
     )
     frontend = _start_app(
         create_ui_app(

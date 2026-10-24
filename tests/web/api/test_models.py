@@ -100,10 +100,8 @@ class TestJobSpecInfoMirrorsJobDefinition:
 
     @pytest.mark.parametrize("name", _MIRRORED_NAMES)
     def test_omitted_field_takes_the_job_definition_default(self, name: str):
-        spec = JobSpecInfo(name="probe", label="プローブ", tab="dev")
-        definition = JobDefinition(
-            name="probe", label="プローブ", tab="dev", run=lambda _: None
-        )
+        spec = JobSpecInfo(name="probe", label="プローブ")
+        definition = JobDefinition(name="probe", label="プローブ", run=lambda _: None)
 
         assert _normalized(getattr(spec, name)) == _normalized(
             getattr(definition, name)

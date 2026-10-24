@@ -3,21 +3,19 @@
 計画書 webui-phase3.md「src/webui/jobs/catalog.py」節が契約:
 
 - register は名前重複で ValueError、get は未知ジョブで KeyError
-- list は hidden を含む全件（tab で絞り込み可）
+- list は登録順の全件
 - validate_params は default 充填済み dict を返す。未知キー・型不一致・
   必須欠落・choice 範囲外は ValueError。optional は省略時にキーを含めない。
   型変換は config_store._coerce と同様
   （bool は value_type="bool" のみ受理、int→float 許容、float→int は整数値のみ）
-- default_catalog() は dev 3 ジョブ（2 ジョブ + job_demo）を登録済みで返す
-  （generate_grid_pcb は他タブへ移設済み）
+- register_dev_jobs は dev の 2 ジョブを登録する
 """
-
-from typing import Literal
 
 import pytest
 
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec, default_catalog
 from web.api.jobs.context import JobContext
+from web.api.jobs.dev import register_dev_jobs
 
 
 def _noop(ctx: JobContext) -> None:
@@ -27,18 +25,10 @@ def _noop(ctx: JobContext) -> None:
 def _definition(
     name: str = "demo",
     *,
-    tab: Literal["dev", "pasting", "posctrl"] = "dev",
     params: tuple[ParamSpec, ...] = (),
-    hidden: bool = False,
 ) -> JobDefinition:
     return JobDefinition(
-        name=name,
-        label="デモジョブ",
-        tab=tab,
-        run=_noop,
-        params=params,
-        uses_machine=False,
-        hidden=hidden,
+        name=name, label="デモジョブ", run=_noop, params=params, uses_machine=False
     )
 
 
@@ -58,23 +48,14 @@ class TestRegistry:
         with pytest.raises(KeyError):
             JobCatalog().get("no-such-job")
 
-    def test_list_returns_all_definitions_including_hidden(self):
+    def test_list_returns_all_definitions_in_registration_order(self):
         catalog = JobCatalog()
-        catalog.register(_definition("visible"))
-        catalog.register(_definition("invisible", hidden=True))
+        catalog.register(_definition("second"))
+        catalog.register(_definition("first"))
 
-        names = {definition.name for definition in catalog.list()}
+        names = [definition.name for definition in catalog.list()]
 
-        assert names == {"visible", "invisible"}
-
-    def test_list_filters_by_tab(self):
-        catalog = JobCatalog()
-        catalog.register(_definition("dev_job", tab="dev"))
-        catalog.register(_definition("pasting_job", tab="pasting"))
-
-        names = {definition.name for definition in catalog.list(tab="pasting")}
-
-        assert names == {"pasting_job"}
+        assert names == ["second", "first"]
 
 
 _PARAMS = (
@@ -321,7 +302,6 @@ class TestFiniteFloatParams:
         definition = JobDefinition(
             name="finite",
             label="有限数",
-            tab="dev",
             run=_noop,
             uses_machine=False,
             params=(
@@ -342,32 +322,25 @@ class TestDefaultCatalog:
     def catalog(self) -> JobCatalog:
         return default_catalog()
 
-    def test_dev_tab_has_exactly_phase3_jobs(self, catalog: JobCatalog):
-        names = {definition.name for definition in catalog.list(tab="dev")}
+    def test_registers_exactly_the_dev_jobs(self):
+        catalog = JobCatalog()
+        register_dev_jobs(catalog)
 
-        assert names == {
-            "extract_pcb",
-            "make_fill_coverage_pcb",
-            "job_demo",
-        }
+        names = {definition.name for definition in catalog.list()}
+
+        assert names == {"extract_pcb", "make_fill_coverage_pcb"}
 
     @pytest.mark.parametrize(
         ("name", "requires_pcb"),
         [
             ("extract_pcb", True),
             ("make_fill_coverage_pcb", False),
-            ("job_demo", False),
         ],
     )
     def test_requires_pcb_flags(
         self, catalog: JobCatalog, name: str, requires_pcb: bool
     ):
         assert catalog.get(name).requires_pcb is requires_pcb
-
-    def test_only_job_demo_is_hidden(self, catalog: JobCatalog):
-        hidden = {d.name for d in catalog.list(tab="dev") if d.hidden}
-
-        assert hidden == {"job_demo"}
 
     def test_long_running_paste_jobs_notify_on_completion(self, catalog: JobCatalog):
         """ブラウザの完了通知バナーの対象（機体スピーカーは uses_machine で決まる）."""

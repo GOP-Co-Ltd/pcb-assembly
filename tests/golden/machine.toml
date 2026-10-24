@@ -1,8 +1,6 @@
 # golden を採るマシン設定（kurousagi 相当。実機には接続しない）
 # 既定値に頼る項目は実機と同じく書かない。既定値が変われば golden も変わる
 
-machine_type = "paste"
-
 [klipper]
 host = "127.0.0.1"
 port = 7126

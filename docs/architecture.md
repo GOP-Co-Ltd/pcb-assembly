@@ -26,7 +26,6 @@ flowchart TD
 | `src/pcbasm/posctrl/`               | 基板の位置合わせ、基準点、補正、カメラと装置の座標対応       |
 | `src/pcbasm/pasting/`               | 塗布の設定解決、経路、高さ面、機械手順、画像収集、塗布量校正 |
 | `src/pcbasm/visualization/`         | PCB・塗布経路・高さ面・校正結果の描画                        |
-| `src/pcbasm/pnp/`                   | 部品実装向けの予約された名前空間。未実装                     |
 | `src/web/api/routers/`              | HTTP 入出力とコア呼び出し、例外から HTTP 応答への変換        |
 | `src/web/api/jobs/`                 | 長時間処理、進捗、中断、操作者への質問、成果物の公開         |
 | `src/web/ui/`                       | マシン探索・選択、SSR ページ、backend への中継               |
@@ -83,7 +82,7 @@ JS に `fetch()` を直接書かない。機体の prefix が付かず、テス�
 
 1. ジョブ関数を書く。関数は `JobContext` を受け取り、`pcbasm` を呼ぶ。ログ・進捗・質問は `JobContext` の `log` / `progress` / `prompt` で出す。
 2. `JobDefinition` を登録する。`name` は feature slug と同じ文字列にする。装置を動かさないジョブは `uses_machine=False` にする。
-3. 次節「ページを足す」の手順で、ジョブのページを足す。`hidden` でないジョブがページに載っていないとテストが失敗する。
+3. 次節「ページを足す」の手順で、ジョブのページを足す。ページに載っていないジョブがあるとテストが失敗する。
 
 ジョブの開始・中止・結果の反映は `routers/jobs.py` の共通 API が扱う。ジョブごとの router は要らない。
 

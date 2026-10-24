@@ -29,7 +29,6 @@ def register(catalog: JobCatalog) -> None:
         JobDefinition(
             name="loading",
             label="ペーストローディング",
-            tab="pasting",
             run=_run_loading,
             params=(
                 ParamSpec(

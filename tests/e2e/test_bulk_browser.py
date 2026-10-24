@@ -31,12 +31,11 @@ from web.ui.machines import MachineEndpoint
 
 @pytest.fixture
 def paste_ui(live_server: LiveServer, tmp_path: Path) -> Iterator[LiveUi]:
-    """`live_server` をペースト機として 1 台登録した実 frontend."""
+    """`live_server` を 1 台登録した実 frontend."""
     endpoint = MachineEndpoint(
         machine_id=E2E_MACHINE_ID,
         host="127.0.0.1",
         port=live_server.port,
-        machine_type="paste",
     )
     running = start_app(
         create_app(

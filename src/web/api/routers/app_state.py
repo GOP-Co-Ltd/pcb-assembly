@@ -38,6 +38,6 @@ def get_state(
 
 
 @router.get("/machine-info")
-def get_machine_info(state: StateDep, settings: SettingsDep) -> MachineInfo:
+def get_machine_info(settings: SettingsDep) -> MachineInfo:
     """Backend が自己申告する装置情報を返す（到達性プローブ兼用）."""
-    return build_machine_info(state, settings)
+    return build_machine_info(settings)

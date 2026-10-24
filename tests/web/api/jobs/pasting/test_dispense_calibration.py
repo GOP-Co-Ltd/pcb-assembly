@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from web.api.jobs.pasting import parse_run_calib_command
+from web.api.jobs.pasting.dispense_calibration import parse_run_calib_command
 
 
 class TestParseRunCalibCommand:

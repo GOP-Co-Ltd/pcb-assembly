@@ -2,10 +2,9 @@
 
 `park_or_present` の分岐契約:
 
-- paste + キャップ記録済み → move_to_cap + M400 + M84 を **1 回の send_gcode** で
+- キャップ記録済み → move_to_cap + M400 + M84 を **1 回の send_gcode** で
   送り、フォールバック（send_present_or_relax）は呼ばない
 - キャップ未記録 → warn（"nozzle_cap" を含む文言）+ send_present_or_relax
-- machine_type != "paste"（pnp）→ 警告なしで send_present_or_relax
 - キャップ位置が可動域外（ValueError）/ printer.cfg の limits 設定不備
   （KeyError）→ warn + send_present_or_relax（クリーンアップ経路のため例外にしない）
 
@@ -46,12 +45,9 @@ _LIMITS_CONFIG = {
 }
 
 
-def _machine(tmp_path: Path, extra: str = "", machine_type: str = "paste") -> Machine:
-    """検証用 machine.toml の machine_type を差し替え、末尾に ``extra`` を足して読む."""
+def _machine(tmp_path: Path, extra: str = "") -> Machine:
+    """検証用 machine.toml の末尾に ``extra`` を足して読む."""
     source = (TESTING_DATA_DIR / "machine.toml").read_text()
-    source = source.replace(
-        'machine_type = "paste"', f'machine_type = "{machine_type}"'
-    )
     path = tmp_path / "machine.toml"
     path.write_text(f"{source}\n{extra}", encoding="utf-8")
     return load_machine(path)
@@ -146,20 +142,6 @@ class TestParkOrPresent:
         klipper.send_present_or_relax.assert_called_once()
         klipper.send_gcode.assert_not_called()
         assert any("nozzle_cap" in message for message in warnings)
-
-    def test_pnp_machine_falls_back_to_present_without_warning(
-        self, mocker: MockerFixture, tmp_path: Path
-    ):
-        """Pnp マシンは正常系としてキャップ駐機せず PRESENT 経路を使う（警告なし）."""
-        klipper = mocker.Mock()
-        machine = _machine(tmp_path, machine_type="pnp")
-        warnings: list[str] = []
-
-        park_or_present(klipper, machine, warn=warnings.append)
-
-        klipper.send_present_or_relax.assert_called_once()
-        klipper.send_gcode.assert_not_called()
-        assert warnings == []
 
     def test_cap_out_of_limits_warns_and_falls_back_without_raising(
         self, mocker: MockerFixture, tmp_path: Path

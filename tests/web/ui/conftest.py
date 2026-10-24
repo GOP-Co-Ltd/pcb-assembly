@@ -37,7 +37,6 @@ from web.ui.settings import Settings
 # frontend の登録 id と backend の自己申告 id を一致させる（SSR ページが
 # backend から取った machine_id と URL の machine_id を突き合わせられるように）
 BACKEND_MACHINE_ID = "uitest"
-BACKEND_MACHINE_NAME = "UI テスト機"
 
 
 @pytest.fixture
@@ -94,7 +93,6 @@ def ui_settings(tmp_path: Path) -> Settings:
                 machine_id=BACKEND_MACHINE_ID,
                 host="127.0.0.1",
                 port=8081,
-                name=BACKEND_MACHINE_NAME,
             ),
         ),
         machines_file=tmp_path / "machines.toml",

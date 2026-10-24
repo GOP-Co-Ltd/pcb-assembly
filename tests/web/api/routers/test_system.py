@@ -63,7 +63,7 @@ class TestEmergencyStop:
     ):
         # Phase 3: E-STOP の先頭で jobs.request_abort()（Klipper 送信失敗でも
         # abort フラグは立つ）
-        register_gated(app.state.catalog, name="estop_target", hidden=True)
+        register_gated(app.state.catalog, name="estop_target")
         assert client.post("/api/jobs/estop_target", json={}).status_code == 201
 
         assert client.post("/api/emergency-stop").status_code == 502
@@ -99,7 +99,7 @@ class TestFirmwareRestart:
     ):
         # firmware restart の先頭で jobs.request_abort()。
         # Klipper 送信が 502 でも実行中ジョブは abort へ進む。
-        register_gated(app.state.catalog, name="firmware_restart_target", hidden=True)
+        register_gated(app.state.catalog, name="firmware_restart_target")
         response = client.post("/api/jobs/firmware_restart_target", json={})
         assert response.status_code == 201
 

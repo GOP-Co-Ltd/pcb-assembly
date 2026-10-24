@@ -25,17 +25,10 @@ from web.ui.app import create_app
 from web.ui.machines import MachineEndpoint, MachineRegistry
 from web.ui.settings import Settings
 
-STATIC_ALPHA = MachineEndpoint(
-    machine_id="alpha", host="alpha.local", port=8081, name="アルファ"
-)
+STATIC_ALPHA = MachineEndpoint(machine_id="alpha", host="alpha.local", port=8081)
 
 DISCOVERED_KUROUSAGI = MachineEndpoint(
-    machine_id="kurousagi",
-    host="192.168.100.201",
-    port=8081,
-    name="黒兎",
-    machine_type="paste",
-    source="mdns",
+    machine_id="kurousagi", host="192.168.100.201", port=8081, source="mdns"
 )
 
 
@@ -83,10 +76,8 @@ class TestListMachines:
         assert machine == {
             "machine_id": "alpha",
             "label": "alpha: alpha.local",
-            "name": "アルファ",
             "host": "alpha.local",
             "port": 8081,
-            "machine_type": None,
             "source": "static",
             "current": False,
         }

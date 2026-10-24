@@ -17,7 +17,7 @@
 
 MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
 
-- GET /api/jobs → {"jobs": [JobSpecInfo]}。登録順の全件（hidden も filter しない）で、
+- GET /api/jobs → {"jobs": [JobSpecInfo]}。登録順の全件で、
   `params` は保存済み既定値を `default` に反映した状態
 - preview ペイン / ローディング UI の有無は JobDefinition の provides_preview /
   loading_param / loading_stages が正（pages.py のハードコード辞書は撤去済み）
@@ -43,6 +43,7 @@ from starlette.testclient import WebSocketTestSession
 
 from pcbasm.vision import CalibrationResult
 from tests.support import polling
+from tests.support.job_demo import register_job_demo
 from tests.web.api.jobs.conftest import register_gated, register_synthetic
 from web.api.config_store import ConfigStore
 from web.api.jobs.catalog import ParamSpec
@@ -58,6 +59,13 @@ from web.api.jobs.manager import JobManager
 from web.api.state import AppState
 
 _TERMINAL = ("succeeded", "failed", "aborted")
+
+
+@pytest.fixture
+def app(app: FastAPI) -> FastAPI:
+    """ジョブ機構を通す題材として、検証用の ``job_demo`` を登録した app."""
+    register_job_demo(app.state.catalog)
+    return app
 
 
 def _current_job(client: TestClient) -> dict[str, Any] | None:
@@ -93,7 +101,6 @@ def _register_gated(
         app.state.catalog,
         name=name,
         notify_on_completion=notify_on_completion,
-        hidden=True,
     )
 
 
@@ -135,7 +142,6 @@ def _register_runtime_editable(
             ),
         ),
         persisted_params=("line_length",),
-        hidden=True,
     )
 
 
@@ -208,19 +214,19 @@ def _jobs_by_name(client: TestClient) -> dict[str, dict[str, Any]]:
 class TestJobCatalogApi:
     """GET /api/jobs — ジョブカタログの公開表現（MR2）."""
 
-    def test_includes_hidden_jobs(self, client: TestClient, app: FastAPI):
-        """Hidden ジョブも filter しない（実行時登録され POST もできるため）."""
+    def test_includes_jobs_registered_after_startup(
+        self, client: TestClient, app: FastAPI
+    ):
+        """起動後に catalog へ登録したジョブも返る（E2E が合成ジョブを足すため）."""
         register_synthetic(
             app.state.catalog,
             lambda ctx: JobResult(summary="ok"),
-            name="hidden_router_job",
-            hidden=True,
+            name="late_router_job",
         )
 
         jobs = _jobs_by_name(client)
 
-        assert jobs["hidden_router_job"]["hidden"] is True
-        assert jobs["paste_solder"]["hidden"] is False
+        assert {"late_router_job", "paste_solder"} <= jobs.keys()
 
     def test_reports_preview_and_loading_facts_from_definition(
         self, client: TestClient
@@ -996,7 +1002,6 @@ class TestWebSocket:
             run,
             name="labeled_prompt_router",
             label="ラベル付きプロンプト",
-            hidden=True,
         )
 
         with client.websocket_connect("/api/ws") as ws:
@@ -1213,7 +1218,6 @@ class TestArtifacts:
             run,
             name="artifact_job",
             label="成果物ジョブ",
-            hidden=True,
         )
         assert client.post("/api/jobs/artifact_job", json={}).status_code == 201
         job = _wait_job_status(client, "succeeded")
