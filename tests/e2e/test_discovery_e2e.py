@@ -249,7 +249,7 @@ class TestDiscoveryIsolation:
         self, tmp_path: Path, e2e_settings: Settings
     ):
         # 既定は有効（実運用は広告する）。だから共有 fixture 側の明示が要件になる
-        assert Settings().discovery_enabled is True
+        assert Settings(tmp_path, tmp_path).discovery_enabled is True
         assert UiSettings().discovery_enabled is True
 
         # e2e_settings が同じ tmp_path の "api" を使うのでディレクトリを分ける

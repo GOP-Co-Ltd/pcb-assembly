@@ -4,7 +4,7 @@
 
 - 既定値（`port=8080` / `ssr_timeout=2.0` / `backend_connect_timeout=2.0` /
   `proxy_read_timeout=120.0` / `default_backend_port=8081`）と `PCBASM_UI_*` の上書き
-- **`config_dir` / `data_dir` / `pcb_*` / `fake_camera` を一切持たない**。frontend は
+- **`config_dir` / `data_dir` / `pcb_*` / `fake` を一切持たない**。frontend は
   machine.toml を読まないので、機体でないホスト（`config/` が無い）でも起動できる。
   フィールドを 1 つでも足すと `get_config_dir()` 依存が復活し、この要件が壊れる
 """
@@ -38,7 +38,7 @@ FORBIDDEN_FIELDS = (
     "pcb_browse_allowed",
     "pcb_browse_start",
     "pcb_upload_dir",
-    "fake_camera",
+    "fake",
     "fake_camera_image",
 )
 
@@ -108,7 +108,7 @@ class TestSettingsFromEnv:
 class TestDiscoveryKillSwitch:
     """`PCBASM_UI_DISCOVERY_ENABLED` — 実 LAN の mDNS 探索を止めるスイッチ.
 
-    `make ui-fake` とテスト用の autouse fixture がこの env だけで探索を止めるので、 判定（`!=
+    テスト用の autouse fixture がこの env だけで探索を止めるので、 判定（`!=
     "0"`）が壊れると隔離が丸ごと崩れる（fake backend だけを見るはずの frontend
     に実機が混ざる）。既定は「探索する」。
     """
@@ -125,7 +125,7 @@ class TestDiscoveryKillSwitch:
     def test_anything_but_zero_keeps_discovery(
         self, monkeypatch: pytest.MonkeyPatch, value: str | None
     ):
-        """既定は有効なので、ui-fake と fixture 側の明示的な "0" が要件になる.
+        """既定は有効なので、fixture 側の明示的な "0" が要件になる.
 
         明示的な "0" 以外は有効（誤設定で黙って探索が止まらない）。
         """
@@ -135,3 +135,17 @@ class TestDiscoveryKillSwitch:
             monkeypatch.setenv("PCBASM_UI_DISCOVERY_ENABLED", value)
 
         assert Settings.from_env().discovery_enabled is True
+
+
+class TestFake:
+    """`PCBASM_FAKE=1` — fake の機体だけを操作させ、実 LAN の機体を探さず、更新もさせない."""
+
+    def test_fake_turns_off_discovery_and_update(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("PCBASM_UI_DISCOVERY_ENABLED", raising=False)
+        monkeypatch.delenv("PCBASM_UI_UPDATE_ENABLED", raising=False)
+        monkeypatch.setenv("PCBASM_FAKE", "1")
+
+        settings = Settings.from_env()
+
+        assert settings.discovery_enabled is False
+        assert settings.update_enabled is False

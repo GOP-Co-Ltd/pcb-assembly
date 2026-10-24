@@ -7,16 +7,19 @@ from __future__ import annotations
 
 import functools
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
+
+from shapely import Polygon
 
 from pcbasm import hal
 from pcbasm.config import load_klipper, load_machine
 from pcbasm.config.klipper import KlipperConfig
+from pcbasm.geometry import Point2d
 from pcbasm.hal import Camera, FrameHub, KlipperClient, MoonrakerKlipper
-from pcbasm.hal.fake import FakeCamera, FakeKlipper
+from pcbasm.hal.fake import FakeCamera, FakeKlipper, SceneCamera
 from pcbasm.machine.journal import Journal
-from pcbasm.vision import Image
+from pcbasm.vision import CalibrationResult, Image
 
 EMERGENCY_STOP_TIMEOUT = 10.0
 
@@ -163,6 +166,7 @@ def open_devices(
     journal_dir: Path,
     *,
     fake: bool,
+    scene: Callable[[], Sequence[Polygon]] = tuple,
     camera_image: Path | None = None,
 ) -> Devices:
     """machine.toml の機体の装置を組む（ここでは外部装置へ接続しない）.
@@ -170,18 +174,35 @@ def open_devices(
     Args:
         config_path: machine.toml
         journal_dir: G-code ジャーナルの置き場所
-        fake: Klipper を FakeKlipper にする
-        camera_image: 与えると、カメラをこの画像を返し続ける FakeCamera にする
+        fake: Klipper を FakeKlipper にし、カメラをその位置から scene を描く SceneCamera にする
+        scene: fake のカメラに映す図形（機械座標 [mm]）を返す関数（カメラを開くたびに呼ぶ）
+        camera_image: 与えると、カメラをこの画像を返し続ける FakeCamera にする（fake より優先する）
     """
-    return Devices(
-        config_path,
-        journal_dir,
-        klipper=FakeKlipper() if fake else None,
-        camera=(
-            None if camera_image is None else functools.partial(_still, camera_image)
-        ),
-    )
+    klipper = FakeKlipper() if fake else None
+    camera: Callable[[], Camera] | None = None
+    if camera_image is not None:
+        camera = functools.partial(_still, camera_image)
+    elif klipper is not None:
+        camera = functools.partial(_scene_camera, klipper, config_path, scene)
+    return Devices(config_path, journal_dir, klipper=klipper, camera=camera)
 
 
 def _still(image: Path) -> Camera:
     return FakeCamera([Image.load(image)], fps=15.0)
+
+
+def _scene_camera(
+    klipper: FakeKlipper, config_path: Path, scene: Callable[[], Sequence[Polygon]]
+) -> Camera:
+    """校正ファイルと machine.toml のとおりに、klipper の位置から scene を描くカメラ."""
+    machine = load_machine(config_path)
+    calibration = CalibrationResult.load(machine.camera.calibration_file)
+    dispenser = machine.paste_dispenser
+    return SceneCamera(
+        klipper,
+        pixel_per_mm=calibration.pixel_per_mm,
+        toolhead=Point2d(dispenser.toolhead.x, dispenser.toolhead.y),
+        rotations_per_ul=dispenser.rotations_per_ul,
+        size=calibration.resolution,
+        shapes=scene(),
+    )

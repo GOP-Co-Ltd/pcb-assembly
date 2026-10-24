@@ -1,6 +1,6 @@
 ---
 name: webui-e2e
-description: WebUI（src/web/api/ の backend と src/web/ui/ の frontend、FastAPI）を実サーバーで E2E 検証・デバッグする手順。pytest E2E スイート（make test-e2e）と手動・ブラウザ用の隔離起動（make api-fake / ui-fake）、ASGITransport で書けないもの、mDNS テストの隔離を扱う。WebUI の HTTP、WebSocket、MJPEG を通しで確認したいとき、E2E をデバッグしたいときに使う。
+description: WebUI（src/web/api/ の backend と src/web/ui/ の frontend、FastAPI）を実サーバーで E2E 検証・デバッグする手順。pytest E2E スイート（make test-e2e）と手動・ブラウザ用の隔離起動（make dev）、ASGITransport で書けないもの、mDNS テストの隔離を扱う。WebUI の HTTP、WebSocket、MJPEG を通しで確認したいとき、E2E をデバッグしたいときに使う。
 ---
 
 # WebUI を E2E で検証・デバッグする
@@ -133,21 +133,20 @@ join し、期限内に返らなければ fail させる共有ヘルパ）。WS 
 
 ## B. 手動 / ブラウザ用の隔離起動
 
-ブラウザで体感確認したい・curl で対話的にリクエストを送りたいときだけ使う。fake カメラ + 隔離
-data_dir + 実運用と衝突しない別ポートで起動する。
+ブラウザで体感確認したい・curl で対話的にリクエストを送りたいときだけ使う。`make dev` は
+Klipper もカメラも fake にした（`PCBASM_FAKE=1`）backend と frontend を、実運用と衝突しない
+別ポートと一時ディレクトリで同時に起動する。
 
 ```bash
-make api-fake  # PCBASM_API_FAKE_CAMERA=1, PORT=8099, DATA_DIR=/tmp/pcbasm-webui-fake
-make ui-fake   # PORT=8098。api-fake（8099）を静的登録した machines.toml を生成して向ける
-# 上書きしたいとき: PCBASM_API_PORT=9000 PCBASM_API_DATA_DIR=/tmp/foo make api-fake
+make dev  # backend 8099、frontend 8098。data/sim/config を一時ディレクトリへ複製して使う
+# ポートを変えたいとき: PCBASM_API_PORT=9000 PCBASM_UI_PORT=9001 make dev
 ```
 
-ページを見るには **2 つとも起動する**（`ui-fake` だけでは上流の backend が無い）。JSON API の
-一発確認なら `api-fake` 単体で足りる。
+ステージを動かすジョブも画面から通せる。Ctrl-C で両方を止め、一時ディレクトリごと消す。
 
 ### Codex が叩く場合
 
-`make api-fake` / `make ui-fake` は foreground の常駐 command。Codex は次の順で扱う。
+`make dev` は foreground の常駐 command。Codex は次の順で扱う。
 
 1. **基本は A（pytest E2E）で済ませる。** ほとんどの検証は `live_ui` fixture で足りる。
 2. どうしても常駐が要る確認は `exec_command` の PTY session で起動し、別 command で
@@ -163,7 +162,7 @@ make ui-fake   # PORT=8098。api-fake（8099）を静的登録した machines.to
 - 設定書き込みを伴う検証（apply / settings 保存）は **`data/testing/config` の複製**に対して行う。
     実機の `config/` は触らない
 - pytest E2E は `data/testing/config` を tmp_path に複製するので自動的に隔離される
-- 手動起動も `PCBASM_API_DATA_DIR` を tmp に向け、`webui_state.json` を実運用と分ける
+- 手動起動は `make dev` を使う。設定・データ・アップロード先が一時ディレクトリに閉じる
 - frontend の `machines_file` は tmp の**不在パス**を渡す。既定のままだとリポジトリの
     `config/machines.toml` を読み込み、実機の登録が混ざる
 
@@ -179,10 +178,11 @@ uv venv --clear --system-site-packages && uv sync --all-extras
 
 ## 関連設定
 
-- `src/web/api/settings.py`：`PCBASM_API_FAKE_CAMERA` / `_PORT` / `_DATA_DIR` /
+- `src/web/api/settings.py`：`PCBASM_FAKE` / `PCBASM_API_PORT` / `_DATA_DIR` /
     `_DISCOVERY_ENABLED` や `PCBASM_CONFIG_DIR`（pcbasm コア層と共通）等の env 上書き
 - `src/web/ui/settings.py`：`PCBASM_UI_PORT` / `_MACHINES_FILE` / `_DISCOVERY_ENABLED` /
     各種 timeout。frontend は `config_dir` を持たない
-- `src/web/api/fake_camera.py`：`FixedImageCamera`（固定画像を fps ペーシングで返す）
-- `data/testing/webui/fake_camera.png`：fake カメラの既定画像
+- `src/web/dev.py`：`make dev` の本体
+- `src/pcbasm/hal/fake.py`：`FakeKlipper` と、その位置から基板と塗布痕を描く `SceneCamera`
+- `data/sim/config/`：`make dev` のマシン設定
 - `data/testing/config/`：検証専用のマシン設定（Klipper port 7126 = 非リッスン）

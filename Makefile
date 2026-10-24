@@ -46,41 +46,15 @@ api-dev: ## Run backend WebAPI dev server (auto-reload)
 api: ## Run backend WebAPI server
 	uv run python -m web.api
 
-# 初回はテスト設定を複製し、以後は画面から編集した値を保持する。
-# mDNS と自己更新を切り、実運用の機体一覧やソース更新へ干渉させない。
-api-fake: ## Run backend WebAPI with fake camera and isolated config/data/port
-	@set -eu; \
-	fake_data_dir="$${PCBASM_API_DATA_DIR:-/tmp/pcbasm-webui-fake}"; \
-	fake_config_dir="$${PCBASM_CONFIG_DIR:-$$fake_data_dir/config}"; \
-	if [ ! -e "$$fake_config_dir" ]; then \
-		mkdir -p "$$(dirname "$$fake_config_dir")"; \
-		cp -a data/testing/config "$$fake_config_dir"; \
-	fi; \
-	PCBASM_CONFIG_DIR="$$fake_config_dir" \
-	PCBASM_API_FAKE_CAMERA=1 \
-	PCBASM_API_PORT=$${PCBASM_API_PORT:-8099} \
-	PCBASM_API_DATA_DIR="$$fake_data_dir" \
-	PCBASM_API_DISCOVERY_ENABLED=0 \
-	PCBASM_API_UPDATE_ENABLED=0 \
-	uv run python -m web.api
-
 ui-dev: ## Run UI frontend dev server (auto-reload)
 	uv run uvicorn web.ui.app:create_app --factory --reload --host 0.0.0.0 --port 8080
 
 ui: ## Run UI frontend server
 	uv run python -m web.ui
 
-# 隔離ポートの frontend を api-fake（8099）へ向ける。machines は env で渡せない
-# （マシン一覧は machines_file と mDNS 探索からしか得られない）ので静的登録を 1 台だけ生成する。
-# mDNS 探索も切る（実 LAN の機体が混ざると、fake backend だけを見る隔離にならない）
-ui-fake: ## Run UI frontend against api-fake (isolated port; for manual/browser E2E)
-	@mkdir -p "$${PCBASM_UI_FAKE_DIR:-/tmp/pcbasm-ui-fake}"
-	@printf '[[machine]]\nmachine_id = "fake"\nhost = "127.0.0.1"\nport = %s\n' \
-		"$${PCBASM_API_PORT:-8099}" > "$${PCBASM_UI_FAKE_DIR:-/tmp/pcbasm-ui-fake}/machines.toml"
-	PCBASM_UI_PORT=$${PCBASM_UI_PORT:-8098} \
-	PCBASM_UI_MACHINES_FILE="$${PCBASM_UI_FAKE_DIR:-/tmp/pcbasm-ui-fake}/machines.toml" \
-	PCBASM_UI_DISCOVERY_ENABLED=0 \
-	PCBASM_UI_UPDATE_ENABLED=0 \
-	uv run python -m web.ui
+# Klipper もカメラも fake にした backend（8099）と frontend（8098）を一時ディレクトリで起動する。
+# mDNS と自己更新は切る（実運用の機体一覧やソース更新へ干渉させない）
+dev: ## Run fake backend and frontend together (isolated ports and temp dir)
+	uv run python -m web.dev
 
 check: format type test ## Run format, type check and tests

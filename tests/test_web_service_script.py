@@ -14,7 +14,7 @@ seam の使い分け:
 - `SUDO=echo`（既定）はコマンド列だけを観測する。`rm` も `install` も実行されないため、
   「削除されたか」を見る assert には使えない（空振りする）。
 
-`tests/test_claude_hooks.py` / `tests/test_makefile_fake_targets.py` と同じくミラーレイアウト外の
+`tests/test_claude_hooks.py` と同じくミラーレイアウト外の
 トップレベルテスト（`src/` に対応物が無い成果物のため）。
 """
 

@@ -9,7 +9,7 @@ import attrs
 
 from pcbasm.paths import PROJECT_ROOT
 from web.contract.discovery import SERVICE_TYPE
-from web.process import env_path, env_words
+from web.process import env_fake, env_path, env_words
 from web.ui.machines import DEFAULT_BACKEND_PORT, MachineEndpoint
 
 
@@ -27,7 +27,7 @@ class Settings:
     # 同居機では 8080 = UI / 8081 = API に分ける
     port: int = 8080
     # 静的登録のマシン。実運用では machines_file から読んだ分をアプリ側で足す
-    # （テストや ui-fake は直接注入する）
+    # （テストは直接注入する）
     machines: tuple[MachineEndpoint, ...] = ()
     machines_file: Path = PROJECT_ROOT / "config" / "machines.toml"
     # 1 ページの SSR に必要な backend 取得へ許す時間（超えたら 503 ページ）
@@ -58,6 +58,7 @@ class Settings:
             PCBASM_UI_HOST, PCBASM_UI_PORT, PCBASM_UI_MACHINES_FILE,
             PCBASM_UI_SSR_TIMEOUT, PCBASM_UI_BACKEND_CONNECT_TIMEOUT,
             PCBASM_UI_PROXY_READ_TIMEOUT, PCBASM_UI_DEFAULT_BACKEND_PORT,
+            PCBASM_FAKE（"1" で mDNS 探索と自己更新を切る）,
             PCBASM_UI_DISCOVERY_ENABLED（"0" で mDNS 探索を無効）,
             PCBASM_UI_UPDATE_ENABLED（"0" で自己更新を無効）,
             PCBASM_UI_UPDATE_UV_SYNC_ARGS（空白区切り）, PCBASM_UI_UPDATE_STATE_DIR
@@ -75,6 +76,7 @@ class Settings:
         connect_timeout = os.environ.get("PCBASM_UI_BACKEND_CONNECT_TIMEOUT")
         read_timeout = os.environ.get("PCBASM_UI_PROXY_READ_TIMEOUT")
         backend_port = os.environ.get("PCBASM_UI_DEFAULT_BACKEND_PORT")
+        fake = env_fake()
         return cls(
             host=os.environ.get("PCBASM_UI_HOST", base.host),
             port=int(port) if port else base.port,
@@ -91,8 +93,11 @@ class Settings:
             default_backend_port=(
                 int(backend_port) if backend_port else base.default_backend_port
             ),
-            discovery_enabled=os.environ.get("PCBASM_UI_DISCOVERY_ENABLED") != "0",
-            update_enabled=os.environ.get("PCBASM_UI_UPDATE_ENABLED") != "0",
+            # fake の機体だけを操作させる（実 LAN の機体を混ぜない）
+            discovery_enabled=not fake
+            and os.environ.get("PCBASM_UI_DISCOVERY_ENABLED") != "0",
+            update_enabled=not fake
+            and os.environ.get("PCBASM_UI_UPDATE_ENABLED") != "0",
             update_uv_sync_args=env_words(
                 "PCBASM_UI_UPDATE_UV_SYNC_ARGS", base.update_uv_sync_args
             ),

@@ -57,6 +57,13 @@ def _board_corner(outline: Outline, corner: Corner) -> Point2d:
             return Point2d(outline.width, outline.height)
 
 
+def marker_position(
+    outline: Outline, offsets: CornerOffsetsConfig, corner: Corner
+) -> Point2d:
+    """指定コーナーの基準点マーカーの board 座標."""
+    return _board_corner(outline, corner) + corner_offset(offsets, corner)
+
+
 class BoardTransformMeasurer:
     """Board 座標から機械座標への変換を計測するクラス.
 
@@ -138,8 +145,7 @@ class BoardTransformMeasurer:
         ]
 
         board_points = tuple(
-            _board_corner(self._outline, corner)
-            + corner_offset(self._ref_point.offsets, corner)
+            marker_position(self._outline, self._ref_point.offsets, corner)
             for corner in corners
         )
         design = np.array(

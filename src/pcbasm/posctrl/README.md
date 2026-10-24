@@ -20,6 +20,7 @@ Board 巡回の実行・ユーザー入力・フレーム配信は `web/api/jobs
 | `aligner.py`       | 1 領域の反復計測 `RegionAligner` → `RegionAlignment`                                                 |
 | `alignment.py`     | 全領域の計測 `RegionAlignmentSession` と pad ごとの補正選択 `BoardAlignment`                         |
 | `render.py`        | 位置合わせ・巡回のプレビュー画像合成（cv2 GUI 非依存）                                               |
+| `scene.py`         | シミュレーションのカメラに映す基板（4 隅の基準円と TOP 銅箔）`board_scene`                           |
 
 公開名は `pcbasm.posctrl` から re-export している。
 

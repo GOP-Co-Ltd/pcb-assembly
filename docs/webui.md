@@ -18,15 +18,15 @@ API・ジョブ・ページを足す開発者は [アーキテクチャ](archite
 ```sh
 make api      # backend WebAPI 起動
 make api-dev  # 開発用（auto-reload）
-make api-fake # fake camera + テスト設定のコピー + 隔離 data_dir（port 8099）
 
 make ui       # UI frontend 起動
 make ui-dev   # 開発用（auto-reload）
-make ui-fake  # api-fake（8099）を上流にした frontend（port 8098）
+
+make dev      # Klipper もカメラも fake にした backend（8099）と frontend（8098）を一時ディレクトリで起動
 ```
 
-設定を編集しながら画面を確認する場合は、[開発用の隔離起動](../CONTRIBUTING.md#%E5%AE%9F%E6%A9%9F%E8%A8%AD%E5%AE%9A%E3%82%92%E4%BD%BF%E3%82%8F%E3%81%9A%E3%81%AB%E7%94%BB%E9%9D%A2%E3%82%92%E7%A2%BA%E8%AA%8D%E3%81%99%E3%82%8B)
-を使う。`api-fake` は初回にテスト設定を複製し、設定編集の結果を次回起動でも保持する。
+実機なしで画面を確認する場合は、[開発用の隔離起動](../CONTRIBUTING.md#%E5%AE%9F%E6%A9%9F%E8%A8%AD%E5%AE%9A%E3%82%92%E4%BD%BF%E3%82%8F%E3%81%9A%E3%81%AB%E7%94%BB%E9%9D%A2%E3%82%92%E7%A2%BA%E8%AA%8D%E3%81%99%E3%82%8B)
+を使う。
 
 ## 基本の操作
 
@@ -186,8 +186,7 @@ backend の環境変数は次のとおり（定義元は `src/web/api/settings.p
 - `PCBASM_API_PORT`: 待ち受けポート（既定 8081）
 - `PCBASM_API_DATA_DIR`: 成果物・状態ファイルの保存先
 - `PCBASM_API_PCB_ROOT`: ファイルブラウザの root（指定すると閲覧許可にも追加される）
-- `PCBASM_API_FAKE_CAMERA`: `1` でカメラ実機なしの固定画像配信
-- `PCBASM_API_FAKE_CAMERA_IMAGE`: その固定画像のパス
+- `PCBASM_FAKE`: `1` で Klipper とカメラを fake にし、mDNS 広告と WebUI からの更新、Mainsail へのリンクを切り、PCB のアップロード先を data_dir の下に移す（`make dev` が使う。frontend でも mDNS 探索と自己更新を切る）
 - `PCBASM_API_DISCOVERY_ENABLED`: `0` で mDNS 広告を無効
 - `PCBASM_API_UPDATE_ENABLED`: `0` で WebUI からの更新を無効（実行系は 403）
 - `PCBASM_API_UPDATE_UV_SYNC_ARGS`: `uv sync` の引数を**丸ごと置き換える**（空白区切り。既定 `--locked --inexact`）。`--locked` を外すと `uv.lock` が書き換わり、以後の更新がすべて中断するので、引数を足すときも既定の 2 つは必ず残す

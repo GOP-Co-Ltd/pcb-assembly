@@ -9,6 +9,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from shapely import Point
 
 from pcbasm.config.klipper import KlipperConfig
 from pcbasm.hal import FrameHub, XYZStage
@@ -219,6 +220,34 @@ class TestCamera:
         camera_devices.close()
 
         assert not hub.running
+
+    def test_open_devices_fake_camera_draws_the_scene_where_the_fake_stage_is(
+        self, config_path: Path, journal_dir: Path
+    ):
+        devices = open_devices(
+            config_path,
+            journal_dir,
+            fake=True,
+            scene=lambda: [Point(10.0, 20.0).buffer(1.0)],
+        )
+        hub = devices.frame_hub()
+        hub.start()
+        camera = hub.subscribe()
+        klipper = devices.klipper()
+
+        def center() -> int:
+            image = camera.capture().numpy()
+            return int(image[image.shape[0] // 2, image.shape[1] // 2, 0])
+
+        try:
+            klipper.send_gcode("G28\nG90\nG1 X10 Y20")
+            on_shape = center()
+            klipper.send_gcode("G1 X30 Y20")
+            off_shape = center()
+        finally:
+            devices.close()
+
+        assert on_shape > off_shape
 
     def test_open_devices_camera_image_is_a_still_camera(
         self, config_path: Path, journal_dir: Path

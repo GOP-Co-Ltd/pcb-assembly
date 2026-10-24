@@ -30,8 +30,7 @@ ENV_VARS = (
     "PCBASM_API_PCB_ROOT",
     "PCBASM_MAINSAIL_URL",
     "PCBASM_API_PORT",
-    "PCBASM_API_FAKE_CAMERA",
-    "PCBASM_API_FAKE_CAMERA_IMAGE",
+    "PCBASM_FAKE",
 )
 
 
@@ -47,13 +46,7 @@ class TestSettingsFromEnv:
     def test_defaults_without_env(self, clean_env: None):
         settings = Settings.from_env()
 
-        assert settings.config_dir == PROJECT_ROOT / "config"
-        assert settings.data_dir == PROJECT_ROOT / "data"
-        assert settings.webui_data_dir == PROJECT_ROOT / "data" / "webui"
-        assert (
-            settings.paste_dataset_dir
-            == PROJECT_ROOT / "data" / "paste-volume-datasets"
-        )
+        # config_dir と data_dir の既定は tests/repo/test_env_defaults.py が固定する
         # root は board_id の算出基準なので "/" 固定。公開範囲は allowed で絞る
         assert settings.pcb_browse_root == Path("/")
         assert settings.pcb_browse_allowed == (
@@ -68,11 +61,8 @@ class TestSettingsFromEnv:
         assert settings.hostname is None
         # 8080 は UI frontend の既定。backend は 8081（同居機で共存させる）
         assert settings.port == 8081
-        assert settings.fake_camera is False
-        assert (
-            settings.fake_camera_image
-            == PROJECT_ROOT / "data" / "testing" / "webui" / "fake_camera.png"
-        )
+        assert settings.fake is False
+        assert settings.fake_camera_image is None
 
     def test_env_overrides_each_field(
         self, clean_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -82,8 +72,7 @@ class TestSettingsFromEnv:
         monkeypatch.setenv("PCBASM_API_PCB_ROOT", str(tmp_path / "pcb"))
         monkeypatch.setenv("PCBASM_MAINSAIL_URL", "http://mainsail.example:8000")
         monkeypatch.setenv("PCBASM_API_PORT", "9001")
-        monkeypatch.setenv("PCBASM_API_FAKE_CAMERA", "1")
-        monkeypatch.setenv("PCBASM_API_FAKE_CAMERA_IMAGE", str(tmp_path / "cam.png"))
+        monkeypatch.setenv("PCBASM_FAKE", "1")
 
         settings = Settings.from_env()
 
@@ -94,8 +83,7 @@ class TestSettingsFromEnv:
         assert settings.pcb_browse_root == tmp_path / "pcb"
         assert settings.mainsail_url == "http://mainsail.example:8000"
         assert settings.port == 9001
-        assert settings.fake_camera is True
-        assert settings.fake_camera_image == tmp_path / "cam.png"
+        assert settings.fake is True
 
     def test_pcb_root_env_is_added_to_allowed_subtrees(
         self, clean_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -164,14 +152,14 @@ class TestPcbRootEnvIsBrowsable:
 class TestDiscoveryKillSwitch:
     """`PCBASM_API_DISCOVERY_ENABLED` — 実 LAN への mDNS 広告を止めるスイッチ.
 
-    `make api-fake` とテスト用の autouse fixture がこの env だけで広告を止めるので、 判定（`!=
+    テスト用の autouse fixture がこの env だけで広告を止めるので、 判定（`!=
     "0"`）が壊れると隔離が丸ごと崩れる。既定は「広告する」（実運用は frontend から自動発見されたい）。
     """
 
     @pytest.mark.parametrize(
         ("raw", "expected"),
         [
-            # 未設定は有効。だから api-fake と fixture 側の明示的な "0" が要件になる
+            # 未設定は有効。だから fixture 側の明示的な "0" が要件になる
             (None, True),
             ("0", False),
             # 明示的な "0" 以外は有効（"1" だけを真とすると誤設定で黙って広告が止まる）
@@ -189,3 +177,32 @@ class TestDiscoveryKillSwitch:
             monkeypatch.setenv("PCBASM_API_DISCOVERY_ENABLED", raw)
 
         assert Settings.from_env().discovery_enabled is expected
+
+
+class TestFake:
+    """`PCBASM_FAKE=1` — 実 LAN に広告せず、更新もさせない.
+
+    fake の機体は実機と同じ machine_id を名乗る。
+    """
+
+    def test_fake_turns_off_discovery_and_update(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("PCBASM_API_DISCOVERY_ENABLED", raising=False)
+        monkeypatch.delenv("PCBASM_API_UPDATE_ENABLED", raising=False)
+        monkeypatch.setenv("PCBASM_FAKE", "1")
+
+        settings = Settings.from_env()
+
+        assert settings.discovery_enabled is False
+        assert settings.update_enabled is False
+
+    def test_fake_keeps_uploads_in_the_data_dir(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ):
+        """実機と同じリポジトリで動かしても、アップロードが実機の uploads/ の基板を上書きしない."""
+        monkeypatch.setenv("PCBASM_API_DATA_DIR", str(tmp_path / "data"))
+        monkeypatch.setenv("PCBASM_FAKE", "1")
+
+        settings = Settings.from_env()
+
+        assert settings.pcb_upload_dir == tmp_path / "data" / "uploads"
+        assert settings.pcb_upload_dir in settings.pcb_browse_allowed

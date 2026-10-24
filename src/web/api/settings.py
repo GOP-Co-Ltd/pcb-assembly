@@ -11,15 +11,15 @@ import attrs
 from pcbasm.config import get_config_dir
 from pcbasm.paths import PROJECT_ROOT
 from web.contract.discovery import SERVICE_TYPE
-from web.process import env_path, env_words
+from web.process import env_fake, env_path, env_words
 
 
 @attrs.frozen
 class Settings:
     """Backend WebAPI サーバーの設定値."""
 
-    config_dir: Path = attrs.field(factory=get_config_dir)
-    data_dir: Path = PROJECT_ROOT / "data"
+    config_dir: Path
+    data_dir: Path
     # 閲覧範囲は pcb_browse_allowed で絞る。root は board_id の算出基準
     # （board_settings）なので "/" から動かさない。
     # ファイルブラウザの初期表示位置は pcb_browse_start
@@ -40,10 +40,10 @@ class Settings:
     # 同居機では 8080 = UI frontend / 8081 = backend WebAPI に分ける
     # （既存ブックマークの :8080 がそのまま UI に着地する）
     port: int = 8081
-    fake_camera: bool = False
-    fake_camera_image: Path = (
-        PROJECT_ROOT / "data" / "testing" / "webui" / "fake_camera.png"
-    )
+    # Klipper とカメラを fake にする（`make dev` のシミュレーション起動）
+    fake: bool = False
+    # 与えるとカメラをこの画像を返し続ける fake にする（テストの注入口。env には出さない）
+    fake_camera_image: Path | None = None
     # mDNS でこの backend を広告するか（frontend の自動発見用）
     discovery_enabled: bool = True
     # 広告するアドレス。None なら実 IF から列挙する（discovery.local_ipv4_addresses）
@@ -94,51 +94,56 @@ class Settings:
     def from_env(cls) -> Settings:
         """環境変数を反映した Settings を生成する.
 
+        config_dir と data_dir の既定はリポジトリ直下（本番の unit は env を設定しない）。
+
         対応する環境変数:
-            PCBASM_API_DATA_DIR, PCBASM_API_PCB_ROOT,
+            PCBASM_CONFIG_DIR, PCBASM_API_DATA_DIR, PCBASM_API_PCB_ROOT,
             PCBASM_MAINSAIL_URL, PCBASM_API_PORT,
-            PCBASM_API_FAKE_CAMERA（"1" で固定画像カメラを使用）,
-            PCBASM_API_FAKE_CAMERA_IMAGE,
+            PCBASM_FAKE（"1" で Klipper とカメラを fake にし、mDNS 広告と WebUI からの更新を切り、アップロード先を data_dir に移す）,
             PCBASM_API_DISCOVERY_ENABLED（"0" で mDNS 広告を無効）,
             PCBASM_API_UPDATE_ENABLED（"0" で WebUI からの更新を無効）,
             PCBASM_API_UPDATE_UV_SYNC_ARGS（空白区切り。`uv sync` の引数を丸ごと置換）,
             PCBASM_API_UPDATE_STATE_DIR
 
         ``discovery_service_type`` / ``discovery_interfaces`` /
-        ``advertise_addresses`` は env に出さない（テストと E2E はコンストラクタ注入
-        で足りるため、使われない設定項目を増やさない）。
+        ``advertise_addresses`` / ``fake_camera_image`` は env に出さない（テストと E2E は
+        コンストラクタ注入で足りるため、使われない設定項目を増やさない）。
 
         ``PCBASM_API_PCB_ROOT`` を与えたときは、その root を
         ``pcb_browse_allowed`` にも追加する（root をわざわざ差し替える運用は
         「そこを見せる」意図しかなく、追加しないとファイルブラウザが全パス 400 に
         なる）。既定の 3 パスはそのまま残す。
 
-        ``config_dir`` は既定値の生成時点で ``PCBASM_CONFIG_DIR`` を解決するため
-        （``pcbasm.config.get_config_dir``）ここでは扱わない。
-
         Raises:
             ValueError: PCBASM_API_PORT が整数として解釈できない場合
         """
-        base = cls()
+        base = cls(
+            config_dir=get_config_dir(),
+            data_dir=env_path("PCBASM_API_DATA_DIR", PROJECT_ROOT / "data"),
+        )
+        fake = env_fake()
         port_env = os.environ.get("PCBASM_API_PORT")
         pcb_root_env = os.environ.get("PCBASM_API_PCB_ROOT")
         pcb_browse_root = Path(pcb_root_env) if pcb_root_env else base.pcb_browse_root
-        return cls(
-            data_dir=env_path("PCBASM_API_DATA_DIR", base.data_dir),
+        # fake の機体は実機と同じリポジトリで動きうるので、アップロードで実機の基板を上書きしない
+        pcb_upload_dir = base.data_dir / "uploads" if fake else base.pcb_upload_dir
+        return attrs.evolve(
+            base,
             pcb_browse_root=pcb_browse_root,
             pcb_browse_allowed=(
-                (*base.pcb_browse_allowed, pcb_browse_root)
-                if pcb_root_env
-                else base.pcb_browse_allowed
+                *base.pcb_browse_allowed,
+                *((pcb_browse_root,) if pcb_root_env else ()),
+                *((pcb_upload_dir,) if fake else ()),
             ),
+            pcb_upload_dir=pcb_upload_dir,
             mainsail_url=os.environ.get("PCBASM_MAINSAIL_URL", base.mainsail_url),
             port=int(port_env) if port_env else base.port,
-            fake_camera=os.environ.get("PCBASM_API_FAKE_CAMERA") == "1",
-            fake_camera_image=env_path(
-                "PCBASM_API_FAKE_CAMERA_IMAGE", base.fake_camera_image
-            ),
-            discovery_enabled=os.environ.get("PCBASM_API_DISCOVERY_ENABLED") != "0",
-            update_enabled=os.environ.get("PCBASM_API_UPDATE_ENABLED") != "0",
+            fake=fake,
+            # fake の機体は実機と同じ machine_id を名乗るので、実 LAN に広告しない
+            discovery_enabled=not fake
+            and os.environ.get("PCBASM_API_DISCOVERY_ENABLED") != "0",
+            update_enabled=not fake
+            and os.environ.get("PCBASM_API_UPDATE_ENABLED") != "0",
             update_uv_sync_args=env_words(
                 "PCBASM_API_UPDATE_UV_SYNC_ARGS", base.update_uv_sync_args
             ),

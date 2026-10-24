@@ -26,11 +26,15 @@ MR1 追記（計画書 web-api-ui-split.md「MR1」節）:
 """
 
 import json
+import shutil
 import threading
+from collections.abc import Iterator
 from pathlib import Path
 
+import attrs
 import pytest
 
+from tests.web.api.conftest import COPPER_PCB_FIXTURE
 from web.api.machine_config import MachineConfigFile
 from web.api.settings import Settings
 from web.api.state import AppState, BusyError
@@ -481,3 +485,38 @@ class TestMachineConfig:
 
     def test_machine_loads_config_dir_machine(self, state: AppState):
         assert state.machine().klipper.port == 7126
+
+
+class TestFakeCamera:
+    """Fake の機体のカメラは、選択中の PCB を基準点どおりに置いた基板を映す."""
+
+    @pytest.fixture
+    def fake_state(
+        self, webui_settings: Settings, machine_config: MachineConfigFile
+    ) -> Iterator[AppState]:
+        state = AppState(attrs.evolve(webui_settings, fake=True), machine_config)
+        yield state
+        state.close()
+
+    @staticmethod
+    def _center_at_reference(state: AppState) -> int:
+        """基準点の真上から撮った画像中心の明るさ."""
+        hub = state.devices.frame_hub()
+        hub.start()
+        camera = hub.subscribe()
+        reference = state.machine().reference_point
+        state.devices.klipper().send_gcode(
+            f"G28\nG90\nG1 X{reference.x} Y{reference.y}"
+        )
+        image = camera.capture().numpy()
+        return int(image[image.shape[0] // 2, image.shape[1] // 2, 0])
+
+    def test_selecting_a_pcb_puts_its_top_left_marker_on_the_reference_point(
+        self, fake_state: AppState, webui_settings: Settings
+    ):
+        empty = self._center_at_reference(fake_state)
+        shutil.copy(COPPER_PCB_FIXTURE, webui_settings.pcb_browse_root)
+
+        fake_state.select_pcb(Path(COPPER_PCB_FIXTURE.name))
+
+        assert self._center_at_reference(fake_state) > empty

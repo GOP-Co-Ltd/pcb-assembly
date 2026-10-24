@@ -18,6 +18,11 @@ def env_path(name: str, default: Path) -> Path:
     return Path(value) if value else default
 
 
+def env_fake() -> bool:
+    """``PCBASM_FAKE=1`` のシミュレーション起動か（Klipper とカメラを fake にし、mDNS と更新を切る）."""
+    return os.environ.get("PCBASM_FAKE") == "1"
+
+
 def env_words(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
     """空白区切りの env を argv 断片として読む（未設定か空なら既定）."""
     value = os.environ.get(name)

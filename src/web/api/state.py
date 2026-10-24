@@ -9,10 +9,13 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 
+from shapely import Polygon
+
 from pcbasm.atomic import write_bytes_atomic, write_text_atomic
 from pcbasm.config import ConfigError, MachineConfig, load_machine
 from pcbasm.machine.devices import Devices, open_devices
 from pcbasm.migrate.machine_toml import NAME, MigrationError, migrate_machine_toml
+from pcbasm.posctrl.scene import board_scene, placed_on_reference
 from web.api.machine_config import MachineConfigFile
 from web.api.selection import BoardCache
 from web.api.settings import Settings
@@ -69,10 +72,9 @@ class AppState:
             devices = open_devices(
                 machine_config.path,
                 settings.journal_dir,
-                fake=False,
-                camera_image=(
-                    settings.fake_camera_image if settings.fake_camera else None
-                ),
+                fake=settings.fake,
+                scene=self._scene,
+                camera_image=settings.fake_camera_image,
             )
         self._devices = devices
         self._lock = threading.Lock()
@@ -142,6 +144,9 @@ class AppState:
                 self._selected_pcb = relative
             self._pcb_notice = None
             self._boards.forget()
+            if self._settings.fake:
+                # fake のカメラに選び直した基板を映す
+                self._devices.rebuild_camera()
 
     @property
     def devices(self) -> Devices:
@@ -321,6 +326,15 @@ class AppState:
             if params:
                 defaults[job_name] = params
         return defaults
+
+    def _scene(self) -> list[Polygon]:
+        """Fake のカメラに映す、選択中の PCB を基準点どおりに置いた基準円と銅箔."""
+        if self._selected_pcb is None:
+            return []
+        board = self._boards.get(self._settings.pcb_browse_root / self._selected_pcb)
+        reference = self.machine().reference_point
+        placement = placed_on_reference(reference)
+        return board_scene(board, reference, placement, placement)
 
     def _validate_pcb(self, path: Path, *, require_file: bool = True) -> Path | None:
         """PCB パスを検証し、正規化済み相対パスを返す（不正なら None）."""

@@ -108,33 +108,18 @@ mDNS の検証はランダムなサービス型とループバックだけを使
 
 ## 実機設定を使わずに画面を確認する
 
-自動確認はまず `make test-e2e` を使う。手動でブラウザを開く場合は、
-`make api-fake` と `make ui-fake` を使う。初回起動時にテスト用設定が複製される。
+自動確認はまず `make test-e2e` を使う。手動でブラウザを開く場合は `make dev` を使う。
 
 ```sh
-make api-fake
+make dev
 ```
 
-別ターミナルで frontend を起動し、`http://127.0.0.1:8098` を開く。
+Klipper もカメラも fake にした backend（port 8099）と frontend（port 8098）が同時に起動するので、
+`http://127.0.0.1:8098` を開く。ステージは送った G-code のとおりに動き、カメラはその位置から
+選択中の基板（4 隅の基準円と TOP 銅箔）と塗布痕を描く。jog や、はんだ塗布などの装置を使うジョブも画面から通せる。
 
-```sh
-make ui-fake
-```
-
-両プロセスを `Ctrl-C` で終了する。設定は `/tmp/pcbasm-webui-fake/config`、
-ジョブの状態と成果物は `/tmp/pcbasm-webui-fake` 配下に残り、再起動しても維持される。
-両方の起動で mDNS とソフトウェア更新は無効になる。
-
-別の作業用データで始める場合は、`PCBASM_API_DATA_DIR` を新しいディレクトリへ向ける。
-設定はその配下の `config/` に複製される。`PCBASM_CONFIG_DIR` を明示した場合は
-その設定を使うため、実機の設定ディレクトリを指定しない。
-
-```sh
-PCBASM_API_DATA_DIR="$(mktemp -d /tmp/pcbasm-dev.XXXXXX)" make api-fake
-```
-
-`api-fake` が fake に置き換えるのはカメラだけで、ステージはシミュレートしない。
-テスト設定は Moonraker の非リッスンポート 7126 を使うため、装置を使うジョブは成功しない。
+設定は `data/sim/config` を一時ディレクトリへ複製して使い、`Ctrl-C` で終了すると設定の変更・ジョブの成果物ごと消える。
+mDNS とソフトウェア更新は無効になる。ポートは `PCBASM_API_PORT` と `PCBASM_UI_PORT` で変えられる。
 
 ## 実装の責務
 
