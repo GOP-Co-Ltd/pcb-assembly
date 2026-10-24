@@ -23,8 +23,11 @@ from web.api.config_store import MACHINE_FIELDS, ConfigStore, FieldSpec
 from web.api.control import ClientIdentity, LeaseInfo
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.manager import JobManager
-from web.api.models import (
-    API_VERSION,
+from web.api.preview import PreviewService
+from web.api.settings import Settings, resolve_machine_id
+from web.api.state import AppState
+from web.contract.discovery import API_VERSION
+from web.contract.models import (
     ClientInfo,
     ControlInfo,
     JobBrief,
@@ -36,9 +39,6 @@ from web.api.models import (
     SettingsField,
     StateResponse,
 )
-from web.api.preview import PreviewService
-from web.api.settings import Settings, resolve_machine_id
-from web.api.state import AppState
 
 # --------------------------------------------------------------------------- #
 # Klipper 接続

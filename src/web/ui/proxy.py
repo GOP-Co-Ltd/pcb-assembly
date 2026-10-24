@@ -25,6 +25,12 @@ from starlette.responses import JSONResponse, StreamingResponse
 from starlette.types import Receive, Scope, Send
 from starlette.websockets import WebSocket, WebSocketState
 
+from web.contract.identity import (
+    NAME_COOKIE,
+    NAME_HEADER,
+    SESSION_COOKIE,
+    SESSION_HEADER,
+)
 from web.ui.machines import MachineEndpoint, MachineRegistry, UnknownMachine
 
 if TYPE_CHECKING:
@@ -50,14 +56,10 @@ _HOP_BY_HOP = frozenset(
     }
 )
 
-# 操作権リースのセッション同定に使う cookie（発行は `web.ui.pages` の HTML 応答だけ）。
-# `pcbasm_name` は JS が読み書きする表示名（httpOnly にしない）
-SESSION_COOKIE = "pcbasm_session"
-NAME_COOKIE = "pcbasm_name"
-
-# cookie から翻訳して backend へ渡すヘッダ（`web.api` の `get_identity` が読む）
-_SESSION_HEADER = b"x-pcbasm-session"
-_NAME_HEADER = b"x-pcbasm-client-name"
+# cookie から翻訳して backend へ渡すヘッダ（`web.api` の `get_identity` が読む）。
+# cookie の発行は `web.ui.pages` の HTML 応答だけで、表示名の cookie は JS が読み書きする
+_SESSION_HEADER = SESSION_HEADER.lower().encode("ascii")
+_NAME_HEADER = NAME_HEADER.lower().encode("ascii")
 
 # host は上流の URL から httpx / websockets が付け直す。
 # cookie は frontend のセッション cookie を backend に漏らさないために取り除く

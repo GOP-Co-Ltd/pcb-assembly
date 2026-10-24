@@ -7,7 +7,7 @@ import subprocess
 
 import pytest
 
-from pcbasm.utils import PROJECT_ROOT
+from pcbasm.paths import PROJECT_ROOT
 
 
 def setup_command(program: str) -> list[str]:

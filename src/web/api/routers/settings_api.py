@@ -7,12 +7,12 @@ from pydantic import BaseModel
 
 from web.api.dependencies import ControlDep, HistoryDep, JobsDep, StateDep, StoreDep
 from web.api.history import UnknownSnapshotError
-from web.api.models import (
+from web.api.routers.common import machine_settings_fields
+from web.contract.models import (
     ConfigHistoryResponse,
     MachineSettingsResponse,
     MachineSettingValue,
 )
-from web.api.routers.common import machine_settings_fields
 
 router = APIRouter(prefix="/api")
 

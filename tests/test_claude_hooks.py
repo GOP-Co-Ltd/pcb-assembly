@@ -16,7 +16,7 @@ import sys
 
 import pytest
 
-from pcbasm.utils import PROJECT_ROOT
+from pcbasm.paths import PROJECT_ROOT
 
 HOOK = PROJECT_ROOT / ".claude" / "hooks" / "pretooluse-block-hardware-tests.py"
 

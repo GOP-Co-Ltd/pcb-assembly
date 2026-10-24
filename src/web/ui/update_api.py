@@ -31,7 +31,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-from web.api.models import UpdateRunResponse, UpdateStatusResponse
+from web.contract.update import UpdateRunResponse, UpdateStatusResponse
 from web.selfupdate.report import UpdatePlan, run_payload, status_payload
 from web.selfupdate.runner import UpdateRunner
 from web.ui import pages

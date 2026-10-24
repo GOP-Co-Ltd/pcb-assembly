@@ -1,8 +1,7 @@
 """Backend WebAPI (`web.api`) への HTTP クライアント.
 
 SSR ページのハンドラが backend のクライアントになる。取得した値は
-`web.api.models` の pydantic モデル（pydantic のみを import する contract モジュール）
-で検証してからテンプレートへ渡す。
+`web.contract.models` の pydantic モデルで検証してからテンプレートへ渡す。
 
 backend のレスポンスはキャッシュしない。frontend は backend の WS を自前で
 購読しないため、他の操作者による変更でキャッシュを無効化する条件を正しく書けない。
@@ -17,13 +16,13 @@ from collections.abc import Callable
 import httpx
 from pydantic import BaseModel
 
-from web.api.models import (
+from web.contract.models import (
     JobCatalogResponse,
     MachineInfo,
     MachineSettingsResponse,
     StateResponse,
-    UpdateStatusResponse,
 )
+from web.contract.update import UpdateStatusResponse
 from web.ui.machines import MachineEndpoint
 
 

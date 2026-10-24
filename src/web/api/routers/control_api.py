@@ -14,8 +14,8 @@ from fastapi import APIRouter
 
 from web.api.control import ClientIdentity, LeaseInfo
 from web.api.dependencies import IdentityDep, LeaseDep
-from web.api.models import ClientInfo, ControlStateResponse
 from web.api.routers.common import control_payload
+from web.contract.models import ClientInfo, ControlStateResponse
 
 router = APIRouter(prefix="/api/control")
 

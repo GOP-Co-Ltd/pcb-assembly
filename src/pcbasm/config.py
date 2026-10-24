@@ -15,7 +15,8 @@ import cattrs
 from cattrs.gen import make_dict_structure_fn
 
 from pcbasm.geometry import Point2d, Point3d, Shift, Transform
-from pcbasm.utils import PROJECT_ROOT, is_finite_number
+from pcbasm.paths import PROJECT_ROOT
+from pcbasm.utils import is_finite_number
 
 DISPENSE_MODES = ("auto", "dot", "line", "area", "micro_line")
 DispenseMode = Literal["auto", "dot", "line", "area", "micro_line"]

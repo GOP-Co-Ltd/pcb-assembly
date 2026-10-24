@@ -9,9 +9,9 @@ from fastapi import APIRouter
 from pcbasm.hal import Klipper, XYZStage
 from web.api.dependencies import ControlDep, JobsDep, StateDep, UpdateDep
 from web.api.jobs.manager import JobManager
-from web.api.models import FirmwareRestartResponse, KlipperStatus
 from web.api.routers.common import create_klipper, fetch_status, klipper_errors_to_502
 from web.api.state import AppState
+from web.contract.models import FirmwareRestartResponse, KlipperStatus
 from web.selfupdate.service import restart_scheduled_notice
 
 STATUS_TIMEOUT = 10.0

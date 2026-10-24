@@ -1,7 +1,6 @@
 """LAN 上の backend WebAPI を mDNS (DNS-SD) で探索する.
 
-ワイヤ定数（サービス型・TXT キー）は広告側（`web.api.discovery`）から import する
-（定義箇所を 1 つに保つため、`web.ui` → `web.api` の import を許容する）。
+ワイヤ定数（サービス型・TXT キー）は広告側と共有する `web.contract.discovery` に置く。
 
 生存判定はしない。PTR は other-TTL 4500s で残り、電源断では goodbye が送られない
 ので、停止した機体は最大 75 分一覧に残る。到達不能なマシンを選ぶと 503 ページになる
@@ -24,8 +23,7 @@ from zeroconf import (
 )
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo, AsyncZeroconf
 
-from web.api.discovery import SERVICE_TYPE, TXT_KEY_API, TXT_KEY_ID
-from web.api.models import API_VERSION
+from web.contract.discovery import API_VERSION, SERVICE_TYPE, TXT_KEY_API, TXT_KEY_ID
 from web.ui.machines import MachineEndpoint
 
 logger = logging.getLogger(__name__)

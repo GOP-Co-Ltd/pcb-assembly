@@ -18,10 +18,10 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper
-from pcbasm.utils import PROJECT_ROOT
+from pcbasm.paths import PROJECT_ROOT
 from tests.support.settings import make_api_settings, make_ui_settings
 from web.api.app import create_app as create_backend_app
-from web.api.models import (
+from web.contract.update import (
     UpdateRepositoryInfo,
     UpdateRunInfo,
     UpdateRunResponse,

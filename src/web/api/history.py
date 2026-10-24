@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 from pcbasm.atomic import write_bytes_atomic
-from web.api.models import ConfigHistoryEntry
+from web.contract.models import ConfigHistoryEntry
 
 MAX_SNAPSHOTS = 50
 

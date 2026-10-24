@@ -15,7 +15,7 @@ import itertools
 
 import pytest
 
-from pcbasm.utils import PROJECT_ROOT
+from pcbasm.paths import PROJECT_ROOT
 
 MAKEFILE = PROJECT_ROOT / "Makefile"
 

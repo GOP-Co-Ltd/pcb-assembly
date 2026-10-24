@@ -16,7 +16,7 @@ from collections.abc import Sequence
 
 import attrs
 
-from web.api.models import SettingsField
+from web.contract.models import SettingsField
 
 # tab → (グループ名、案内、feature slug 列)。サイドバーと入口画面で共用する表示定義。
 FEATURE_GROUPS: dict[str, tuple[tuple[str, str, tuple[str, ...]], ...]] = {

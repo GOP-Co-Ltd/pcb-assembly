@@ -32,7 +32,7 @@ from pcbasm.config import (
 )
 from pcbasm.utils import is_finite_number
 from web.api.history import ConfigHistory
-from web.api.models import MachineSettingValue, SettingValueType
+from web.contract.models import MachineSettingValue, SettingValueType
 
 
 @attrs.frozen

@@ -107,7 +107,7 @@ def _build_update_runner(settings: Settings) -> UpdateRunner:
     """
     return UpdateRunner(
         UpdateSettings(
-            state_dir=settings.update_dir,
+            state_dir=settings.update_state_dir,
             uv_sync_args=settings.update_uv_sync_args,
             enabled=settings.update_enabled,
         )

@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-import logging
 from types import FrameType
 from typing import override
 
 import uvicorn
 
-from pcbasm.utils import setup_logging
 from web.api.app import create_app
 from web.api.preview import PreviewService
 from web.api.settings import Settings
+from web.process import setup_logging
 
 
 class _WebUIServer(uvicorn.Server):
@@ -29,7 +28,7 @@ class _WebUIServer(uvicorn.Server):
 
 def main() -> None:
     # FrameHub の start/stop ログ（E2E の停止確認に使う）を含めて出力する
-    setup_logging(logging.INFO, namespaces=("pcbasm", "web"))
+    setup_logging()
     settings = Settings.from_env()
     app = create_app(settings)
     config = uvicorn.Config(

@@ -31,7 +31,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.responses import Response
 
 from tests.web.ui.conftest import BACKEND_MACHINE_ID
-from web.api.models import API_VERSION
+from web.contract.discovery import API_VERSION
 from web.ui.machine_client import BackendGateway, BackendUnavailable, MachineClient
 from web.ui.machines import MachineEndpoint
 
