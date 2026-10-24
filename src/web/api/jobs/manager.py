@@ -507,6 +507,7 @@ class JobManager:
                 source_pcb=selected_pcb.as_posix() if selected_pcb else None,
                 boards=self._state.boards,
                 overrides=self._overrides,
+                audio_player=self._audio_player,
             )
             worker = threading.Thread(
                 target=self._run_worker,

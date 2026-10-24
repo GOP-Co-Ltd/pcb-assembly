@@ -27,8 +27,8 @@ FEATURE_GROUPS: dict[str, tuple[tuple[str, str, tuple[str, ...]], ...]] = {
         ),
         (
             "機体の管理",
-            "接続状態、通知音、設定履歴とバックアップ、ソフトウェアを確認します。",
-            ("klipper_status", "audio", "config_history", "update"),
+            "接続状態と装置診断、通知音、設定履歴とバックアップ、ソフトウェアを確認します。",
+            ("klipper_status", "machine_check", "audio", "config_history", "update"),
         ),
     ),
     "pasting": (
@@ -115,6 +115,7 @@ FEATURE_TEMPLATES: dict[tuple[str, str], str] = {
     ("dev", "extract_pcb"): "job.html",
     ("dev", "make_fill_coverage_pcb"): "job.html",
     ("dev", "klipper_status"): "dev/klipper_status.html",
+    ("dev", "machine_check"): "job.html",
     ("dev", "audio"): "dev/audio.html",
     ("dev", "config_history"): "dev/config_history.html",
     # ジョブではないので JOB_TEMPLATES には入れない（装置ロックを取らない独立経路）

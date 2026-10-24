@@ -13,7 +13,7 @@ from shapely import Point
 
 from pcbasm.config.klipper import KlipperConfig
 from pcbasm.hal import FrameHub, XYZStage
-from pcbasm.hal.fake import FakeCamera, FakeKlipper
+from pcbasm.hal.fake import FAKE_MACHINE_PRINTER_CONFIG, FakeCamera, FakeKlipper
 from pcbasm.machine.devices import Devices, open_devices
 from pcbasm.machine.journal import Journal
 from pcbasm.vision import Image
@@ -174,6 +174,14 @@ class TestFake:
         devices.emergency_stop()
 
         assert devices.klipper().get_status("toolhead", "homed_axes") == "xyz"
+
+    def test_open_devices_fake_has_the_machine_printer_cfg(
+        self, config_path: Path, journal_dir: Path
+    ):
+        """シミュレーション起動（make dev）の printer.cfg は、駐機の PRESENT マクロまで実機と同じ."""
+        devices = open_devices(config_path, journal_dir, fake=True)
+
+        assert devices.klipper().get_config() == FAKE_MACHINE_PRINTER_CONFIG
 
 
 class TestCamera:

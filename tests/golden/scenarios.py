@@ -62,6 +62,8 @@ SCENARIOS = (
     Scenario("loading", "commands"),
     Scenario("dispense_calibration", "all"),
     Scenario("paste_volume_calibration", "small_grid"),
+    Scenario("machine_check", "all_ok"),
+    Scenario("machine_check", "camera_mismatch", succeeds=False),
 )
 
 

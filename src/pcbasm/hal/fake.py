@@ -38,6 +38,11 @@ FAKE_PRINTER_CONFIG: dict[str, dict[str, Any]] = {
     "output_pin air_pump": {},
     "load_cell_probe": {},
 }
+# 実機と同じく、駐機の PRESENT マクロまでそろえた printer.cfg（make dev の fake 機体）
+FAKE_MACHINE_PRINTER_CONFIG: dict[str, dict[str, Any]] = {
+    **FAKE_PRINTER_CONFIG,
+    "gcode_macro PRESENT": {"gcode": "G1 Y300"},
+}
 
 _AXES = "xyz"
 
@@ -104,6 +109,7 @@ class FakeKlipper:
             },
             "toolhead": {"homed_axes": ""},
             "probe": {"last_z_result": 0.0},
+            "webhooks": {"state": "ready", "state_message": "Printer is ready"},
         }
         self._steppers: dict[str, float] = {}
         self._extruded: dict[str, float] = {}

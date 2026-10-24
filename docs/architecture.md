@@ -79,11 +79,12 @@ JS に `fetch()` を直接書かない。機体の prefix が付かず、テス�
 
 ジョブ関数と登録の場所はタブで決まる。
 
-| タブ    | ジョブ関数と登録の場所                                                                                                |
-| ------- | --------------------------------------------------------------------------------------------------------------------- |
-| dev     | `src/web/api/jobs/dev.py` の `register_dev_jobs`                                                                      |
-| posctrl | `src/web/api/jobs/posctrl.py` の `register_posctrl_jobs`                                                              |
-| pasting | `src/web/api/jobs/pasting/` に新しいモジュールと `register` を作り、`__init__.py` の `register_pasting_jobs` から呼ぶ |
+| タブ        | ジョブ関数と登録の場所                                                                                                |
+| ----------- | --------------------------------------------------------------------------------------------------------------------- |
+| dev         | `src/web/api/jobs/dev.py` の `register_dev_jobs`                                                                      |
+| dev（装置） | `src/web/api/jobs/machine/` に新しいモジュールと `register` を作り、`catalog.py` の `default_catalog` から呼ぶ        |
+| posctrl     | `src/web/api/jobs/posctrl.py` の `register_posctrl_jobs`                                                              |
+| pasting     | `src/web/api/jobs/pasting/` に新しいモジュールと `register` を作り、`__init__.py` の `register_pasting_jobs` から呼ぶ |
 
 1. ジョブ関数を書く。関数は `JobContext` を受け取り、`pcbasm` を呼ぶ。ログ・進捗・質問は `JobContext` の `log` / `progress` / `prompt` で出す。
 2. `JobDefinition` を登録する。`name` は feature slug と同じ文字列にする。装置を動かさないジョブは `uses_machine=False` にする。

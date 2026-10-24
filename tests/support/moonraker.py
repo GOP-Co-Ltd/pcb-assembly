@@ -18,6 +18,7 @@ class FakeMoonraker:
     Attributes:
         up: False の間は接続を断る（電源投入直後で、まだ起動していない）
         config: printer.cfg の内容（書き換えると次の問い合わせから見える）
+        webhooks: Klipper の状態（state と state_message。state を shutdown にすると MCU が切れた後になる）
         released: clear している間、G-code の送信は応答を返さずに待つ（長い送信の途中）
         requests: 受けた要求（断った要求も含む）
     """
@@ -25,6 +26,7 @@ class FakeMoonraker:
     def __init__(self) -> None:
         self.up = True
         self.config: dict[str, dict[str, Any]] = copy.deepcopy(FAKE_PRINTER_CONFIG)
+        self.webhooks = {"state": "ready", "state_message": "Printer is ready"}
         self.released = threading.Event()
         self.released.set()
         self.requests: list[httpx.Request] = []
@@ -39,9 +41,12 @@ class FakeMoonraker:
             raise httpx.ConnectError("Connection refused", request=request)
         if request.url.path == "/printer/objects/query":
             [(name, attribute)] = request.url.params.items()
-            value = (
-                self.config if name == "configfile" else self._status[name][attribute]
-            )
+            if name == "configfile":
+                value = self.config
+            elif name == "webhooks":
+                value = self.webhooks[attribute]
+            else:
+                value = self._status[name][attribute]
             status = {name: {attribute: value}}
             return httpx.Response(200, json={"result": {"status": status}})
         if request.url.path == "/printer/gcode/script":

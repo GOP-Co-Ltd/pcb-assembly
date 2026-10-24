@@ -31,6 +31,7 @@ from pcbasm.geometry import (
 )
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import (
+    FAKE_MACHINE_PRINTER_CONFIG,
     FAKE_PRINTER_CONFIG,
     FakeCamera,
     FakeKlipper,
@@ -358,10 +359,7 @@ class TestParking:
     @pytest.mark.parametrize(
         ("name", "printer_config"),
         [
-            (
-                "present",
-                {**FAKE_PRINTER_CONFIG, "gcode_macro PRESENT": {"gcode": "G1 Y300"}},
-            ),
+            ("present", FAKE_MACHINE_PRINTER_CONFIG),
             ("relax", FAKE_PRINTER_CONFIG),
         ],
     )

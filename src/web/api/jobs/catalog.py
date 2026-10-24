@@ -188,14 +188,16 @@ class JobCatalog:
 
 
 def default_catalog() -> JobCatalog:
-    """Dev・posctrl・pasting の全ジョブを登録したカタログを返す."""
-    # 循環 import（dev/posctrl/pasting → manager → catalog）を避けるため遅延 import する
+    """Dev・machine・posctrl・pasting の全ジョブを登録したカタログを返す."""
+    # 循環 import（dev/machine/posctrl/pasting → manager → catalog）を避けるため遅延 import する
     from web.api.jobs.dev import register_dev_jobs
+    from web.api.jobs.machine import machine_check
     from web.api.jobs.pasting import register_pasting_jobs
     from web.api.jobs.posctrl import register_posctrl_jobs
 
     catalog = JobCatalog()
     register_dev_jobs(catalog)
+    machine_check.register(catalog)
     register_posctrl_jobs(catalog)
     register_pasting_jobs(catalog)
     return catalog
