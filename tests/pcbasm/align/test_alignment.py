@@ -7,13 +7,7 @@ import pytest
 import shapely
 from shapely.affinity import rotate
 
-from pcbasm.board import Layer, Pad
-from pcbasm.config import load_machine
-from pcbasm.geometry import Identity, Point2d
-from pcbasm.hal import XYZStage
-from pcbasm.hal.fake import FakeCamera, FakeKlipper
-from pcbasm.kicad import load_board
-from pcbasm.posctrl import (
+from pcbasm.align import (
     AlignmentRegion,
     BoardAlignment,
     BoardCalibrationResult,
@@ -22,6 +16,12 @@ from pcbasm.posctrl import (
     RegionAlignmentSession,
     is_pad_refinement_target,
 )
+from pcbasm.board import Layer, Pad
+from pcbasm.config import load_machine
+from pcbasm.geometry import Identity, Point2d
+from pcbasm.hal import XYZStage
+from pcbasm.hal.fake import FakeCamera, FakeKlipper
+from pcbasm.kicad import load_board
 from pcbasm.vision import Image, Offset
 from pcbasm.vision.calibration import CalibrationResult
 from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR

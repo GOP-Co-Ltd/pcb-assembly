@@ -17,7 +17,7 @@ from pcbasm.geometry import Compose, Point2d, Shift, Transform
 from pcbasm.vision import ImageArray, Offset
 
 if TYPE_CHECKING:
-    from pcbasm.posctrl.setup import BoardCalibrationResult
+    from pcbasm.align.setup import BoardCalibrationResult
 
 type _Bounds = tuple[float, float, float, float]
 # ROI 矩形 (x0, y0, x1, y1)。半開区間、全画面 pixel 座標

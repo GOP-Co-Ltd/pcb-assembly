@@ -7,17 +7,17 @@ from collections.abc import Sequence
 import attrs
 from shapely import Polygon
 
-from pcbasm.board import Layer, Pad
-from pcbasm.geometry import Point2d, Shift, Transform
-from pcbasm.posctrl.aligner import RegionAligner, RegionAlignment
-from pcbasm.posctrl.copper import (
+from pcbasm.align.aligner import RegionAligner, RegionAlignment
+from pcbasm.align.copper import (
     CopperEdgeMatcher,
     CopperProjector,
     PixelRect,
     centered_roi,
 )
-from pcbasm.posctrl.region import AlignmentRegion, plan_alignment_regions
-from pcbasm.posctrl.setup import BoardCalibrationResult
+from pcbasm.align.region import AlignmentRegion, plan_alignment_regions
+from pcbasm.align.setup import BoardCalibrationResult
+from pcbasm.board import Layer, Pad
+from pcbasm.geometry import Point2d, Shift, Transform
 from pcbasm.vision import CopperEdgeDetector, FrameSink
 
 logger = logging.getLogger(__name__)

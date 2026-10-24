@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 from shapely import Point as ShapelyPoint, Polygon
 
+from pcbasm.align import BoardCalibrationResult
 from pcbasm.config import load_machine
 from pcbasm.geometry import Identity, Point2d, Shift
 from pcbasm.hal import XYZStage
@@ -26,7 +27,6 @@ from pcbasm.pasting.toolhead_offset import (
     ToolheadOffsetSample,
     plan_toolhead_offset_points,
 )
-from pcbasm.posctrl import BoardCalibrationResult
 from pcbasm.vision import Image
 from pcbasm.vision.calibration import CalibrationResult
 from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR

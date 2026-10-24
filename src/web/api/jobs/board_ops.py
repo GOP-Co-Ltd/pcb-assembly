@@ -4,15 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 
-from pcbasm.board import Board
-from pcbasm.hal import Camera
-from pcbasm.posctrl import (
+from pcbasm.align import (
     AlignmentRegion,
     BoardCalibrationResult,
     RegionAlignment,
     RegionAlignmentSession,
     setup_board_calibration,
 )
+from pcbasm.board import Board
+from pcbasm.hal import Camera
 from web.api.jobs.context import JobContext, PromptSpec
 
 

@@ -3,12 +3,12 @@
 import pytest
 import shapely
 
-from pcbasm.geometry import Identity, Point2d, Rotation, Transform
-from pcbasm.posctrl import (
+from pcbasm.align import (
     AlignmentRegion,
     CopperProjector,
     plan_alignment_regions,
 )
+from pcbasm.geometry import Identity, Point2d, Rotation, Transform
 
 PPM = 10.0
 IMAGE_SIZE = (400, 400)

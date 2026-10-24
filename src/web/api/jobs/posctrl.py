@@ -10,14 +10,7 @@ from typing import Any
 import attrs
 import cv2
 
-from pcbasm.board import Layer, Pad
-from pcbasm.config import MachineConfig
-from pcbasm.gcode import GCode
-from pcbasm.geometry import Point2d, Point3d, Shift, sort_by_nearest
-from pcbasm.hal import Camera, KlipperClient, Speed, XYZStage
-from pcbasm.kicad.build import generate_grid_pcb
-from pcbasm.machine.commands import COMMAND_TIMEOUT
-from pcbasm.posctrl import (
+from pcbasm.align import (
     AlignmentRegion,
     BoardAlignment,
     BoardCalibrationResult,
@@ -28,6 +21,13 @@ from pcbasm.posctrl import (
     is_pad_refinement_target,
     render_label,
 )
+from pcbasm.board import Layer, Pad
+from pcbasm.config import MachineConfig
+from pcbasm.gcode import GCode
+from pcbasm.geometry import Point2d, Point3d, Shift, sort_by_nearest
+from pcbasm.hal import Camera, KlipperClient, Speed, XYZStage
+from pcbasm.kicad.build import generate_grid_pcb
+from pcbasm.machine.commands import COMMAND_TIMEOUT
 from pcbasm.vision import (
     CalibrationResult,
     CheckerboardCalibrator,

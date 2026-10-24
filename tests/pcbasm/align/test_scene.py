@@ -1,15 +1,15 @@
-"""シミュレーションのカメラに映す基板（pcbasm.posctrl.scene）の仕様テスト."""
+"""シミュレーションのカメラに映す基板（pcbasm.align.scene）の仕様テスト."""
 
 import math
 
 import pytest
 
+from pcbasm.align.board import Corner, marker_position
+from pcbasm.align.scene import board_scene, placed_on_reference
 from pcbasm.board import Board, Layer
 from pcbasm.config.reference_point import CornerOffsetsConfig, ReferencePointConfig
 from pcbasm.geometry import Compose, Point2d, Shift
 from pcbasm.kicad import load_board
-from pcbasm.posctrl.board import Corner, marker_position
-from pcbasm.posctrl.scene import board_scene, placed_on_reference
 from tests.support.paths import TESTING_DATA_DIR
 
 REFERENCE = ReferencePointConfig(

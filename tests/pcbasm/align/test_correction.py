@@ -15,6 +15,7 @@ machine 空間補正 Transform:
 
 import pytest
 
+from pcbasm.align.correction import to_machine_transform
 from pcbasm.geometry import (
     Compose,
     Point2d,
@@ -23,7 +24,6 @@ from pcbasm.geometry import (
     Shift,
     Transform,
 )
-from pcbasm.posctrl.correction import to_machine_transform
 
 _SAMPLE_POINTS = (Point2d(0.0, 0.0), Point2d(12.0, 34.0), Point2d(-3.5, 8.25))
 

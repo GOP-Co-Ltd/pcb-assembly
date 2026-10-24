@@ -12,10 +12,10 @@ from collections.abc import Callable, Iterable
 
 import pytest
 
+from pcbasm.align.offset import OffsetTransformMeasurer
 from pcbasm.geometry import Point2d, Point3d, Rotation, Shift, Transform
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FakeKlipper
-from pcbasm.posctrl.offset import OffsetTransformMeasurer
 
 
 def _sequence(transforms: Iterable[Transform]) -> Callable[[], Transform]:

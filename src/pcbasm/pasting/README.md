@@ -52,7 +52,7 @@ web/api/jobs/pasting/*  →  pasting.{session,overrides,workflow,alignment,flowc
                        pasting.{applicator,fill_path,fill_sequence,params,settings,hierarchy,route,
                                 height,nozzle_clean}
                               ↓
-                       pcbasm.{config,geometry,board,kicad,posctrl,vision,hal}
+                       pcbasm.{config,geometry,board,kicad,align,vision,hal}
 ```
 
 - `nozzle_clean` はジョブ以外に `web/api/routers/nozzle_cap.py`（テスト実行 API）からも呼ぶ。
@@ -73,4 +73,4 @@ web/api/jobs/pasting/*  →  pasting.{session,overrides,workflow,alignment,flowc
 | 値オブジェクト | `attrs.frozen` + tuple。新規 ABC / Protocol は作らない                                                                                                                                          |
 | ログ           | モジュールごとの `logging.getLogger(__name__)`。複数回機械を動かすメソッドだけ `checkpoint` コールバックを受ける                                                                                |
 
-位置合わせは `posctrl` を利用する。
+位置合わせは `align` を利用する。

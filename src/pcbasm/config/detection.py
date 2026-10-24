@@ -13,7 +13,7 @@ class DetectionConfig:
     r"""統計検出のサンプリング（[detection]。セクションごと省略可）.
 
     円・塗布痕の位置は 1 枚の画像では揺れるので、複数フレームの平均を 1 観測とする
-    （:class:`~pcbasm.posctrl.OffsetObserver`）。枚数を増やすと平均のばらつきは
+    （:class:`~pcbasm.align.OffsetObserver`）。枚数を増やすと平均のばらつきは
     :math:`1/\sqrt{n}` で下がるが、撮影時間はそのまま伸びる（30 fps なら 10 枚で約 0.33 秒）。
 
     ``minimum_sample_count`` は品質ゲートで、撮った枚数のうち何枚で対象を検出できれば

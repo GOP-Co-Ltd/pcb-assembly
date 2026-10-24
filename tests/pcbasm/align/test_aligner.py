@@ -7,15 +7,15 @@ import numpy as np
 import pytest
 import shapely
 
-from pcbasm.geometry import Identity, Point2d, Point3d
-from pcbasm.hal import Camera, XYZStage
-from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeCamera, FakeKlipper
-from pcbasm.posctrl import (
+from pcbasm.align import (
     AlignmentRegion,
     CopperEdgeMatcher,
     CopperProjector,
     RegionAligner,
 )
+from pcbasm.geometry import Identity, Point2d, Point3d
+from pcbasm.hal import Camera, XYZStage
+from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeCamera, FakeKlipper
 from pcbasm.vision import CopperEdgeDetector, Image
 
 PPM = 100.0

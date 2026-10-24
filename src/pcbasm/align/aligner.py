@@ -2,12 +2,12 @@
 
 import attrs
 
+from pcbasm.align.copper import CopperEdgeMatcher, CopperProjector, EdgeMatch
+from pcbasm.align.correction import to_machine_transform
+from pcbasm.align.region import AlignmentRegion
+from pcbasm.align.render import render_edge_match
 from pcbasm.geometry import Point2d, Shift, Transform
 from pcbasm.hal import Camera, KlipperClient, Speed, XYZStage
-from pcbasm.posctrl.copper import CopperEdgeMatcher, CopperProjector, EdgeMatch
-from pcbasm.posctrl.correction import to_machine_transform
-from pcbasm.posctrl.region import AlignmentRegion
-from pcbasm.posctrl.render import render_edge_match
 from pcbasm.vision import CopperEdgeDetector, FrameSink
 
 

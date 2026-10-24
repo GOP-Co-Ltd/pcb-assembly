@@ -5,11 +5,11 @@ from typing import Any
 import pytest
 import shapely
 
+from pcbasm.align import AlignmentRegion, BoardAlignment, EdgeMatch, RegionAlignment
 from pcbasm.board import Layer, Pad
 from pcbasm.geometry import HeightPlane, Point2d, Point3d, Rotation, Shift
 from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.session import PasteSession
-from pcbasm.posctrl import AlignmentRegion, BoardAlignment, EdgeMatch, RegionAlignment
 from pcbasm.vision import Offset
 
 PPM = 10.0

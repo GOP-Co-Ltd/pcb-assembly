@@ -8,6 +8,9 @@ import time
 
 import attrs
 
+from pcbasm.align.board import BoardTransformMeasurer
+from pcbasm.align.offset import OffsetTransformMeasurer
+from pcbasm.align.position import XYPositionAdjustor
 from pcbasm.board import Board
 from pcbasm.config import MachineConfig
 from pcbasm.gcode import GCode
@@ -15,9 +18,6 @@ from pcbasm.geometry import Shift, Transform
 from pcbasm.hal import Camera, KlipperClient, XYZStage
 from pcbasm.machine.devices import Devices
 from pcbasm.machine.journal import Journal
-from pcbasm.posctrl.board import BoardTransformMeasurer
-from pcbasm.posctrl.offset import OffsetTransformMeasurer
-from pcbasm.posctrl.position import XYPositionAdjustor
 from pcbasm.vision import (
     CalibrationResult,
     CenterOffsetDetector,
@@ -176,7 +176,7 @@ class OffsetObserver:
 class BoardCalibrationResult:
     """ボードキャリブレーション結果.
 
-    offset_transform と board_transform の意味は :mod:`pcbasm.posctrl` の冒頭を参照。
+    offset_transform と board_transform の意味は :mod:`pcbasm.align` の冒頭を参照。
     """
 
     machine: MachineConfig

@@ -25,7 +25,7 @@ flowchart TD
 | `src/pcbasm/kicad/`                 | KiCad 読込・生成、footprint、単位変換（pcbnew はここだけ）                                      |
 | `src/pcbasm/vision/`                | カメラ校正、画像・銅箔・塗布点の検出                                                            |
 | `src/pcbasm/hal/`                   | カメラ、Klipper、ステージ、ディスペンサー、音声の抽象と実装                                     |
-| `src/pcbasm/posctrl/`               | 基板の位置合わせ、基準点、補正、カメラと装置の座標対応                                          |
+| `src/pcbasm/align/`                 | 基板の位置合わせ、基準点、補正、カメラと装置の座標対応                                          |
 | `src/pcbasm/pasting/`               | 塗布の設定解決、経路、高さ面、機械手順、画像収集、塗布量校正                                    |
 | `src/web/api/routers/`              | HTTP 入出力とコア呼び出し、例外から HTTP 応答への変換                                           |
 | `src/web/api/jobs/`                 | 長時間処理、進捗、中断、操作者への質問、成果物の公開                                            |

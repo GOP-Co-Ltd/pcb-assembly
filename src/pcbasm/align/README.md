@@ -1,4 +1,4 @@
-# posctrl
+# align
 
 Board / オフセットの位置合わせを行う共通制御モジュール。ペースト塗布（`pcbasm.pasting`）と Pick and Place の双方から利用する。
 
@@ -22,7 +22,7 @@ Board 巡回の実行・ユーザー入力・フレーム配信は `web/api/jobs
 | `render.py`        | 位置合わせ・巡回のプレビュー画像合成（cv2 GUI 非依存）                                               |
 | `scene.py`         | シミュレーションのカメラに映す基板（4 隅の基準円と TOP 銅箔）`board_scene`                           |
 
-公開名は `pcbasm.posctrl` から re-export している。
+公開名は `pcbasm.align` から re-export している。
 
 Board / オフセット調整用の観測は `observe() -> Transform`
 （カメラ mm 空間、原点=画像中心、想定→観測）契約の observer で統一している（`setup.OffsetObserver`）。

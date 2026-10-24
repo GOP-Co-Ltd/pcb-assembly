@@ -342,7 +342,7 @@ class SceneCamera(Camera):
     """FakeKlipper の位置から見える機械座標の図形と塗布痕を描く Camera の fake.
 
     ステージが s にあるとき、機械座標の点 p は画像中心から ``pixel_per_mm * Rot(rotation)(s - p)`` [px] の位置に写る（+x 右、+y 下）。
-    この式は現行の position.py / copper.py の向きに合わせて凍結したもので、posctrl の関数を使わずにここへ直書きする。
+    この式は現行の position.py / copper.py の向きに合わせて凍結したもので、align の関数を使わずにここへ直書きする。
     描く側と読む側が同じだけ変わって golden をすり抜けるのを防ぐため。
     図形（銅箔・基準円）は shapely の多角形で受け取り、円は ``buffer`` で多角形にして渡す。
     塗布痕は FakeKlipper が記録した manual_stepper の ``MOVE`` を XY ごとに送った順に足し、正なら体積の半球の径で描く（線も始点の 1 点に描く）。

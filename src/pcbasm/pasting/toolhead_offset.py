@@ -16,12 +16,7 @@ import attrs
 from cattrs.preconf.json import make_converter
 from shapely import Point as ShapelyPoint, Polygon
 
-from pcbasm.gcode import GCode
-from pcbasm.geometry import Point2d, Shift
-from pcbasm.pasting.applicator import PasteApplicator, build_applicator
-from pcbasm.pasting.probe import ProbeExecutor
-from pcbasm.pasting.session import toolhead_transform
-from pcbasm.posctrl import (
+from pcbasm.align import (
     DETECTION_MAX_ATTEMPTS,
     DETECTION_RETRY_SEC,
     BoardCalibrationResult,
@@ -29,6 +24,11 @@ from pcbasm.posctrl import (
     OffsetObserver,
     XYPositionAdjustor,
 )
+from pcbasm.gcode import GCode
+from pcbasm.geometry import Point2d, Shift
+from pcbasm.pasting.applicator import PasteApplicator, build_applicator
+from pcbasm.pasting.probe import ProbeExecutor
+from pcbasm.pasting.session import toolhead_transform
 from pcbasm.vision import FrameSink, Image, PasteDotDetector
 
 _converter = make_converter()

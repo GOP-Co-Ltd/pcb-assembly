@@ -13,9 +13,9 @@ import cv2
 import numpy as np
 import pytest
 
+from pcbasm.align.setup import CircleDetectionError, OffsetObserver
 from pcbasm.geometry import Point2d
 from pcbasm.hal.fake import FakeCamera
-from pcbasm.posctrl.setup import CircleDetectionError, OffsetObserver
 from pcbasm.vision import CircleDetector, Image
 
 

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from pcbasm.align import CopperProjector
 from pcbasm.geometry import Point2d, Transform
 from pcbasm.pasting.session import PasteSession
-from pcbasm.posctrl import CopperProjector
 from pcbasm.vision.crop import RectCrop, crop_centered
 from pcbasm.vision.image import FrameSink
 

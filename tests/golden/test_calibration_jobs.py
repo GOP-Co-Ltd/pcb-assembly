@@ -18,6 +18,7 @@ import attrs
 import pytest
 from shapely import Polygon
 
+from pcbasm.align import BoardCalibrationResult
 from pcbasm.geometry import Identity
 from pcbasm.hal import Camera, XYZStage
 from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper
@@ -29,7 +30,6 @@ from pcbasm.pasting.paste_volume.runtime import (
     plan_flow_calibration,
 )
 from pcbasm.pasting.session import PasteSession
-from pcbasm.posctrl import BoardCalibrationResult
 from tests.golden.conftest import (
     BOARD_PLACEMENT,
     CALIBRATION,

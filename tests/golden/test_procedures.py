@@ -17,6 +17,13 @@ import shapely
 from shapely import Polygon
 
 from pcbasm import geometry, hal
+from pcbasm.align import (
+    AlignmentRegion,
+    BoardAlignment,
+    BoardCalibrationResult,
+    EdgeMatch,
+    RegionAlignment,
+)
 from pcbasm.board import Copper, Layer
 from pcbasm.config import MachineConfig, load_machine
 from pcbasm.gcode import GCode
@@ -61,13 +68,6 @@ from pcbasm.pasting.toolhead_offset import (
     plan_toolhead_offset_points,
 )
 from pcbasm.pasting.workflow import PasteTargets, plan_paste_targets
-from pcbasm.posctrl import (
-    AlignmentRegion,
-    BoardAlignment,
-    BoardCalibrationResult,
-    EdgeMatch,
-    RegionAlignment,
-)
 from pcbasm.vision import CalibrationResult, Image, Offset
 from tests.support.golden import assert_transcript
 from tests.support.paths import TESTING_DATA_DIR

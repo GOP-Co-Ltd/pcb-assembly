@@ -11,6 +11,11 @@ from typing import Any
 
 import attrs
 
+from pcbasm.align import (
+    BoardAlignment,
+    BoardCalibrationResult,
+    RegionAlignmentSession,
+)
 from pcbasm.board import Pad
 from pcbasm.hal import KlipperClient, XYZStage
 from pcbasm.pasting.alignment import (
@@ -21,11 +26,6 @@ from pcbasm.pasting.alignment import (
 )
 from pcbasm.pasting.applicator import PasteApplicator
 from pcbasm.pasting.session import PasteSession
-from pcbasm.posctrl import (
-    BoardAlignment,
-    BoardCalibrationResult,
-    RegionAlignmentSession,
-)
 from pcbasm.validators import is_finite_number
 from web.api.jobs.board_ops import align_regions
 from web.api.jobs.context import JobContext, PromptSpec

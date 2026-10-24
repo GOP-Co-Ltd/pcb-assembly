@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 import shapely
 
+from pcbasm.align import BoardCalibrationResult
 from pcbasm.board import Copper, Layer
 from pcbasm.config import MachineConfig, load_machine
 from pcbasm.geometry import Identity, Point2d, Shift
@@ -19,7 +20,6 @@ from pcbasm.hal.fake import FakeCamera, FakeKlipper
 from pcbasm.kicad import load_board
 from pcbasm.pasting.capture import PointCapturer
 from pcbasm.pasting.session import PasteSession
-from pcbasm.posctrl import BoardCalibrationResult
 from pcbasm.vision import Image
 from pcbasm.vision.calibration import CalibrationResult
 from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR

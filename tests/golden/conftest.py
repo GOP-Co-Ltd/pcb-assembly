@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 from shapely import Polygon
 
+from pcbasm.align.scene import board_scene
 from pcbasm.board import Board
 from pcbasm.config import MachineConfig, load_machine
 from pcbasm.geometry import Compose, Point2d, Rotation, Shift
@@ -28,7 +29,6 @@ from pcbasm.pasting.paste_volume.calibration import (
     parse_calibration,
     write_calibration,
 )
-from pcbasm.posctrl.scene import board_scene
 from pcbasm.vision import CalibrationResult
 from tests.support import polling
 from tests.support.paths import TESTING_DATA_DIR

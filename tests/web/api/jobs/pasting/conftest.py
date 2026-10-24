@@ -12,6 +12,13 @@ import numpy as np
 import pytest
 import shapely
 
+from pcbasm.align import (
+    AlignmentRegion,
+    BoardAlignment,
+    BoardCalibrationResult,
+    EdgeMatch,
+    RegionAlignment,
+)
 from pcbasm.config import MachineConfig, load_machine
 from pcbasm.geometry import Identity, Point2d, Shift
 from pcbasm.hal import XYZStage
@@ -19,13 +26,6 @@ from pcbasm.hal.fake import FakeCamera, FakeKlipper
 from pcbasm.kicad import load_board
 from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.session import PasteSession
-from pcbasm.posctrl import (
-    AlignmentRegion,
-    BoardAlignment,
-    BoardCalibrationResult,
-    EdgeMatch,
-    RegionAlignment,
-)
 from pcbasm.vision import Image, Offset
 from pcbasm.vision.calibration import CalibrationResult
 from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR
