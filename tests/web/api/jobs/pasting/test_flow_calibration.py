@@ -161,7 +161,9 @@ class TestRunFlowCalibration:
                 settle_seconds=float(ctx.params["settle_seconds"]),
             )
             plan, error = plan_flow_calibration(
-                config=config, points=POINTS, outline=session.pcb.outline.polygon
+                config=config,
+                points=POINTS,
+                outline=session.board_frame.board.outline.polygon,
             )
             assert error is None, error
             assert plan is not None

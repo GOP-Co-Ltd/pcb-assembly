@@ -6,7 +6,7 @@ from pcbasm.board import Board, Layer
 from pcbasm.config.reference_point import ReferencePointConfig
 from pcbasm.geometry import Shift, Transform, transform_polygon
 
-from .board import Corner, corner_offset, marker_position
+from .board_frame import Corner, corner_offset, marker_position
 
 _CORNERS = (Corner.TOP_LEFT, Corner.TOP_RIGHT, Corner.BOTTOM_RIGHT, Corner.BOTTOM_LEFT)
 

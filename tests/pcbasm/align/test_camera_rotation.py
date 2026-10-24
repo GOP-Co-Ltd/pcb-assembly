@@ -1,4 +1,4 @@
-"""OffsetTransformMeasurer の仕様テスト.
+"""CameraRotationMeasurer の仕様テスト.
 
 計画書 memory/agents/implementation-planner/pad-alignment.md
 「posctrl/offset.py（変更）」に基づく。
@@ -12,10 +12,10 @@ from collections.abc import Callable, Iterable
 
 import pytest
 
+from pcbasm.align.camera_rotation import CameraRotationMeasurer
 from pcbasm.geometry import Point2d, Point3d, Rotation, Shift, Transform
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FakeKlipper
-from pcbasm.posctrl.offset import OffsetTransformMeasurer
 
 
 def _sequence(transforms: Iterable[Transform]) -> Callable[[], Transform]:
@@ -24,8 +24,8 @@ def _sequence(transforms: Iterable[Transform]) -> Callable[[], Transform]:
     return lambda: next(iterator)
 
 
-class TestOffsetTransformMeasurer:
-    """OffsetTransformMeasurer の2点法計測のテスト."""
+class TestCameraRotationMeasurer:
+    """CameraRotationMeasurer の2点法計測のテスト."""
 
     @pytest.fixture
     def klipper(self) -> FakeKlipper:
@@ -55,7 +55,7 @@ class TestOffsetTransformMeasurer:
         expected_degrees: float,
     ):
         """Measure() = Rotation.from_points(移動ベクトル, o2 − o1)（(A2) ピン）."""
-        measurer = OffsetTransformMeasurer(
+        measurer = CameraRotationMeasurer(
             observe=_sequence([o1, o2]),
             klipper=klipper,
             stage=stage,
@@ -72,7 +72,7 @@ class TestOffsetTransformMeasurer:
 
     def test_measure_moves_in_x_and_returns_to_start_position(self, klipper, stage):
         """X方向へ move_distance 相対移動し、計測後に元の位置へ戻る."""
-        measurer = OffsetTransformMeasurer(
+        measurer = CameraRotationMeasurer(
             observe=_sequence([Shift(0.0, 0.0), Shift(0.0, 10.0)]),
             klipper=klipper,
             stage=stage,

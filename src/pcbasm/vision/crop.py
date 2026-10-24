@@ -52,7 +52,7 @@ def crop_centered(
     """Board 座標の中心を board→pixel affine で射影し、その周りを固定寸法で切り出す.
 
     ``matrix`` / ``shift`` は
-    :meth:`pcbasm.posctrl.CopperProjector.board_to_pixel_affine` の戻り値をそのまま
+    :meth:`pcbasm.align.CopperProjector.board_to_pixel_affine` の戻り値をそのまま
     受け取る。crop が frame 外へ出る場合は padding せず ``(None, 理由)`` を返す。
     """
     source = image.numpy() if isinstance(image, Image) else np.asarray(image)

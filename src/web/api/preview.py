@@ -13,7 +13,7 @@ import cv2
 from pcbasm.config import MachineConfig
 from pcbasm.hal import FrameHub
 from pcbasm.vision import (
-    CalibrationResult,
+    CameraCalibration,
     CircleDetector,
     CopperEdgeDetector,
     DetectedCircle,
@@ -293,7 +293,7 @@ class PreviewService:
     def _build_circle_detector(self, machine: MachineConfig) -> CircleDetector | None:
         """円検出器を構築する（calibration が読めなければ None）."""
         try:
-            calibration = CalibrationResult.load(machine.camera.calibration_file)
+            calibration = CameraCalibration.load(machine.camera.calibration_file)
         except Exception:
             return None
         return CircleDetector(

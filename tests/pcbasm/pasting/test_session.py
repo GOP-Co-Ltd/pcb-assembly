@@ -5,11 +5,17 @@ from typing import Any
 import pytest
 import shapely
 
+from pcbasm.align import (
+    AlignmentRegion,
+    BoardAlignment,
+    BoardFrame,
+    EdgeMatch,
+    RegionFit,
+)
 from pcbasm.board import Layer, Pad
 from pcbasm.geometry import HeightPlane, Point2d, Point3d, Rotation, Shift
 from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.session import PasteSession
-from pcbasm.posctrl import AlignmentRegion, BoardAlignment, EdgeMatch, RegionAlignment
 from pcbasm.vision import Offset
 
 PPM = 10.0
@@ -19,9 +25,9 @@ def _region_result(
     index: int,
     area: shapely.Polygon,
     displacement: Point2d,
-) -> RegionAlignment:
+) -> RegionFit:
     center = area.centroid
-    return RegionAlignment(
+    return RegionFit(
         region=AlignmentRegion(
             index=index,
             board_center=Point2d(center.x, center.y),
@@ -58,12 +64,13 @@ def _session() -> PasteSession:
         klipper=unused,
         stage=unused,
         camera=unused,
-        calibration=unused,
-        calibration_result=unused,
-        board_transform=Rotation(90.0),
-        offset_transform=unused,
+        board_frame=BoardFrame(
+            board=unused,
+            calibration=unused,
+            offset_transform=unused,
+            board_transform=Rotation(90.0),
+        ),
         toolhead_offset=Shift(10.0, 20.0),
-        pcb=unused,
         probe_executor=unused,
         height_measurer=unused,
     )
@@ -136,7 +143,7 @@ class TestPasteSessionPadTransforms:
         for (pad, transform), expected in zip(entries, expected_shifts, strict=True):
             moved = transform.apply(pad.center.to3d(0.0))
             base = session.toolhead_offset.apply(
-                session.board_transform.apply(pad.center).to3d(0.0)
+                session.board_frame.board_transform.apply(pad.center).to3d(0.0)
             )
             assert moved.x - base.x == pytest.approx(expected.x, abs=1e-9)
             assert moved.y - base.y == pytest.approx(expected.y, abs=1e-9)
@@ -164,7 +171,7 @@ class TestPasteSessionPadTransforms:
         for pad, transform in entries:
             moved = transform.apply(pad.center.to3d(0.0))
             base = session.toolhead_offset.apply(
-                session.board_transform.apply(pad.center).to3d(0.0)
+                session.board_frame.board_transform.apply(pad.center).to3d(0.0)
             )
             assert moved.x - base.x == pytest.approx(expected.x, abs=1e-9)
             assert moved.y - base.y == pytest.approx(expected.y, abs=1e-9)

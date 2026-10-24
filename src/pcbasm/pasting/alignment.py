@@ -1,4 +1,4 @@
-"""塗布向けの位置合わせ合成（posctrl の薄い塗布固有ラッパー）.
+"""塗布向けの位置合わせ合成（align の薄い塗布固有ラッパー）.
 
 領域照合（``RegionAlignmentSession.align``）と pad 中心の精密照合（``refine``）を
 組み合わせ、塗布座標変換に必要な :class:`PasteCorrection` を組み立てるための部品。
@@ -11,14 +11,14 @@ from collections.abc import Sequence
 
 import attrs
 
-from pcbasm.board import Pad
-from pcbasm.geometry import Point2d, Transform
-from pcbasm.posctrl import (
+from pcbasm.align import (
     BoardAlignment,
-    RegionAlignment,
     RegionAlignmentSession,
+    RegionFit,
     is_pad_refinement_target,
 )
+from pcbasm.board import Pad
+from pcbasm.geometry import Point2d, Transform
 
 
 @attrs.frozen
@@ -40,7 +40,7 @@ class PadRefinement:
     """
 
     pad: Pad
-    result: RegionAlignment | None
+    result: RegionFit | None
     residual: Point2d | None
 
 

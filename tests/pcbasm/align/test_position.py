@@ -13,6 +13,7 @@ from collections.abc import Callable, Iterable
 
 import pytest
 
+from pcbasm.align.position import XYPositionAdjustor
 from pcbasm.geometry import (
     Compose,
     Identity,
@@ -24,7 +25,6 @@ from pcbasm.geometry import (
 )
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FakeKlipper
-from pcbasm.posctrl.position import XYPositionAdjustor
 
 
 def _sequence(transforms: Iterable[Transform]) -> Callable[[], Transform]:

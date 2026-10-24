@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 from shapely import Polygon
 
+from pcbasm.align.scene import board_scene
 from pcbasm.board import Board
 from pcbasm.config import MachineConfig, load_machine
 from pcbasm.geometry import Compose, Point2d, Rotation, Shift
@@ -28,8 +29,7 @@ from pcbasm.pasting.paste_volume.calibration import (
     parse_calibration,
     write_calibration,
 )
-from pcbasm.posctrl.scene import board_scene
-from pcbasm.vision import CalibrationResult
+from pcbasm.vision import CameraCalibration
 from tests.support import polling
 from tests.support.paths import TESTING_DATA_DIR
 from web.api.jobs.catalog import JobCatalog, default_catalog
@@ -42,7 +42,7 @@ from web.api.state import AppState
 GOLDEN_DIR = Path(__file__).parent
 JOBS = GOLDEN_DIR / "jobs"
 CONFIG_FILES = (GOLDEN_DIR / "machine.toml", GOLDEN_DIR / "camera_calibration.json")
-CALIBRATION = CalibrationResult.load(GOLDEN_DIR / "camera_calibration.json")
+CALIBRATION = CameraCalibration.load(GOLDEN_DIR / "camera_calibration.json")
 DISPENSER = load_machine(GOLDEN_DIR / "machine.toml").paste_dispenser
 LED_BLINKER = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
 CALIBRATION_PIN = TESTING_DATA_DIR / "schemas" / "paste_volume_calibration_v1.json"

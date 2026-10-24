@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 import shapely
 
+from pcbasm.align import BoardFrame
 from pcbasm.board import Copper, Layer
 from pcbasm.config import MachineConfig, load_machine
 from pcbasm.geometry import Identity, Point2d, Shift
@@ -19,9 +20,8 @@ from pcbasm.hal.fake import FakeCamera, FakeKlipper
 from pcbasm.kicad import load_board
 from pcbasm.pasting.capture import PointCapturer
 from pcbasm.pasting.session import PasteSession
-from pcbasm.posctrl import BoardCalibrationResult
 from pcbasm.vision import Image
-from pcbasm.vision.calibration import CalibrationResult
+from pcbasm.vision.calibration import CameraCalibration
 from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR
 
 LED_BLINKER = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
@@ -48,12 +48,9 @@ def _frame(width: int, height: int) -> Image:
 def _session(
     camera: FakeCamera, klipper: FakeKlipper, machine: MachineConfig | None = None
 ) -> PasteSession:
-    result = BoardCalibrationResult(
-        machine=machine or load_machine(TESTING_CONFIG_DIR / "machine.toml"),
-        klipper=klipper,
-        stage=XYZStage(klipper),
-        camera=camera,
-        calibration=CalibrationResult(
+    board_frame = BoardFrame(
+        board=load_board(LED_BLINKER),
+        calibration=CameraCalibration(
             pixel_per_mm=PPM,
             square_size_mm=1.0,
             mean_distance_px=PPM,
@@ -65,9 +62,14 @@ def _session(
         ),
         offset_transform=Identity(),
         board_transform=Shift(BOARD_SHIFT.x, BOARD_SHIFT.y),
-        pcb=load_board(LED_BLINKER),
     )
-    return PasteSession.from_calibration(result)
+    return PasteSession.from_board_frame(
+        board_frame,
+        machine or load_machine(TESTING_CONFIG_DIR / "machine.toml"),
+        klipper=klipper,
+        stage=XYZStage(klipper),
+        camera=camera,
+    )
 
 
 def _capturer(

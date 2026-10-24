@@ -20,7 +20,7 @@ from pcbasm.hal.fake import (
     FakeKlipper,
 )
 from pcbasm.machine.diagnostics import check_audio, check_camera, check_klipper
-from pcbasm.vision import CalibrationResult, Image
+from pcbasm.vision import CameraCalibration, Image
 from tests.support.moonraker import FakeMoonraker
 from tests.support.paths import TESTING_DATA_DIR
 
@@ -115,7 +115,7 @@ class TestCheckCamera:
     @pytest.fixture
     def calibration_file(self, tmp_path: Path) -> Path:
         path = tmp_path / "calibration.json"
-        CalibrationResult(
+        CameraCalibration(
             pixel_per_mm=20.0,
             square_size_mm=1.5,
             mean_distance_px=30.0,

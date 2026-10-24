@@ -20,7 +20,6 @@ from pcbasm.geometry import Compose, Point2d, Transform
 from pcbasm.pasting.applicator import DispenseExecution, PasteApplicator
 from pcbasm.pasting.flowcalib.flow import RotationsPerUlRound
 from pcbasm.pasting.session import PasteSession
-from pcbasm.posctrl import BoardCalibrationResult
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +31,7 @@ class FlowCalibrationProcedure:
     有効になる。:meth:`adopt` は ``with`` の中で呼ぶ。
 
     Example:
-        with FlowCalibrationProcedure.setup(result) as procedure:
+        with FlowCalibrationProcedure.setup(session) as procedure:
             executions = procedure.draw_lines(layout.lines, amount_ul=0.5)
             procedure.move_to_removal_z(0.0)
     """
@@ -45,15 +44,14 @@ class FlowCalibrationProcedure:
         self._applicator = session.make_applicator()
 
     @classmethod
-    def setup(cls, result: BoardCalibrationResult) -> Self:
-        """Board 計測結果から銅板外形を銅箔とみなして高さ計測し、手順を組む."""
-        session = PasteSession.from_calibration(result)
-        outline = session.pcb.outline.polygon
+    def setup(cls, session: PasteSession) -> Self:
+        """Board 計測済みのセッションで、銅板外形を銅箔とみなして高さ計測し、手順を組む."""
+        outline = session.board_frame.board.outline.polygon
         height_plane = session.measure_height_plane(
             [Copper(layer=Layer.TOP, polygon=outline)]
         )
         transform = Compose(
-            [session.board_transform, session.toolhead_offset, height_plane]
+            [session.board_frame.board_transform, session.toolhead_offset, height_plane]
         )
         return cls(session, transform)
 

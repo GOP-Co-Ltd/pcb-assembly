@@ -1,4 +1,4 @@
-"""`pcbasm.posctrl.orthogonality` の仕様テスト.
+"""`pcbasm.align.orthogonality` の仕様テスト.
 
 board_transform → 直行性指標（軸間角ずれ・軸スケール）を導出する純粋計算。 剛体変換は誤差ゼロ、shear
 で既知の角度誤差を返す。符号の物理的解釈は実機 検証待ちのため、大きさのみをピンする。
@@ -11,8 +11,8 @@ import math
 import numpy as np
 import pytest
 
+from pcbasm.align import OrthogonalityMetrics
 from pcbasm.geometry import Compose, Identity, Matrix2d, Rotation, Shift
-from pcbasm.posctrl import OrthogonalityMetrics
 
 
 class TestOrthogonalityMetrics:

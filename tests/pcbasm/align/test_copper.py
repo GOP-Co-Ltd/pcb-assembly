@@ -11,13 +11,13 @@ import numpy as np
 import pytest
 import shapely
 
-from pcbasm.geometry import Compose, Matrix2d, Point2d, Rotation, Shift, Transform
-from pcbasm.posctrl import (
+from pcbasm.align import (
     CopperEdgeMatcher,
     CopperProjection,
     CopperProjector,
     EdgeMatch,
 )
+from pcbasm.geometry import Compose, Matrix2d, Point2d, Rotation, Shift, Transform
 from pcbasm.vision import Offset
 
 PPM = 10.0  # pixel/mm

@@ -17,11 +17,6 @@ from pcbasm.paths import PROJECT_ROOT
 
 SRC = PROJECT_ROOT / "src"
 
-# まだ改名していない単位 → 移行先（移行先と同じ規則で検査する）
-_RENAMED = {
-    "pcbasm.posctrl": "pcbasm.align",
-}
-
 # 単位の中にあり、下の層から import されるので独立した単位として検査するモジュール
 _SUBUNITS = frozenset({"pcbasm.pasting.params"})
 
@@ -46,7 +41,7 @@ _ALIGN = frozenset(
     {"pcbasm.machine", "pcbasm.hal", "pcbasm.vision", "pcbasm.board", "pcbasm.config"}
 )
 
-# 単位 → L0 のほかに import してよい単位（接頭辞で照合する）
+# 単位 → L0 のほかに import してよい単位（接頭辞で照合する。単位の中の import はいつでもよい）
 _RULES: dict[str, frozenset[str]] = {
     **{unit: frozenset() for unit in _L0},
     # [paste_dispenser.defaults] と [paste_dispenser.motion] の型
@@ -98,11 +93,6 @@ def _unit(module: str) -> str:
     return module if module in _SUBUNITS else ".".join(module.split(".")[:2])
 
 
-def _renamed(name: str) -> str:
-    unit = _unit(name)
-    return _RENAMED.get(unit, unit) + name[len(unit) :]
-
-
 def _imported(module: str, node: ast.Import | ast.ImportFrom) -> list[str]:
     """Import 文 1 つが読み込むモジュール名（``from M import N`` は N がモジュールなら M.N）."""
     if isinstance(node, ast.Import):
@@ -135,11 +125,10 @@ def _violation(unit: str, name: str) -> str | None:
         if unit in _THIRD_PARTY_ONLY and root not in _THIRD_PARTY_ONLY[unit]:
             return root
         return None
-    rule_unit = _renamed(unit)
-    allowed = _RULES[rule_unit] | {rule_unit}
-    if unit.startswith("pcbasm.") and rule_unit not in _LEAVES:
+    allowed = _RULES[unit] | {unit}
+    if unit.startswith("pcbasm.") and unit not in _LEAVES:
         allowed |= _L0
-    return None if _matches(_renamed(name), allowed) else _unit(name)
+    return None if _matches(name, allowed) else _unit(name)
 
 
 def _edges() -> set[tuple[str, str]]:
@@ -166,7 +155,7 @@ class TestLayers:
     """ソースの import が層の規則に従う."""
 
     def test_every_unit_has_a_rule(self):
-        units = {_renamed(_unit(module)) for module in _MODULES if "." in module}
+        units = {_unit(module) for module in _MODULES if "." in module}
 
         assert units - _RULES.keys() == set()
 
@@ -178,8 +167,8 @@ class TestLayers:
         assert ("web.contract", "pydantic") in edges
         # 相対 import（vision/__init__.py の from .image import ...）
         assert ("pcbasm.vision", "pcbasm.vision.image") in edges
-        # from M import <submodule>（posctrl/setup.py の from pcbasm import hal）
-        assert ("pcbasm.posctrl", "pcbasm.hal") in edges
+        # from M import <submodule>（machine/devices.py の from pcbasm import hal）
+        assert ("pcbasm.machine", "pcbasm.hal") in edges
 
     def test_no_violation_outside_the_allowlist(self):
         assert _violations() - _ALLOWED_VIOLATIONS == set()

@@ -41,7 +41,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.testclient import WebSocketTestSession
 
-from pcbasm.vision import CalibrationResult
+from pcbasm.vision import CameraCalibration
 from tests.support import polling
 from tests.support.job_demo import register_job_demo
 from tests.web.api.jobs.conftest import register_gated, register_synthetic
@@ -1132,7 +1132,7 @@ class TestCameraCalibrationApplyFlow:
         # tomlkit によりコメントが保持される
         assert "非リッスンポート" in toml_text
 
-        loaded = CalibrationResult.load(config_dir / filename)
+        loaded = CameraCalibration.load(config_dir / filename)
         # 400px / 6 マス / 10mm ≈ 6.67 px/mm（素材と整合する実数値）
         assert loaded.pixel_per_mm == pytest.approx(400 / 6 / 10, rel=0.01)
         assert loaded.z_position is None  # Klipper 不通（port 7126）の best-effort

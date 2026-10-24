@@ -6,17 +6,17 @@ import numpy as np
 import pytest
 from shapely import Polygon, box
 
-from pcbasm.board import Outline
-from pcbasm.config.reference_point import CornerOffsetsConfig, ReferencePointConfig
-from pcbasm.geometry import Compose, Matrix2d, Point2d, Shift
-from pcbasm.hal import XYZStage
-from pcbasm.hal.fake import FakeKlipper
-from pcbasm.posctrl.board import (
+from pcbasm.align.board_frame import (
     BoardTransformMeasurer,
     Corner,
     corner_offset,
     marker_position,
 )
+from pcbasm.board import Outline
+from pcbasm.config.reference_point import CornerOffsetsConfig, ReferencePointConfig
+from pcbasm.geometry import Compose, Matrix2d, Point2d, Shift
+from pcbasm.hal import XYZStage
+from pcbasm.hal.fake import FakeKlipper
 
 
 def _sequence(

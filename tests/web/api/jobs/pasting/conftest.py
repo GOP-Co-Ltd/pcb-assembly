@@ -12,6 +12,13 @@ import numpy as np
 import pytest
 import shapely
 
+from pcbasm.align import (
+    AlignmentRegion,
+    BoardAlignment,
+    BoardFrame,
+    EdgeMatch,
+    RegionFit,
+)
 from pcbasm.config import MachineConfig, load_machine
 from pcbasm.geometry import Identity, Point2d, Shift
 from pcbasm.hal import XYZStage
@@ -19,15 +26,8 @@ from pcbasm.hal.fake import FakeCamera, FakeKlipper
 from pcbasm.kicad import load_board
 from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.session import PasteSession
-from pcbasm.posctrl import (
-    AlignmentRegion,
-    BoardAlignment,
-    BoardCalibrationResult,
-    EdgeMatch,
-    RegionAlignment,
-)
 from pcbasm.vision import Image, Offset
-from pcbasm.vision.calibration import CalibrationResult
+from pcbasm.vision.calibration import CameraCalibration
 from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.pasting import register_pasting_jobs
@@ -71,12 +71,9 @@ def paste_session(
 
     ``machine`` を省くと testing の machine.toml を使う。
     """
-    result = BoardCalibrationResult(
-        machine=machine or load_machine(TESTING_CONFIG_DIR / "machine.toml"),
-        klipper=klipper,
-        stage=XYZStage(klipper),
-        camera=camera,
-        calibration=CalibrationResult(
+    board_frame = BoardFrame(
+        board=load_board(LED_BLINKER),
+        calibration=CameraCalibration(
             pixel_per_mm=PPM,
             square_size_mm=1.0,
             mean_distance_px=PPM,
@@ -88,9 +85,14 @@ def paste_session(
         ),
         offset_transform=Identity(),
         board_transform=Shift(100.0, 50.0),
-        pcb=load_board(LED_BLINKER),
     )
-    return PasteSession.from_calibration(result)
+    return PasteSession.from_board_frame(
+        board_frame,
+        machine or load_machine(TESTING_CONFIG_DIR / "machine.toml"),
+        klipper=klipper,
+        stage=XYZStage(klipper),
+        camera=camera,
+    )
 
 
 def full_board_correction() -> PasteCorrection:
@@ -99,7 +101,7 @@ def full_board_correction() -> PasteCorrection:
     return PasteCorrection(
         alignment=BoardAlignment(
             results=(
-                RegionAlignment(
+                RegionFit(
                     region=AlignmentRegion(
                         index=0,
                         board_center=Point2d(0.0, 0.0),

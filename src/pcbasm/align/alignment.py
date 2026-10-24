@@ -7,17 +7,19 @@ from collections.abc import Sequence
 import attrs
 from shapely import Polygon
 
-from pcbasm.board import Layer, Pad
-from pcbasm.geometry import Point2d, Shift, Transform
-from pcbasm.posctrl.aligner import RegionAligner, RegionAlignment
-from pcbasm.posctrl.copper import (
+from pcbasm.align.aligner import RegionAligner, RegionFit
+from pcbasm.align.board_frame import BoardFrame
+from pcbasm.align.copper import (
     CopperEdgeMatcher,
     CopperProjector,
     PixelRect,
     centered_roi,
 )
-from pcbasm.posctrl.region import AlignmentRegion, plan_alignment_regions
-from pcbasm.posctrl.setup import BoardCalibrationResult
+from pcbasm.align.region import AlignmentRegion, plan_alignment_regions
+from pcbasm.board import Layer, Pad
+from pcbasm.config import MachineConfig
+from pcbasm.geometry import Point2d, Shift, Transform
+from pcbasm.hal import Camera, KlipperClient, XYZStage
 from pcbasm.vision import CopperEdgeDetector, FrameSink
 
 logger = logging.getLogger(__name__)
@@ -57,8 +59,8 @@ class BoardAlignment:
         fallback_results: results で点を覆えないときに使う成功結果（領域照合の結果）
     """
 
-    results: tuple[RegionAlignment, ...]
-    fallback_results: tuple[RegionAlignment, ...] = ()
+    results: tuple[RegionFit, ...]
+    fallback_results: tuple[RegionFit, ...] = ()
 
     def correction_for(
         self, board_point: Point2d, *, designator: str | None = None
@@ -118,18 +120,25 @@ class RegionAlignmentSession:
     """TOP 層銅箔の領域計画と照合の依存オブジェクトをまとめるセッション."""
 
     def __init__(
-        self, result: BoardCalibrationResult, frame_sink: FrameSink | None = None
+        self,
+        board_frame: BoardFrame,
+        machine: MachineConfig,
+        *,
+        klipper: KlipperClient,
+        stage: XYZStage,
+        camera: Camera,
+        frame_sink: FrameSink | None = None,
     ) -> None:
-        """BoardCalibrationResult から照合器を組み立てる."""
-        alignment = result.machine.alignment
-        self._pcb = result.pcb
-        self._stage = result.stage
+        """基板の位置関係と装置から照合器を組み立てる."""
+        alignment = machine.alignment
+        self._pcb = board_frame.board
+        self._stage = stage
         self._alignment = alignment
-        self._board_transform = result.board_transform
-        self._image_size = result.calibration.resolution
-        self._projector = CopperProjector.from_calibration(result, layer=Layer.TOP)
+        self._board_transform = board_frame.board_transform
+        self._image_size = board_frame.calibration.resolution
+        self._projector = CopperProjector.from_board_frame(board_frame, layer=Layer.TOP)
         matcher = CopperEdgeMatcher(
-            pixel_per_mm=result.calibration.pixel_per_mm,
+            pixel_per_mm=board_frame.calibration.pixel_per_mm,
             search_window_mm=alignment.search_window,
         )
         required = alignment.region_size_px + 2 * matcher.window_px
@@ -145,18 +154,18 @@ class RegionAlignmentSession:
             blur_ksize=alignment.blur_ksize,
         )
         self._aligner = RegionAligner(
-            camera=result.camera,
-            klipper=result.klipper,
-            stage=result.stage,
+            camera=camera,
+            klipper=klipper,
+            stage=stage,
             projector=self._projector,
             matcher=matcher,
             edge_detector=self._edge_detector,
-            offset_transform=result.offset_transform,
-            focus_z=result.calibration.z_position,
+            offset_transform=board_frame.offset_transform,
+            focus_z=board_frame.calibration.z_position,
             max_correction_mm=alignment.max_correction,
             max_passes=alignment.max_passes,
             converge_tolerance_mm=alignment.converge_tolerance,
-            settle_sec=result.machine.settle.move_sec,
+            settle_sec=machine.settle.move_sec,
             frame_sink=frame_sink,
         )
 
@@ -178,7 +187,7 @@ class RegionAlignmentSession:
             tour_start=self._stage.get_position().to2d(),
         )
 
-    def align(self, region: AlignmentRegion) -> RegionAlignment | None:
+    def align(self, region: AlignmentRegion) -> RegionFit | None:
         """領域を照合し、失敗または非収束なら None を返す（例外を送出しない）."""
         try:
             return self._aligner.measure(region)
@@ -191,7 +200,7 @@ class RegionAlignmentSession:
         board_point: Point2d,
         initial_correction: Transform,
         board_area: Polygon,
-    ) -> RegionAlignment | None:
+    ) -> RegionFit | None:
         """領域補正を初期値にして、pad 中心で銅箔照合を収束させる.
 
         Args:

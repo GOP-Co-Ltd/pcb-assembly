@@ -15,7 +15,7 @@ from shapely import Point, Polygon
 from pcbasm.geometry import Point2d
 from pcbasm.hal import Camera
 from pcbasm.hal.fake import Checkerboard, FakeKlipper
-from pcbasm.vision import CalibrationResult
+from pcbasm.vision import CameraCalibration
 from tests.golden.conftest import CALIBRATION, JOBS, finish, scene_camera
 from tests.golden.scenarios import Scenario, scenarios_of
 from tests.support.golden import assert_transcript
@@ -82,7 +82,7 @@ class TestCameraCalibration:
         finish(job_state, record)
 
         (file,) = manager.apply_payload().files
-        result = CalibrationResult.from_dict(json.loads(file.content))
+        result = CameraCalibration.from_dict(json.loads(file.content))
         assert result.pixel_per_mm == pytest.approx(CALIBRATION.pixel_per_mm, rel=1e-3)
         assert result.z_position == FOCUS_Z
         assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")

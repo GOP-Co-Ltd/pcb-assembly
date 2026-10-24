@@ -38,7 +38,7 @@ class ReferencePointConfig:
 
     x, y は左上基準点マーカーへ移動するための概略マシン座標。
     offsets は各ボードコーナーから対応する基準点マーカーへの PCB 座標系ベクトル。
-    ほかの隅の概略位置は :class:`~pcbasm.posctrl.board.BoardTransformMeasurer` が求める。
+    ほかの隅の概略位置は :class:`~pcbasm.align.board_frame.BoardTransformMeasurer` が求める。
     """
 
     x: float = attrs.field(

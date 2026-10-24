@@ -17,6 +17,13 @@ import shapely
 from shapely import Polygon
 
 from pcbasm import geometry, hal
+from pcbasm.align import (
+    AlignmentRegion,
+    BoardAlignment,
+    BoardFrame,
+    EdgeMatch,
+    RegionFit,
+)
 from pcbasm.board import Copper, Layer
 from pcbasm.config import MachineConfig, load_machine
 from pcbasm.gcode import GCode
@@ -61,14 +68,7 @@ from pcbasm.pasting.toolhead_offset import (
     plan_toolhead_offset_points,
 )
 from pcbasm.pasting.workflow import PasteTargets, plan_paste_targets
-from pcbasm.posctrl import (
-    AlignmentRegion,
-    BoardAlignment,
-    BoardCalibrationResult,
-    EdgeMatch,
-    RegionAlignment,
-)
-from pcbasm.vision import CalibrationResult, Image, Offset
+from pcbasm.vision import CameraCalibration, Image, Offset
 from tests.support.golden import assert_transcript
 from tests.support.paths import TESTING_DATA_DIR
 from web.api.jobs.pasting.common import (
@@ -96,9 +96,9 @@ def _surface_z(x: float, y: float) -> float:
     return 0.2 + 0.004 * x - 0.003 * y + 0.0002 * x * x - 0.0001 * x * y
 
 
-def _region(index: int, area: Polygon, displacement: Point2d) -> RegionAlignment:
+def _region(index: int, area: Polygon, displacement: Point2d) -> RegionFit:
     center = Point2d(area.centroid.x, area.centroid.y)
-    return RegionAlignment(
+    return RegionFit(
         region=AlignmentRegion(
             index=index,
             board_center=center,
@@ -147,16 +147,14 @@ def klipper() -> FakeKlipper:
     return klipper
 
 
-def _result(
-    klipper: FakeKlipper, machine: MachineConfig, pcb: Path
-) -> BoardCalibrationResult:
-    blank = Image(np.zeros((480, 640, 3), dtype=np.uint8))
-    return BoardCalibrationResult(
-        machine=machine,
-        klipper=klipper,
-        stage=XYZStage(klipper),
-        camera=FakeCamera([blank]),
-        calibration=CalibrationResult(
+def _blank_camera() -> FakeCamera:
+    return FakeCamera([Image(np.zeros((480, 640, 3), dtype=np.uint8))])
+
+
+def _board_frame(pcb: Path) -> BoardFrame:
+    return BoardFrame(
+        board=load_board(pcb),
+        calibration=CameraCalibration(
             pixel_per_mm=20.0,
             square_size_mm=1.0,
             mean_distance_px=20.0,
@@ -168,20 +166,27 @@ def _result(
         ),
         offset_transform=Identity(),
         board_transform=BOARD_TRANSFORM,
-        pcb=load_board(pcb),
     )
 
 
 def _session(klipper: FakeKlipper, machine: MachineConfig, pcb: Path) -> PasteSession:
-    return PasteSession.from_calibration(_result(klipper, machine, pcb))
+    return PasteSession.from_board_frame(
+        _board_frame(pcb),
+        machine,
+        klipper=klipper,
+        stage=XYZStage(klipper),
+        camera=_blank_camera(),
+    )
 
 
 def _targets(session: PasteSession) -> PasteTargets:
     """塗布ジョブと同じく、基板設定の無い基板の対象 pad・順路・初回パージを解決する."""
     dispenser = session.machine.paste_dispenser
     targets, error = plan_paste_targets(
-        session.pcb,
-        PadHierarchy.build(session.pcb.components, session.pcb.pads),
+        session.board_frame.board,
+        PadHierarchy.build(
+            session.board_frame.board.components, session.board_frame.board.pads
+        ),
         PasteSettingsModel.from_config(dispenser),
         initial_purge_ul=dispenser.initial_purge_ul,
         flow_calibration=dispenser.volume_correction,
@@ -250,7 +255,11 @@ class TestFillPathFallback:
         applied: str,
     ):
         session = _session(klipper, machine, FILL_COVERAGE)
-        (pad,) = (pad for pad in session.pcb.pads if pad.designator == designator)
+        (pad,) = (
+            pad
+            for pad in session.board_frame.board.pads
+            if pad.designator == designator
+        )
 
         with session.make_applicator() as applicator:
             applicator.retract()
@@ -403,9 +412,9 @@ class TestLoading:
 class TestToolheadOffset:
     def test_probe_then_deposit(self, klipper: FakeKlipper, machine: MachineConfig):
         """全点をプローブしてから、表面 Z + 塗布高さで全点に点塗布する."""
-        result = _result(klipper, machine, LED_BLINKER)
+        board_frame = _board_frame(LED_BLINKER)
         points, error = plan_toolhead_offset_points(
-            result.pcb.outline.polygon,
+            board_frame.board.outline.polygon,
             point_count=4,
             point_spacing=5.0,
             edge_margin=5.0,
@@ -413,7 +422,11 @@ class TestToolheadOffset:
         )
         assert points is not None, error
         procedure = ToolheadOffsetProcedure(
-            result,
+            board_frame,
+            machine,
+            klipper=klipper,
+            stage=XYZStage(klipper),
+            camera=_blank_camera(),
             tolerance=0.1,
             lift_height=5.0,
             diameter_min=0.4,
@@ -445,26 +458,26 @@ class TestFlowCalibration:
         return CalibrationParams()
 
     @pytest.fixture
-    def result(
+    def session(
         self,
         tmp_path: Path,
         klipper: FakeKlipper,
         machine: MachineConfig,
         params: CalibrationParams,
-    ) -> BoardCalibrationResult:
+    ) -> PasteSession:
         plate = _plate(tmp_path, params.board_width, params.board_height)
-        return _result(klipper, machine, plate)
+        return _session(klipper, machine, plate)
 
     def test_rotations_per_ul(
         self,
         klipper: FakeKlipper,
         machine: MachineConfig,
         params: CalibrationParams,
-        result: BoardCalibrationResult,
+        session: PasteSession,
     ):
         """① 線を引いて計量し、算出値を採用して applicator を作り直す."""
         density = machine.paste_dispenser.density_mg_per_ul
-        with FlowCalibrationProcedure.setup(result) as procedure:
+        with FlowCalibrationProcedure.setup(session) as procedure:
             procedure.move_to_loading_z()
             procedure.draw_lines(
                 params.line_layout().lines, amount_ul=params.line_amount_ul
@@ -487,14 +500,14 @@ class TestFlowCalibration:
         klipper: FakeKlipper,
         machine: MachineConfig,
         params: CalibrationParams,
-        result: BoardCalibrationResult,
+        session: PasteSession,
     ):
         """② レートごとに 1 本引いては退避する."""
         fill_speed = machine.paste_dispenser.motion.max_fill_speed
         points, error = plan_rate_sweep(params, fill_speed=fill_speed)
         assert points is not None, error
 
-        with FlowCalibrationProcedure.setup(result) as procedure:
+        with FlowCalibrationProcedure.setup(session) as procedure:
             procedure.applicator.retract()
             for point in points:
                 procedure.draw_lines(
@@ -515,7 +528,7 @@ class TestFlowCalibration:
         klipper: FakeKlipper,
         machine: MachineConfig,
         params: CalibrationParams,
-        result: BoardCalibrationResult,
+        session: PasteSession,
     ):
         """③ 速度ごとに同じ量の線を、吐出レートの頭打ち無しで引く."""
         dispenser = machine.paste_dispenser
@@ -526,7 +539,7 @@ class TestFlowCalibration:
         )
         assert sweep is not None, error
 
-        with FlowCalibrationProcedure.setup(result) as procedure:
+        with FlowCalibrationProcedure.setup(session) as procedure:
             procedure.draw_lines(
                 [(point.start, point.end) for point in sweep.points],
                 amount_ul=sweep.total_amount_ul,
@@ -548,7 +561,7 @@ class TestPasteDataset:
         plate = _plate(tmp_path, spec.plate_width_mm, spec.plate_height_mm)
         session = _session(klipper, machine, plate)
         height_plane = session.measure_height_plane(
-            [Copper(layer=Layer.TOP, polygon=session.pcb.outline.polygon)]
+            [Copper(layer=Layer.TOP, polygon=session.board_frame.board.outline.polygon)]
         )
         transform = session.plate_transform(height_plane=height_plane)
         params = attrs.evolve(

@@ -10,17 +10,10 @@ from typing import Any
 import attrs
 import cv2
 
-from pcbasm.board import Layer, Pad
-from pcbasm.config import MachineConfig
-from pcbasm.gcode import GCode
-from pcbasm.geometry import Point2d, Point3d, Shift, sort_by_nearest
-from pcbasm.hal import Camera, KlipperClient, Speed, XYZStage
-from pcbasm.kicad.build import generate_grid_pcb
-from pcbasm.machine.commands import COMMAND_TIMEOUT
-from pcbasm.posctrl import (
+from pcbasm.align import (
     AlignmentRegion,
     BoardAlignment,
-    BoardCalibrationResult,
+    BoardFrame,
     CopperProjector,
     OrthogonalityMetrics,
     PadResultRenderer,
@@ -28,8 +21,15 @@ from pcbasm.posctrl import (
     is_pad_refinement_target,
     render_label,
 )
+from pcbasm.board import Layer, Outline, Pad
+from pcbasm.config import MachineConfig
+from pcbasm.gcode import GCode
+from pcbasm.geometry import Point2d, Point3d, Shift, Transform, sort_by_nearest
+from pcbasm.hal import Camera, KlipperClient, Speed, XYZStage
+from pcbasm.kicad.build import generate_grid_pcb
+from pcbasm.machine.commands import COMMAND_TIMEOUT
 from pcbasm.vision import (
-    CalibrationResult,
+    CameraCalibration,
     CheckerboardCalibrator,
     CircleDetector,
     Image,
@@ -154,7 +154,7 @@ def _run_reference_point_setup(ctx: JobContext) -> JobResult:
     stage = XYZStage(klipper)
     cam_config = machine.camera
     try:
-        calibration = CalibrationResult.load(cam_config.calibration_file)
+        calibration = CameraCalibration.load(cam_config.calibration_file)
     except Exception as exc:
         raise RuntimeError(f"カメラキャリブレーションが読み込めません: {exc}") from exc
     detector = CircleDetector(
@@ -324,9 +324,8 @@ def _run_camera_calibration(ctx: JobContext) -> JobResult:
     )
 
 
-def _board_corners(result: BoardCalibrationResult) -> list[tuple[str, Point2d]]:
+def _board_corners(outline: Outline) -> list[tuple[str, Point2d]]:
     """ボード四隅の (ラベル, board 座標) を返す."""
-    outline = result.pcb.outline
     return [
         ("Top-Left", Point2d(0.0, 0.0)),
         ("Top-Right", Point2d(outline.width, 0.0)),
@@ -336,14 +335,14 @@ def _board_corners(result: BoardCalibrationResult) -> list[tuple[str, Point2d]]:
 
 
 def _move_to(
-    result: BoardCalibrationResult,
+    klipper: KlipperClient,
+    stage: XYZStage,
     machine_pt: Point2d,
     speed: Speed | None = None,
 ) -> None:
     """指定の機械座標へ移動し完了を待つ."""
-    result.klipper.send_gcode(
-        result.stage.move(x=machine_pt.x, y=machine_pt.y, speed=speed)
-        + GCode.wait_for_done()
+    klipper.send_gcode(
+        stage.move(x=machine_pt.x, y=machine_pt.y, speed=speed) + GCode.wait_for_done()
     )
 
 
@@ -365,32 +364,32 @@ def _pad_renderer(
 
 def _stream_labeled_frames(
     ctx: JobContext,
-    result: BoardCalibrationResult,
+    camera: Camera,
     label: str,
     duration: float = RESULT_DISPLAY_SEC,
 ) -> None:
     """ラベル付きフレームを duration 秒間プレビューへ配信する."""
-    crop_size = result.machine.camera.crop.size
+    crop_size = ctx.machine.camera.crop.size
     deadline = time.monotonic() + duration
     while time.monotonic() < deadline:
-        ctx.frame(render_label(result.camera.capture(), crop_size, label))
+        ctx.frame(render_label(camera.capture(), crop_size, label))
         ctx.checkpoint()
 
 
 def _labeled_frame_sink(
-    ctx: JobContext, result: BoardCalibrationResult, label: str
+    ctx: JobContext, camera: Camera, label: str
 ) -> Callable[[], None]:
     """ラベル付きライブフレームを 1 枚プレビューへ出すコールバックを作る.
 
     カメラ取得に失敗しても巡回を中断しない。最初の 1 回だけログへ警告し、以降はログを出さずに更新を見送る。
     """
-    crop_size = result.machine.camera.crop.size
+    crop_size = ctx.machine.camera.crop.size
     warned = False
 
     def submit() -> None:
         nonlocal warned
         try:
-            ctx.frame(render_label(result.camera.capture(), crop_size, label))
+            ctx.frame(render_label(camera.capture(), crop_size, label))
         except Exception as exc:
             if not warned:
                 warned = True
@@ -401,7 +400,7 @@ def _labeled_frame_sink(
 
 def _stream_pad_result(
     ctx: JobContext,
-    result: BoardCalibrationResult,
+    camera: Camera,
     renderer: PadResultRenderer,
     lines: list[str],
     duration: float = RESULT_DISPLAY_SEC,
@@ -409,18 +408,23 @@ def _stream_pad_result(
     """Pad 照合結果 overlay を duration 秒間プレビューへ配信する."""
     deadline = time.monotonic() + duration
     while time.monotonic() < deadline:
-        ctx.frame(renderer.render(result.camera.capture(), lines))
+        ctx.frame(renderer.render(camera.capture(), lines))
         ctx.checkpoint()
 
 
 def _run_board_tour(ctx: JobContext) -> JobResult:
     """四隅巡回 → 銅箔照合 → 補正適用済み全 pad 巡回を実行する."""
+    klipper = ctx.klipper()
+    stage = XYZStage(klipper)
     with ctx.open_camera() as camera:
-        result = setup_board(ctx, camera)
-        board_transform = result.board_transform
+        board_frame = setup_board(ctx, klipper, stage, camera)
+        board_transform = board_frame.board_transform
 
         # 四隅巡回（左上に戻る 5 点）
-        corners = [*_board_corners(result), ("Top-Left", Point2d(0.0, 0.0))]
+        corners = [
+            *_board_corners(board_frame.board.outline),
+            ("Top-Left", Point2d(0.0, 0.0)),
+        ]
         for index, (name, board_pt) in enumerate(corners):
             ctx.progress("四隅巡回", 100.0 * index / len(corners))
             machine_pt = board_transform.apply(board_pt)
@@ -428,11 +432,18 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
                 f"{name}: Board({board_pt.x:.1f}, {board_pt.y:.1f}) -> "
                 f"Machine({machine_pt.x:.3f}, {machine_pt.y:.3f})"
             )
-            _move_to(result, machine_pt)
-            _stream_labeled_frames(ctx, result, f"Corner: {name}")
+            _move_to(klipper, stage, machine_pt)
+            _stream_labeled_frames(ctx, camera, f"Corner: {name}")
 
-        top_pads = [pad for pad in result.pcb.pads if pad.layer == Layer.TOP]
-        session = RegionAlignmentSession(result, frame_sink=ctx.frame)
+        top_pads = [pad for pad in board_frame.board.pads if pad.layer == Layer.TOP]
+        session = RegionAlignmentSession(
+            board_frame,
+            ctx.machine,
+            klipper=klipper,
+            stage=stage,
+            camera=camera,
+            frame_sink=ctx.frame,
+        )
         regions = session.plan_regions([pad.center for pad in top_pads])
         ctx.log(f"照合対象の領域数: {len(regions)}")
 
@@ -442,20 +453,22 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
                 session,
                 session.projector,
                 pads,
-                result.stage.get_position().to2d(),
+                stage.get_position().to2d(),
             )
             lines = [
                 f"Region {region.index + 1}/{len(regions)}",
                 "FAILED",
             ]
-            _stream_pad_result(ctx, result, renderer, lines)
+            _stream_pad_result(ctx, camera, renderer, lines)
 
         aligned = align_regions(ctx, session, regions, on_failure=render_failed)
         alignment = BoardAlignment(results=tuple(aligned))
 
         # 補正適用済みの全 pad 巡回
-        entries = _corrected_entries(result, session, alignment, top_pads)
-        max_short_side = result.machine.alignment.refine_max_short_side
+        entries = _corrected_entries(
+            board_frame.board_transform, stage, session, alignment, top_pads
+        )
+        max_short_side = ctx.machine.alignment.refine_max_short_side
         refinement_target_count = sum(
             is_pad_refinement_target(pad, max_short_side_mm=max_short_side)
             for pad in top_pads
@@ -476,7 +489,7 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
                 refined = session.refine(pad.center, initial_correction, pad.polygon)
             if refined is not None:
                 refinement_success_count += 1
-                board_target = result.board_transform.apply(pad.center)
+                board_target = board_transform.apply(pad.center)
                 residual = refined.displacement - (target - board_target)
                 ctx.log(
                     f"{pad.designator}.{pad.pad_number}: "
@@ -486,17 +499,17 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
                 correction = Shift.from_point(refined.displacement)
                 renderer_projector = session.projector.with_correction(correction)
                 target = correction.apply(board_target)
-            _move_to(result, target, speed=Speed.rate(0.5))
+            _move_to(klipper, stage, target, speed=Speed.rate(0.5))
             renderer = _pad_renderer(session, renderer_projector, [pad], target)
             lines = [f"{pad.designator}.{pad.pad_number} {index + 1}/{len(entries)}"]
-            _stream_pad_result(ctx, result, renderer, lines)
+            _stream_pad_result(ctx, camera, renderer, lines)
         ctx.log(
             f"pad中心照合成功: {refinement_success_count}/"
             f"{refinement_target_count} pads"
         )
 
         # board 原点へ戻して終了
-        _move_to(result, board_transform.apply(Point2d(0.0, 0.0)))
+        _move_to(klipper, stage, board_transform.apply(Point2d(0.0, 0.0)))
 
     return JobResult(
         summary=(
@@ -508,7 +521,8 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
 
 
 def _corrected_entries(
-    result: BoardCalibrationResult,
+    board_transform: Transform,
+    stage: XYZStage,
     session: RegionAlignmentSession,
     alignment: BoardAlignment,
     pads: Sequence[Pad],
@@ -518,31 +532,31 @@ def _corrected_entries(
     for pad in pads:
         correction = alignment.correction_for(pad.center, designator=pad.designator)
         corrected_projector = session.projector.with_correction(correction)
-        target = correction.apply(result.board_transform.apply(pad.center))
+        target = correction.apply(board_transform.apply(pad.center))
         entries.append((pad, corrected_projector, target))
 
-    current = result.stage.get_position()
+    current = stage.get_position()
     return sort_by_nearest(
         entries, current.to2d().to3d(), key=lambda entry: entry[2].to3d()
     )
 
 
 def _orthogonality_points(
-    result: BoardCalibrationResult,
+    board_frame: BoardFrame, stage: XYZStage
 ) -> list[tuple[str, Point2d]]:
     """直行性テストの巡回点列（四隅 + TOP 層 pad 中心）を構築する.
 
     pad 中心は現在位置からの nearest neighbor 順に並べる（machine 座標で比較）。
     """
-    board_transform = result.board_transform
-    top_pads = [p for p in result.pcb.pads if p.layer == Layer.TOP]
+    board_transform = board_frame.board_transform
+    top_pads = [p for p in board_frame.board.pads if p.layer == Layer.TOP]
     centers = sort_by_nearest(
         [p.center for p in top_pads],
-        result.stage.get_position().to2d().to3d(),
+        stage.get_position().to2d().to3d(),
         key=lambda center: board_transform.apply(center).to3d(),
     )
     return [
-        *_board_corners(result),
+        *_board_corners(board_frame.board.outline),
         *(
             (f"Grid {index + 1}/{len(centers)}", center)
             for index, center in enumerate(centers)
@@ -566,9 +580,11 @@ def _run_orthogonality_test(ctx: JobContext) -> JobResult:
     total_points = 0
     cycle = 1
     finished = False
+    klipper = ctx.klipper()
+    stage = XYZStage(klipper)
     with ctx.open_camera() as camera:
-        result = setup_board(ctx, camera)
-        board_transform = result.board_transform
+        board_frame = setup_board(ctx, klipper, stage, camera)
+        board_transform = board_frame.board_transform
 
         metrics = OrthogonalityMetrics.from_transform(board_transform)
         ctx.log("調整前の直行性指標:")
@@ -579,7 +595,7 @@ def _run_orthogonality_test(ctx: JobContext) -> JobResult:
             "ベルトテンションを調整して「次へ」、やめるときは「終了」を押してください"
         )
 
-        points = _orthogonality_points(result)
+        points = _orthogonality_points(board_frame, stage)
         while not finished:
             for index, (label, board_pt) in enumerate(points):
                 ctx.progress(f"巡回 {cycle} 周目", 100.0 * index / len(points))
@@ -589,10 +605,10 @@ def _run_orthogonality_test(ctx: JobContext) -> JobResult:
                     f"{label}: Board({board_pt.x:.1f}, {board_pt.y:.1f}) -> "
                     f"Machine({machine_pt.x:.3f}, {machine_pt.y:.3f})"
                 )
-                _move_to(result, machine_pt)
+                _move_to(klipper, stage, machine_pt)
                 total_points += 1
                 if not confirm_next_point(
-                    ctx, label, while_waiting=_labeled_frame_sink(ctx, result, label)
+                    ctx, label, while_waiting=_labeled_frame_sink(ctx, camera, label)
                 ):
                     finished = True
                     break

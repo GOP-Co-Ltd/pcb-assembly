@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from pcbasm.align import CopperProjector
 from pcbasm.geometry import Point2d, Transform
 from pcbasm.pasting.session import PasteSession
-from pcbasm.posctrl import CopperProjector
 from pcbasm.vision.crop import RectCrop, crop_centered
 from pcbasm.vision.image import FrameSink
 
@@ -37,7 +37,7 @@ class PointCapturer:
         # 静定待ちは機体設定の値を使う（撮影点への移動は他の計測と同じ現象）
         self._settle_sec = session.machine.settle.move_sec
         self._frame_sink = frame_sink
-        self._projector = CopperProjector.from_calibration(session.calibration_result)
+        self._projector = CopperProjector.from_board_frame(session.board_frame)
 
     def capture(
         self,
@@ -61,7 +61,7 @@ class PointCapturer:
             session.stage.move_settled(
                 x=stage_xy.x,
                 y=stage_xy.y,
-                z=session.calibration.z_position,
+                z=session.board_frame.calibration.z_position,
                 settle_sec=self._settle_sec,
             )
         )

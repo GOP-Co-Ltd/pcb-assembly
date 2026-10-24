@@ -1,4 +1,4 @@
-"""Posctrl/render の仕様テスト.
+"""Align/render の仕様テスト.
 
 計画書 memory/agents/implementation-planner/webui-phase4.md「§1 pcbasm 注入点の
 再設計」に基づく。render.py は cv2 GUI（imshow / waitKey）に依存しない純粋な
@@ -20,9 +20,9 @@ import numpy as np
 import pytest
 import shapely
 
+from pcbasm.align.copper import CopperProjector
+from pcbasm.align.render import PadResultRenderer, render_edge_match, render_label
 from pcbasm.geometry import Identity, Point2d
-from pcbasm.posctrl.copper import CopperProjector
-from pcbasm.posctrl.render import PadResultRenderer, render_edge_match, render_label
 from pcbasm.vision import CopperEdgeDetector, Image
 
 WIDTH, HEIGHT = 1280, 720  # カメラフレームサイズ (px)

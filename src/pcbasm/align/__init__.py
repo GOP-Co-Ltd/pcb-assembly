@@ -7,10 +7,10 @@
 - カメラ mm 空間: 原点が画像中心。軸の向きは画像と同じ（+x 右、+y 下）
 - pixel 座標: 全画面の画素位置。原点は画像左上
 
-変換は次の 2 つ。
+変換は次の 2 つで、:class:`BoardFrame` が値として持つ（:func:`measure_board_frame` が計測する）。
 
 - ``board_transform``: board 座標 → 機械座標（:class:`BoardTransformMeasurer`）
-- ``offset_transform``: カメラと機械の軸の回転ずれ（:class:`OffsetTransformMeasurer`）
+- ``offset_transform``: カメラと機械の軸の回転ずれ（:class:`CameraRotationMeasurer`）
 
 ``observe()`` 関数は、想定→観測の Transform（カメラ mm 空間）を返す契約とする。
 
@@ -21,13 +21,14 @@
 ``RegionAlignmentSession`` の ``align`` / ``refine`` だけは失敗を None で返す。
 """
 
-from .aligner import RegionAligner, RegionAlignment
+from .aligner import RegionAligner, RegionFit
 from .alignment import (
     BoardAlignment,
     RegionAlignmentSession,
     is_pad_refinement_target,
 )
-from .board import BoardTransformMeasurer
+from .board_frame import BoardFrame, BoardTransformMeasurer, measure_board_frame
+from .camera_rotation import CameraRotationMeasurer
 from .copper import (
     CopperEdgeMatcher,
     CopperProjection,
@@ -37,24 +38,21 @@ from .copper import (
     centered_roi,
 )
 from .correction import to_machine_transform
-from .offset import OffsetTransformMeasurer
+from .observe import (
+    DETECTION_MAX_ATTEMPTS,
+    DETECTION_RETRY_SEC,
+    CircleDetectionError,
+    OffsetObserver,
+)
 from .orthogonality import OrthogonalityMetrics
 from .position import XYPositionAdjustor
 from .region import AlignmentRegion, plan_alignment_regions
 from .render import PadResultRenderer, render_edge_match, render_label
-from .setup import (
-    DETECTION_MAX_ATTEMPTS,
-    DETECTION_RETRY_SEC,
-    BoardCalibrationResult,
-    CircleDetectionError,
-    OffsetObserver,
-    setup_board_calibration,
-)
 
 __all__ = [
     "AlignmentRegion",
     "BoardAlignment",
-    "BoardCalibrationResult",
+    "BoardFrame",
     "DETECTION_MAX_ATTEMPTS",
     "DETECTION_RETRY_SEC",
     "CircleDetectionError",
@@ -64,19 +62,19 @@ __all__ = [
     "CopperProjector",
     "EdgeMatch",
     "OffsetObserver",
-    "OffsetTransformMeasurer",
+    "CameraRotationMeasurer",
     "OrthogonalityMetrics",
     "PadResultRenderer",
     "PixelRect",
     "RegionAligner",
-    "RegionAlignment",
+    "RegionFit",
     "RegionAlignmentSession",
     "XYPositionAdjustor",
     "centered_roi",
     "is_pad_refinement_target",
+    "measure_board_frame",
     "plan_alignment_regions",
     "render_edge_match",
     "render_label",
-    "setup_board_calibration",
     "to_machine_transform",
 ]

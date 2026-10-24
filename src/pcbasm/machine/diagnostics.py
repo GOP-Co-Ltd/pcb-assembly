@@ -16,7 +16,7 @@ import httpx
 from pcbasm.config import MachineConfig
 from pcbasm.hal import AudioDevice, Camera, KlipperClient, PasteDispenser, XYZStage
 from pcbasm.machine.park import PRESENT_SECTION
-from pcbasm.vision import CalibrationResult
+from pcbasm.vision import CameraCalibration
 
 # ProbeExecutor（pcbasm.pasting.probe）が要求する section
 # pasting は machine より上の層で import できないので、ProbeExecutor を作らずに section だけを見る
@@ -72,7 +72,7 @@ def check_camera(
     """カメラから 1 枚撮り、その解像度が校正ファイルの解像度と一致するか確かめる."""
     name = "カメラの解像度"
     try:
-        calibration = CalibrationResult.load(calibration_file)
+        calibration = CameraCalibration.load(calibration_file)
     except OSError as exc:
         return Check(name, False, f"校正ファイルを読めません: {exc}")
     try:

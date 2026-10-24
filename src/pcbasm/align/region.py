@@ -9,8 +9,8 @@ from shapely.affinity import translate
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import nearest_points
 
+from pcbasm.align.copper import CopperProjector, PixelRect, centered_roi
 from pcbasm.geometry import Point2d, Transform, sort_by_nearest
-from pcbasm.posctrl.copper import CopperProjector, PixelRect, centered_roi
 
 
 @attrs.frozen

@@ -17,7 +17,7 @@ from pcbasm.geometry import Compose, Point2d, Shift, Transform
 from pcbasm.vision import ImageArray, Offset
 
 if TYPE_CHECKING:
-    from pcbasm.posctrl.setup import BoardCalibrationResult
+    from pcbasm.align.board_frame import BoardFrame
 
 type _Bounds = tuple[float, float, float, float]
 # ROI 矩形 (x0, y0, x1, y1)。半開区間、全画面 pixel 座標
@@ -116,22 +116,24 @@ class CopperProjector:
         self._image_size = image_size
 
     @classmethod
-    def from_calibration(
-        cls, result: BoardCalibrationResult, *, layer: Layer = Layer.TOP
+    def from_board_frame(
+        cls, board_frame: BoardFrame, *, layer: Layer = Layer.TOP
     ) -> CopperProjector:
-        """Board 計測結果の変換・calibration から、対象レイヤの銅箔投影器を組む.
+        """基板の位置関係の変換・calibration から、対象レイヤの銅箔投影器を組む.
 
         外形だけの銅板のように ``layer`` の銅箔島が無い PCB では、投影対象が空になる。
         その場合も ``board_to_pixel_affine``（変換と calibration だけに依存）は使える。
         """
         return cls(
             polygons=[
-                copper.polygon for copper in result.pcb.copper if copper.layer == layer
+                copper.polygon
+                for copper in board_frame.board.copper
+                if copper.layer == layer
             ],
-            board_transform=result.board_transform,
-            offset_transform=result.offset_transform,
-            pixel_per_mm=result.calibration.pixel_per_mm,
-            image_size=result.calibration.resolution,
+            board_transform=board_frame.board_transform,
+            offset_transform=board_frame.offset_transform,
+            pixel_per_mm=board_frame.calibration.pixel_per_mm,
+            image_size=board_frame.calibration.resolution,
         )
 
     @property

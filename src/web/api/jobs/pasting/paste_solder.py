@@ -6,7 +6,6 @@ from pcbasm.gcode import GCode
 from pcbasm.pasting.nozzle_clean import resolve_nozzle_clean
 from pcbasm.pasting.overrides import BoardSession
 from pcbasm.pasting.workflow import plan_paste_targets
-from web.api.jobs.board_ops import setup_board
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import JobContext, JobResult
 from web.api.jobs.pasting.common import (
@@ -14,6 +13,7 @@ from web.api.jobs.pasting.common import (
     LoadingTotals,
     prepare_paste_workflow,
     run_loading_loop,
+    setup_paste_session,
 )
 from web.api.jobs.pasting.flow_calibration import run_flow_calibration, summary_line
 from web.api.jobs.pasting.purge_check import purge_with_cleaning
@@ -56,22 +56,26 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
     全 pad 有効で動く。
     """
     with ctx.open_camera() as camera:
-        result = setup_board(ctx, camera)
+        session = setup_paste_session(ctx, camera)
+        stage = session.stage
 
         # 位置合わせに数分かかるので、クリーニング位置の教示ミスはここで顕在化させる
-        nozzle_clean = resolve_nozzle_clean(result.machine, result.stage, log=ctx.log)
+        nozzle_clean = resolve_nozzle_clean(ctx.machine, stage, log=ctx.log)
 
         # pad 階層 + 基板ごとの塗布設定（装置不要・前段で解決）
         assert ctx.source_pcb is not None  # requires_pcb=True
         loaded = BoardSession.load(
-            ctx.overrides, ctx.source_pcb, result.pcb, ctx.machine.paste_dispenser
+            ctx.overrides,
+            ctx.source_pcb,
+            session.board_frame.board,
+            ctx.machine.paste_dispenser,
         )
         targets, error = plan_paste_targets(
             loaded.board,
             loaded.hierarchy,
             loaded.model,
-            initial_purge_ul=result.machine.paste_dispenser.initial_purge_ul,
-            flow_calibration=result.machine.paste_dispenser.volume_correction,
+            initial_purge_ul=ctx.machine.paste_dispenser.initial_purge_ul,
+            flow_calibration=ctx.machine.paste_dispenser.volume_correction,
         )
         if targets is None:
             raise ValueError(error)
@@ -84,10 +88,8 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             ctx.log(f"初回パージ: {purge.label} に {purge.amount_ul:.3f} uL")
 
         prepared = prepare_paste_workflow(
-            ctx, result, alignment_pads=targets.routed_pads
+            ctx, session, alignment_pads=targets.routed_pads
         )
-        session = prepared.session
-        stage = session.stage
         correction = prepared.correction
 
         total = LoadingTotals()

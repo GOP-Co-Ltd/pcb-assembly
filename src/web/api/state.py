@@ -11,11 +11,11 @@ from pathlib import Path
 
 from shapely import Polygon
 
+from pcbasm.align.scene import board_scene, placed_on_reference
 from pcbasm.atomic import write_bytes_atomic, write_text_atomic
 from pcbasm.config import ConfigError, MachineConfig, load_machine
 from pcbasm.machine.devices import Devices, open_devices
 from pcbasm.migrate.machine_toml import NAME, MigrationError, migrate_machine_toml
-from pcbasm.posctrl.scene import board_scene, placed_on_reference
 from web.api.machine_config import MachineConfigFile
 from web.api.selection import BoardCache
 from web.api.settings import Settings

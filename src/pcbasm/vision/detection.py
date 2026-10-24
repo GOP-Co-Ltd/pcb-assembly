@@ -106,7 +106,7 @@ class CenterOffsetDetector(ABC):
 
     検出方式（Hough / 背景差分 + Otsu）ごとに :meth:`detect_nearest_center` を実装し、
     複数フレームの統計集約はここで共有する。
-    :class:`~pcbasm.posctrl.OffsetObserver` はこの契約だけに依存する。
+    :class:`~pcbasm.align.OffsetObserver` はこの契約だけに依存する。
     """
 
     def __init__(self, pixel_per_mm: float) -> None:

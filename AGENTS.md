@@ -54,7 +54,7 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 
 - `src/pcbasm/hal/`: カメラ、Klipper、プローブ、サーボ等の HAL
 - `src/pcbasm/vision/`: 画像処理、キャリブレーション、特徴検出
-- `src/pcbasm/posctrl/`: PCB の位置合わせ共通制御
+- `src/pcbasm/align/`: PCB の位置合わせ共通制御
 - `src/pcbasm/pasting/`: ペースト塗布ロジック
 - `src/pcbasm/geometry/`: 3D 座標と幾何計算
 - `src/pcbasm/board/`: pcbnew に依存しない基板データ（外形・部品・パッド・銅箔）と書き出し

@@ -1,7 +1,7 @@
 # HAL
 
 Hardware Abstraction Layer: カメラ・Klipper（Moonraker 経由）・音声出力を扱うクラスを置く。
-画像処理は `pcbasm.vision`、塗布や位置合わせの手順は `pcbasm.pasting` / `pcbasm.posctrl` に置く。
+画像処理は `pcbasm.vision`、塗布や位置合わせの手順は `pcbasm.pasting` / `pcbasm.align` に置く。
 
 ## 構成
 
