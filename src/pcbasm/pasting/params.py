@@ -204,16 +204,6 @@ class PasteParams:
     )
 
     @property
-    def paste_height_mm(self) -> float:
-        """基板表面からのノズル高さ [mm]（``auto`` は ``ul_per_mm2`` を膜厚として解決）.
-
-        ``ul_per_mm2`` は μL/mm² = mm³/mm² = mm なので、目標膜厚をそのまま基板表面からのクリアランスに使う。
-        """
-        if self.paste_height == "auto":
-            return self.ul_per_mm2
-        return self.paste_height
-
-    @property
     def height_fields(self) -> tuple[str, ...]:
         """塗布高さに使う項目名（微小線は始点高・終点高、それ以外は ``paste_height``）."""
         if self.dispense_mode == "micro_line":

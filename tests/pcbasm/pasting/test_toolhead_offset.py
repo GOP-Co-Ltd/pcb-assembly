@@ -437,9 +437,10 @@ class TestToolheadOffsetProcedure:
             klipper.clear_sent()
             procedure.deposit(applicator, probed, amount_ul=0.1)
             moves = klipper.g1_moves()
-            paste_height = applicator.default_params.paste_height_mm
 
+        # paste_height=auto は膜厚 ul_per_mm2 を表面からの高さに使う
         assert machine.paste_dispenser.defaults.paste_height == "auto"
+        paste_height = machine.paste_dispenser.defaults.ul_per_mm2
         approach, descend = moves[0], moves[1]
         assert approach["x"] == pytest.approx(probed.point.dispense.x)
         assert approach["y"] == pytest.approx(probed.point.dispense.y)

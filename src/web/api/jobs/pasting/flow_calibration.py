@@ -23,6 +23,7 @@ import attrs
 
 from pcbasm.pasting.applicator import PasteApplicator
 from pcbasm.pasting.capture import PointCapturer
+from pcbasm.pasting.fill_path import paste_height_mm
 from pcbasm.pasting.paste_volume.estimator import (
     PasteVolumePrediction,
     load_diameter_estimator,
@@ -75,7 +76,7 @@ def run_flow_calibration(
     params = attrs.evolve(applicator.default_params, prime_extra_delay=0.0)
     for mismatch in estimator.calibration.conditions.mismatches(
         nozzle_diameter_mm=ctx.machine.paste_dispenser.nozzle_diameter,
-        paste_height_mm=params.paste_height_mm,
+        paste_height_mm=paste_height_mm(params),
         pixel_per_mm=pixel_per_mm,
         crop_size_mm=plan.crop_size_mm,
     ):

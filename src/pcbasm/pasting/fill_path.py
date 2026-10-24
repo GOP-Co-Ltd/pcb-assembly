@@ -1,7 +1,7 @@
 """ペースト塗布用フィルパス生成.
 
-公開 API は :meth:`FillPlan.build` と、解決済み塗布設定から引数を束ねる
-:meth:`FillPlan.for_pad`、微小線の自動高さ :func:`micro_line_auto_height`。ノズル径と塗布パラメータからマシン固有の
+公開 API は :meth:`FillPlan.build` と、解決済み塗布設定から引数を束ねてノズル高さを付ける
+:meth:`FillPlan.for_pad`、点・線・面の塗布高さ :func:`paste_height_mm`、経路 1 本あたりの塗布量 :func:`amount_per_path_ul`。ノズル径と塗布パラメータからマシン固有の
 ヒューリスティクス（線間隔・インセット・フォールバック判定）を決定し、同モジュール内の private ヘルパー（``_area_fill`` /
 ``_outline_and_zigzag`` / ``_generate_linear_path`` / ``_dot_fill``）に委譲する。汎用の
 計算幾何（外接矩形・オフセット成分・線分クリップ等）は :mod:`pcbasm.geometry` にある。
@@ -15,13 +15,16 @@
 ノズル外径基準の inset で引き、成立しなければ点塗布に落ちる。面塗布は
 ``polygon.buffer(-inset)`` の各連結成分ごとに独立したポリラインを生成し、
 戻り値は成分別ポリラインの tuple となる。
+
+塗布 Z（基板表面からのノズル高さ）はこのモジュールだけが決める。
+機械座標の絶対 Z は、呼び出し側が渡す変換（高さ面や ``Shift(z=表面 Z)``）が足す。
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from math import isclose
-from typing import Literal, Self, assert_never
+from typing import Literal, assert_never
 
 import attrs
 from shapely import Polygon
@@ -30,12 +33,13 @@ from shapely.geometry import LineString
 from pcbasm.config.dispenser import PasteDispenserConfig
 from pcbasm.geometry import (
     Point2d,
+    Point3d,
     clip_segment,
     exterior_points,
     offset_components,
     oriented_bbox,
 )
-from pcbasm.pasting.params import DispenseMode, PasteParams
+from pcbasm.pasting.params import DispenseMode, PasteHeight, PasteParams
 
 AppliedDispenseMode = Literal["dot", "line", "area", "micro_line"]
 
@@ -45,8 +49,10 @@ _MICRO_LINE_SHORT_SIDE_TOLERANCE = 1e-9
 
 
 @attrs.frozen
-class FillPlan:
+class FillPlan[P: (Point2d, Point3d)]:
     """塗布パスと、fallback / auto 解決後に実際に使う方式.
+
+    :meth:`build` は平面の経路（``Point2d``）、:meth:`for_pad` は各点の z に基板表面からのノズル高さ [mm] を付けた経路（``Point3d``）を返す。
 
     Attributes:
         dispense_mode: 実際に使う方式
@@ -54,7 +60,7 @@ class FillPlan:
     """
 
     dispense_mode: AppliedDispenseMode
-    paths: tuple[tuple[Point2d, ...], ...]
+    paths: tuple[tuple[P, ...], ...]
 
     @classmethod
     def build(
@@ -69,7 +75,7 @@ class FillPlan:
         overlap: float = 0.0,
         boundary_margin: float = 0.0,
         nozzle_outer_diameter: float,
-    ) -> Self:
+    ) -> FillPlan[Point2d]:
         """ペーストフィルパスを生成し、実際の塗布方式も返す.
 
         ノズル径と塗布パラメータからビード幅・線間隔・インセットを決定し、
@@ -104,7 +110,7 @@ class FillPlan:
             micro_line: 微小線。成立しなければ dot
         """
         if polygon.is_empty or not polygon.is_valid:
-            return cls(dispense_mode="dot", paths=())
+            return FillPlan(dispense_mode="dot", paths=())
 
         w = nozzle_diameter * bead_width_factor
         line_spacing = w * (1.0 - overlap)
@@ -125,20 +131,20 @@ class FillPlan:
 
         match mode:
             case "dot":
-                return cls(dispense_mode="dot", paths=(tuple(_dot_fill(polygon)),))
+                return FillPlan(dispense_mode="dot", paths=(tuple(_dot_fill(polygon)),))
             case "line":
-                return cls(
+                return FillPlan(
                     dispense_mode="line",
                     paths=(tuple(_generate_linear_path(polygon, inset)),),
                 )
             case "micro_line":
-                return cls(
+                return FillPlan(
                     dispense_mode="micro_line",
                     paths=(tuple(_generate_linear_path(polygon, micro_inset)),),
                 )
             case "area":
                 paths = _area_fill(polygon, line_spacing, inset)
-                return cls(
+                return FillPlan(
                     dispense_mode="area", paths=tuple(tuple(path) for path in paths)
                 )
             case _:
@@ -152,7 +158,7 @@ class FillPlan:
         config: PasteDispenserConfig,
         params: PasteParams,
         line_reference: Point2d | None = None,
-    ) -> Self:
+    ) -> FillPlan[Point3d]:
         """解決済み塗布設定から pad 1 枚分の塗布計画を組み立てる.
 
         :class:`PasteParams` の per-pad 項目（dispense_mode / line_direction /
@@ -164,6 +170,9 @@ class FillPlan:
         ``line_direction`` は実際の方式が line / micro_line になったときだけ使う（area / dot では無視する）。
         ``line_direction`` が outward / inward でも ``line_reference``（部品位置）が無い pad
         は向きを揃えられないので unconstrained として扱う。
+
+        各点の z は基板表面からのノズル高さ [mm]。
+        点・線・面は :func:`paste_height_mm`、微小線は向きを揃えた後の始点に ``micro_line_z_start``、終点に ``micro_line_z_end`` を付ける（``auto`` は塗布量から求める）。
 
         Args:
             polygon: pad のポリゴン（board 座標 [mm]）
@@ -183,18 +192,41 @@ class FillPlan:
             nozzle_outer_diameter=config.effective_nozzle_outer_diameter,
         )
         if (
-            plan.dispense_mode not in ("line", "micro_line")
-            or params.line_direction == "unconstrained"
-            or line_reference is None
+            plan.dispense_mode in ("line", "micro_line")
+            and params.line_direction != "unconstrained"
+            and line_reference is not None
         ):
-            return plan
-        return attrs.evolve(
-            plan,
-            paths=tuple(
-                tuple(
-                    _orient_line_path(list(path), params.line_direction, line_reference)
-                )
-                for path in plan.paths
+            plan = attrs.evolve(
+                plan,
+                paths=tuple(
+                    tuple(
+                        _orient_line_path(
+                            list(path), params.line_direction, line_reference
+                        )
+                    )
+                    for path in plan.paths
+                ),
+            )
+        if plan.dispense_mode != "micro_line":
+            z = paste_height_mm(params)
+            return FillPlan(
+                plan.dispense_mode,
+                tuple(tuple(point.to3d(z) for point in path) for path in plan.paths),
+            )
+        ((start, end),) = plan.paths
+        auto = _micro_line_auto_height(
+            polygon,
+            (start, end),
+            amount_ul=amount_per_path_ul(polygon, params, len(plan.paths)),
+            nozzle_outer_diameter=config.effective_nozzle_outer_diameter,
+        )
+        return FillPlan(
+            "micro_line",
+            (
+                (
+                    start.to3d(_or_auto(params.micro_line_z_start, auto)),
+                    end.to3d(_or_auto(params.micro_line_z_end, auto)),
+                ),
             ),
         )
 
@@ -267,7 +299,27 @@ def _applied_mode(
             assert_never(mode)
 
 
-def micro_line_auto_height(
+def paste_height_mm(params: PasteParams) -> float:
+    """点・線・面塗布で基板表面から取るノズル高さ [mm]（``auto`` は ``ul_per_mm2`` を膜厚として解決）.
+
+    ``ul_per_mm2`` は μL/mm² = mm³/mm² = mm なので、目標膜厚をそのまま基板表面からのクリアランスに使う。
+    """
+    return _or_auto(params.paste_height, params.ul_per_mm2)
+
+
+def amount_per_path_ul(polygon: Polygon, params: PasteParams, path_count: int) -> float:
+    """経路 1 本あたりの塗布量 [μL]（pad の全量 ``面積 × ul_per_mm2`` を経路数で均等に分ける）.
+
+    実行が送る量と、微小線の ``auto`` 高さが使い切る量の単一ソース。
+    """
+    return polygon.area * params.ul_per_mm2 / path_count
+
+
+def _or_auto(height: PasteHeight, auto: float) -> float:
+    return auto if height == "auto" else height
+
+
+def _micro_line_auto_height(
     polygon: Polygon,
     line: Sequence[Point2d],
     *,

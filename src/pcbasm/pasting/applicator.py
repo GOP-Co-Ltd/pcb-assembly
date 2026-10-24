@@ -8,6 +8,7 @@
 ``FillSequence``）に委譲し、ここは座標変換と送信・結果集約だけを担う。
 
 座標変換（board → machine）は呼び出しごとに受け取る。applicator は基板を知らない。
+塗布 Z（基板表面からのノズル高さ）は :mod:`pcbasm.pasting.fill_path` が決め、ここは変換を当てるだけ。
 
 :class:`~pcbasm.pasting.dispense.DispenseSummary` は HAL 非依存の値なので
 :mod:`pcbasm.pasting.dispense` に置き、ここから再公開する。
@@ -24,13 +25,14 @@ from shapely import Polygon
 
 from pcbasm.config.dispenser import PasteDispenserConfig
 from pcbasm.gcode import GCode
-from pcbasm.geometry import Path, Point2d, Transform
+from pcbasm.geometry import Path, Point2d, Point3d, Transform
 from pcbasm.hal import KlipperClient, PasteDispenser, Speed, XYZStage
 from pcbasm.pasting.dispense import DispenseSummary
 from pcbasm.pasting.fill_path import (
     AppliedDispenseMode,
     FillPlan,
-    micro_line_auto_height,
+    amount_per_path_ul,
+    paste_height_mm,
 )
 from pcbasm.pasting.fill_sequence import FillSequence, MicroLineSequence
 from pcbasm.pasting.params import PasteParams
@@ -275,9 +277,8 @@ class PasteApplicator:
         塗布量はポリゴン面積 × ``ul_per_mm2`` を成分数で均等配分する。
         フィル経路が空（空・不正なポリゴン）なら何も送らず、``sequences`` が空の結果を返す。
 
-        方式が micro_line なら ``paste_height`` を使わず、始点を ``micro_line_z_start``、
-        終点を ``micro_line_z_end`` の高さにした経路を ``MicroLineSequence`` で送る
-        （``auto`` は :func:`~pcbasm.pasting.fill_path.micro_line_auto_height` で求める）。
+        経路の z（基板表面からのノズル高さ）は :meth:`FillPlan.for_pad <pcbasm.pasting.fill_path.FillPlan.for_pad>` が決める。
+        方式が micro_line なら、その経路を ``MicroLineSequence`` で送る。
 
         Args:
             polygon: 塗布対象のポリゴン（board 座標, mm）
@@ -292,17 +293,13 @@ class PasteApplicator:
             logger.warning("フィルパスが空です。スキップします。")
             return PasteApplicationResult(())
 
-        per_component_ul = polygon.area * params.ul_per_mm2 / len(plan.paths)
+        per_component_ul = amount_per_path_ul(polygon, params, len(plan.paths))
         if plan.dispense_mode == "micro_line":
             (line,) = plan.paths
             return PasteApplicationResult(
                 (
                     self._draw_micro_line(
-                        polygon,
-                        line,
-                        amount_ul=per_component_ul,
-                        params=params,
-                        transform=transform,
+                        line, amount_ul=per_component_ul, transform=transform
                     ),
                 )
             )
@@ -312,7 +309,6 @@ class PasteApplicator:
                     path,
                     applied_mode=plan.dispense_mode,
                     amount_ul=per_component_ul,
-                    paste_height_mm=params.paste_height_mm,
                     prime_extra_delay=params.prime_extra_delay,
                     transform=transform,
                 )
@@ -343,10 +339,9 @@ class PasteApplicator:
         return PasteApplicationResult(
             (
                 self._draw_polyline(
-                    (point,),
+                    (point.to3d(paste_height_mm(params)),),
                     applied_mode="dot",
                     amount_ul=amount_ul,
-                    paste_height_mm=params.paste_height_mm,
                     prime_extra_delay=params.prime_extra_delay,
                     transform=transform,
                 ),
@@ -378,11 +373,11 @@ class PasteApplicator:
             rate_cap: 吐出レートの頭打ち値 [μL/sec]（``None`` で ``max_dispense_rate``、
                 ``math.inf`` で cap 無効）
         """
+        z = paste_height_mm(self._config.defaults)
         return self._draw_polyline(
-            (start, end),
+            (start.to3d(z), end.to3d(z)),
             applied_mode="line",
             amount_ul=amount_ul,
-            paste_height_mm=self._config.defaults.paste_height_mm,
             prime_extra_delay=self._config.defaults.prime_extra_delay,
             transform=transform,
             fill_speed=fill_speed,
@@ -391,11 +386,10 @@ class PasteApplicator:
 
     def _draw_polyline(
         self,
-        raw: Sequence[Point2d],
+        raw: Sequence[Point3d],
         *,
         applied_mode: AppliedDispenseMode,
         amount_ul: float,
-        paste_height_mm: float,
         prime_extra_delay: float,
         transform: Transform,
         fill_speed: float | None = None,
@@ -403,10 +397,10 @@ class PasteApplicator:
     ) -> DispenseExecution:
         """1 本のポリラインを ``amount_ul`` [μL] で塗布する共通プリミティブ.
 
-        各点に Z を付与 → ``transform`` 適用 → ``FillSequence`` 送信を 1 本ぶん行う。
+        ``raw`` の z は基板表面からのノズル高さ。``transform`` 適用 → ``FillSequence`` 送信を 1 本ぶん行う。
         ``apply`` の各成分・``deposit_at``・``draw_line`` が共用する。
         """
-        path = Path(p.to3d(paste_height_mm) for p in raw).transformed(transform)
+        path = Path(raw).transformed(transform)
         sequence = FillSequence(
             path=path,
             total_amount_ul=amount_ul,
@@ -430,41 +424,13 @@ class PasteApplicator:
         )
 
     def _draw_micro_line(
-        self,
-        polygon: Polygon,
-        line: Sequence[Point2d],
-        *,
-        amount_ul: float,
-        params: PasteParams,
-        transform: Transform,
+        self, line: Sequence[Point3d], *, amount_ul: float, transform: Transform
     ) -> DispenseExecution:
         """微小線 1 本を ``amount_ul`` [μL] で塗布する.
 
-        ``line`` は ``FillPlan`` の 2 点経路。始点に ``micro_line_z_start``、終点に
-        ``micro_line_z_end`` の Z を付与し、``transform`` を適用して送信する。
-        ``auto`` の高さは ``polygon`` と ``line``、塗布量から求める。
+        ``line`` は ``FillPlan`` の 2 点経路（z は始点高と終点高）。``transform`` を適用して送信する。
         """
-        auto = micro_line_auto_height(
-            polygon,
-            line,
-            amount_ul=amount_ul,
-            nozzle_outer_diameter=self._config.effective_nozzle_outer_diameter,
-        )
-        start, end = line
-        path = Path(
-            [
-                start.to3d(
-                    auto
-                    if params.micro_line_z_start == "auto"
-                    else params.micro_line_z_start
-                ),
-                end.to3d(
-                    auto
-                    if params.micro_line_z_end == "auto"
-                    else params.micro_line_z_end
-                ),
-            ]
-        ).transformed(transform)
+        path = Path(line).transformed(transform)
         sequence = MicroLineSequence(
             path=path,
             total_amount_ul=amount_ul,

@@ -92,15 +92,6 @@ class TestPasteParams:
         assert params.ul_per_mm2 == pytest.approx(0.1)  # 元は不変
 
     @pytest.mark.parametrize(
-        ("paste_height", "ul_per_mm2", "expected"),
-        [(0.3, 0.1, 0.3), ("auto", 0.12, 0.12)],
-    )
-    def test_paste_height_mm_resolves_auto(self, paste_height, ul_per_mm2, expected):
-        params = _params(paste_height=paste_height, ul_per_mm2=ul_per_mm2)
-
-        assert params.paste_height_mm == pytest.approx(expected)
-
-    @pytest.mark.parametrize(
         ("dispense_mode", "expected"),
         [
             ("micro_line", ("micro_line_z_start", "micro_line_z_end")),
