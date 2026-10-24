@@ -72,51 +72,39 @@ def client(app: FastAPI) -> Iterator[TestClient]:
         yield client
 
 
+# マシン操作パネルの命令（REST と対話ジョブの command が同じ形で送る）
+MACHINE_COMMANDS = [
+    # 全軸ホーミングのボタンは軸を指定せずに送る
+    ("home_all", {"type": "home", "axes": []}),
+    ("home_xyz", {"type": "home", "axes": ["x", "y", "z"]}),
+    ("home_xy", {"type": "home", "axes": ["x", "y"]}),
+    ("jog_x", {"type": "jog", "axis": "x", "distance": 1.5}),
+    ("jog_z", {"type": "jog", "axis": "z", "distance": -0.1}),
+    ("move", {"type": "move", "x": 120.0, "y": 50.0, "z": 5.0}),
+    ("relax", {"type": "relax"}),
+    ("focus_z", {"type": "focus_z"}),
+    ("gcode", {"type": "gcode", "gcode": "G1 X110 F600"}),
+    ("move_to_cap", {"type": "move_to_cap"}),
+]
+
+
 class TestMachineControl:
     """マシン操作パネル（POST /api/machine-control と、対話ジョブ中の command）."""
 
-    @pytest.mark.parametrize(
-        ("name", "body"),
-        [
-            # 全軸ホーミングのボタンは軸を指定せずに送る
-            ("home_all", {"action": "home", "axes": []}),
-            ("home_xyz", {"action": "home", "axes": ["x", "y", "z"]}),
-            ("home_xy", {"action": "home", "axes": ["x", "y"]}),
-            ("jog_x", {"action": "jog", "axis": "x", "distance": 1.5}),
-            ("jog_z", {"action": "jog", "axis": "z", "distance": -0.1}),
-            ("move", {"action": "move", "x": 120.0, "y": 50.0, "z": 5.0}),
-            ("relax", {"action": "relax"}),
-            ("focus_z", {"action": "focus_z"}),
-            ("gcode", {"action": "gcode", "gcode": "G1 X110 F600"}),
-            ("move_to_cap", {"action": "move_to_cap"}),
-        ],
-    )
-    def test_action(
+    @pytest.mark.parametrize(("name", "command"), MACHINE_COMMANDS)
+    def test_rest(
         self,
         client: TestClient,
         homed_klipper: FakeKlipper,
         name: str,
-        body: dict[str, Any],
+        command: dict[str, Any],
     ):
-        response = client.post("/api/machine-control", json=body)
+        response = client.post("/api/machine-control", json=command)
 
         assert response.status_code == 200, response.text
         assert_transcript(homed_klipper.sent, ROUTES / f"machine_control_{name}.gcode")
 
-    @pytest.mark.parametrize(
-        ("name", "command"),
-        [
-            ("home_all", {"type": "home", "axes": []}),
-            ("home_xyz", {"type": "home", "axes": ["x", "y", "z"]}),
-            ("home_xy", {"type": "home", "axes": ["x", "y"]}),
-            ("jog_x", {"type": "jog", "axis": "x", "dist": 1.5}),
-            ("jog_z", {"type": "jog", "axis": "z", "dist": -0.1}),
-            ("move", {"type": "move", "x": 120.0, "y": 50.0, "z": 5.0}),
-            ("relax", {"type": "relax"}),
-            ("focus_z", {"type": "focus_z"}),
-            ("move_to_cap", {"type": "move_to_cap"}),
-        ],
-    )
+    @pytest.mark.parametrize(("name", "command"), MACHINE_COMMANDS)
     def test_job_command(
         self,
         manager: JobManager,
@@ -126,7 +114,7 @@ class TestMachineControl:
         name: str,
         command: dict[str, Any],
     ):
-        """対話ジョブ中の同じ操作も、REST と同じ列を同じ timeout で送る."""
+        """対話ジョブ中の同じ命令も、REST と同じ列を同じ timeout で送る."""
 
         def run(ctx: JobContext) -> None:
             # 塗布のジョブと同じく、既定の timeout を持たない接続で受ける

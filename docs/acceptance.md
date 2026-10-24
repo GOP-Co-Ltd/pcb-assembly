@@ -77,7 +77,7 @@ PR10 より前の版は設定履歴を持たないので、「1. 001 でブラ�
 
 | 変えた領域                                            | 実施する項目                            |
 | ----------------------------------------------------- | --------------------------------------- |
-| `pcbasm.hal`、`pcbasm.machine`、`pcbasm.parking`      | A0, A1, A2, A8, A10, A14, A20           |
+| `pcbasm.hal`、`pcbasm.machine`                        | A0, A1, A2, A8, A10, A14, A20           |
 | `pcbasm.gcode`、`pcbasm.geometry`                     | A1, A5, A8                              |
 | `pcbasm.posctrl`、`pcbasm.vision`                     | A3, A4, A5, A8                          |
 | `pcbasm.board`、`pcbasm.kicad`                        | A8, A17                                 |

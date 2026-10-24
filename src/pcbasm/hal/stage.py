@@ -10,6 +10,10 @@ from pcbasm.geometry import Path, Point3d
 
 from .klipper import KlipperClient
 
+# 退避移動（travel_to）で XY を動かす Z [mm] と、速度の上限 [mm/s]（PRESENT マクロの F1200 と同速）
+TRAVEL_Z = 0.0
+TRAVEL_VELOCITY = 20.0
+
 
 @attrs.frozen
 class Speed:
@@ -98,22 +102,37 @@ class Limits:
     z: ScalarLimits
     v: ScalarLimits
 
-    def contains(self, point: Point3d, feed: float) -> bool:
-        """点と feed が全軸の可動域・速度制限内か判定する.
-
-        Args:
-            point: 判定する座標
-            feed: 判定する送り速度 [mm/s]
-
-        Returns:
-            全制限内であれば True
-        """
-        return (
-            point.x in self.x
-            and point.y in self.y
-            and point.z in self.z
-            and feed in self.v
+    def outside(
+        self,
+        *,
+        x: float | None = None,
+        y: float | None = None,
+        z: float | None = None,
+        feed: float | None = None,
+    ) -> list[str]:
+        """可動域・速度制限を外れる値を ``"x=…"`` の形で返す（None の値は見ない）."""
+        checks = (
+            ("x", x, self.x),
+            ("y", y, self.y),
+            ("z", z, self.z),
+            ("feed", feed, self.v),
         )
+        return [
+            f"{name}={value}"
+            for name, value, limits in checks
+            if value is not None and value not in limits
+        ]
+
+    def contains(
+        self,
+        *,
+        x: float | None = None,
+        y: float | None = None,
+        z: float | None = None,
+        feed: float | None = None,
+    ) -> bool:
+        """指定した値がすべて可動域・速度制限内か判定する（None の値は見ない）."""
+        return not self.outside(x=x, y=y, z=z, feed=feed)
 
 
 class XYZStage:
@@ -238,23 +257,60 @@ class XYZStage:
             ny = current.y + y if y is not None else None
             nz = current.z + z if z is not None else None
 
-        targets: dict[str, float | None] = {
-            "x": float(nx) if nx is not None else None,
-            "y": float(ny) if ny is not None else None,
-            "z": float(nz) if nz is not None else None,
-        }
-        axis_limits = {"x": self.limits.x, "y": self.limits.y, "z": self.limits.z}
-        violations = [
-            f"{axis}={value}"
-            for axis, value in targets.items()
-            if value is not None and value not in axis_limits[axis]
-        ]
-        if feed not in self.limits.v:
-            violations.append(f"feed={feed}")
+        tx = float(nx) if nx is not None else None
+        ty = float(ny) if ny is not None else None
+        tz = float(nz) if nz is not None else None
+        violations = self.limits.outside(x=tx, y=ty, z=tz, feed=feed)
         if violations:
             raise ValueError(f"制限外の移動先です: {', '.join(violations)}")
 
-        return GCode.move(x=targets["x"], y=targets["y"], z=targets["z"], velocity=feed)
+        return GCode.move(x=tx, y=ty, z=tz, velocity=feed)
+
+    def move_settled(
+        self,
+        x: float | None = None,
+        y: float | None = None,
+        z: float | None = None,
+        *,
+        settle_sec: float,
+        speed: Speed | None = None,
+        relative: bool = False,
+    ) -> GCode:
+        """移動して静定を待ち（G4）、到達を待つ（M400）G-code を生成する.
+
+        撮影やプローブの前の移動に使う。引数と可動域の検証は :meth:`move` と同じ。
+
+        Raises:
+            ValueError: 全軸が未指定の場合、移動先または feed が制限外の場合
+        """
+        return (
+            self.move(x, y, z, speed=speed, relative=relative)
+            + GCode.wait(settle_sec)
+            + GCode.wait_for_done()
+        )
+
+    @property
+    def travel_speed(self) -> Speed:
+        """退避移動の速度（``TRAVEL_VELOCITY`` を max_velocity で頭打ちにする）."""
+        return Speed.absolute(min(TRAVEL_VELOCITY, self.max_velocity))
+
+    def travel_to(self, target: Point3d) -> GCode:
+        """Z を退避高さへ上げてから target の XY へ移り、最後に target の Z へ下ろす G-code を生成する.
+
+        ノズルキャップやクリーニング位置へ、基板やクリーナーをこすらずに近づくときに使う。
+        G90 で始めて絶対座標にし、M400 は含めない。
+
+        Raises:
+            ValueError: 経由点が可動域外の場合
+            KeyError: printer.cfg に limits 用のセクション・キーが無い場合
+        """
+        speed = self.travel_speed
+        return (
+            GCode("G90")
+            + self.move(z=TRAVEL_Z, speed=speed)
+            + self.move(x=target.x, y=target.y, speed=speed)
+            + self.move(z=target.z, speed=speed)
+        )
 
     def to_gcode(self, path: Path, *, speed: Speed) -> GCode:
         """Path の各点を G1 移動に変換し、各点と feed を limits で検証する.
@@ -263,7 +319,9 @@ class XYZStage:
             ValueError: 制限外の点がある場合
         """
         feed = float(speed.resolve(self.max_velocity))
-        invalid = [p for p in path if not self.limits.contains(p, feed)]
+        invalid = [
+            p for p in path if not self.limits.contains(x=p.x, y=p.y, z=p.z, feed=feed)
+        ]
         if invalid:
             raise ValueError(f"制限外の経由点があります: {invalid}")
         commands = GCode()

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from pcbasm.gcode import GCode
 from pcbasm.hal import XYZStage
+from pcbasm.machine.commands import COMMAND_TIMEOUT
 from pcbasm.pasting.applicator import build_applicator
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import JobContext, JobResult
-from web.api.jobs.machine_commands import COMMAND_TIMEOUT
 from web.api.jobs.pasting.common import (
     LOADING_DEFAULT_AMOUNT,
     LOADING_DEFAULT_RETRACT_ROTATIONS,

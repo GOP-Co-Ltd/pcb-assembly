@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d, Transform
 from pcbasm.pasting.session import PasteSession
 from pcbasm.posctrl import CopperProjector
@@ -59,11 +58,12 @@ class PointCapturer:
             center, offset=offset, correction=correction
         )
         session.klipper.send_gcode(
-            session.stage.move(
-                x=stage_xy.x, y=stage_xy.y, z=session.calibration.z_position
+            session.stage.move_settled(
+                x=stage_xy.x,
+                y=stage_xy.y,
+                z=session.calibration.z_position,
+                settle_sec=self._settle_sec,
             )
-            + GCode.wait(self._settle_sec)
-            + GCode.wait_for_done()
         )
         image = session.camera.capture()
         if self._frame_sink is not None:

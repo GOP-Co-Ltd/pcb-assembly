@@ -3,7 +3,6 @@
 import logging
 from collections.abc import Callable
 
-from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d, Rotation, Transform
 from pcbasm.hal import KlipperClient, Speed, XYZStage
 
@@ -86,12 +85,13 @@ class OffsetTransformMeasurer:
         # 2. X 方向に移動
         move_vector = Point2d(x=self._move_distance, y=0.0)
         move_velocity = self._stage.max_velocity * self._move_velocity_ratio
-        self._move_to(
-            self._stage.move(
+        self._klipper.send_gcode(
+            self._stage.move_settled(
                 x=move_vector.x,
                 y=move_vector.y,
                 speed=Speed.absolute(move_velocity),
                 relative=True,
+                settle_sec=self._settle_sec,
             ),
         )
 
@@ -101,12 +101,13 @@ class OffsetTransformMeasurer:
 
         # 4. 元の位置に戻る
         logger.info("元の位置に戻る")
-        self._move_to(
-            self._stage.move(
+        self._klipper.send_gcode(
+            self._stage.move_settled(
                 x=start_pos.x,
                 y=start_pos.y,
                 z=start_pos.z,
                 speed=Speed.absolute(move_velocity),
+                settle_sec=self._settle_sec,
             ),
         )
 
@@ -116,9 +117,3 @@ class OffsetTransformMeasurer:
         logger.info(f"計測完了: 回転角 {rotation.degrees:.4f}°")
 
         return rotation
-
-    def _move_to(self, move_gcode: GCode) -> None:
-        """指定座標に移動し、安定を待つ."""
-        self._klipper.send_gcode(
-            move_gcode + GCode.wait(self._settle_sec) + GCode.wait_for_done()
-        )

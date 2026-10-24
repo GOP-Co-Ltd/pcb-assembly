@@ -15,6 +15,7 @@ import attrs
 
 from pcbasm.geometry import Point2d, Transform
 from pcbasm.geometry.packing import Rect
+from pcbasm.hal import Limits
 from pcbasm.pasting.dataset.metadata import DatasetView
 from pcbasm.pasting.sweep import sweep_schedule
 from pcbasm.validators import is_finite_number
@@ -450,8 +451,7 @@ def validate_capture_reach(
     views: Sequence[DatasetView],
     *,
     board_to_stage: Transform,
-    x_limits: tuple[float, float],
-    y_limits: tuple[float, float],
+    limits: Limits,
 ) -> str | None:
     """全（セル × view）の撮影目標がステージ可動域に入るかを検証する."""
     for target in plan.targets:
@@ -460,8 +460,7 @@ def validate_capture_reach(
             error = _reach_error(
                 machine.x + view.offset_x_mm,
                 machine.y + view.offset_y_mm,
-                x_limits,
-                y_limits,
+                limits,
                 label=f"sample {target.index} view {view.number} の撮影位置",
             )
             if error is not None:
@@ -473,8 +472,7 @@ def validate_dispense_reach(
     plan: DotGridPlan,
     *,
     board_to_machine: Transform,
-    x_limits: tuple[float, float],
-    y_limits: tuple[float, float],
+    limits: Limits,
 ) -> str | None:
     """全塗布セルのノズル目標がステージ可動域に入るかを検証する.
 
@@ -484,26 +482,19 @@ def validate_dispense_reach(
     for cell in plan.cells:
         label = f"sample {cell.index} の塗布位置"
         machine = board_to_machine.apply(cell.center)
-        error = _reach_error(machine.x, machine.y, x_limits, y_limits, label=label)
+        error = _reach_error(machine.x, machine.y, limits, label=label)
         if error is not None:
             return error
     return None
 
 
-def _reach_error(
-    x: float,
-    y: float,
-    x_limits: tuple[float, float],
-    y_limits: tuple[float, float],
-    *,
-    label: str,
-) -> str | None:
+def _reach_error(x: float, y: float, limits: Limits, *, label: str) -> str | None:
     """可動域内なら ``None``、外れていれば理由文."""
-    if x_limits[0] <= x <= x_limits[1] and y_limits[0] <= y <= y_limits[1]:
+    if limits.contains(x=x, y=y):
         return None
     return (
         f"{label} ({x:.3f}, {y:.3f}) がステージ可動域 "
-        f"X{x_limits} / Y{y_limits} を外れます"
+        f"X({limits.x.min}, {limits.x.max}) / Y({limits.y.min}, {limits.y.max}) を外れます"
     )
 
 

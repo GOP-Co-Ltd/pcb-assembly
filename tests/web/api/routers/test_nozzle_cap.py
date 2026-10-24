@@ -129,6 +129,42 @@ class TestNozzleCleanTestRun:
         assert "可動域外" in response.json()["detail"]
         assert klipper.sent == ()
 
+    @pytest.mark.parametrize(
+        ("cap", "last_message"),
+        [
+            pytest.param(
+                "", "ノズルキャップ位置が未記録のため退避しません", id="unrecorded-cap"
+            ),
+            pytest.param(
+                "\n[paste_dispenser.nozzle_cap]\nx = 30.0\ny = 40.0\nz = 3.0\n",
+                "ノズルキャップ位置へ戻しました",
+                id="recorded-cap",
+            ),
+        ],
+    )
+    def test_message_ends_with_whether_the_nozzle_returned_to_cap(
+        self,
+        config_dir: Path,
+        mount_klipper: Callable[[FakeKlipper], None],
+        client: TestClient,
+        cap: str,
+        last_message: str,
+    ):
+        """クリーニングは済んだので 200 で返し、最後の文でキャップへ戻したかを伝える."""
+        klipper = FakeKlipper()
+        klipper.set_status("toolhead", "homed_axes", "xyz")
+        mount_klipper(klipper)
+        path = config_dir / "machine.toml"
+        with path.open("a", encoding="utf-8") as machine_toml:
+            machine_toml.write(
+                "\n[paste_dispenser.nozzle_clean]\nx = 10.0\ny = 20.0\nz = 3.0\n" + cap
+            )
+
+        response = client.post("/api/pasting/nozzle-clean/test")
+
+        assert response.status_code == 200, response.text
+        assert response.json()["message"].split(" / ")[-1] == last_message
+
     def test_missing_air_pump_section_returns_502_with_the_reason(
         self,
         config_dir: Path,

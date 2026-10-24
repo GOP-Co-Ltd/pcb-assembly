@@ -9,8 +9,8 @@
 :func:`~web.api.jobs.pasting.purge_check.purge_with_cleaning` が持つ。
 
 位置は :class:`~pcbasm.config.dispenser.NozzleCleanConfig` の ``position`` がマシン座標で持ち、基板とは
-無関係なので board 補正を通さない。移動 G-code を組む関数は :func:`~pcbasm.parking.move_to_cap` と
-同じく ``M400`` / ``M84`` を含めない。ジョブの開始時に :func:`resolve_nozzle_clean` が組んで可動域を確かめ、
+無関係なので board 補正を通さない。接近はノズルキャップへの駐機と同じ :meth:`~pcbasm.hal.XYZStage.travel_to` で、
+移動 G-code を組む関数は ``M400`` / ``M84`` を含めない。ジョブの開始時に :func:`resolve_nozzle_clean` が組んで可動域を確かめ、
 送信は :func:`clean_nozzle` が行う。
 """
 
@@ -26,15 +26,10 @@ from pcbasm.config.dispenser import NozzleCleanConfig
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Path, Point3d
 from pcbasm.hal import KlipperClient, Speed, XYZStage
+from pcbasm.hal.stage import TRAVEL_Z
 from pcbasm.pasting.applicator import PasteApplicator
 
 logger = logging.getLogger(__name__)
-
-# クリーニング位置への移動速度上限 [mm/s]（parking.CAP_PARK_VELOCITY と同趣旨）
-CLEAN_TRAVEL_VELOCITY = 20.0
-
-# XY 移動する退避 Z [mm]（move_to_cap と同じ規約）
-TRAVEL_Z = 0.0
 
 # クリーニングを行わない理由（WebUI の「未記録」表示と文言を揃える）
 _NOT_RECORDED = "ノズルクリーニング: 位置が未記録のためスキップします"
@@ -72,29 +67,10 @@ def wipe_points(position: Point3d, clean: NozzleCleanConfig) -> Path:
     return Path(points)
 
 
-def approach_gcode(stage: XYZStage, position: Point3d) -> GCode:
-    """クリーニング位置の面 Z まで接近する移動コマンドを生成する.
-
-    Z を退避高さへ上げてからクリーニング XY へ移動し、最後に面 Z へ下ろす。各セグメント
-    は stage の limits で検証する。``M400`` / ``M84`` は含めない。
-
-    Raises:
-        ValueError: クリーニング位置が可動域外の場合
-        KeyError: printer.cfg に limits 用のセクション・キーが無い場合
-    """
-    speed = _travel_speed(stage)
-    return (
-        GCode("G90")
-        + stage.move(z=TRAVEL_Z, speed=speed)
-        + stage.move(x=position.x, y=position.y, speed=speed)
-        + stage.move(z=position.z, speed=speed)
-    )
-
-
 def wipe_gcode(stage: XYZStage, position: Point3d, clean: NozzleCleanConfig) -> GCode:
     """面 Z から押し込んで十字往復する移動コマンドを生成する.
 
-    押し込みの下降だけは travel 速度で行う（こすり速度とは独立に保つ）。こすりは
+    押し込みの下降だけは退避移動の速度で行う（こすり速度とは独立に保つ）。こすりは
     ``wipe_speed`` を stage の ``max_velocity`` で clamp した速度で走る。
 
     Raises:
@@ -102,7 +78,7 @@ def wipe_gcode(stage: XYZStage, position: Point3d, clean: NozzleCleanConfig) -> 
     """
     wipe_speed = Speed.absolute(min(clean.wipe_speed, stage.max_velocity))
     return stage.move(
-        z=_press_point(position, clean).z, speed=_travel_speed(stage)
+        z=_press_point(position, clean).z, speed=stage.travel_speed
     ) + stage.to_gcode(wipe_points(position, clean), speed=wipe_speed)
 
 
@@ -112,7 +88,7 @@ def depart_gcode(stage: XYZStage) -> GCode:
     XY は動かさない。塗布シーケンスは「最初の点の上空」までしか上げないので、押し込み Z
     のまま次工程へ渡すと基板の上をその高さで走ってしまう。
     """
-    return stage.move(z=TRAVEL_Z, speed=_travel_speed(stage))
+    return stage.move(z=TRAVEL_Z, speed=stage.travel_speed)
 
 
 @attrs.frozen
@@ -145,7 +121,7 @@ def plan_nozzle_clean(
         KeyError: printer.cfg に limits 用のセクション・キーが無い場合
     """
     try:
-        approach = approach_gcode(stage, position)
+        approach = stage.travel_to(position)
         wipe = wipe_gcode(stage, position, clean) + depart_gcode(stage)
     except ValueError as exc:
         raise ValueError(f"クリーニング位置が可動域外です（{exc}）") from exc
@@ -216,7 +192,3 @@ def clean_nozzle(
         f" / 十字往復 ±{clean.stroke:g} mm × {clean.passes} 回"
     )
     (log or logger.info)(message)
-
-
-def _travel_speed(stage: XYZStage) -> Speed:
-    return Speed.absolute(min(CLEAN_TRAVEL_VELOCITY, stage.max_velocity))

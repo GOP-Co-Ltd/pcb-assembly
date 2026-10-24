@@ -453,11 +453,12 @@ class ToolheadOffsetProcedure:
         """
         point = probed.point
         self._klipper.send_gcode(
-            self._stage.move(
-                x=point.camera.x, y=point.camera.y, z=self._calibration.z_position
+            self._stage.move_settled(
+                x=point.camera.x,
+                y=point.camera.y,
+                z=self._calibration.z_position,
+                settle_sec=self._settle_sec,
             )
-            + GCode.wait(self._settle_sec)
-            + GCode.wait_for_done()
         )
         try:
             camera_final_position = self._adjustor.adjust()

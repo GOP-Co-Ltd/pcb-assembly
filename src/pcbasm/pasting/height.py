@@ -11,7 +11,6 @@ from shapely.geometry import MultiPoint, Polygon
 
 from pcbasm.board import Board, Copper, Layer
 from pcbasm.config.probe import ProbeConfig
-from pcbasm.gcode import GCode
 from pcbasm.geometry import (
     HeightPlane,
     Identity,
@@ -93,13 +92,12 @@ class _BoardPointProber:
         )
 
         self._klipper.send_gcode(
-            self._stage.move(
+            self._stage.move_settled(
                 x=probe_pt.x,
                 y=probe_pt.y,
                 speed=Speed.absolute(self._move_velocity),
+                settle_sec=self._settle_sec,
             )
-            + GCode.wait(self._settle_sec)
-            + GCode.wait_for_done()
         )
 
         z = self._probe_executor.probe()

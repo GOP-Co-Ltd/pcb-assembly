@@ -38,7 +38,7 @@ from pcbasm.hal.fake import (
 )
 from pcbasm.kicad import load_board
 from pcbasm.kicad.build import generate_rect_pcb, save_board
-from pcbasm.parking import park_or_present
+from pcbasm.machine.park import PRESENT_TIMEOUT, park
 from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.applicator import build_applicator
 from pcbasm.pasting.dataset.plan import (
@@ -345,9 +345,16 @@ class TestNozzleClean:
         assert klipper.sent == ()
 
 
+def _park(klipper: FakeKlipper, machine: MachineConfig) -> None:
+    """ジョブの終了時と同じく、駐機の timeout の接続で脱力まで駐機する."""
+    connection = klipper.connection(timeout=PRESENT_TIMEOUT)
+    cap = machine.paste_dispenser.nozzle_cap.position
+    park(connection, XYZStage(connection), cap, relax=True, warn=lambda message: None)
+
+
 class TestParking:
     def test_nozzle_cap(self, klipper: FakeKlipper, machine: MachineConfig):
-        park_or_present(klipper, machine)
+        _park(klipper, machine)
 
         assert_transcript(klipper.sent, PROCEDURES / "park_nozzle_cap.gcode")
 
@@ -368,7 +375,7 @@ class TestParking:
         path.write_text(text.replace(cap, ""), encoding="utf-8")
         klipper = FakeKlipper(printer_config)
 
-        park_or_present(klipper, load_machine(path), warn=lambda message: None)
+        _park(klipper, load_machine(path))
 
         assert_transcript(klipper.sent, PROCEDURES / f"park_{name}.gcode")
 

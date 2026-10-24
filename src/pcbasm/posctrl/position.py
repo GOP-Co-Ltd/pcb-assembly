@@ -3,7 +3,6 @@
 import logging
 from collections.abc import Callable
 
-from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d, Transform
 from pcbasm.hal import KlipperClient, Speed, XYZStage
 
@@ -107,19 +106,16 @@ class XYPositionAdjustor:
                 f"({target.x:.4f}, {target.y:.4f})"
             )
 
-            self._move_to(
-                self._stage.move(
-                    x=target.x, y=target.y, speed=Speed.absolute(move_velocity)
+            self._klipper.send_gcode(
+                self._stage.move_settled(
+                    x=target.x,
+                    y=target.y,
+                    speed=Speed.absolute(move_velocity),
+                    settle_sec=self._settle_sec,
                 ),
             )
 
         raise RuntimeError(
             f"{self._max_iterations}回の試行で収束しませんでした "
             f"(最終オフセット: {offset.norm:.4f} mm)"
-        )
-
-    def _move_to(self, move_gcode: GCode) -> None:
-        """指定座標に移動し、安定を待つ."""
-        self._klipper.send_gcode(
-            move_gcode + GCode.wait(self._settle_sec) + GCode.wait_for_done()
         )

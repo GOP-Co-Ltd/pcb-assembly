@@ -269,7 +269,7 @@ class TestLoading:
                 "retract_rotations": 1.0,
             },
             {"type": "suck_rotations", "rotations": 2.0, "rate": 0.5, "accel": 0.5},
-            {"type": "jog", "axis": "z", "dist": 10.0},
+            {"type": "jog", "axis": "z", "distance": 10.0},
             {"type": "focus_z"},
             {"type": "finish"},
         ):

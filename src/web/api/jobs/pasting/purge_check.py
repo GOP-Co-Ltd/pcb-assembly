@@ -129,12 +129,10 @@ def _camera_reach_error(
     撮影で可動域外の例外を出して塗布ジョブを失敗させるより、確かめずに進むほうがよい。
     """
     target = session.camera_point_target(point, correction=point_correction)
-    limits = session.stage.limits
-    axes = [("x", target.x, limits.x), ("y", target.y, limits.y)]
-    # ピント Z が未記録のキャリブレーションでは Z を動かさないので見なくてよい
-    if (focus_z := session.calibration.z_position) is not None:
-        axes.append(("z", focus_z, limits.z))
-    outside = [f"{name}={value}" for name, value, scalar in axes if value not in scalar]
+    # ピント Z が未記録のキャリブレーションでは Z を動かさないので見なくてよい（None は見ない）
+    outside = session.stage.limits.outside(
+        x=target.x, y=target.y, z=session.calibration.z_position
+    )
     if outside:
         return f"カメラを撮影位置へ置けない（可動域外: {', '.join(outside)}）"
     return None

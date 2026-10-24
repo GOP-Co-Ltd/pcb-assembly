@@ -2,7 +2,6 @@
 
 import attrs
 
-from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d, Shift, Transform
 from pcbasm.hal import Camera, KlipperClient, Speed, XYZStage
 from pcbasm.posctrl.copper import CopperEdgeMatcher, CopperProjector, EdgeMatch
@@ -95,14 +94,13 @@ class RegionAligner:
         for passes in range(1, self._max_passes + 1):
             target = region.anchor + cumulative
             self._klipper.send_gcode(
-                self._stage.move(
+                self._stage.move_settled(
                     x=target.x,
                     y=target.y,
                     z=self._focus_z,
                     speed=Speed.rate(0.5),
+                    settle_sec=self._settle_sec,
                 )
-                + GCode.wait(self._settle_sec)
-                + GCode.wait_for_done()
             )
             projector = self._projector.with_correction(Shift.from_point(cumulative))
             projection = projector.project(target)

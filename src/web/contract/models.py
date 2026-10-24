@@ -1,10 +1,10 @@
-"""Backend の REST / WS が返し、frontend が検証して描く pydantic モデル."""
+"""Backend の REST / WS が受け取る命令と、返して frontend が検証して描く pydantic モデル."""
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, RootModel
 
 type JobStatusName = Literal[
     "pending", "running", "waiting_input", "succeeded", "failed", "aborted"
@@ -47,6 +47,61 @@ class KlipperStatus(BaseModel):
     position: Position | None = None
     homed_axes: str | None = None
     error: str | None = None
+
+
+type Axis = Literal["x", "y", "z"]
+
+
+class HomeCommand(BaseModel):
+    type: Literal["home"]
+    axes: list[Axis] = []
+
+
+class JogCommand(BaseModel):
+    type: Literal["jog"]
+    axis: Axis
+    distance: float
+
+
+class MoveCommand(BaseModel):
+    type: Literal["move"]
+    x: float | None = None
+    y: float | None = None
+    z: float | None = None
+
+
+class RelaxCommand(BaseModel):
+    type: Literal["relax"]
+
+
+class FocusZCommand(BaseModel):
+    type: Literal["focus_z"]
+
+
+class MoveToCapCommand(BaseModel):
+    type: Literal["move_to_cap"]
+
+
+class GCodeCommand(BaseModel):
+    type: Literal["gcode"]
+    gcode: str = Field(pattern=r"\S")  # 空白だけの G-code は送らない
+
+
+class MachineCommandRequest(
+    RootModel[
+        Annotated[
+            HomeCommand
+            | JogCommand
+            | MoveCommand
+            | RelaxCommand
+            | FocusZCommand
+            | MoveToCapCommand
+            | GCodeCommand,
+            Field(discriminator="type"),
+        ]
+    ]
+):
+    """マシン操作パネルの命令（REST の /api/machine-control と、対話ジョブの WS command が同じ形で送る）."""
 
 
 class PromptInfo(BaseModel):

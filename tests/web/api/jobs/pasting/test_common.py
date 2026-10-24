@@ -123,7 +123,7 @@ class TestParseLoadingCommand:
     @pytest.mark.parametrize(
         "command",
         [
-            {"type": "jog", "axis": "x", "dist": 0.1},  # 機械操作（後段判定へ）
+            {"type": "jog", "axis": "x", "distance": 0.1},  # 機械操作（後段判定へ）
             {"type": "bogus"},  # 未知 type
             {},  # キー無し
         ],
