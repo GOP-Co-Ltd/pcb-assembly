@@ -12,7 +12,7 @@ import attrs
 
 from pcbasm.board import Board
 from pcbasm.config import MachineConfig
-from pcbasm.hal import AudioPlayer, Camera, FrameHub, KlipperClient
+from pcbasm.hal import Camera, FrameHub, KlipperClient
 from pcbasm.machine.devices import Devices
 from pcbasm.machine.journal import Journal
 from pcbasm.pasting.overrides import BoardOverrides
@@ -150,7 +150,6 @@ class JobContext:
         source_pcb: str | None,
         boards: BoardCache,
         overrides: BoardOverrides,
-        audio_player: AudioPlayer | None,
     ) -> None:
         # パラメータは保持しない（ブリッジの live_params() 経由で都度読む）
         self._bridge = bridge
@@ -165,7 +164,6 @@ class JobContext:
         self._source_pcb = source_pcb
         self._boards = boards
         self._overrides = overrides
-        self._audio_player = audio_player
 
     @property
     def params(self) -> Mapping[str, ParamValue]:
@@ -188,7 +186,7 @@ class JobContext:
 
     @property
     def devices(self) -> Devices:
-        """機体の装置（Klipper とカメラ）."""
+        """機体の装置（Klipper、カメラ、通知音）."""
         return self._devices
 
     @property
@@ -200,11 +198,6 @@ class JobContext:
     def journal(self) -> Journal:
         """このジョブの送信を書く G-code ジャーナル."""
         return self._journal
-
-    @property
-    def audio_player(self) -> AudioPlayer | None:
-        """機体の通知音プレイヤー（JobManager が持たなければ None）."""
-        return self._audio_player
 
     def klipper(self, timeout: float | None = None) -> KlipperClient:
         """装置の Klipper への接続（接続先はジョブ開始時の設定、送信はこのジョブのジャーナルへ書く）.
@@ -295,7 +288,7 @@ class JobContext:
         Args:
             spec: 問い合わせ内容
             while_waiting: 応答が来るまでポーリング間隔ごとに呼ばれるコールバック。
-                ``frame()`` の override は PreviewService の TTL で失効するため、
+                ``frame()`` の override は CameraFeed の TTL で失効するため、
                 待機中もオーバーレイを出し続けたいジョブがライブフレームの
                 再送に使う。省略時はイベント待ちでブロックする（従来動作）。
                 コールバックが投げた例外はそのまま伝播し、ジョブは FAILED になる
@@ -335,7 +328,7 @@ class JobContext:
     def open_camera(self) -> Iterator[Camera]:
         """カメラパイプラインを起動保持し FrameSource を貸し出す.
 
-        PreviewService と参照カウントを共有するため、preview クライアントの
+        MJPEG ストリーム（CameraFeed）と参照カウントを共有するため、preview クライアントの
         切断でジョブ使用中の hub が止まることはない（逆も同様）。
 
         Raises:

@@ -8,37 +8,37 @@ from typing import override
 import uvicorn
 
 from web.api.app import create_app
+from web.api.camera import CameraFeed
 from web.api.env import Env
-from web.api.preview import PreviewService
 from web.process import setup_logging
 
 
 class _WebUIServer(uvicorn.Server):
     """Ctrl+C 時に開いている preview stream へ終了を通知する Server."""
 
-    def __init__(self, config: uvicorn.Config, preview: PreviewService) -> None:
+    def __init__(self, config: uvicorn.Config, camera: CameraFeed) -> None:
         super().__init__(config)
-        self._preview = preview
+        self._camera = camera
 
     @override
     def handle_exit(self, sig: int, frame: FrameType | None) -> None:
-        self._preview.request_shutdown()
+        self._camera.request_shutdown()
         super().handle_exit(sig, frame)
 
 
 def main() -> None:
     # FrameHub の start/stop ログ（E2E の停止確認に使う）を含めて出力する
     setup_logging()
-    settings = Env.from_env()
-    app = create_app(settings)
+    env = Env.from_env()
+    app = create_app(env)
     config = uvicorn.Config(
         app,
-        host=settings.host,
-        port=settings.port,
+        host=env.host,
+        port=env.port,
         timeout_graceful_shutdown=3,
     )
     try:
-        _WebUIServer(config, app.state.preview).run()
+        _WebUIServer(config, app.state.backend.camera).run()
     except KeyboardInterrupt:
         pass
 

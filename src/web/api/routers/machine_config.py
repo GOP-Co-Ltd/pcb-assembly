@@ -5,8 +5,9 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from web.api.dependencies import ControlDep, MachineConfigDep, StateDep
+from web.api.deps import ControlDep, DevicesDep, LockDep, MachineConfigDep
 from web.api.history import UnknownSnapshotError
+from web.api.machine_config import MachineConfigFile
 from web.contract.models import (
     ConfigHistoryResponse,
     MachineSettingsResponse,
@@ -22,28 +23,25 @@ class SettingsUpdate(BaseModel):
     values: dict[str, MachineSettingValue]
 
 
-def _settings(
-    state: StateDep, machine_config: MachineConfigDep
-) -> MachineSettingsResponse:
-    machine, _ = state.machine_or_error()
+def _settings(machine_config: MachineConfigFile) -> MachineSettingsResponse:
+    machine, _ = machine_config.machine_or_error()
     return MachineSettingsResponse(fields=machine_config.fields(machine))
 
 
 @router.get("/settings/machine")
-def get_machine_settings(
-    state: StateDep, machine_config: MachineConfigDep
-) -> MachineSettingsResponse:
+def get_machine_settings(machine_config: MachineConfigDep) -> MachineSettingsResponse:
     """設定項目を、表示の定義・記載値（``value``）・実効値（``resolved``）付きで返す.
 
     設定エラー（degraded）の間は実効値を出さず、書かれている値だけで設定を直せるようにする。
     """
-    return _settings(state, machine_config)
+    return _settings(machine_config)
 
 
 @router.put("/settings/machine")
 def put_machine_settings(
     body: SettingsUpdate,
-    state: StateDep,
+    lock: LockDep,
+    devices: DevicesDep,
     machine_config: MachineConfigDep,
     _control: ControlDep,
 ) -> MachineSettingsResponse:
@@ -52,15 +50,15 @@ def put_machine_settings(
     400: 未知キー・型不一致・相互制約違反（1 件でも不正なら何も書かない）/ 409: 装置が使用中。
     ``camera.*``（``camera.crop.*`` を除く）を変えたときはカメラを再構築する。
     """
-    with state.machine_lock("settings"):
+    with lock.hold("settings"):
         machine_config.write(body.values)
         # crop はレンダラが毎フレーム読むためデバイス再構築は不要（ストリームを切断しない）
         if any(
             key.startswith("camera.") and not key.startswith("camera.crop.")
             for key in body.values
         ):
-            state.devices.rebuild_camera()
-    return _settings(state, machine_config)
+            devices.rebuild_camera()
+    return _settings(machine_config)
 
 
 @router.get("/settings/history")
@@ -72,7 +70,8 @@ def get_config_history(machine_config: MachineConfigDep) -> ConfigHistoryRespons
 @router.post("/settings/history/{name}/restore")
 def restore_config_history(
     name: str,
-    state: StateDep,
+    lock: LockDep,
+    devices: DevicesDep,
     machine_config: MachineConfigDep,
     _control: ControlDep,
 ) -> ConfigHistoryResponse:
@@ -82,10 +81,10 @@ def restore_config_history(
 
     404: 世代が無い / 409: 装置が使用中。
     """
-    with state.machine_lock("settings"):
+    with lock.hold("settings"):
         try:
             machine_config.restore(name)
         except UnknownSnapshotError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        state.devices.rebuild_camera()
+        devices.rebuild_camera()
     return ConfigHistoryResponse(entries=machine_config.history_entries())

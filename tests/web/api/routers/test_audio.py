@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 from pcbasm.config.audio import DEFAULT_AUDIO_DEVICE, DEFAULT_AUDIO_VOLUME
 from pcbasm.hal import AudioPlaybackError
 from pcbasm.hal.fake import FAKE_AUDIO_DEVICES, FakeAudioPlayer
+from tests.support.backend import devices_with_audio
 from web.api.app import create_app
 from web.api.env import Env
 
@@ -61,7 +62,9 @@ class TestAudioSettingsApi:
     ):
         """列挙されないデバイスが設定されていても候補末尾に現れ、選択値は保持される."""
         with TestClient(
-            create_app(webui_settings, audio_player=audio_player)
+            create_app(
+                webui_settings, devices=devices_with_audio(webui_settings, audio_player)
+            )
         ) as client:
             client.put(
                 "/api/settings/machine",
@@ -96,7 +99,11 @@ class TestAudioTestApi:
             playback_error=AudioPlaybackError("speaker disconnected")
         )
 
-        with TestClient(create_app(webui_settings, audio_player=player)) as client:
+        with TestClient(
+            create_app(
+                webui_settings, devices=devices_with_audio(webui_settings, player)
+            )
+        ) as client:
             response = client.post("/api/audio/test", json={"sound": "failure"})
 
         assert response.status_code == 502

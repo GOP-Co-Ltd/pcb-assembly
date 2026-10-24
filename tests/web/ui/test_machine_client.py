@@ -127,7 +127,7 @@ class TestMachineClient:
     ):
         """他の操作者による変更が次のページ描画で見える（キャッシュしない）."""
         before = await client.state()
-        backend_app.state.appstate.select_pcb(Path("boards/sample.kicad_pcb"))
+        backend_app.state.backend.selection.select(Path("boards/sample.kicad_pcb"))
 
         after = await client.state()
 

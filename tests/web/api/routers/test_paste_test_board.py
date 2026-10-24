@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from pcbasm.hal.fake import FakeAudioPlayer
 from pcbasm.kicad import load_board
+from tests.support.backend import devices_with_audio
 from web.api.app import create_app
 from web.api.env import Env
 
@@ -261,7 +262,7 @@ class TestPasteTestBoardPreview:
     ):
         app = create_app(
             webui_settings,
-            audio_player=audio_player,
+            devices=devices_with_audio(webui_settings, audio_player),
             paste_test_board_footprint_root=tmp_path / "missing",
         )
         with TestClient(app) as isolated_client:

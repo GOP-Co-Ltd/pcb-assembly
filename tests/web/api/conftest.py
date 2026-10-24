@@ -7,7 +7,7 @@ tmp_path に `data/testing/config` をコピーした Env を `create_app` に�
   `unreachable_klipper` を要求する
 - `data/testing/config/machine.toml` は WebUI / E2E 用（コメント保持・欠落キーの
   テスト素材を含む）。pcbasm コア層の単体テストが使う `data/testing/machine.toml` とは別物
-- 通知音は `FakeAudioPlayer` を注入する。既定の `AlsaAudioPlayer` だと完了通知付き
+- 通知音は `FakeAudioPlayer` を持つ装置を注入する。既定の `AlsaAudioPlayer` だと完了通知付き
   ジョブが実 `aplay` を起動して実スピーカーが鳴るため
 - Env は env ではなく直接構築して注入する（env はプロセスグローバルで leak するため）
 """
@@ -26,11 +26,12 @@ from fastapi.testclient import TestClient
 from pcbasm.hal.fake import FakeAudioPlayer
 from pcbasm.vision import ImageArray
 from tests.helpers import copy_testing_config
+from tests.support.backend import devices_with_audio
 from tests.support.paths import TESTING_DATA_DIR
 from web.api.app import create_app
+from web.api.backend import Backend, open_backend
 from web.api.env import Env
 from web.api.machine_config import MachineConfigFile
-from web.api.state import AppState
 
 FAKE_CAMERA_IMAGE = TESTING_DATA_DIR / "webui" / "fake_camera.png"
 
@@ -156,7 +157,7 @@ def app(
 ) -> FastAPI:
     return create_app(
         webui_settings,
-        audio_player=audio_player,
+        devices=devices_with_audio(webui_settings, audio_player),
         paste_test_board_footprint_root=paste_test_board_footprint_root,
     )
 
@@ -167,9 +168,9 @@ def client(app: FastAPI) -> Iterator[TestClient]:
 
 
 @pytest.fixture
-def appstate(app: FastAPI, client: TestClient) -> AppState:
-    """Lifespan 起動後の AppState（排他ロックの直接取得などに使う）."""
-    return app.state.appstate
+def backend(app: FastAPI, client: TestClient) -> Backend:
+    """Lifespan 起動後の Backend（排他ロックの直接取得などに使う）."""
+    return app.state.backend
 
 
 @pytest.fixture
@@ -179,13 +180,16 @@ def machine_config(config_dir: Path) -> MachineConfigFile:
 
 
 @pytest.fixture
-def state(
-    fake_camera_settings: Env, machine_config: MachineConfigFile
-) -> Iterator[AppState]:
-    """FakeCamera を使う実 AppState（frame 経路の検証に必要）."""
-    state = AppState(fake_camera_settings, machine_config)
-    yield state
-    state.close()
+def camera_backend(
+    fake_camera_settings: Env, audio_player: FakeAudioPlayer
+) -> Iterator[Backend]:
+    """FastAPI を組まずに作った、FakeCamera を使う実 Backend（frame 経路の検証に必要）."""
+    backend = open_backend(
+        fake_camera_settings,
+        devices=devices_with_audio(fake_camera_settings, audio_player),
+    )
+    yield backend
+    backend.close()
 
 
 @pytest.fixture
@@ -202,7 +206,7 @@ def fake_camera_app(
 ) -> FastAPI:
     return create_app(
         fake_camera_settings,
-        audio_player=audio_player,
+        devices=devices_with_audio(fake_camera_settings, audio_player),
         paste_test_board_footprint_root=paste_test_board_footprint_root,
     )
 
@@ -213,11 +217,11 @@ def fake_camera_client(fake_camera_app: FastAPI) -> Iterator[TestClient]:
 
 
 @pytest.fixture
-def fake_camera_appstate(
+def fake_camera_backend(
     fake_camera_app: FastAPI, fake_camera_client: TestClient
-) -> AppState:
-    """Lifespan 起動後の AppState（fake camera 版）."""
-    return fake_camera_app.state.appstate
+) -> Backend:
+    """Lifespan 起動後の Backend（fake camera 版）."""
+    return fake_camera_app.state.backend
 
 
 @pytest.fixture
@@ -234,7 +238,7 @@ def checkerboard_camera_app(
 ) -> FastAPI:
     return create_app(
         checkerboard_camera_settings,
-        audio_player=audio_player,
+        devices=devices_with_audio(checkerboard_camera_settings, audio_player),
         paste_test_board_footprint_root=paste_test_board_footprint_root,
     )
 

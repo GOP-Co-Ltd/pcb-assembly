@@ -1,11 +1,11 @@
 """`web.api.jobs` テスト共有フィクスチャ・共有ヘルパ.
 
 計画書 webui-phase3.md「公開インターフェース案」が契約。JobManager は
-実 AppState / 実 PreviewService / 実 MachineConfigFile と結合する（モックなし）。
+実 Backend の装置・ロック・選択・カメラ・machine.toml と結合する（モックなし）。
 
 worker スレッドとの同期は threading.Event ゲート付きの合成ジョブと
 `wait_until` のポーリングで決定的に行う（sleep 固定値依存のアサート禁止）。
-machine_config / state（fake camera 付き）fixture は tests/web/api/conftest.py にある。
+machine_config / camera_backend（fake camera 付き）fixture は tests/web/api/conftest.py にある。
 """
 
 from __future__ import annotations
@@ -15,15 +15,12 @@ from collections.abc import Callable, Iterator
 
 import pytest
 
-from pcbasm.hal import AudioPlayer
-from pcbasm.pasting.overrides import BoardOverrides
 from tests.support import polling
-from web.api.env import Env
+from tests.support.backend import job_manager
+from web.api.backend import Backend
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import JobContext, JobResult
 from web.api.jobs.manager import JobManager, JobRecord
-from web.api.preview import PreviewService
-from web.api.state import AppState
 
 type WaitUntil = Callable[..., None]
 type ManagerFactory = Callable[..., JobManager]
@@ -105,52 +102,21 @@ def register_gated(
 
 
 @pytest.fixture
-def preview(state: AppState) -> PreviewService:
-    return PreviewService(state)
-
-
-@pytest.fixture
 def catalog() -> JobCatalog:
     """合成ジョブ登録用の空 catalog."""
     return JobCatalog()
 
 
-def make_overrides(settings: Env) -> BoardOverrides:
-    """Env に対応する基板設定ストア（JobManager への DI 用）."""
-    return BoardOverrides(settings.webui_data_dir)
-
-
 @pytest.fixture
-def overrides(fake_camera_settings: Env) -> BoardOverrides:
-    """Fake camera 設定に対応する基板設定ストア."""
-    return make_overrides(fake_camera_settings)
+def make_manager(camera_backend: Backend) -> Iterator[ManagerFactory]:
+    """``camera_backend`` を共有する JobManager のファクトリ.
 
-
-@pytest.fixture
-def make_manager(
-    state: AppState,
-    preview: PreviewService,
-    fake_camera_settings: Env,
-    overrides: BoardOverrides,
-) -> Iterator[ManagerFactory]:
-    """JobManager のファクトリ。生成した manager はテスト終了時に shutdown する."""
+    生成した manager はテスト終了時に shutdown する。
+    """
     managers: list[JobManager] = []
 
-    def _make(
-        catalog: JobCatalog,
-        *,
-        log_capacity: int = 500,
-        audio_player: AudioPlayer | None = None,
-    ) -> JobManager:
-        manager = JobManager(
-            state,
-            preview,
-            catalog,
-            fake_camera_settings,
-            overrides,
-            audio_player=audio_player,
-            log_capacity=log_capacity,
-        )
+    def _make(catalog: JobCatalog, *, log_capacity: int = 500) -> JobManager:
+        manager = job_manager(camera_backend, catalog, log_capacity=log_capacity)
         managers.append(manager)
         return manager
 

@@ -61,17 +61,18 @@ from pathlib import Path
 
 import pytest
 
+from pcbasm.hal.fake import FakeAudioPlayer
 from pcbasm.kicad import load_board
 from pcbasm.vision import CameraCalibration, Image
+from tests.support.backend import devices_with_audio, job_manager
+from web.api.backend import Backend, open_backend
 from web.api.env import Env
 from web.api.jobs.catalog import JobCatalog, default_catalog
 from web.api.jobs.manager import JobManager, JobStatus
 from web.api.jobs.posctrl import register_posctrl_jobs
 from web.api.machine_config import MachineConfigFile
-from web.api.preview import PreviewService
-from web.api.state import AppState
 
-from .conftest import WaitUntil, answer_next_prompt, make_overrides
+from .conftest import WaitUntil, answer_next_prompt
 
 POSCTRL_JOBS = (
     "reference_point_setup",
@@ -83,7 +84,7 @@ POSCTRL_JOBS = (
 
 # checkerboard.png は 400x400・1 マス約 66.7px。square_size=10mm で
 # pixel_per_mm ≈ 400/6/10 ≈ 6.67（tests/pcbasm/vision/test_calibration.py と
-# 同一素材）。crop は machine.toml `[camera.crop]` 由来（checkerboard_state
+# 同一素材）。crop は machine.toml `[camera.crop]` 由来（checkerboard_backend
 # fixture が 400x400 に書き換える。既定 600 は 400px 画像をはみ出す）
 CHECKERBOARD_PARAMS = {"square_size": 10.0}
 CHECKERBOARD_CROP_SIZE = (400, 400)
@@ -99,31 +100,28 @@ def catalog() -> JobCatalog:
 
 
 @pytest.fixture
-def checkerboard_state(
-    checkerboard_camera_settings: Env, machine_config: MachineConfigFile
-) -> Iterator[AppState]:
+def checkerboard_backend(
+    checkerboard_camera_settings: Env,
+    machine_config: MachineConfigFile,
+    audio_player: FakeAudioPlayer,
+) -> Iterator[Backend]:
     # checkerboard.png は 400x400。既定 crop 600 は画像をはみ出すため、
-    # tmp コピーの machine.toml へ 400x400 を書いてから AppState を作る
+    # tmp コピーの machine.toml へ 400x400 を書いてから Backend を作る
     # （crop は machine.toml `[camera.crop]` から読まれる契約。要確認事項 a）
     machine_config.write({"camera.crop.width": 400, "camera.crop.height": 400})
-    state = AppState(checkerboard_camera_settings, machine_config)
-    yield state
-    state.close()
+    backend = open_backend(
+        checkerboard_camera_settings,
+        devices=devices_with_audio(checkerboard_camera_settings, audio_player),
+    )
+    yield backend
+    backend.close()
 
 
 @pytest.fixture
 def checkerboard_manager(
-    checkerboard_state: AppState,
-    checkerboard_camera_settings: Env,
-    catalog: JobCatalog,
+    checkerboard_backend: Backend, catalog: JobCatalog
 ) -> Iterator[JobManager]:
-    manager = JobManager(
-        checkerboard_state,
-        PreviewService(checkerboard_state),
-        catalog,
-        checkerboard_camera_settings,
-        make_overrides(checkerboard_camera_settings),
-    )
+    manager = job_manager(checkerboard_backend, catalog)
     yield manager
     manager.shutdown()
 
@@ -233,7 +231,7 @@ class TestCameraCalibrationJob:
         loaded = CameraCalibration.load(artifacts_root / json_artifact.path)
         assert loaded.pixel_per_mm == pytest.approx(CHECKERBOARD_PIXEL_PER_MM, rel=0.01)
         assert loaded.z_position is None  # Klipper 不通 → 記録なし
-        # crop は machine.toml 由来（checkerboard_state fixture が書いた 400x400）
+        # crop は machine.toml 由来（checkerboard_backend fixture が書いた 400x400）
         assert loaded.crop_size == CHECKERBOARD_CROP_SIZE
 
         assert record.apply_available is True
@@ -298,22 +296,22 @@ class TestMachineJobsWithoutKlipper:
     def test_machine_job_fails_gracefully_and_releases_lock(
         self,
         manager: JobManager,
-        state: AppState,
+        camera_backend: Backend,
         real_pcb_path: Path,
         wait_until: WaitUntil,
         name: str,
         needs_pcb: bool,
     ):
         if needs_pcb:
-            state.select_pcb(real_pcb_path)
+            camera_backend.selection.select(real_pcb_path)
         record = manager.start(name, {})
         wait_until(lambda: record.status.terminal, timeout=60.0)
-        wait_until(lambda: state.busy_owner is None)
+        wait_until(lambda: camera_backend.lock.owner is None)
 
         assert record.status == JobStatus.FAILED
         assert record.error  # 接続エラーが error に載る
         assert "M84" in "\n".join(record.log_lines)  # relax 失敗警告（manager 経由）
-        with state.machine_lock("after-failed-job"):  # ロックは解放済み
+        with camera_backend.lock.hold("after-failed-job"):  # ロックは解放済み
             pass
 
     @pytest.mark.parametrize("name", ["board_tour", "orthogonality_test"])

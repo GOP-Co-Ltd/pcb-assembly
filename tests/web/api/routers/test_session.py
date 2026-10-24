@@ -1,4 +1,4 @@
-"""`web.api.routers.app_state` の仕様テスト.
+"""`web.api.routers.session` の仕様テスト.
 
 計画書「routers」節:
 
@@ -24,9 +24,9 @@ import attrs
 from fastapi.testclient import TestClient
 
 from web.api.app import create_app
+from web.api.backend import Backend
 from web.api.env import Env
 from web.api.machine_config import MachineConfigFile
-from web.api.state import AppState
 
 
 class TestStateApi:
@@ -48,9 +48,9 @@ class TestStateApi:
         assert data["nozzle_clean"] is None
 
     def test_state_reports_busy_while_locked(
-        self, client: TestClient, appstate: AppState
+        self, client: TestClient, backend: Backend
     ):
-        with appstate.machine_lock("pytest-job"):
+        with backend.lock.hold("pytest-job"):
             data = client.get("/api/state").json()
 
         assert data["busy"] is True

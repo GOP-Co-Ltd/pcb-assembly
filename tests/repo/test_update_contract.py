@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper
 from pcbasm.paths import PROJECT_ROOT
+from tests.support.backend import devices_with_audio
 from tests.support.settings import make_api_settings, make_ui_settings
 from web.api.app import create_app as create_backend_app
 from web.contract.update import (
@@ -105,9 +106,10 @@ def backend_app(
     tmp_path: Path, paste_test_board_footprint_root: Path
 ) -> Iterator[FastAPI]:
     """起動済みの backend（lifespan の後始末まで走らせる）."""
+    env = make_api_settings(tmp_path / "api", hostname="contract")
     app = create_backend_app(
-        make_api_settings(tmp_path / "api", hostname="contract"),
-        audio_player=FakeAudioPlayer(),
+        env,
+        devices=devices_with_audio(env, FakeAudioPlayer()),
         paste_test_board_footprint_root=paste_test_board_footprint_root,
     )
     with TestClient(app):
@@ -199,7 +201,7 @@ class TestEmergencyStop:
         client = TestClient(backend_app)
         assert client.post("/api/control/acquire", headers=ALICE).status_code == 200
 
-        with backend_app.state.appstate.machine_lock("pytest-job"):
+        with backend_app.state.backend.lock.hold("pytest-job"):
             response = client.post("/api/emergency-stop", headers=BOB)
 
         assert response.status_code == 200

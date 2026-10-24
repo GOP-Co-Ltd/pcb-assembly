@@ -12,14 +12,15 @@ from pydantic import BaseModel
 
 from pcbasm.geometry import Point3d
 from pcbasm.hal import KlipperClient, XYZStage
+from pcbasm.machine.devices import Devices
 from pcbasm.machine.park import park
 from pcbasm.pasting.applicator import build_applicator
 from pcbasm.pasting.nozzle_clean import clean_nozzle, plan_nozzle_clean
-from web.api.dependencies import ControlDep, MachineConfigDep, StateDep
+from web.api.deps import ControlDep, DevicesDep, LockDep, MachineConfigDep
 from web.api.errors import hal_errors_to_502
+from web.api.lock import MachineLock
 from web.api.machine_config import MachineConfigFile
 from web.api.routers.common import nozzle_clean_payload
-from web.api.state import AppState
 from web.contract.models import NozzleCleanInfo
 
 STATUS_TIMEOUT = 10.0  # 位置・homed_axes の読み取りのみ（移動なし）
@@ -58,12 +59,17 @@ def _require_all_axes_homed(klipper: KlipperClient, detail: str) -> None:
 
 
 def _record_current_position(
-    state: AppState, machine_config: MachineConfigFile, *, owner: str, prefix: str
+    lock: MachineLock,
+    devices: Devices,
+    machine_config: MachineConfigFile,
+    *,
+    owner: str,
+    prefix: str,
 ) -> Point3d:
     """全軸ホーミングを検査し、現在位置を 3 桁丸めで ``prefix`` のテーブルへ書く."""
-    with state.machine_lock(owner):
+    with lock.hold(owner):
         with hal_errors_to_502():
-            klipper = state.devices.klipper(STATUS_TIMEOUT)
+            klipper = devices.klipper(STATUS_TIMEOUT)
             _require_all_axes_homed(klipper, "全軸ホーミング後に記録してください")
             position = XYZStage(klipper).get_position()
         saved = Point3d(
@@ -75,11 +81,15 @@ def _record_current_position(
 
 @router.post("/pasting/nozzle-cap/record")
 def record_nozzle_cap(
-    state: StateDep, machine_config: MachineConfigDep, _control: ControlDep
+    lock: LockDep,
+    devices: DevicesDep,
+    machine_config: MachineConfigDep,
+    _control: ControlDep,
 ) -> NozzleCapPosition:
     """現在のマシン座標をノズルキャップ位置として記録する."""
     saved = _record_current_position(
-        state,
+        lock,
+        devices,
         machine_config,
         owner="nozzle-cap-record",
         prefix="paste_dispenser.nozzle_cap",
@@ -89,7 +99,10 @@ def record_nozzle_cap(
 
 @router.post("/pasting/nozzle-clean/record")
 def record_nozzle_clean(
-    state: StateDep, machine_config: MachineConfigDep, _control: ControlDep
+    lock: LockDep,
+    devices: DevicesDep,
+    machine_config: MachineConfigDep,
+    _control: ControlDep,
 ) -> NozzleCleanInfo:
     """現在のマシン座標をノズルクリーニング位置として記録する.
 
@@ -98,7 +111,8 @@ def record_nozzle_clean(
     表示用の文字列も同じ応答で返す。
     """
     saved = _record_current_position(
-        state,
+        lock,
+        devices,
         machine_config,
         owner="nozzle-clean-record",
         prefix="paste_dispenser.nozzle_clean",
@@ -108,7 +122,10 @@ def record_nozzle_clean(
 
 @router.post("/pasting/nozzle-clean/test")
 def run_nozzle_clean_test(
-    state: StateDep, _control: ControlDep
+    lock: LockDep,
+    devices: DevicesDep,
+    machine_config: MachineConfigDep,
+    _control: ControlDep,
 ) -> NozzleCleanTestResult:
     """記録済みの設定でクリーニング動作を 1 回実行する（ブロッキング）.
 
@@ -123,8 +140,8 @@ def run_nozzle_clean_test(
         HTTPException: 位置が未記録・未ホーミング・可動域外（400）、Klipper 不達（502）
     """
     # 装置排他を先に取る。設定を読むだけの検査より「他が使用中」を先に返すほうが運転者が対処しやすい
-    with state.machine_lock("nozzle-clean-test"):
-        dispenser = state.machine().paste_dispenser
+    with lock.hold("nozzle-clean-test"):
+        dispenser = machine_config.machine().paste_dispenser
         clean = dispenser.nozzle_clean
         if clean.position is None:
             raise HTTPException(
@@ -133,7 +150,7 @@ def run_nozzle_clean_test(
         messages: list[str] = []
         try:
             with hal_errors_to_502():
-                klipper = state.devices.klipper(CLEAN_TIMEOUT)
+                klipper = devices.klipper(CLEAN_TIMEOUT)
                 _require_all_axes_homed(klipper, "全軸ホーミング後に実行してください")
                 stage = XYZStage(klipper)
                 plan = plan_nozzle_clean(stage, clean.position, clean)

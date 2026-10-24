@@ -1,4 +1,4 @@
-"""機体 1 台の装置（Klipper とカメラ）.
+"""機体 1 台の装置（Klipper、カメラ、通知音）.
 
 装置を組み立てる場所はここだけで、fake への切替もここで行う。
 """
@@ -16,7 +16,14 @@ from pcbasm import hal
 from pcbasm.config import load_klipper, load_machine
 from pcbasm.config.klipper import KlipperConfig
 from pcbasm.geometry import Point2d
-from pcbasm.hal import Camera, FrameHub, KlipperClient, MoonrakerKlipper
+from pcbasm.hal import (
+    AlsaAudioPlayer,
+    AudioPlayer,
+    Camera,
+    FrameHub,
+    KlipperClient,
+    MoonrakerKlipper,
+)
 from pcbasm.hal.fake import (
     FAKE_MACHINE_PRINTER_CONFIG,
     FakeCamera,
@@ -44,6 +51,7 @@ class Devices:
         *,
         klipper: FakeKlipper | None = None,
         camera: Callable[[], Camera] | None = None,
+        audio: AudioPlayer | None = None,
     ) -> None:
         """Devices を初期化する.
 
@@ -52,6 +60,7 @@ class Devices:
             journal_dir: G-code ジャーナルの置き場所
             klipper: Moonraker の代わりに使う fake 機体（None は [klipper] の Moonraker）
             camera: カメラを開く関数（None は [camera] のカメラを開く）
+            audio: 通知音のプレイヤー（None は ALSA で鳴らす）
         """
         self._config_path = config_path
         self._journal_dir = journal_dir
@@ -62,6 +71,12 @@ class Devices:
         self._endpoint: KlipperConfig | None = None
         self._camera_lock = threading.Lock()
         self._frame_hub: FrameHub | None = None
+        self._audio = audio if audio is not None else AlsaAudioPlayer()
+
+    @property
+    def audio(self) -> AudioPlayer:
+        """通知音のプレイヤー."""
+        return self._audio
 
     def klipper(
         self,
@@ -130,7 +145,11 @@ class Devices:
             hub.stop()
 
     def close(self) -> None:
-        """後始末（FrameHub を止め、Moonraker への HTTP クライアントを閉じる）."""
+        """後始末（通知音を閉じ、FrameHub を止め、Moonraker への HTTP クライアントを閉じる）.
+
+        実行中のジョブの完了音を捨てないよう、ジョブを止めてから呼ぶ。
+        """
+        self._audio.close()
         self.rebuild_camera()
         with self._klipper_lock:
             moonraker = self._moonraker
@@ -173,6 +192,7 @@ def open_devices(
     fake: bool,
     scene: Callable[[], Sequence[Polygon]] = tuple,
     camera_image: Path | None = None,
+    audio: AudioPlayer | None = None,
 ) -> Devices:
     """machine.toml の機体の装置を組む（ここでは外部装置へ接続しない）.
 
@@ -182,6 +202,7 @@ def open_devices(
         fake: Klipper を実機と同じ printer.cfg の FakeKlipper にし、カメラをその位置から scene を描く SceneCamera にする
         scene: fake のカメラに映す図形（機械座標 [mm]）を返す関数（カメラを開くたびに呼ぶ）
         camera_image: 与えると、カメラをこの画像を返し続ける FakeCamera にする（fake より優先する）
+        audio: 通知音のプレイヤー（None は ALSA で鳴らす。テストは FakeAudioPlayer を渡す）
     """
     klipper = FakeKlipper(FAKE_MACHINE_PRINTER_CONFIG) if fake else None
     camera: Callable[[], Camera] | None = None
@@ -189,7 +210,9 @@ def open_devices(
         camera = functools.partial(_still, camera_image)
     elif klipper is not None:
         camera = functools.partial(_scene_camera, klipper, config_path, scene)
-    return Devices(config_path, journal_dir, klipper=klipper, camera=camera)
+    return Devices(
+        config_path, journal_dir, klipper=klipper, camera=camera, audio=audio
+    )
 
 
 def _still(image: Path) -> Camera:

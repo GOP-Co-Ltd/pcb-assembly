@@ -10,18 +10,20 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from web.api.control import ClientIdentity, ControlDeniedError, ControlLease
-from web.api.dependencies import (
+from web.api.deps import (
     CatalogDep,
     ControlDep,
     JobsDep,
+    LockDep,
     MachineConfigDep,
-    StateDep,
+    SelectionDep,
+    get_backend,
 )
 from web.api.identity import get_identity
 from web.api.jobs.catalog import JobCatalog, JobDefinition
 from web.api.jobs.manager import JobManager, JobRecord, prompt_payload
 from web.api.routers.common import param_specs_with_saved_defaults
-from web.api.state import AppState
+from web.api.selection import Selection
 from web.contract.models import (
     ApplyInfo,
     ArtifactInfo,
@@ -86,7 +88,7 @@ def job_summary(record: JobRecord, definition: JobDefinition) -> JobSummary:
 
 
 def job_spec_info(
-    definition: JobDefinition, state: AppState, catalog: JobCatalog
+    definition: JobDefinition, selection: Selection, catalog: JobCatalog
 ) -> JobSpecInfo:
     """JobDefinition を公開表現へ変換する（params は保存済み既定値を反映）."""
     return JobSpecInfo(
@@ -105,7 +107,7 @@ def job_spec_info(
                 minimum=spec.minimum,
                 optional=spec.optional,
             )
-            for spec in param_specs_with_saved_defaults(definition, state, catalog)
+            for spec in param_specs_with_saved_defaults(definition, selection, catalog)
         ],
         requires_pcb=definition.requires_pcb,
         uses_machine=definition.uses_machine,
@@ -120,11 +122,12 @@ def job_spec_info(
 
 
 @router.get("/jobs")
-def get_jobs(state: StateDep, catalog: CatalogDep) -> JobCatalogResponse:
+def get_jobs(selection: SelectionDep, catalog: CatalogDep) -> JobCatalogResponse:
     """登録済みジョブ定義を登録順で全件返す."""
     return JobCatalogResponse(
         jobs=[
-            job_spec_info(definition, state, catalog) for definition in catalog.list()
+            job_spec_info(definition, selection, catalog)
+            for definition in catalog.list()
         ]
     )
 
@@ -159,7 +162,7 @@ class JobParamDefaultsRequest(BaseModel):
 def post_job_param_defaults(
     name: str,
     catalog: CatalogDep,
-    state: StateDep,
+    selection: SelectionDep,
     _control: ControlDep,
     body: JobParamDefaultsRequest | None = None,
 ) -> dict[str, dict[str, bool | float | int | str]]:
@@ -174,7 +177,7 @@ def post_job_param_defaults(
         definition = catalog.get(name)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc.args[0])) from exc
-    merged = state.merge_job_param_defaults(
+    merged = selection.merge_job_param_defaults(
         name, catalog.filter_persisted_defaults(definition, values)
     )
     return {"defaults": merged}
@@ -233,7 +236,7 @@ class JobResultRequest(BaseModel):
 @router.post("/jobs/last/apply")
 def post_apply(
     jobs: JobsDep,
-    state: StateDep,
+    lock: LockDep,
     machine_config: MachineConfigDep,
     _control: ControlDep,
     body: JobResultRequest,
@@ -243,7 +246,7 @@ def post_apply(
     409: 対象ジョブ不一致・反映可能なジョブ無し（LookupError）/ 実行中（BusyError）。
     400: 未知のキー・不正な値（InvalidSettingError）。
     """
-    with state.machine_lock("apply-settings"):
+    with lock.hold("apply-settings"):
         try:
             payload = jobs.apply_payload(expected_job_id=body.expected_job_id)
         except LookupError as exc:
@@ -291,13 +294,14 @@ async def jobs_websocket(websocket: WebSocket) -> None:
 
     subscribe と同じく、登録は finally で必ず解除する。
     """
-    jobs: JobManager = websocket.app.state.jobs
-    catalog: JobCatalog = websocket.app.state.catalog
-    lease: ControlLease = websocket.app.state.control
+    backend = get_backend(websocket)
+    jobs = backend.jobs
+    catalog = backend.catalog
+    lease = backend.control
     identity = get_identity(websocket)
     # accept 前に subscribe し「接続完了 ↔ 購読開始」の取りこぼし窓を無くす
-    # （control_changed も同じキューへ届く = JobManager.publish が唯一の配布点）
-    events = jobs.subscribe()
+    # （control_changed も同じキューへ届く = EventBus.publish が唯一の配布点）
+    events = backend.events.subscribe()
     lease.connect(identity)
     try:
         await websocket.accept()
@@ -318,7 +322,7 @@ async def jobs_websocket(websocket: WebSocket) -> None:
                 raise exc
     finally:
         lease.disconnect(identity)
-        jobs.unsubscribe(events)
+        backend.events.unsubscribe(events)
 
 
 async def _send_loop(

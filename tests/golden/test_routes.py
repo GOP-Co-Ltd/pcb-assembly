@@ -23,12 +23,12 @@ from tests.support.golden import assert_transcript
 from tests.web.api.jobs.conftest import register_synthetic
 from tests.web.update_support import make_update_sandbox
 from web.api.app import create_app
+from web.api.backend import Backend
 from web.api.env import Env
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.context import JobContext
 from web.api.jobs.machine_commands import handle_machine_command
 from web.api.jobs.manager import JobManager
-from web.api.state import AppState
 from web.selfupdate.runner import UpdateRunner
 
 ROUTES = GOLDEN_DIR / "routes"
@@ -53,7 +53,6 @@ def make_app(
         return create_app(
             job_settings,
             devices=devices,
-            audio_player=FakeAudioPlayer(),
             paste_test_board_footprint_root=paste_test_board_footprint_root,
             update_runner=update_runner,
         )
@@ -109,7 +108,7 @@ class TestMachineControl:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        job_state: AppState,
+        job_backend: Backend,
         homed_klipper: FakeKlipper,
         name: str,
         command: dict[str, Any],
@@ -122,7 +121,7 @@ class TestMachineControl:
             assert handle_machine_command(ctx, klipper, XYZStage(klipper), command)
 
         register_synthetic(catalog, run, name="machine_command")
-        finish(job_state, manager.start("machine_command", {}))
+        finish(job_backend, manager.start("machine_command", {}))
 
         assert_transcript(homed_klipper.sent, ROUTES / f"machine_control_{name}.gcode")
 
@@ -141,7 +140,7 @@ class TestNozzleMaintenance:
         self,
         client: TestClient,
         homed_klipper: FakeKlipper,
-        job_state: AppState,
+        job_backend: Backend,
         path: str,
         table: str,
     ):
@@ -149,7 +148,9 @@ class TestNozzleMaintenance:
         response = client.post(path)
 
         assert response.status_code == 200, response.text
-        position = getattr(job_state.machine().paste_dispenser, table).position
+        position = getattr(
+            job_backend.machine_config.machine().paste_dispenser, table
+        ).position
         assert (position.x, position.y, position.z) == tuple(START_POSITION[:3])
         assert homed_klipper.sent == ()
 
@@ -190,16 +191,16 @@ class TestJobEndParking:
         self, app: FastAPI, client: TestClient, homed_klipper: FakeKlipper
     ):
         """装置を動かすジョブは、何も送らずに終わってもノズルキャップへ駐機する."""
-        state: AppState = app.state.appstate
+        backend: Backend = app.state.backend
         register_synthetic(
-            app.state.catalog, lambda ctx: None, name="parking", uses_machine=True
+            backend.catalog, lambda ctx: None, name="parking", uses_machine=True
         )
 
         assert client.post("/api/jobs/parking", json={}).status_code == 201
         polling.wait_until(
             lambda: client.get("/api/jobs/current").json()["job"]["status"]
             == "succeeded"
-            and state.busy_owner is None,
+            and backend.lock.owner is None,
             timeout=30.0,
         )
 

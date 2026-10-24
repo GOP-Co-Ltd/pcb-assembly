@@ -19,10 +19,9 @@ from pcbasm.errors import DeviceError
 from pcbasm.kicad.units import KicadError
 from pcbasm.pasting.overrides import StoredBoardSettingsError
 from pcbasm.pasting.test_board.config import BoardConfigError
-from web.api.control import ControlDeniedError, LeaseInfo
+from web.api.control import ControlDeniedError, ControlLease, control_payload
+from web.api.lock import BusyError
 from web.api.machine_config import InvalidSettingError
-from web.api.routers.common import control_payload
-from web.api.state import BusyError
 
 
 def _detail(exc: Exception) -> str:
@@ -43,8 +42,8 @@ def hal_errors_to_502() -> Iterator[None]:
         raise HTTPException(status_code=502, detail=_detail(exc)) from exc
 
 
-def install_error_handlers(app: FastAPI) -> None:
-    """例外ハンドラを app に登録する."""
+def install_error_handlers(app: FastAPI, control: ControlLease) -> None:
+    """例外ハンドラを app に登録する（423 の保持者情報は ``control`` から引く）."""
 
     @app.exception_handler(DeviceError)
     async def device_error_handler(request: Request, exc: DeviceError) -> JSONResponse:
@@ -69,7 +68,7 @@ def install_error_handlers(app: FastAPI) -> None:
         request: Request, exc: ControlDeniedError
     ) -> JSONResponse:
         """操作権の拒否を 423 Locked + 保持者情報にする."""
-        holder: LeaseInfo = request.app.state.control.snapshot()
+        holder = control.snapshot()
         return JSONResponse(
             status_code=423,
             content={

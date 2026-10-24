@@ -17,10 +17,10 @@ import cv2
 import pytest
 
 from pcbasm.kicad import load_board
+from web.api.backend import Backend
 from web.api.env import Env
 from web.api.jobs.catalog import default_catalog
 from web.api.jobs.manager import JobManager, JobStatus
-from web.api.state import AppState
 
 from .conftest import ManagerFactory, WaitUntil
 
@@ -44,12 +44,12 @@ class TestExtractPcb:
     def test_extract_pcb_produces_five_artifacts(
         self,
         dev_manager: JobManager,
-        state: AppState,
+        camera_backend: Backend,
         real_pcb_path: Path,
         fake_camera_settings: Env,
         wait_until: WaitUntil,
     ):
-        state.select_pcb(real_pcb_path)
+        camera_backend.selection.select(real_pcb_path)
 
         record = dev_manager.start("extract_pcb", {})
         wait_until(lambda: record.status.terminal, timeout=_JOB_TIMEOUT)

@@ -4,22 +4,23 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import attrs
 import cv2
 import pytest
 
-from pcbasm.pasting.overrides import BoardOverrides
+from tests.support.backend import job_manager
 from tests.web.api.conftest import decode_jpeg, jpeg_payload
 from tests.web.api.jobs.conftest import WaitUntil, answer_next_prompt
+from web.api.backend import Backend
+from web.api.camera import CameraFeed
 from web.api.env import Env
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.manager import JobManager, JobStatus
-from web.api.preview import PreviewService
-from web.api.state import AppState
 
 
-def _preview_frame(preview: PreviewService):
+def _preview_frame(camera: CameraFeed):
     """プレビュー MJPEG の 1 フレームを公開経路から取得する."""
-    stream = preview.mjpeg_stream("none")
+    stream = camera.mjpeg_stream("none")
     try:
         frame = decode_jpeg(jpeg_payload(next(stream)))
     finally:
@@ -39,7 +40,7 @@ class TestHeightPlaneFrontFlow:
     def test_planned_points_artifact_and_confirm_false_aborts(
         self,
         manager: JobManager,
-        state: AppState,
+        camera_backend: Backend,
         fake_camera_settings: Env,
         copper_pcb_path: Path,
         wait_until: WaitUntil,
@@ -50,7 +51,7 @@ class TestHeightPlaneFrontFlow:
           cv2 で復号可能（実行中配信の前提。計画書「_run_height_plane」節 2-4）
         - prompt は confirm（default True）でメッセージに点数の確認を含む
         """
-        state.select_pcb(copper_pcb_path)
+        camera_backend.selection.select(copper_pcb_path)
         record = manager.start("height_plane", {})
         # matplotlib の初回描画があるため長めに待つ
         wait_until(lambda: record.pending_prompt is not None, timeout=60.0)
@@ -76,7 +77,7 @@ class TestHeightPlaneFrontFlow:
 
         manager.respond_prompt(prompt_id, False)
         wait_until(lambda: record.status.terminal, timeout=60.0)
-        wait_until(lambda: state.busy_owner is None)
+        wait_until(lambda: camera_backend.lock.owner is None)
 
         assert record.status == JobStatus.ABORTED
         assert record.apply_available is False
@@ -84,16 +85,17 @@ class TestHeightPlaneFrontFlow:
     def test_planned_points_preview_stays_visible_while_confirm_waits(
         self,
         catalog: JobCatalog,
-        state: AppState,
+        camera_backend: Backend,
         fake_camera_settings: Env,
-        overrides: BoardOverrides,
         copper_pcb_path: Path,
         wait_until: WaitUntil,
     ):
         """Confirm 待ち中は planned_points プレビューを TTL で生カメラに戻さない."""
-        preview = PreviewService(state, override_ttl=0.0)
-        manager = JobManager(state, preview, catalog, fake_camera_settings, overrides)
-        state.select_pcb(copper_pcb_path)
+        camera = CameraFeed(
+            camera_backend.devices, camera_backend.machine_config, override_ttl=0.0
+        )
+        manager = job_manager(attrs.evolve(camera_backend, camera=camera), catalog)
+        camera_backend.selection.select(copper_pcb_path)
         record = manager.start("height_plane", {})
         try:
             wait_until(lambda: record.pending_prompt is not None, timeout=60.0)
@@ -103,7 +105,7 @@ class TestHeightPlaneFrontFlow:
             )
             planned = cv2.imread(str(png_path))
             assert planned is not None
-            frame = _preview_frame(preview)
+            frame = _preview_frame(camera)
             assert frame.shape == planned.shape
             assert cv2.absdiff(frame, planned).mean() < 5.0
 
@@ -112,7 +114,7 @@ class TestHeightPlaneFrontFlow:
             manager.respond_prompt(pending[0], False)
             wait_until(lambda: record.status.terminal, timeout=60.0)
 
-            cleared = _preview_frame(preview)
+            cleared = _preview_frame(camera)
             assert cleared.shape == (720, 1280, 3)
         finally:
             manager.shutdown()
@@ -120,20 +122,20 @@ class TestHeightPlaneFrontFlow:
     def test_confirm_true_fails_gracefully_without_klipper(
         self,
         manager: JobManager,
-        state: AppState,
+        camera_backend: Backend,
         copper_pcb_path: Path,
         wait_until: WaitUntil,
     ):
         """Confirm True → セットアップで Klipper 不通 → FAILED + ロック解放."""
-        state.select_pcb(copper_pcb_path)
+        camera_backend.selection.select(copper_pcb_path)
         record = manager.start("height_plane", {})
         answered: set[str] = set()
         answer_next_prompt(record, manager, True, answered)
         wait_until(lambda: record.status.terminal, timeout=60.0)
-        wait_until(lambda: state.busy_owner is None)
+        wait_until(lambda: camera_backend.lock.owner is None)
 
         assert record.status == JobStatus.FAILED
         assert record.error
         assert "M84" in "\n".join(record.log_lines)
-        with state.machine_lock("after-failed-job"):
+        with camera_backend.lock.hold("after-failed-job"):
             pass

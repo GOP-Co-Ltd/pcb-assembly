@@ -1,8 +1,7 @@
-"""ジョブの起動・状態管理・イベント配信（直近 1 件のみ保持・非永続）."""
+"""ジョブの起動・状態管理（直近 1 件のみ保持・非永続）."""
 
 from __future__ import annotations
 
-import asyncio
 import enum
 import logging
 import queue
@@ -14,21 +13,23 @@ from collections import deque
 from collections.abc import Callable, Mapping
 from concurrent.futures import Future
 from contextlib import AbstractContextManager
-from pathlib import Path
 from typing import Any, override
 
 import attrs
 
 from pcbasm.config import MachineConfig
 from pcbasm.config.audio import AudioConfig
-from pcbasm.hal import AudioPlayer, FrameHub, XYZStage
+from pcbasm.hal import FrameHub, XYZStage
 from pcbasm.hal.audio import Sound
+from pcbasm.machine.devices import Devices
 from pcbasm.machine.journal import Journal
 from pcbasm.machine.park import PRESENT_TIMEOUT, park
 from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.validators import is_finite_number
 from pcbasm.vision import Image
+from web.api.camera import CameraFeed
 from web.api.env import Env, resolve_machine_id
+from web.api.events import Event, EventBus
 from web.api.jobs.catalog import JobCatalog, JobDefinition
 from web.api.jobs.context import (
     Answer,
@@ -40,10 +41,9 @@ from web.api.jobs.context import (
     ParamValue,
     PromptSpec,
 )
-from web.api.preview import PreviewService
-from web.api.state import AppState
-
-type _Event = dict[str, Any]
+from web.api.lock import MachineLock
+from web.api.machine_config import MachineConfigFile
+from web.api.selection import Selection
 
 # next_command 待機を強制的に JobAborted 化するための番兵
 _ABORT_SENTINEL: Any = object()
@@ -243,15 +243,15 @@ class _JobRuntime:
     def __init__(
         self,
         record: JobRecord,
-        preview: PreviewService,
-        publish: Callable[[_Event], None],
+        camera: CameraFeed,
+        publish: Callable[[Event], None],
         apply_settings: Callable[[Mapping[str, ParamValue]], None],
         notify_operator: Callable[[], None] = lambda: None,
     ) -> None:
         self.record = record
         self.abort_event = threading.Event()
         self.commands: queue.Queue[Any] = queue.Queue()
-        self._preview = preview
+        self._camera = camera
         self._publish = publish
         self._apply_settings = apply_settings
         self._notify_operator = notify_operator
@@ -292,10 +292,10 @@ class _JobRuntime:
         )
 
     def frame(self, image: Image, *, persist: bool = False) -> None:
-        self._preview.submit_override(image, persist=persist)
+        self._camera.submit_override(image, persist=persist)
 
     def clear_frame(self) -> None:
-        self._preview.clear_override()
+        self._camera.clear_override()
 
     def prompt(
         self, spec: PromptSpec, *, while_waiting: Callable[[], None] | None = None
@@ -377,7 +377,7 @@ class _JobRuntime:
             raise JobAborted()
 
     def hold_camera(self) -> AbstractContextManager[FrameHub]:
-        return self._preview.hold_camera()
+        return self._camera.hold()
 
     # --- JobManager 側から呼ばれる対話操作 ---
 
@@ -412,48 +412,53 @@ class _JobRuntime:
 
 
 class JobManager:
-    """ジョブの起動・直近 1 件の状態保持・イベント配信を担うクラス."""
+    """ジョブの起動・直近 1 件の状態保持を担うクラス."""
 
     def __init__(
         self,
-        state: AppState,
-        preview: PreviewService,
         catalog: JobCatalog,
-        settings: Env,
-        overrides: BoardOverrides,
         *,
-        audio_player: AudioPlayer | None = None,
+        env: Env,
+        machine_config: MachineConfigFile,
+        devices: Devices,
+        lock: MachineLock,
+        selection: Selection,
+        camera: CameraFeed,
+        events: EventBus,
+        overrides: BoardOverrides,
         log_capacity: int = 500,
     ) -> None:
         """JobManager を初期化する.
 
         Args:
-            state: アプリケーション状態（装置排他ロックの供給元）
-            preview: ctx.frame() の委譲先
             catalog: ジョブ定義カタログ
-            settings: WebUI 設定（data_dir / pcb_browse_root）
+            env: 起動時の環境（成果物・ジャーナル・dataset の置き場所）
+            machine_config: ジョブ開始時に読む machine.toml（確定値の書き込みもここへ）
+            devices: ジョブに貸す装置（通知音を含む）
+            lock: ジョブが実行中ずっと持つ装置排他ロック
+            selection: 選択中の PCB とフォーム既定値
+            camera: ctx.frame() と ctx.open_camera() の委譲先
+            events: ジョブのイベントの配信先
             overrides: 基板設定ストア。HTTP 経路と同一インスタンスを
                 渡すこと（別インスタンスだと更新ロックで直列化できない）
-            audio_player: ジョブ完了通知音のプレイヤー（None なら再生しない）
             log_capacity: ログのリングバッファ行数
         """
-        self._state = state
-        self._preview = preview
         self._catalog = catalog
-        self._settings = settings
-        self._audio_player = audio_player
-        self._log_capacity = log_capacity
-        self._artifacts_root = settings.webui_data_dir
+        self._env = env
+        self._machine_config = machine_config
+        self._devices = devices
+        self._machine_lock = lock
+        self._selection = selection
+        self._camera = camera
+        self._events = events
         self._overrides = overrides
+        self._log_capacity = log_capacity
+        self._artifacts_root = env.webui_data_dir
 
         self._lock = threading.Lock()
         self._record: JobRecord | None = None
         self._runtime: _JobRuntime | None = None
         self._worker: threading.Thread | None = None
-
-        self._subscribers_lock = threading.Lock()
-        self._subscribers: set[asyncio.Queue[_Event]] = set()
-        self._loop: asyncio.AbstractEventLoop | None = None
 
     # --- ライフサイクル ---
 
@@ -469,45 +474,42 @@ class JobManager:
         """
         definition = self._catalog.get(name)
         params = self._catalog.validate_params(definition, values)
-        pcb_path = self._pcb_path()
+        pcb_path = self._selection.pcb_path
         if definition.requires_pcb and pcb_path is None:
             raise ValueError(f"ジョブ {name} には PCB ファイルの選択が必要です")
-        machine = self._state.machine()
+        machine = self._machine_config.machine()
 
-        self._state.acquire_machine(f"job:{name}")
+        self._machine_lock.acquire(f"job:{name}")
         try:
             persisted_params = {
                 key: params[key] for key in definition.persisted_params if key in params
             }
             if persisted_params:
-                self._state.merge_job_param_defaults(name, persisted_params)
+                self._selection.merge_job_param_defaults(name, persisted_params)
             record = JobRecord(uuid.uuid4().hex, name, params, self._log_capacity)
             runtime = _JobRuntime(
                 record,
-                self._preview,
-                self.publish,
+                self._camera,
+                self._events.publish,
                 self._apply_machine_settings,
                 self._operator_notifier(machine),
             )
             artifacts_dir = self._artifacts_root / record.id
             artifacts_dir.mkdir(parents=True, exist_ok=True)
-            selected_pcb = self._state.selected_pcb
+            selected_pcb = self._selection.pcb
             context = JobContext(
                 runtime,
                 pcb_path=pcb_path,
                 machine=machine,
-                devices=self._state.devices,
+                devices=self._devices,
                 artifacts_dir=artifacts_dir,
-                journal=Journal.for_job(self._settings.journal_dir, record.id),
-                machine_id=resolve_machine_id(self._settings),
-                paste_dataset_dir=self._settings.paste_dataset_dir,
-                paste_volume_calibration_dir=(
-                    self._settings.paste_volume_calibration_dir
-                ),
+                journal=Journal.for_job(self._env.journal_dir, record.id),
+                machine_id=resolve_machine_id(self._env),
+                paste_dataset_dir=self._env.paste_dataset_dir,
+                paste_volume_calibration_dir=self._env.paste_volume_calibration_dir,
                 source_pcb=selected_pcb.as_posix() if selected_pcb else None,
-                boards=self._state.boards,
+                boards=self._selection.boards,
                 overrides=self._overrides,
-                audio_player=self._audio_player,
             )
             worker = threading.Thread(
                 target=self._run_worker,
@@ -527,7 +529,7 @@ class JobManager:
             worker.start()
             return record
         except BaseException:
-            self._state.release_machine()
+            self._machine_lock.release()
             raise
 
     def current(self) -> JobRecord | None:
@@ -615,7 +617,7 @@ class JobManager:
                 if key in validated
             }
             if persisted:
-                self._state.merge_job_param_defaults(record.name, persisted)
+                self._selection.merge_job_param_defaults(record.name, persisted)
         runtime.publish_status()
         return validated
 
@@ -680,53 +682,11 @@ class JobManager:
             if record is None:
                 return
             record.consume_apply()
-        self.publish({"type": "job_status", "job_id": record.id})
+        self._events.publish({"type": "job_status", "job_id": record.id})
 
     def discard(self, *, expected_job_id: str | None = None) -> None:
         """設定反映ペイロードを無効化する（冪等）."""
         self.mark_applied(expected_job_id=expected_job_id)
-
-    # --- イベント購読（async 側から呼ぶ）---
-
-    def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
-        """イベント配信先の event loop を登録する（lifespan startup で 1 回）."""
-        with self._subscribers_lock:
-            self._loop = loop
-
-    def subscribe(self) -> asyncio.Queue[_Event]:
-        """イベント購読キューを作成して返す."""
-        events: asyncio.Queue[_Event] = asyncio.Queue()
-        with self._subscribers_lock:
-            self._subscribers.add(events)
-        return events
-
-    def unsubscribe(self, events: asyncio.Queue[_Event]) -> None:
-        """購読を解除する（未登録キューは無視）."""
-        with self._subscribers_lock:
-            self._subscribers.discard(events)
-
-    def publish(self, event: _Event) -> None:
-        """全 subscriber へイベントを配る（loop 未 bind なら何もしない）.
-
-        購読キューの配布点をここに一本化する。ジョブ以外の発生源（操作権リースの
-        `control_changed` 等）も同じキューへ流すため public。ワーカースレッドから
-        呼ばれるので、キューへの投入は bind 済み loop の `call_soon_threadsafe` 経由。
-        """
-        with self._subscribers_lock:
-            loop = self._loop
-            subscribers = tuple(self._subscribers)
-        if loop is None:
-            return
-        for events in subscribers:
-            try:
-                loop.call_soon_threadsafe(events.put_nowait, event)
-            except RuntimeError:
-                # loop が閉じた後の遅延 publish は捨てる
-                return
-
-    def publish_state_changed(self) -> None:
-        """マシン / PCB / 設定変更をクライアントに通知する."""
-        self.publish({"type": "state_changed"})
 
     def _apply_machine_settings(self, values: Mapping[str, ParamValue]) -> None:
         """実行中ジョブの確定値を machine.toml へ即時書き込む（変更の通知は書き込みが行う）.
@@ -737,7 +697,7 @@ class JobManager:
         Raises:
             InvalidSettingError: 未知のキー・不正な値の場合
         """
-        self._state.machine_config.write(values)
+        self._machine_config.write(values)
 
     # --- 内部 ---
 
@@ -784,7 +744,7 @@ class JobManager:
         finally:
             logger.removeHandler(bridge)
             logger.setLevel(previous_level)
-            self._state.release_machine()
+            self._machine_lock.release()
 
     def _link_journal(self, record: JobRecord, journal: Journal) -> None:
         """送信があったジョブの成果物に G-code ジャーナルへのリンクを足す."""
@@ -797,17 +757,12 @@ class JobManager:
 
         再生完了を待たずに戻り、再生失敗は warning のみ（待ちをブロックしない）。
         """
-        player = self._audio_player
-        if player is None:
-            return lambda: None
-        return lambda: self._play_sound(player, "prompt", machine.audio, "入力待ち音")
+        return lambda: self._play_sound("prompt", machine.audio, "入力待ち音")
 
-    def _play_sound(
-        self, player: AudioPlayer, sound: Sound, audio: AudioConfig, label: str
-    ) -> None:
+    def _play_sound(self, sound: Sound, audio: AudioConfig, label: str) -> None:
         """通知音を非同期に開始する（開始・再生の失敗はいずれも warning のみ）."""
         try:
-            future = player.play(sound, audio.device, audio.volume)
+            future = self._devices.audio.play(sound, audio.device, audio.volume)
         except Exception:
             _logger.warning("%sを開始できませんでした", label, exc_info=True)
             return
@@ -822,21 +777,13 @@ class JobManager:
         装置の前を離れうるのはこの区分で、PCB 生成のような即終了ジョブは画面で足りる。
         ブラウザ完了通知の ``notify_on_completion`` とは独立の判定。
         """
-        if not definition.uses_machine or self._audio_player is None:
+        if not definition.uses_machine:
             return
         status = record.status
         if status not in (JobStatus.SUCCEEDED, JobStatus.FAILED):
             return
         sound: Sound = "success" if status is JobStatus.SUCCEEDED else "failure"
-        self._play_sound(
-            self._audio_player, sound, context.machine.audio, "ジョブ完了通知音"
-        )
-
-    def _pcb_path(self) -> Path | None:
-        selected = self._state.selected_pcb
-        if selected is None:
-            return None
-        return (self._settings.pcb_browse_root / selected).resolve()
+        self._play_sound(sound, context.machine.audio, "ジョブ完了通知音")
 
 
 def _warn_sound_failure(label: str) -> Callable[[Future[None]], None]:

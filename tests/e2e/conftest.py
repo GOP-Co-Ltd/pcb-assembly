@@ -37,14 +37,15 @@ from fastapi import FastAPI
 from starlette.types import ASGIApp
 
 from pcbasm.hal.fake import FakeAudioPlayer
+from tests.support.backend import devices_with_audio, job_manager
 from tests.support.job_demo import register_job_demo
 from tests.support.settings import make_api_settings, make_ui_settings
 from tests.web.api.conftest import COPPER_PCB_FIXTURE
 from web.api.app import create_app
+from web.api.backend import Backend
 from web.api.env import Env
 from web.api.jobs.catalog import JobCatalog, JobDefinition
 from web.api.jobs.context import JobContext, JobResult
-from web.api.jobs.manager import JobManager
 from web.contract.identity import SESSION_COOKIE
 from web.ui.app import create_app as create_ui_app
 from web.ui.machines import MachineEndpoint
@@ -73,20 +74,15 @@ def configure_synthetic_job(
     JobDefinition / JobManager の公開 API を使い、HTTP・WS・キューは実装を通す。
     機械フロー自体を検証するテストには使わない。
     """
-    synthetic = attrs.evolve(app.state.catalog.get(name), run=run, uses_machine=False)
+    backend: Backend = app.state.backend
+    synthetic = attrs.evolve(backend.catalog.get(name), run=run, uses_machine=False)
     catalog = JobCatalog()
-    for definition in app.state.catalog.list():
+    for definition in backend.catalog.list():
         if definition.name == name:
             definition = synthetic
         catalog.register(definition)
-    app.state.catalog = catalog
-    app.state.jobs = JobManager(
-        app.state.appstate,
-        app.state.preview,
-        catalog,
-        app.state.settings,
-        app.state.overrides,
-        audio_player=app.state.audio_player,
+    app.state.backend = attrs.evolve(
+        backend, catalog=catalog, jobs=job_manager(backend, catalog)
     )
 
 
@@ -450,11 +446,11 @@ def live_server(
     """
     app = create_app(
         e2e_settings,
-        audio_player=FakeAudioPlayer(),
+        devices=devices_with_audio(e2e_settings, FakeAudioPlayer()),
         paste_test_board_footprint_root=paste_test_board_footprint_root,
     )
-    register_job_demo(app.state.catalog)
-    _register_completion_notice_jobs(app.state.catalog)
+    register_job_demo(app.state.backend.catalog)
+    _register_completion_notice_jobs(app.state.backend.catalog)
     running = start_app(app)
     try:
         yield LiveServer(

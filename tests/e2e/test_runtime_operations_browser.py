@@ -20,6 +20,7 @@ from tests.e2e.conftest import (
     configure_synthetic_job,
     start_app,
 )
+from tests.support.backend import devices_with_audio
 from tests.support.settings import make_ui_settings
 from web.api.app import create_app as create_api_app
 from web.api.env import Env
@@ -35,7 +36,9 @@ def live_server(e2e_settings: Env) -> Iterator[LiveServer]:
     JobDefinition.run と JobManager の公開コンストラクタで構成する。
     機械フローは対象外とし、HTTP・WS・キュー・実行中パラメータは実装を通す。
     """
-    app = create_api_app(e2e_settings, audio_player=FakeAudioPlayer())
+    app = create_api_app(
+        e2e_settings, devices=devices_with_audio(e2e_settings, FakeAudioPlayer())
+    )
 
     def run(ctx: JobContext) -> None:
         ctx.progress("キャリブレーションメニュー")
@@ -47,7 +50,7 @@ def live_server(e2e_settings: Env) -> Iterator[LiveServer]:
                 return
 
     configure_synthetic_job(app, "dispense_calibration", run)
-    catalog = app.state.catalog
+    catalog = app.state.backend.catalog
     catalog.register(
         attrs.evolve(catalog.get("dispense_calibration"), name="other_calibration")
     )

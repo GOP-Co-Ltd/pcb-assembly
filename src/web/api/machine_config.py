@@ -1,5 +1,6 @@
-"""machine.toml の設定項目の読み書き.
+"""machine.toml の読み込み・起動時の移行と、設定項目の書き込み.
 
+読み込みは呼ぶたびにディスクから読み直す（:meth:`MachineConfigFile.machine`）。
 項目は :func:`pcbasm.config.fields.setting_fields` が設定のスキーマから作る。
 書き込みは設定ページ・ジョブ・router のどれからでも :meth:`MachineConfigFile.write` の 1 経路を通る。
 項目ごとに値を検証し、ディスクの最新の内容に tomlkit で差分を当て（コメントと構造を保つ）、全体を検証し、書き換える前の内容を設定履歴に残してから atomic に書き、``on_change`` で変更を知らせる。
@@ -8,6 +9,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
@@ -15,9 +17,10 @@ import tomlkit
 from tomlkit.items import Item, Table
 
 from pcbasm.atomic import write_bytes_atomic, write_text_atomic
-from pcbasm.config import ConfigError, MachineConfig, parse_machine
+from pcbasm.config import ConfigError, MachineConfig, load_machine, parse_machine
 from pcbasm.config.fields import SettingField, setting_fields
 from pcbasm.geometry import Point3d
+from pcbasm.migrate.machine_toml import NAME, MigrationError, migrate_machine_toml
 from pcbasm.validators import is_finite_number
 from web.api.history import ConfigHistory
 from web.contract.models import (
@@ -27,13 +30,15 @@ from web.contract.models import (
     SettingsField,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class InvalidSettingError(ValueError):
     """未知のキー・型の合わない値・検証に通らない書き込み（→ HTTP 400）."""
 
 
 class MachineConfigFile:
-    """``config/machine.toml`` の設定項目の読み書きと、その設定履歴."""
+    """``config/machine.toml`` の読み込みと移行、設定項目の読み書きと、その設定履歴."""
 
     def __init__(
         self, config_dir: Path, on_change: Callable[[], None] = lambda: None
@@ -47,11 +52,63 @@ class MachineConfigFile:
         self._config_dir = config_dir
         self._on_change = on_change
         self._history = ConfigHistory(self.path)
+        self._notice: str | None = None
+        self._migration_error: str | None = None
 
     @property
     def path(self) -> Path:
         """machine.toml のパス."""
         return self._config_dir / "machine.toml"
+
+    def machine(self) -> MachineConfig:
+        """machine.toml をディスクから読み、全体を検証して返す（毎回ロード）.
+
+        手編集と書き込みが再起動なしで次の読み込みに効く。
+
+        Raises:
+            ConfigError: machine.toml が読めない・検証に通らない場合（degraded）
+        """
+        return load_machine(self.path)
+
+    def machine_or_error(self) -> tuple[MachineConfig, None] | tuple[None, str]:
+        """:meth:`machine` の degraded 版。設定エラーなら ``(None, 理由)`` を返す.
+
+        起動時の移行に失敗していれば、読めない理由として移行の失敗を返す。
+        """
+        try:
+            return self.machine(), None
+        except ConfigError as exc:
+            if self._migration_error is not None:
+                return None, (
+                    "machine.toml を移行できませんでした（ファイルは変えていません）: "
+                    f"{self._migration_error}"
+                )
+            return None, str(exc)
+
+    @property
+    def notice(self) -> str | None:
+        """起動時に machine.toml を移行したときの知らせ（移行しなければ None）."""
+        return self._notice
+
+    def migrate(self) -> None:
+        """machine.toml を移行する（起動時、設定を読む前に 1 回だけ呼ぶ）.
+
+        失敗しても例外は出さない。ファイルに触れず、読めない間はその理由を設定エラーとして出す（degraded）。
+        """
+        try:
+            changes = migrate_machine_toml(self.path)
+        except MigrationError as exc:
+            logger.error("machine.toml を移行できません: %s", exc)
+            self._migration_error = str(exc)
+            return
+        if changes:
+            logger.info(
+                "machine.toml を移行 %s で書き換えました: %s", NAME, " / ".join(changes)
+            )
+            self._notice = (
+                "machine.toml を新しい形へ移行しました"
+                f"（元の内容は設定履歴の machine-pre-{NAME}.toml）"
+            )
 
     def history_entries(self) -> list[ConfigHistoryEntry]:
         """machine.toml の世代を新しい順に返す."""

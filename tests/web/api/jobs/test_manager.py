@@ -37,6 +37,7 @@ import tomlkit
 from pcbasm.config.audio import AudioConfig
 from pcbasm.hal import AudioPlaybackError
 from pcbasm.hal.fake import FakeAudioPlayer
+from web.api.backend import Backend
 from web.api.env import Env
 from web.api.jobs.catalog import JobCatalog, ParamSpec
 from web.api.jobs.context import ApplyPayload, JobContext, JobResult, PromptSpec
@@ -45,7 +46,7 @@ from web.api.jobs.manager import (
     JobStatus,
     prompt_payload,
 )
-from web.api.state import AppState, BusyError
+from web.api.lock import BusyError
 
 from .conftest import (
     ManagerFactory,
@@ -188,7 +189,7 @@ class TestLifecycle:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        state: AppState,
+        camera_backend: Backend,
         wait_until: WaitUntil,
     ):
         _register(
@@ -205,7 +206,10 @@ class TestLifecycle:
         record = manager.start("synthetic", {"ratio": 2.5, "count": 4, "label": "y"})
         wait_until(lambda: record.status.terminal)
 
-        assert state.job_param_defaults("synthetic") == {"ratio": 2.5, "count": 4}
+        assert camera_backend.selection.job_param_defaults("synthetic") == {
+            "ratio": 2.5,
+            "count": 4,
+        }
 
 
 class TestPrompt:
@@ -624,7 +628,7 @@ class TestExclusion:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        state: AppState,
+        camera_backend: Backend,
         wait_until: WaitUntil,
     ):
         gate = _register_gated(catalog)
@@ -633,7 +637,7 @@ class TestExclusion:
 
         try:
             with pytest.raises(BusyError):
-                state.select_pcb(Path("boards/sample.kicad_pcb"))
+                camera_backend.selection.select(Path("boards/sample.kicad_pcb"))
         finally:
             gate.set()
         wait_until(lambda: record.status.terminal)
@@ -642,21 +646,21 @@ class TestExclusion:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        state: AppState,
+        camera_backend: Backend,
         wait_until: WaitUntil,
     ):
         gate = _register_gated(catalog)
         record = manager.start("gated", {})
         wait_until(lambda: record.status == JobStatus.RUNNING)
-        assert state.busy_owner is not None
+        assert camera_backend.lock.owner is not None
 
         gate.set()
         wait_until(lambda: record.status.terminal)
         # 終端ステータス確定 → ロック解放の順（解放までポーリングで待つ）
-        wait_until(lambda: state.busy_owner is None)
+        wait_until(lambda: camera_backend.lock.owner is None)
 
-        with state.machine_lock("after-job"):
-            assert state.busy_owner == "after-job"
+        with camera_backend.lock.hold("after-job"):
+            assert camera_backend.lock.owner == "after-job"
 
 
 class TestSingleRecordRetention:
@@ -796,7 +800,7 @@ class TestApplyMachineSettingsFromWorker:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        state: AppState,
+        camera_backend: Backend,
         config_dir: Path,
         wait_until: WaitUntil,
     ):
@@ -840,13 +844,13 @@ class TestPresentOnTermination:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        state: AppState,
+        camera_backend: Backend,
         wait_until: WaitUntil,
     ):
         _register(catalog, lambda ctx: None, uses_machine=True)
         record = manager.start("synthetic", {})
         wait_until(lambda: record.status.terminal)
-        wait_until(lambda: state.busy_owner is None)
+        wait_until(lambda: camera_backend.lock.owner is None)
 
         assert record.status == JobStatus.SUCCEEDED
         log_text = "\n".join(record.log_lines)
@@ -857,7 +861,7 @@ class TestPresentOnTermination:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        state: AppState,
+        camera_backend: Backend,
         wait_until: WaitUntil,
     ):
         def run(ctx: JobContext) -> None:
@@ -866,7 +870,7 @@ class TestPresentOnTermination:
         _register(catalog, run, uses_machine=True)
         record = manager.start("synthetic", {})
         wait_until(lambda: record.status.terminal)
-        wait_until(lambda: state.busy_owner is None)
+        wait_until(lambda: camera_backend.lock.owner is None)
 
         assert record.status == JobStatus.FAILED
         assert record.error is not None
@@ -879,7 +883,7 @@ class TestPresentOnTermination:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        state: AppState,
+        camera_backend: Backend,
         wait_until: WaitUntil,
         config_dir: Path,
     ):
@@ -898,7 +902,7 @@ class TestPresentOnTermination:
         _register(catalog, lambda ctx: None, uses_machine=True)
         record = manager.start("synthetic", {})
         wait_until(lambda: record.status.terminal)
-        wait_until(lambda: state.busy_owner is None)
+        wait_until(lambda: camera_backend.lock.owner is None)
 
         assert record.status == JobStatus.SUCCEEDED
         log_text = "\n".join(record.log_lines)
@@ -910,14 +914,14 @@ class TestPresentOnTermination:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        state: AppState,
+        camera_backend: Backend,
         wait_until: WaitUntil,
     ):
         """uses_machine=False（dev ジョブ相当）では終了処理を試行しない."""
         _register(catalog, lambda ctx: None, uses_machine=False)
         record = manager.start("synthetic", {})
         wait_until(lambda: record.status.terminal)
-        wait_until(lambda: state.busy_owner is None)
+        wait_until(lambda: camera_backend.lock.owner is None)
 
         assert record.status == JobStatus.SUCCEEDED
         assert "PRESENT" not in "\n".join(record.log_lines)
@@ -932,15 +936,15 @@ class TestJournal:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        state: AppState,
+        camera_backend: Backend,
         wait_until: WaitUntil,
         fake_camera_settings: Env,
     ):
         _register(catalog, lambda ctx: None, uses_machine=True)
         first = manager.start("synthetic", {})
-        wait_until(lambda: first.status.terminal and state.busy_owner is None)
+        wait_until(lambda: first.status.terminal and camera_backend.lock.owner is None)
         second = manager.start("synthetic", {})
-        wait_until(lambda: second.status.terminal and state.busy_owner is None)
+        wait_until(lambda: second.status.terminal and camera_backend.lock.owner is None)
 
         for record in (first, second):
             assert record.result is not None
@@ -954,12 +958,12 @@ class TestJournal:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        state: AppState,
+        camera_backend: Backend,
         wait_until: WaitUntil,
     ):
         _register(catalog, lambda ctx: None, uses_machine=False)
         record = manager.start("synthetic", {})
-        wait_until(lambda: record.status.terminal and state.busy_owner is None)
+        wait_until(lambda: record.status.terminal and camera_backend.lock.owner is None)
 
         assert record.result is None
 
@@ -1141,7 +1145,7 @@ class TestUpdateCurrentParams:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        state: AppState,
+        camera_backend: Backend,
         wait_until: WaitUntil,
     ):
         gate = threading.Event()
@@ -1156,13 +1160,15 @@ class TestUpdateCurrentParams:
             gate.set()
         wait_until(lambda: record.status.terminal)
 
-        assert state.job_param_defaults("reader")["line_length"] == 42.0
+        assert (
+            camera_backend.selection.job_param_defaults("reader")["line_length"] == 42.0
+        )
 
     def test_persist_false_does_not_save_next_form_default(
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        state: AppState,
+        camera_backend: Backend,
         wait_until: WaitUntil,
     ):
         gate = threading.Event()
@@ -1179,7 +1185,9 @@ class TestUpdateCurrentParams:
         wait_until(lambda: record.status.terminal)
 
         # 起動時に persisted_params で 10.0 が保存されたまま（55.0 にはならない）
-        assert state.job_param_defaults("reader")["line_length"] == 10.0
+        assert (
+            camera_backend.selection.job_param_defaults("reader")["line_length"] == 10.0
+        )
 
 
 @pytest.mark.usefixtures("unreachable_klipper")
@@ -1202,18 +1210,18 @@ class TestAudioCompletionNotification:
         catalog: JobCatalog,
         config_dir: Path,
         wait_until: WaitUntil,
+        audio_player: FakeAudioPlayer,
     ):
         config = _configure_audio(config_dir)
-        player = FakeAudioPlayer()
-        manager = make_manager(catalog, audio_player=player)
+        manager = make_manager(catalog)
         _register(catalog, lambda ctx: None, uses_machine=True)
 
         record = manager.start("synthetic", {})
         wait_until(lambda: record.status.terminal)
-        wait_until(lambda: len(player.played) == 1)
+        wait_until(lambda: len(audio_player.played) == 1)
 
         assert record.status == JobStatus.SUCCEEDED
-        assert player.played == (("success", config.device, config.volume),)
+        assert audio_player.played == (("success", config.device, config.volume),)
 
     def test_failure_plays_failure_sound_once(
         self,
@@ -1221,10 +1229,10 @@ class TestAudioCompletionNotification:
         catalog: JobCatalog,
         config_dir: Path,
         wait_until: WaitUntil,
+        audio_player: FakeAudioPlayer,
     ):
         config = _configure_audio(config_dir)
-        player = FakeAudioPlayer()
-        manager = make_manager(catalog, audio_player=player)
+        manager = make_manager(catalog)
 
         def fail(ctx: JobContext) -> None:
             raise RuntimeError("意図的な失敗")
@@ -1232,10 +1240,10 @@ class TestAudioCompletionNotification:
         _register(catalog, fail, uses_machine=True)
         record = manager.start("synthetic", {})
         wait_until(lambda: record.status.terminal)
-        wait_until(lambda: len(player.played) == 1)
+        wait_until(lambda: len(audio_player.played) == 1)
 
         assert record.status == JobStatus.FAILED
-        assert player.played == (("failure", config.device, config.volume),)
+        assert audio_player.played == (("failure", config.device, config.volume),)
 
     def test_aborted_job_does_not_play(
         self,
@@ -1243,10 +1251,10 @@ class TestAudioCompletionNotification:
         catalog: JobCatalog,
         config_dir: Path,
         wait_until: WaitUntil,
+        audio_player: FakeAudioPlayer,
     ):
         _configure_audio(config_dir)
-        player = FakeAudioPlayer()
-        manager = make_manager(catalog, audio_player=player)
+        manager = make_manager(catalog)
         _register_gated(catalog, uses_machine=True)
         record = manager.start("gated", {})
         wait_until(lambda: record.status == JobStatus.RUNNING)
@@ -1255,7 +1263,7 @@ class TestAudioCompletionNotification:
         wait_until(lambda: record.status.terminal)
 
         assert record.status == JobStatus.ABORTED
-        assert player.played == ()
+        assert audio_player.played == ()
 
     def test_non_machine_job_stays_silent(
         self,
@@ -1263,11 +1271,11 @@ class TestAudioCompletionNotification:
         catalog: JobCatalog,
         config_dir: Path,
         wait_until: WaitUntil,
+        audio_player: FakeAudioPlayer,
     ):
         """`notify_on_completion` はブラウザ通知専用で、完了音を左右しない."""
         _configure_audio(config_dir)
-        player = FakeAudioPlayer()
-        manager = make_manager(catalog, audio_player=player)
+        manager = make_manager(catalog)
 
         _register(
             catalog, lambda ctx: None, uses_machine=False, notify_on_completion=True
@@ -1276,26 +1284,30 @@ class TestAudioCompletionNotification:
         wait_until(lambda: record.status.terminal)
 
         assert record.status == JobStatus.SUCCEEDED
-        assert player.played == ()
+        assert audio_player.played == ()
 
     def test_missing_audio_section_plays_with_defaults(
         self,
         make_manager: ManagerFactory,
         catalog: JobCatalog,
         wait_until: WaitUntil,
+        audio_player: FakeAudioPlayer,
     ):
         """`[audio]` を書かない fixture でも既定デバイス・既定音量で鳴る."""
-        player = FakeAudioPlayer()
-        manager = make_manager(catalog, audio_player=player)
+        manager = make_manager(catalog)
         _register(catalog, lambda ctx: None, uses_machine=True)
 
         record = manager.start("synthetic", {})
         wait_until(lambda: record.status.terminal)
-        wait_until(lambda: len(player.played) == 1)
+        wait_until(lambda: len(audio_player.played) == 1)
 
         assert record.status == JobStatus.SUCCEEDED
-        assert player.played == (("success", "default", 0.75),)
+        assert audio_player.played == (("success", "default", 0.75),)
 
+    @pytest.mark.parametrize(
+        "audio_player",
+        [FakeAudioPlayer(playback_error=AudioPlaybackError("speaker disconnected"))],
+    )
     def test_playback_failure_warns_without_changing_job_status(
         self,
         make_manager: ManagerFactory,
@@ -1303,12 +1315,10 @@ class TestAudioCompletionNotification:
         config_dir: Path,
         wait_until: WaitUntil,
         caplog: pytest.LogCaptureFixture,
+        audio_player: FakeAudioPlayer,
     ):
         _configure_audio(config_dir)
-        player = FakeAudioPlayer(
-            playback_error=AudioPlaybackError("speaker disconnected")
-        )
-        manager = make_manager(catalog, audio_player=player)
+        manager = make_manager(catalog)
 
         def run(ctx: JobContext) -> None:
             raise RuntimeError("job failure")
@@ -1326,7 +1336,7 @@ class TestAudioCompletionNotification:
             )
 
         assert record.status == JobStatus.FAILED
-        assert len(player.played) == 1
+        assert len(audio_player.played) == 1
 
 
 class TestAudioOperatorNotification:
@@ -1339,7 +1349,6 @@ class TestAudioOperatorNotification:
     - `notify_operator()` はコマンド待ちなど prompt 以外のオペレータ待ちで
       同じ音を鳴らす。abort 済みなら鳴らさない
 
-    プレイヤー未注入は既定の `manager` fixture（`audio_player=None`）が通る経路で、
     再生失敗の握り潰しは `TestAudioCompletionNotification` が同じ `_play_sound`
     を通して固定する。
     """
@@ -1350,10 +1359,10 @@ class TestAudioOperatorNotification:
         catalog: JobCatalog,
         config_dir: Path,
         wait_until: WaitUntil,
+        audio_player: FakeAudioPlayer,
     ):
         config = _configure_audio(config_dir)
-        player = FakeAudioPlayer()
-        manager = make_manager(catalog, audio_player=player)
+        manager = make_manager(catalog)
         answers: list[object] = []
 
         def run(ctx: JobContext) -> None:
@@ -1370,7 +1379,7 @@ class TestAudioOperatorNotification:
 
         assert record.status == JobStatus.SUCCEEDED, record.error
         assert answers == [True, 110.5]
-        assert player.played == (
+        assert audio_player.played == (
             ("prompt", config.device, config.volume),
             ("prompt", config.device, config.volume),
         )
@@ -1381,11 +1390,11 @@ class TestAudioOperatorNotification:
         catalog: JobCatalog,
         config_dir: Path,
         wait_until: WaitUntil,
+        audio_player: FakeAudioPlayer,
     ):
         """コマンド待ち（prompt を出さないオペレータ待ち）用の明示通知."""
         config = _configure_audio(config_dir)
-        player = FakeAudioPlayer()
-        manager = make_manager(catalog, audio_player=player)
+        manager = make_manager(catalog)
 
         def run(ctx: JobContext) -> None:
             ctx.notify_operator()
@@ -1394,10 +1403,10 @@ class TestAudioOperatorNotification:
 
         record = manager.start("synthetic", {})
         wait_until(lambda: record.status.terminal)
-        wait_until(lambda: len(player.played) == 1)
+        wait_until(lambda: len(audio_player.played) == 1)
 
         assert record.status == JobStatus.SUCCEEDED, record.error
-        assert player.played == (("prompt", config.device, config.volume),)
+        assert audio_player.played == (("prompt", config.device, config.volume),)
 
     def test_notify_operator_stays_silent_after_abort(
         self,
@@ -1405,11 +1414,11 @@ class TestAudioOperatorNotification:
         catalog: JobCatalog,
         config_dir: Path,
         wait_until: WaitUntil,
+        audio_player: FakeAudioPlayer,
     ):
         """Abort 済みなら鳴らさない（死んだジョブの前へ呼び戻さないため）."""
         _configure_audio(config_dir)
-        player = FakeAudioPlayer()
-        manager = make_manager(catalog, audio_player=player)
+        manager = make_manager(catalog)
         started = threading.Event()
         abort_requested = threading.Event()
 
@@ -1428,7 +1437,7 @@ class TestAudioOperatorNotification:
         wait_until(lambda: record.status.terminal)
 
         assert record.status == JobStatus.ABORTED
-        assert player.played == ()
+        assert audio_player.played == ()
 
 
 class TestShutdown:

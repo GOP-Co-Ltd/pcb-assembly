@@ -23,14 +23,10 @@ def register(catalog: JobCatalog) -> None:
 def _run_machine_check(ctx: JobContext) -> JobResult:
     """全項目を確かめてログに並べ、1 つでも不合格ならジョブを失敗にする."""
     ctx.progress("診断")
-    player = ctx.audio_player
     checks = [
         *check_klipper(ctx.klipper(STATUS_TIMEOUT), ctx.machine),
         check_camera(ctx.open_camera, ctx.machine.camera.calibration_file),
-        check_audio(
-            player.list_devices() if player is not None else (),
-            ctx.machine.audio.device,
-        ),
+        check_audio(ctx.devices.audio.list_devices(), ctx.machine.audio.device),
     ]
     for check in checks:
         ctx.log(f"{'ok' if check.ok else 'NG'}  {check.name}: {check.detail}")

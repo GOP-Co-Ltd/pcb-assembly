@@ -22,8 +22,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeKlipper
+from web.api.backend import Backend
 from web.api.env import Env
-from web.api.state import AppState
 
 
 class TestRecordNozzleCap:
@@ -37,9 +37,9 @@ class TestRecordNozzleCap:
         assert response.status_code == 502
 
     def test_busy_returns_409_with_owner_in_detail(
-        self, client: TestClient, appstate: AppState
+        self, client: TestClient, backend: Backend
     ):
-        with appstate.machine_lock("pytest-job"):
+        with backend.lock.hold("pytest-job"):
             response = client.post("/api/pasting/nozzle-cap/record")
 
         assert response.status_code == 409
@@ -59,9 +59,9 @@ class TestRecordNozzleClean:
         assert response.status_code == 502
 
     def test_busy_returns_409_with_owner_in_detail(
-        self, client: TestClient, appstate: AppState
+        self, client: TestClient, backend: Backend
     ):
-        with appstate.machine_lock("pytest-job"):
+        with backend.lock.hold("pytest-job"):
             response = client.post("/api/pasting/nozzle-clean/record")
 
         assert response.status_code == 409
@@ -190,10 +190,10 @@ class TestNozzleCleanTestRun:
         assert "printer.cfgに[output_pin air_pump]" in response.json()["detail"]
 
     def test_busy_returns_409_with_owner_in_detail(
-        self, client: TestClient, appstate: AppState
+        self, client: TestClient, backend: Backend
     ):
         """ジョブ実行中は「未記録」より先に「使用中」を返す（装置排他が優先）."""
-        with appstate.machine_lock("pytest-job"):
+        with backend.lock.hold("pytest-job"):
             response = client.post("/api/pasting/nozzle-clean/test")
 
         assert response.status_code == 409

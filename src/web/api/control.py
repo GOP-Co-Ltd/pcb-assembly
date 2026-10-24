@@ -4,7 +4,7 @@
 
 緊急停止と abort は安全のため誰でも常に可能なので、ここではゲートしない。
 
-FastAPI に依存しない純ロジックである。
+FastAPI に依存しない。API 表現への変換（:func:`control_payload`）と WS のイベント（:func:`control_changed_event`）もここに置く。
 
 自動解放はしない。時間・無操作・WebSocket の切断では失効しない。
 保持者が替わるのは、空きのときの ``claim`` と、``takeover`` による奪取だけである。
@@ -19,6 +19,9 @@ import threading
 from collections.abc import Callable
 
 import attrs
+
+from web.api.events import Event
+from web.contract.models import ControlInfo
 
 _KEY_LENGTH = 8
 
@@ -220,3 +223,24 @@ class ControlLease:
         """保持者が変わったことを通知する（必ずロック解放後に呼ぶ）."""
         if changed and self._on_change is not None:
             self._on_change()
+
+
+def control_payload(info: LeaseInfo) -> ControlInfo:
+    """リーススナップショットを API 表現へ変換する（唯一の変換点）."""
+    return ControlInfo(
+        key=info.key,
+        display_name=info.display_name,
+        held=info.held,
+        connections=info.connections,
+    )
+
+
+def control_changed_event(info: LeaseInfo) -> Event:
+    """WS の control_changed イベントを組む（全 subscriber へ同一 payload で配る）.
+
+    受け取ったクライアントは ``control.key`` を自分の ``you.key`` と比べて「自分が保持者か」を判定する（サーバは接続ごとに payload を作り分けない）。
+    """
+    return {
+        "type": "control_changed",
+        "control": control_payload(info).model_dump(mode="json"),
+    }

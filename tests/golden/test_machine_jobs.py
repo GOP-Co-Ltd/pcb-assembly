@@ -15,8 +15,8 @@ from pcbasm.vision import Image
 from tests.golden.conftest import JOBS, finish, scene_camera
 from tests.golden.scenarios import Scenario, scenarios_of
 from tests.support.golden import assert_transcript
+from web.api.backend import Backend
 from web.api.jobs.manager import JobManager, JobStatus
-from web.api.state import AppState
 
 
 class TestMachineCheck:
@@ -31,7 +31,7 @@ class TestMachineCheck:
     def test_all_ok(
         self,
         manager: JobManager,
-        job_state: AppState,
+        job_backend: Backend,
         machine_klipper: FakeKlipper,
         mount_camera: Callable[[Camera], None],
         scenario: Scenario,
@@ -39,7 +39,7 @@ class TestMachineCheck:
         mount_camera(scene_camera(machine_klipper, scenario.rotation))
 
         record = manager.start("machine_check", {})
-        finish(job_state, record)
+        finish(job_backend, record)
 
         assert record.result is not None
         assert record.result.summary == "全 7 項目 ok"
@@ -53,7 +53,7 @@ class TestMachineCheck:
     def test_camera_mismatch(
         self,
         manager: JobManager,
-        job_state: AppState,
+        job_backend: Backend,
         machine_klipper: FakeKlipper,
         mount_camera: Callable[[Camera], None],
         scenario: Scenario,
@@ -62,7 +62,7 @@ class TestMachineCheck:
         mount_camera(FakeCamera([Image(np.zeros((480, 640, 3), dtype=np.uint8))]))
 
         record = manager.start("machine_check", {})
-        finish(job_state, record, JobStatus.FAILED)
+        finish(job_backend, record, JobStatus.FAILED)
 
         assert record.error == "1 項目が不合格です: カメラと校正"
         assert (

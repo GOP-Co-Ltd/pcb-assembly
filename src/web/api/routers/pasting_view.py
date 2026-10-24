@@ -43,8 +43,8 @@ from pcbasm.pasting.pad_editor import (
 )
 from pcbasm.pasting.params import PASTE_PARAM_FIELDS, PasteParamValue
 from pcbasm.pasting.plan import PastePlan, plan_paste
-from web.api.env import Env
-from web.api.state import AppState
+from web.api.machine_config import MachineConfigFile
+from web.api.selection import Selection
 
 
 # --------------------------------------------------------------------------- #
@@ -493,7 +493,7 @@ def pad_info(
 # 共通: PCB / 階層 / モデルのロード
 # --------------------------------------------------------------------------- #
 def load_session(
-    state: AppState, settings: Env, overrides: BoardOverrides
+    selection: Selection, machine_config: MachineConfigFile, overrides: BoardOverrides
 ) -> BoardSession:
     """選択中基板の Board / 階層 / 保存済みモデルをまとめてロードする.
 
@@ -502,14 +502,15 @@ def load_session(
     Raises:
         HTTPException: PCB 未選択（409）の場合
     """
-    pcb_rel = state.selected_pcb
-    if pcb_rel is None:
+    selected = selection.selected_board()
+    if selected is None:
         raise HTTPException(status_code=409, detail="PCB が選択されていません")
+    pcb_rel, board = selected
     return BoardSession.load(
         overrides,
         pcb_rel.as_posix(),
-        state.boards.get(settings.pcb_browse_root / pcb_rel),
-        state.machine().paste_dispenser,
+        board,
+        machine_config.machine().paste_dispenser,
     )
 
 

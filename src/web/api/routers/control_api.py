@@ -1,4 +1,4 @@
-"""操作権リースの API（取得 / 解放 / 奪取 / 表示名更新）と WS への変更通知.
+"""操作権リースの API（取得 / 解放 / 奪取 / 表示名更新）.
 
 取得系はいずれも `GET /api/state` の ``control`` / ``you`` と同じ形を返す。奪取
 （takeover）は「保持者がタブを閉じ忘れたまま帰った」等で誰も操作できなくなった状態から抜け出す手段なので
@@ -8,28 +8,13 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import APIRouter
 
-from web.api.control import ClientIdentity, LeaseInfo
-from web.api.dependencies import IdentityDep, LeaseDep
-from web.api.routers.common import control_payload
+from web.api.control import ClientIdentity, LeaseInfo, control_payload
+from web.api.deps import IdentityDep, LeaseDep
 from web.contract.models import ClientInfo, ControlStateResponse
 
 router = APIRouter(prefix="/api/control")
-
-
-def control_changed_event(info: LeaseInfo) -> dict[str, Any]:
-    """WS の control_changed イベントを組む（全 subscriber へ同一 payload で配る）.
-
-    受け取ったクライアントは ``control.key`` を自分の ``you.key`` と比べて「自分が
-    保持者か」を判定する（サーバは接続ごとに payload を作り分けない）。
-    """
-    return {
-        "type": "control_changed",
-        "control": control_payload(info).model_dump(mode="json"),
-    }
 
 
 def _response(info: LeaseInfo, identity: ClientIdentity) -> ControlStateResponse:

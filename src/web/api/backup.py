@@ -20,24 +20,24 @@ from pathlib import Path
 from web.api.env import Env
 
 
-def build_backup(settings: Env, *, machine_id: str, created_at: datetime) -> bytes:
+def build_backup(env: Env, *, machine_id: str, created_at: datetime) -> bytes:
     """バックアップ zip の中身を返す."""
-    webui = settings.webui_data_dir
+    webui = env.webui_data_dir
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        _add_tree(archive, settings.config_dir, "config")
+        _add_tree(archive, env.config_dir, "config")
         _add_tree(archive, webui / "board_settings", "data/webui/board_settings")
         _add_file(archive, webui / "webui_state.json", "data/webui/webui_state.json")
-        _add_tree(archive, settings.pcb_upload_dir, "uploads")
+        _add_tree(archive, env.pcb_upload_dir, "uploads")
         _add_tree(
             archive,
-            settings.paste_volume_calibration_dir,
+            env.paste_volume_calibration_dir,
             "data/paste-volume-calibrations",
         )
         manifest = {
             "machine_id": machine_id,
             "created_at": created_at.isoformat(timespec="seconds"),
-            "legacy_paths": _legacy_paths(settings.data_dir),
+            "legacy_paths": _legacy_paths(env.data_dir),
         }
         archive.writestr(
             "manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2)

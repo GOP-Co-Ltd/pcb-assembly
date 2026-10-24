@@ -1,5 +1,6 @@
 """`web.api.machine_config.MachineConfigFile` の仕様テスト.
 
+- machine() は `config/` の machine.toml を呼ぶたびにディスクから読む（起動時の移行と degraded は test_app.py）
 - 設定項目は `setting_fields()` の全項目で、machine.toml に書かれている値を読む
 - 書き込みは tomlkit でコメント・構造を保ち、変えた行だけが変わる
 - 未知キー / 型の合わない値 / 全体の検証に通らない値 → InvalidSettingError（何も書かない）
@@ -16,6 +17,13 @@ import pytest
 from pcbasm.config.fields import setting_fields
 from web.api.machine_config import InvalidSettingError, MachineConfigFile
 from web.contract.models import MachineSettingValue
+
+
+class TestMachine:
+    def test_loads_the_machine_toml_of_the_config_dir(
+        self, machine_config: MachineConfigFile
+    ):
+        assert machine_config.machine().klipper.port == 7126
 
 
 class TestSettingsWithFiles:

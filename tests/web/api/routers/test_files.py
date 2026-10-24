@@ -25,8 +25,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from web.api.app import create_app
+from web.api.backend import Backend
 from web.api.env import Env
-from web.api.state import AppState
 
 
 def _rel_to_slash(path: Path) -> str:
@@ -113,8 +113,8 @@ class TestPcbFileApi:
 
         assert response.status_code == 404
 
-    def test_put_while_busy_returns_409(self, client: TestClient, appstate: AppState):
-        with appstate.machine_lock("pytest-job"):
+    def test_put_while_busy_returns_409(self, client: TestClient, backend: Backend):
+        with backend.lock.hold("pytest-job"):
             response = client.put(
                 "/api/pcb-file", json={"path": "boards/sample.kicad_pcb"}
             )
@@ -283,21 +283,21 @@ class TestPcbUploadApi:
 
     @pytest.mark.parametrize("existing", [False, True], ids=["new", "overwrite"])
     def test_upload_while_busy_preserves_files_and_selection(
-        self, client: TestClient, appstate: AppState, pcb_root: Path, existing: bool
+        self, client: TestClient, backend: Backend, pcb_root: Path, existing: bool
     ):
         destination = pcb_root / "uploads" / "board.kicad_pcb"
         if existing:
             destination.parent.mkdir()
             destination.write_bytes(b"original board")
-        appstate.select_pcb(Path("boards/sample.kicad_pcb"))
-        with appstate.machine_lock("pytest-job"):
+        backend.selection.select(Path("boards/sample.kicad_pcb"))
+        with backend.lock.hold("pytest-job"):
             response = client.post(
                 "/api/pcb-file/upload",
                 files={"file": ("board.kicad_pcb", b"(kicad_pcb)")},
             )
 
         assert response.status_code == 409
-        assert appstate.selected_pcb == Path("boards/sample.kicad_pcb")
+        assert backend.selection.pcb == Path("boards/sample.kicad_pcb")
         if existing:
             assert destination.read_bytes() == b"original board"
         else:

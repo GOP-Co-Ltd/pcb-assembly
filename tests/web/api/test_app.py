@@ -17,7 +17,7 @@ MR4 追記（同「MR4」節）: ``templates`` / ``static`` は frontend (`web.u
 webui-audio-output 計画書「`src/webui/app.py`」節が追記契約（通知音は Pi の ALSA で
 鳴らすので backend が所有する）:
 
-- create_app(audio_player=...) で注入したプレイヤーを lifespan 終了時に
+- create_app(devices=...) で注入した装置の通知音プレイヤーを lifespan 終了時に
   1 回だけ close する（ジョブ join の後に閉じる）
 
 設定エラー（degraded）の契約:
@@ -47,13 +47,14 @@ from fastapi.testclient import TestClient
 from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper
 from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.paths import PROJECT_ROOT
+from tests.support.backend import devices_with_audio
 from tests.support.moonraker import FakeMoonraker
 from tests.support.polling import wait_until
 from web.api.app import create_app
+from web.api.backend import Backend
 from web.api.env import Env
 from web.api.jobs.catalog import JobDefinition
 from web.api.jobs.context import JobContext
-from web.api.state import AppState
 
 MIGRATION_BEFORE = (
     PROJECT_ROOT / "tests" / "pcbasm" / "migrate" / "machine-before-M.toml"
@@ -87,9 +88,9 @@ class TestCreateApp:
         assert response.status_code == 200
 
     def test_busy_error_handler_returns_409_json(
-        self, client: TestClient, appstate: AppState
+        self, client: TestClient, backend: Backend
     ):
-        with appstate.machine_lock("pytest-job"):
+        with backend.lock.hold("pytest-job"):
             response = client.put(
                 "/api/pcb-file", json={"path": "boards/sample.kicad_pcb"}
             )
@@ -106,7 +107,9 @@ class TestCreateApp:
 
     def test_lifespan_closes_injected_audio_player_once(self, webui_settings: Env):
         player = FakeAudioPlayer()
-        app = create_app(webui_settings, audio_player=player)
+        app = create_app(
+            webui_settings, devices=devices_with_audio(webui_settings, player)
+        )
 
         with TestClient(app) as client:
             assert client.get("/api/state").status_code == 200
@@ -125,7 +128,7 @@ class TestOverridesSharing:
         def run(ctx: JobContext) -> None:
             captured.append(ctx.overrides)
 
-        app.state.catalog.register(
+        app.state.backend.catalog.register(
             JobDefinition(
                 name="overrides-probe",
                 label="overrides 配線の確認",
@@ -138,7 +141,7 @@ class TestOverridesSharing:
 
         assert response.status_code == 201, response.text
         wait_until(lambda: bool(captured))
-        assert captured[0] is app.state.overrides
+        assert captured[0] is app.state.backend.overrides
 
 
 class TestDegraded:
@@ -156,7 +159,7 @@ class TestDegraded:
         self, broken_config: Path, app: FastAPI, client: TestClient
     ):
         started: list[bool] = []
-        app.state.catalog.register(
+        app.state.backend.catalog.register(
             JobDefinition(
                 name="degraded-probe",
                 label="degraded の確認",
@@ -291,7 +294,7 @@ class TestReadsFromDiskEveryTime:
         self, config_dir: Path, app: FastAPI, client: TestClient
     ):
         seen: list[float] = []
-        app.state.catalog.register(
+        app.state.backend.catalog.register(
             JobDefinition(
                 name="lift-height-probe",
                 label="lift_height の確認",

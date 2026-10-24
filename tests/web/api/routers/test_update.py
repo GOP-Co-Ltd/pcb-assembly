@@ -28,11 +28,12 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from pcbasm.hal.fake import FakeAudioPlayer
+from tests.support.backend import devices_with_audio
 from tests.support.polling import before_deadline
 from tests.web.update_support import UpdateSandbox, make_update_sandbox
 from web.api.app import create_app
+from web.api.backend import Backend
 from web.api.env import Env
-from web.api.state import AppState
 from web.selfupdate.runner import UpdateRunner
 
 ALICE = {"X-Pcbasm-Session": "alice-session", "X-Pcbasm-Client-Name": quote("田中")}
@@ -56,7 +57,7 @@ def closing_client(
     """使い捨ての backend TestClient（lifespan の終了処理まで走らせる）."""
     app: FastAPI = create_app(
         settings,
-        audio_player=FakeAudioPlayer(),
+        devices=devices_with_audio(settings, FakeAudioPlayer()),
         paste_test_board_footprint_root=footprint_root,
         update_runner=runner,
     )
@@ -79,7 +80,7 @@ def update_app(
     """更新ランナーを差し替えた backend app."""
     return create_app(
         webui_settings,
-        audio_player=FakeAudioPlayer(),
+        devices=devices_with_audio(webui_settings, FakeAudioPlayer()),
         paste_test_board_footprint_root=paste_test_board_footprint_root,
         update_runner=runner,
     )
@@ -211,10 +212,10 @@ class TestRun:
         self, update_client: TestClient, update_app: FastAPI, sandbox: UpdateSandbox
     ):
         """塗布中・ジョブ中は更新しない（全ジョブが装置ロックを取る）."""
-        state: AppState = update_app.state.appstate
+        backend: Backend = update_app.state.backend
         before = sandbox.head()
 
-        with state.machine_lock("pytest-job"):
+        with backend.lock.hold("pytest-job"):
             response = update_client.post(
                 "/api/update/run", headers=ALICE, json={"expected_head": before}
             )

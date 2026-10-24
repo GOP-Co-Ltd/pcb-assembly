@@ -171,9 +171,9 @@ class TestPromptPositiveNumberNotification:
         make_manager: ManagerFactory,
         catalog: JobCatalog,
         wait_until: WaitUntil,
+        audio_player: FakeAudioPlayer,
     ):
-        player = FakeAudioPlayer()
-        manager = make_manager(catalog, audio_player=player)
+        manager = make_manager(catalog)
         answers: list[float | None] = []
 
         def run(ctx: JobContext) -> None:
@@ -189,7 +189,7 @@ class TestPromptPositiveNumberNotification:
 
         assert record.status == JobStatus.SUCCEEDED, record.error
         assert answers == [110.5]
-        assert [sound for sound, *_ in player.played] == ["prompt", "prompt"]
+        assert [sound for sound, *_ in audio_player.played] == ["prompt", "prompt"]
 
 
 class TestLoadingLoopNotification:
@@ -207,9 +207,9 @@ class TestLoadingLoopNotification:
         make_manager: ManagerFactory,
         catalog: JobCatalog,
         wait_until: WaitUntil,
+        audio_player: FakeAudioPlayer,
     ):
-        player = FakeAudioPlayer()
-        manager = make_manager(catalog, audio_player=player)
+        manager = make_manager(catalog)
         klipper = FakeKlipper()
         stage = XYZStage(klipper)
         totals: list[LoadingTotals] = []
@@ -224,7 +224,7 @@ class TestLoadingLoopNotification:
 
         record = manager.start("loading_loop", {})
         # 入口の drain を越えた合図。これを待たずに submit すると破棄されうる
-        wait_until(lambda: len(player.played) == 1)
+        wait_until(lambda: len(audio_player.played) == 1)
 
         manager.submit_command({"type": "extrude", "amount": 0.5})
         wait_until(lambda: any("体積ローディング" in line for line in record.log_lines))
@@ -234,4 +234,4 @@ class TestLoadingLoopNotification:
         assert record.status == JobStatus.SUCCEEDED, record.error
         assert totals == [LoadingTotals(amount_ul=0.5, rotations=0.0)]
         # 押出コマンドを挟んでも入口の 1 回きり
-        assert [sound for sound, *_ in player.played] == ["prompt"]
+        assert [sound for sound, *_ in audio_player.played] == ["prompt"]

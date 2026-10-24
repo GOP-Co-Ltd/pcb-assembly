@@ -1,4 +1,4 @@
-"""MJPEG 配信・オーバーレイ・参照カウント・ジョブ用オーバーライドスロット."""
+"""カメラの FrameHub の寿命（参照カウント）と、MJPEG 配信・オーバーレイ・ジョブ用オーバーライドスロット."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import cv2
 
 from pcbasm.config import MachineConfig
 from pcbasm.hal import FrameHub
+from pcbasm.machine.devices import Devices
 from pcbasm.vision import (
     CameraModel,
     CircleDetector,
@@ -23,7 +24,7 @@ from pcbasm.vision import (
     draw_overlay,
     reference_marker_detector,
 )
-from web.api.state import AppState
+from web.api.machine_config import MachineConfigFile
 
 type OverlayKind = Literal["none", "crosshair", "circle", "copper"]
 type _Renderer = Callable[[Image], Image]
@@ -111,12 +112,13 @@ class _CopperRenderer:
         return self._frame
 
 
-class PreviewService:
-    """MJPEG 配信・オーバーレイ・参照カウント・ジョブ用オーバーライドスロット."""
+class CameraFeed:
+    """FrameHub を MJPEG ストリームとジョブへ参照カウントで貸し出し、配信する画像を組む."""
 
     def __init__(
         self,
-        state: AppState,
+        devices: Devices,
+        machine_config: MachineConfigFile,
         *,
         max_fps: float = 15.0,
         detect_fps: float = 5.0,
@@ -124,17 +126,19 @@ class PreviewService:
         jpeg_quality: int = 80,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        """PreviewService を初期化する.
+        """CameraFeed を初期化する.
 
         Args:
-            state: アプリケーション状態（FrameHub の供給元）
+            devices: 装置（FrameHub の供給元）
+            machine_config: オーバーレイの設定を読む machine.toml
             max_fps: 配信フレームレート上限。実効は min(カメラ fps, max_fps)
             detect_fps: circle / copper 検出の実行上限
             override_ttl: ジョブ提供フレームの優先時間 [sec]
             jpeg_quality: JPEG エンコード品質
             clock: override 期限判定用の単調時刻源（テストでの時刻注入用）
         """
-        self._state = state
+        self._devices = devices
+        self._machine_config = machine_config
         self._max_fps = max_fps
         self._detect_fps = detect_fps
         self._override_ttl = override_ttl
@@ -173,7 +177,7 @@ class PreviewService:
         self._shutdown_requested.set()
 
     @contextlib.contextmanager
-    def hold_camera(self) -> Iterator[FrameHub]:
+    def hold(self) -> Iterator[FrameHub]:
         """参照カウントを保持して FrameHub を貸し出す.
 
         0→1 で hub を start、1→0 で stop する。MJPEG ストリームとジョブが
@@ -207,7 +211,7 @@ class PreviewService:
             canny_low: overlay=copper の Canny 下側閾値（None は machine.toml 値）
             canny_high: overlay=copper の Canny 上側閾値（None は machine.toml 値）
         """
-        with self.hold_camera() as hub:
+        with self.hold() as hub:
             source = hub.subscribe(timeout=1.0)
             renderer = self._build_renderer(overlay, canny_low, canny_high)
             interval = self._emit_interval(source.resolution.fps)
@@ -230,7 +234,7 @@ class PreviewService:
 
     def _acquire(self) -> FrameHub:
         """参照カウントを +1 し、現行 hub を起動して返す（start は冪等）."""
-        hub = self._state.devices.frame_hub()
+        hub = self._devices.frame_hub()
         with self._count_lock:
             self._client_count += 1
             hub.start()
@@ -261,7 +265,7 @@ class PreviewService:
 
     def _crop_size(self) -> tuple[int, int]:
         """machine.toml の [camera.crop] を都度読む（crop 変更の即時反映用）."""
-        return self._state.machine().camera.crop.size
+        return self._machine_config.machine().camera.crop.size
 
     def _build_renderer(
         self,
@@ -277,7 +281,7 @@ class PreviewService:
         if overlay == "none":
             return lambda image: image
 
-        machine = self._state.machine()
+        machine = self._machine_config.machine()
         detect_interval = 1.0 / self._detect_fps
 
         match overlay:

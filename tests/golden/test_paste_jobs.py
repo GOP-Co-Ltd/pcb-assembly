@@ -32,11 +32,11 @@ from tests.golden.conftest import (
 from tests.golden.scenarios import Scenario, scenarios_of
 from tests.support.golden import assert_transcript
 from tests.web.api.jobs.conftest import answer_next_prompt
+from web.api.backend import Backend
 from web.api.env import Env
 from web.api.jobs.manager import JobManager, JobStatus
 from web.api.jobs.pasting.common import LOADING_STAGE
 from web.api.machine_config import MachineConfigFile
-from web.api.state import AppState
 
 
 class CloggedKlipper(FakeKlipper):
@@ -97,7 +97,7 @@ class TestPasteSolder:
     def run(
         self,
         manager: JobManager,
-        job_state: AppState,
+        job_backend: Backend,
         machine_klipper: CloggedKlipper,
         mount_camera: Callable[[Camera], None],
         led_blinker_shapes: list[Polygon],
@@ -114,7 +114,7 @@ class TestPasteSolder:
 
             record = manager.start("paste_solder", {"tolerance": 0.1})
             status = JobStatus.SUCCEEDED if scenario.succeeds else JobStatus.FAILED
-            finish(job_state, record, status)
+            finish(job_backend, record, status)
 
             assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")
 
@@ -164,11 +164,11 @@ class TestPasteSolder:
         self,
         run: Callable[..., None],
         job_settings: Env,
-        job_state: AppState,
+        job_backend: Backend,
         scenario: Scenario,
     ):
         """運転時補正の測定点を塗って撮り、補正した rotations_per_ul で pad を塗る."""
-        enable_flow_calibration(job_settings, job_state, LED_BLINKER)
+        enable_flow_calibration(job_settings, job_backend, LED_BLINKER)
 
         run(scenario)
 
@@ -193,7 +193,7 @@ class TestHeightPlane:
     def test_success(
         self,
         manager: JobManager,
-        job_state: AppState,
+        job_backend: Backend,
         machine_klipper: FakeKlipper,
         mount_camera: Callable[[Camera], None],
         led_blinker_shapes: list[Polygon],
@@ -206,7 +206,7 @@ class TestHeightPlane:
 
         record = manager.start("height_plane", {"tolerance": 0.1})
         answer_next_prompt(record, manager, True, set())
-        finish(job_state, record)
+        finish(job_backend, record)
 
         assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")
 
@@ -229,7 +229,7 @@ class TestToolheadOffset:
     def test_success(
         self,
         manager: JobManager,
-        job_state: AppState,
+        job_backend: Backend,
         machine_klipper: FakeKlipper,
         audio_player: FakeAudioPlayer,
         mount_camera: Callable[[Camera], None],
@@ -244,7 +244,7 @@ class TestToolheadOffset:
         record = manager.start("toolhead_offset", {"point_count": 5})
         wait_operator(record, audio_player, LOADING_STAGE)
         manager.submit_command({"type": "finish"})
-        finish(job_state, record)
+        finish(job_backend, record)
 
         # SceneCamera は machine.toml の toolhead だけずらして塗布痕を描くので、1 画素以内でそれを測り返す
         values = manager.apply_payload().values
@@ -263,7 +263,7 @@ class TestLoading:
     def test_commands(
         self,
         manager: JobManager,
-        job_state: AppState,
+        job_backend: Backend,
         machine_klipper: FakeKlipper,
         audio_player: FakeAudioPlayer,
         scenario: Scenario,
@@ -287,6 +287,6 @@ class TestLoading:
             {"type": "finish"},
         ):
             manager.submit_command(command)
-        finish(job_state, record)
+        finish(job_backend, record)
 
         assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")

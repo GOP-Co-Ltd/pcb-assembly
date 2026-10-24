@@ -7,7 +7,7 @@ HAL はこのパッケージを import しない。
 
 | モジュール       | 役割                                                                                                                                                                                                    |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `devices.py`     | 機体 1 台の装置 `Devices`（Klipper とカメラ）と、それを組む `open_devices`。fake への切替もここで行う                                                                                                   |
+| `devices.py`     | 機体 1 台の装置 `Devices`（Klipper、カメラ、通知音）と、それを組む `open_devices`。fake への切替もここで行う                                                                                            |
 | `journal.py`     | G-code ジャーナル `Journal`。実機へ送ったブロックを実効 timeout の見出し付きで `data/webui/journal/` に追記する                                                                                         |
 | `diagnostics.py` | 装置診断（ジョブ `machine_check`）。Klipper の接続と状態、printer.cfg にジョブの部品が要求する section、カメラの校正（焦点 Z の記録と解像度の一致）、ALSA の再生デバイスを確かめる                      |
 | `commands.py`    | マシン操作パネルの命令 `MachineCommand`（home / jog / move / relax / focus_z / move_to_cap / gcode）と、その G-code を組む `to_gcode`。REST の `/api/machine-control` と対話ジョブの command が共用する |
@@ -15,7 +15,8 @@ HAL はこのパッケージを import しない。
 
 ## 装置（Devices）
 
-- backend は起動時に `Devices` を 1 つ作り、`AppState` が保持する。ジョブは `JobContext.devices` / `JobContext.klipper()` で同じものを使う
+- backend は起動時に `Devices` を 1 つ作り、`Backend` が保持する。ジョブは `JobContext.devices` / `JobContext.klipper()` で同じものを使う
+- 通知音のプレイヤーも `Devices.audio` が持つ（既定は ALSA）。テストは `open_devices(..., audio=FakeAudioPlayer())` か `Devices(..., audio=...)` で差し替え、実スピーカーを鳴らさない
 - 作っただけでは外部装置へ接続しない。Moonraker へは最初の送信か問い合わせで、カメラへは最初の `frame_hub()` で接続する。Moonraker が遅れて起動しても、作り直さずにそのまま使える
 - Klipper の HTTP クライアントは 1 つを使い回す。`klipper(timeout, journal=, endpoint=)` は既定の timeout とジャーナルだけを替えた接続を返す（塗布の本体は None、jog 60 秒、状態 10 秒、駐機 30 秒、Z 取得 5 秒、クリーニングのテスト 90 秒は呼び出し側が渡す）
 - REST は `[klipper]` の接続先を呼ぶたびに読み、ジョブは開始時に読んだ接続先を渡す。接続先が変わればクライアントを作り直す（古いクライアントは実行中のジョブが使っていることがあるので閉じない）

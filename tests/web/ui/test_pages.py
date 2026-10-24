@@ -36,9 +36,9 @@ from fastapi.testclient import TestClient
 from pcbasm.config.fields import setting_fields
 from tests.web.ui.conftest import BACKEND_MACHINE_ID
 from web.api.app import create_app as create_backend_app
+from web.api.backend import Backend
 from web.api.env import Env as ApiEnv
 from web.api.jobs.catalog import JobCatalog, default_catalog
-from web.api.state import AppState
 from web.ui.app import create_app as create_frontend_app
 from web.ui.layout import (
     BULK_PATH,
@@ -124,9 +124,9 @@ def config_dir(backend_settings: ApiEnv) -> Path:
 
 
 @pytest.fixture
-def appstate(backend_app: FastAPI) -> AppState:
-    """上流 backend の AppState（保存済みジョブ既定値の注入に使う）."""
-    return backend_app.state.appstate
+def api_backend(backend_app: FastAPI) -> Backend:
+    """上流 backend の Backend（保存済みジョブ既定値の注入に使う）."""
+    return backend_app.state.backend
 
 
 @pytest.fixture
@@ -195,7 +195,7 @@ def _frontend_over(
     """
     backend = create_backend_app(backend_settings)
     if catalog is not None:
-        backend.state.catalog = catalog
+        backend.state.backend = attrs.evolve(backend.state.backend, catalog=catalog)
     frontend = create_frontend_app(
         ui_settings,
         transport_factory=lambda _endpoint: httpx.ASGITransport(app=backend),
@@ -205,9 +205,7 @@ def _frontend_over(
             yield test_client
     finally:
         # backend の lifespan は ASGITransport では走らないので明示的に後始末する
-        backend.state.preview.request_shutdown()
-        backend.state.jobs.shutdown()
-        backend.state.appstate.close()
+        backend.state.backend.close()
 
 
 class TestPages:
@@ -554,7 +552,7 @@ class TestJobParamForms:
     def test_every_job_param_has_an_input(
         self, client: TestClient, backend_app: FastAPI, tab: str, feature: str
     ):
-        definition = backend_app.state.catalog.get(feature)
+        definition = backend_app.state.backend.catalog.get(feature)
         assert definition is not None, feature
 
         text = client.get(f"/{tab}/{feature}").text
@@ -570,7 +568,7 @@ class TestJobParamForms:
 class TestSavedJobParamDefaults:
     """入力途中の即保存値（param-defaults）が次回描画の default に反映される.
 
-    ページごとに別テンプレートを使うが、`appstate.merge_job_param_defaults` した値が
+    ページごとに別テンプレートを使うが、`api_backend.selection.merge_job_param_defaults` した値が
     `value="..."` に出るという同じ機構で動く。
     """
 
@@ -615,13 +613,13 @@ class TestSavedJobParamDefaults:
     def test_saved_defaults_are_rendered_as_input_values(
         self,
         client: TestClient,
-        appstate: AppState,
+        api_backend: Backend,
         url: str,
         job_name: str,
         defaults: dict[str, float],
         fragments: tuple[str, ...],
     ):
-        appstate.merge_job_param_defaults(job_name, defaults)
+        api_backend.selection.merge_job_param_defaults(job_name, defaults)
 
         text = client.get(url).text
 
@@ -641,7 +639,7 @@ class TestJobDefinitionDrivenContext:
     def test_preview_pane_presence_matches_provides_preview(
         self, client: TestClient, backend_app: FastAPI, feature: str
     ):
-        definition = backend_app.state.catalog.get(feature)
+        definition = backend_app.state.backend.catalog.get(feature)
 
         text = client.get(f"/pasting/{feature}").text
 
@@ -660,7 +658,7 @@ class TestJobDefinitionDrivenContext:
         `"loading-controls" in text` が定数 True になる（検出力ゼロ）。段階文字列と
         `#lc-amount` の value を見て、全 feature で定義との一致を確かめる。
         """
-        definition = backend_app.state.catalog.get(feature)
+        definition = backend_app.state.backend.catalog.get(feature)
 
         text = client.get(f"/pasting/{feature}").text
 
@@ -965,7 +963,7 @@ class TestPasteVolumeCalibrationLoading:
         組む）が渡ったときだけ描かれるので、ParamSpec の名前を変えるとフォーム欄だけが
         増えて操作が効かない状態になる。
         """
-        definition = backend_app.state.catalog.get("paste_volume_calibration")
+        definition = backend_app.state.backend.catalog.get("paste_volume_calibration")
         param_names = {spec.name for spec in definition.params}
 
         text = client.get("/pasting/paste_volume_calibration").text

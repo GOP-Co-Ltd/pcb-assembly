@@ -8,7 +8,7 @@ JobManager だけが生成するため、合成ジョブを manager 経由で実
 - pcb_path は選択 PCB の絶対パス（未選択なら None）
 - board() はファイルが差し替わっていれば読み直す
 - machine は選択マシンの設定、artifacts_dir は data/webui/<job_id>/（作成済み）
-- log / progress は record へ反映、frame は preview のオーバーライドスロットへ
+- log / progress は record へ反映、frame はカメラ（CameraFeed）のオーバーライドスロットへ
 - next_command は timeout 超過で None
 
 prompt / abort 経由の挙動は test_manager.py（respond_prompt / request_abort
@@ -21,18 +21,20 @@ import shutil
 import threading
 from pathlib import Path
 
+import attrs
 import numpy as np
 import pytest
 
 from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.vision import Image
+from tests.support.backend import job_manager
 from tests.web.api.conftest import COPPER_PCB_FIXTURE, decode_jpeg, jpeg_payload
+from web.api.backend import Backend
+from web.api.camera import CameraFeed
 from web.api.env import Env
 from web.api.jobs.catalog import JobCatalog, ParamSpec
 from web.api.jobs.context import JobContext
 from web.api.jobs.manager import JobManager, JobStatus
-from web.api.preview import PreviewService
-from web.api.state import AppState
 
 from .conftest import WaitUntil, register_synthetic as _register
 
@@ -66,11 +68,11 @@ class TestContextProperties:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        state: AppState,
+        camera_backend: Backend,
         real_pcb_path: Path,
         wait_until: WaitUntil,
     ):
-        state.select_pcb(real_pcb_path)
+        camera_backend.selection.select(real_pcb_path)
         captured: list[Path | None] = []
 
         def run(ctx: JobContext) -> None:
@@ -137,12 +139,11 @@ class TestBoardSettingsWiring:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        state: AppState,
-        overrides: BoardOverrides,
+        camera_backend: Backend,
         real_pcb_path: Path,
         wait_until: WaitUntil,
     ):
-        state.select_pcb(real_pcb_path)
+        camera_backend.selection.select(real_pcb_path)
         captured: list[tuple[str | None, BoardOverrides | None]] = []
 
         def run(ctx: JobContext) -> None:
@@ -157,7 +158,7 @@ class TestBoardSettingsWiring:
         # pcb_browse_root からの相対 posix パス（絶対パスではない）
         assert source_pcb == real_pcb_path.as_posix()
         # 注入した同一インスタンス（等価ではなく同一性）
-        assert ctx_overrides is overrides
+        assert ctx_overrides is camera_backend.overrides
 
 
 class TestBoard:
@@ -167,12 +168,12 @@ class TestBoard:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        state: AppState,
+        camera_backend: Backend,
         pcb_root: Path,
         real_pcb_path: Path,
         wait_until: WaitUntil,
     ):
-        state.select_pcb(real_pcb_path)
+        camera_backend.selection.select(real_pcb_path)
         captured: list[set[str]] = []
 
         def run(ctx: JobContext) -> None:
@@ -234,20 +235,20 @@ class TestLogAndProgress:
 
 
 class TestFrame:
-    """Frame → PreviewService オーバーライドスロット（公開挙動 = MJPEG 配信）."""
+    """Frame → CameraFeed オーバーライドスロット（公開挙動 = MJPEG 配信）."""
 
     def test_frame_takes_priority_over_camera_in_stream(
         self,
-        state: AppState,
+        camera_backend: Backend,
         catalog: JobCatalog,
-        fake_camera_settings: Env,
-        overrides: BoardOverrides,
         wait_until: WaitUntil,
     ):
-        # TTL を長くした PreviewService で「直近のジョブ提供フレーム優先」を
+        # TTL を長くした CameraFeed で「直近のジョブ提供フレーム優先」を
         # 決定的に観測する
-        preview = PreviewService(state, override_ttl=60.0)
-        manager = JobManager(state, preview, catalog, fake_camera_settings, overrides)
+        camera = CameraFeed(
+            camera_backend.devices, camera_backend.machine_config, override_ttl=60.0
+        )
+        manager = job_manager(attrs.evolve(camera_backend, camera=camera), catalog)
         frame_sent = threading.Event()
         gate = threading.Event()
         magenta = np.zeros((48, 64, 3), dtype=np.uint8)
@@ -263,7 +264,7 @@ class TestFrame:
         try:
             assert frame_sent.wait(timeout=10.0)
 
-            stream = preview.mjpeg_stream("none")
+            stream = camera.mjpeg_stream("none")
             try:
                 part = next(stream)
             finally:
@@ -285,15 +286,15 @@ class TestOpenCamera:
     """open_camera（Phase 4: bridge.hold_camera 経由のカメラ貸し出し）.
 
     計画書 webui-phase4.md「src/webui/jobs/context.py」節が契約: open_camera は
-    カメラパイプラインを起動保持して FrameSource を貸し、退出で解放する。 PreviewService
-    と参照カウントを共有する（共有側の検証は test_preview.py）。
+    カメラパイプラインを起動保持して FrameSource を貸し、退出で解放する。 CameraFeed
+    と参照カウントを共有する（共有側の検証は test_camera.py）。
     """
 
     def test_open_camera_lends_capturable_camera_and_releases_hub(
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        state: AppState,
+        camera_backend: Backend,
         wait_until: WaitUntil,
     ):
         sizes: list[tuple[int, int]] = []
@@ -302,7 +303,7 @@ class TestOpenCamera:
         def run(ctx: JobContext) -> None:
             with ctx.open_camera() as camera:
                 sizes.append(camera.capture().size)
-                running_during.append(state.devices.frame_hub().running)
+                running_during.append(camera_backend.devices.frame_hub().running)
 
         _register(catalog, run)
         record = manager.start("synthetic", {})
@@ -311,13 +312,15 @@ class TestOpenCamera:
         assert record.status == JobStatus.SUCCEEDED
         assert sizes == [(1280, 720)]  # fake_camera.png のフレームが capture できる
         assert running_during == [True]
-        assert not state.devices.frame_hub().running  # 退出で解放（参照 0 で停止）
+        assert (
+            not camera_backend.devices.frame_hub().running
+        )  # 退出で解放（参照 0 で停止）
 
     def test_open_camera_releases_hub_when_job_fails_inside(
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        state: AppState,
+        camera_backend: Backend,
         wait_until: WaitUntil,
     ):
         """With ブロック内の例外でも hub は解放される（FAILED で停止漏れなし）."""
@@ -331,7 +334,7 @@ class TestOpenCamera:
         wait_until(lambda: record.status.terminal)
 
         assert record.status == JobStatus.FAILED
-        assert not state.devices.frame_hub().running
+        assert not camera_backend.devices.frame_hub().running
 
 
 class TestNextCommand:

@@ -29,7 +29,7 @@ from fastapi.testclient import TestClient
 
 from pcbasm.config import MachineConfig, load_machine
 from pcbasm.config.fields import setting_fields
-from web.api.state import AppState
+from web.api.backend import Backend
 
 
 class TestPasteSettingsValidation:
@@ -394,8 +394,8 @@ class TestMachineSettingsApi:
         assert top_left["value_type"] == "float_pair"
         assert fields["reference_point.offsets.bottom_right"]["value"] == [-5.0, 5.0]
 
-    def test_put_while_busy_returns_409(self, client: TestClient, appstate: AppState):
-        with appstate.machine_lock("pytest-job"):
+    def test_put_while_busy_returns_409(self, client: TestClient, backend: Backend):
+        with backend.lock.hold("pytest-job"):
             response = client.put(
                 "/api/settings/machine",
                 json={"values": {"paste_dispenser.motion.max_fill_speed": 0.9}},
@@ -449,9 +449,9 @@ class TestCameraSettingsRebuild:
     """
 
     def test_put_camera_key_rebuilds_frame_hub(
-        self, fake_camera_client: TestClient, fake_camera_appstate: AppState
+        self, fake_camera_client: TestClient, fake_camera_backend: Backend
     ):
-        hub = fake_camera_appstate.devices.frame_hub()
+        hub = fake_camera_backend.devices.frame_hub()
 
         response = fake_camera_client.put(
             "/api/settings/machine",
@@ -459,12 +459,12 @@ class TestCameraSettingsRebuild:
         )
 
         assert response.status_code == 200
-        assert fake_camera_appstate.devices.frame_hub() is not hub
+        assert fake_camera_backend.devices.frame_hub() is not hub
 
     def test_put_without_camera_key_keeps_frame_hub(
-        self, fake_camera_client: TestClient, fake_camera_appstate: AppState
+        self, fake_camera_client: TestClient, fake_camera_backend: Backend
     ):
-        hub = fake_camera_appstate.devices.frame_hub()
+        hub = fake_camera_backend.devices.frame_hub()
 
         response = fake_camera_client.put(
             "/api/settings/machine",
@@ -472,13 +472,13 @@ class TestCameraSettingsRebuild:
         )
 
         assert response.status_code == 200
-        assert fake_camera_appstate.devices.frame_hub() is hub
+        assert fake_camera_backend.devices.frame_hub() is hub
 
     def test_put_camera_crop_key_keeps_frame_hub(
-        self, fake_camera_client: TestClient, fake_camera_appstate: AppState
+        self, fake_camera_client: TestClient, fake_camera_backend: Backend
     ):
         """Crop は camera.* 前置だが再構築しない（ストリーム非切断の要件）."""
-        hub = fake_camera_appstate.devices.frame_hub()
+        hub = fake_camera_backend.devices.frame_hub()
 
         response = fake_camera_client.put(
             "/api/settings/machine",
@@ -486,14 +486,14 @@ class TestCameraSettingsRebuild:
         )
 
         assert response.status_code == 200, response.text
-        assert fake_camera_appstate.devices.frame_hub() is hub
+        assert fake_camera_backend.devices.frame_hub() is hub
 
     def test_put_camera_crop_and_other_camera_key_rebuilds_frame_hub(
-        self, fake_camera_client: TestClient, fake_camera_appstate: AppState
+        self, fake_camera_client: TestClient, fake_camera_backend: Backend
     ):
         """Camera.crop.* と他の camera.* キーが混在した PUT では再構築する（camera.crop.* 以外の
         camera.* が 1 つでも含まれていれば rebuild する境界のピン）."""
-        hub = fake_camera_appstate.devices.frame_hub()
+        hub = fake_camera_backend.devices.frame_hub()
 
         response = fake_camera_client.put(
             "/api/settings/machine",
@@ -501,7 +501,7 @@ class TestCameraSettingsRebuild:
         )
 
         assert response.status_code == 200, response.text
-        assert fake_camera_appstate.devices.frame_hub() is not hub
+        assert fake_camera_backend.devices.frame_hub() is not hub
 
 
 class TestConfigHistoryApi:
@@ -527,17 +527,17 @@ class TestConfigHistoryApi:
     def test_restore_rebuilds_frame_hub(
         self,
         fake_camera_client: TestClient,
-        fake_camera_appstate: AppState,
+        fake_camera_backend: Backend,
     ):
         fake_camera_client.put(
             "/api/settings/machine", json={"values": {"camera.fps": 20.0}}
         )
         [entry] = fake_camera_client.get("/api/settings/history").json()["entries"]
-        hub = fake_camera_appstate.devices.frame_hub()
+        hub = fake_camera_backend.devices.frame_hub()
 
         fake_camera_client.post(f"/api/settings/history/{entry['name']}/restore")
 
-        assert fake_camera_appstate.devices.frame_hub() is not hub
+        assert fake_camera_backend.devices.frame_hub() is not hub
 
     def test_unknown_snapshot_returns_404(self, client: TestClient):
         response = client.post("/api/settings/history/machine-missing.toml/restore")
@@ -545,7 +545,7 @@ class TestConfigHistoryApi:
         assert response.status_code == 404
 
     def test_restore_while_busy_returns_409(
-        self, client: TestClient, appstate: AppState, config_dir: Path
+        self, client: TestClient, backend: Backend, config_dir: Path
     ):
         client.put(
             "/api/settings/machine",
@@ -554,7 +554,7 @@ class TestConfigHistoryApi:
         [entry] = client.get("/api/settings/history").json()["entries"]
         written = (config_dir / "machine.toml").read_bytes()
 
-        with appstate.machine_lock("pytest-job"):
+        with backend.lock.hold("pytest-job"):
             response = client.post(f"/api/settings/history/{entry['name']}/restore")
 
         assert response.status_code == 409

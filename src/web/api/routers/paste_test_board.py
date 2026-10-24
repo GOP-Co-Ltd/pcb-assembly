@@ -39,7 +39,7 @@ from pcbasm.pasting.test_board.layout import (
     PatternLayout,
 )
 from web.api.attrs_models import mirror_model
-from web.api.dependencies import BoardGeneratorDep
+from web.api.deps import BoardGeneratorDep
 
 router = APIRouter(
     prefix="/api/pasting/paste-test-board",

@@ -204,7 +204,7 @@ class TestDiscoveryIsolation:
     """
 
     def test_app_built_from_the_fixture_has_no_advertiser(self, app: FastAPI):
-        assert app.state.advertiser is None
+        assert app.state.backend.advertiser is None
 
     def test_app_built_from_env_has_no_advertiser(
         self,
@@ -219,7 +219,7 @@ class TestDiscoveryIsolation:
         なので、そこが外れたらここが落ちる（外れると env から Env を組む既存
         テストが運用サービス型で全 IF に広告を出す）。
 
-        lifespan は起動しない（`TestClient` を被せない）。`app.state.advertiser` は
+        lifespan は起動しない（`TestClient` を被せない）。`app.state.backend.advertiser` は
         `create_app` が設定し `_lifespan` は start / stop するだけなので、起動すると
         この見張りが守っている性質そのもの（実 LAN に広告を出さない）を破る。
         """
@@ -228,4 +228,4 @@ class TestDiscoveryIsolation:
 
         app = create_app(Env.from_env())
 
-        assert app.state.advertiser is None
+        assert app.state.backend.advertiser is None

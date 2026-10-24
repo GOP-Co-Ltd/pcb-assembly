@@ -1,4 +1,4 @@
-"""`web.api.preview.PreviewService` の仕様テスト.
+"""`web.api.camera.CameraFeed` の仕様テスト.
 
 計画書「`src/webui/preview.py`」節 + spec §7 が契約:
 
@@ -21,17 +21,18 @@
 
 import contextlib
 from collections.abc import Iterator
+from pathlib import Path
 
-import attrs
 import numpy as np
 import pytest
 
+from pcbasm.machine.devices import open_devices
 from pcbasm.vision import Image, ImageArray
 from tests.support.paths import TESTING_DATA_DIR
+from web.api.backend import Backend
+from web.api.camera import CameraFeed
 from web.api.env import Env
 from web.api.machine_config import MachineConfigFile
-from web.api.preview import PreviewService
-from web.api.state import AppState
 
 from .conftest import decode_jpeg, jpeg_payload
 
@@ -41,24 +42,33 @@ REFLECTIVE_BOARD_IMAGE = (
 
 
 @pytest.fixture
-def service(state: AppState) -> PreviewService:
-    return PreviewService(state)
+def service(camera_backend: Backend) -> CameraFeed:
+    return camera_backend.camera
+
+
+@contextlib.contextmanager
+def _feed_of(
+    image: Path, env: Env, machine_config: MachineConfigFile
+) -> Iterator[CameraFeed]:
+    """``image`` を返し続ける FakeCamera を配信する CameraFeed."""
+    devices = open_devices(
+        machine_config.path, env.journal_dir, fake=False, camera_image=image
+    )
+    try:
+        yield CameraFeed(devices, machine_config)
+    finally:
+        devices.close()
 
 
 @pytest.fixture
 def reflective_board_service(
     fake_camera_settings: Env, machine_config: MachineConfigFile
-):
-    """実撮像 PNG を FakeCamera で配信する PreviewService."""
-    settings = attrs.evolve(
-        fake_camera_settings,
-        fake_camera_image=REFLECTIVE_BOARD_IMAGE,
-    )
-    state = AppState(settings, machine_config)
-    try:
-        yield PreviewService(state)
-    finally:
-        state.close()
+) -> Iterator[CameraFeed]:
+    """実撮像 PNG を FakeCamera で配信する CameraFeed."""
+    with _feed_of(
+        REFLECTIVE_BOARD_IMAGE, fake_camera_settings, machine_config
+    ) as service:
+        yield service
 
 
 def _decoded_frame(part: bytes) -> ImageArray:
@@ -88,9 +98,7 @@ def _green_dominant_count_near_column(
 class TestMjpegStream:
     """MJPEG 配信と参照カウント."""
 
-    def test_stream_yields_decodable_multipart_jpeg_parts(
-        self, service: PreviewService
-    ):
+    def test_stream_yields_decodable_multipart_jpeg_parts(self, service: CameraFeed):
         stream = service.mjpeg_stream("none")
         try:
             parts = [next(stream) for _ in range(3)]
@@ -102,21 +110,21 @@ class TestMjpegStream:
             assert _decoded_frame(part).shape == (720, 1280, 3)
 
     def test_reference_count_tracks_stream_lifecycle(
-        self, service: PreviewService, state: AppState
+        self, service: CameraFeed, camera_backend: Backend
     ):
         stream = service.mjpeg_stream("none")
         next(stream)
 
         assert service.client_count == 1
-        assert state.devices.frame_hub().running
+        assert camera_backend.devices.frame_hub().running
 
         stream.close()
 
         assert service.client_count == 0
-        assert not state.devices.frame_hub().running
+        assert not camera_backend.devices.frame_hub().running
 
     def test_shutdown_request_ends_stream_and_releases_camera(
-        self, service: PreviewService, state: AppState
+        self, service: CameraFeed, camera_backend: Backend
     ):
         stream = service.mjpeg_stream("none")
         next(stream)
@@ -126,10 +134,10 @@ class TestMjpegStream:
         with pytest.raises(StopIteration):
             next(stream)
         assert service.client_count == 0
-        assert not state.devices.frame_hub().running
+        assert not camera_backend.devices.frame_hub().running
 
     def test_parallel_streams_share_hub_until_last_close(
-        self, service: PreviewService, state: AppState
+        self, service: CameraFeed, camera_backend: Backend
     ):
         stream_a = service.mjpeg_stream("none")
         stream_b = service.mjpeg_stream("none")
@@ -140,32 +148,32 @@ class TestMjpegStream:
         stream_a.close()
 
         assert service.client_count == 1
-        assert state.devices.frame_hub().running
+        assert camera_backend.devices.frame_hub().running
 
         stream_b.close()
 
         assert service.client_count == 0
-        assert not state.devices.frame_hub().running
+        assert not camera_backend.devices.frame_hub().running
 
     def test_camera_construction_failure_propagates(
-        self, fake_camera_settings: Env, config_dir, tmp_path
+        self,
+        fake_camera_settings: Env,
+        machine_config: MachineConfigFile,
+        tmp_path: Path,
     ):
-        settings = attrs.evolve(
-            fake_camera_settings, fake_camera_image=tmp_path / "missing.png"
-        )
-        state = AppState(settings, MachineConfigFile(config_dir))
-        service = PreviewService(state)
+        with _feed_of(
+            tmp_path / "missing.png", fake_camera_settings, machine_config
+        ) as service:
+            stream = service.mjpeg_stream("none")
 
-        stream = service.mjpeg_stream("none")
-
-        with pytest.raises(FileNotFoundError):
-            next(stream)
+            with pytest.raises(FileNotFoundError):
+                next(stream)
 
 
 class TestOverlays:
     """オーバーレイ描画（描画有無のスモーク。座標の厳密検証はしない）."""
 
-    def test_crosshair_overlay_draws_green_marks(self, service: PreviewService):
+    def test_crosshair_overlay_draws_green_marks(self, service: CameraFeed):
         stream = service.mjpeg_stream("crosshair")
         try:
             frame = _decoded_frame(next(stream))
@@ -175,7 +183,7 @@ class TestOverlays:
         assert _count_dominant(frame, channel=1) > 100
 
     def test_crosshair_crop_change_reflects_in_next_frame_without_reconnect(
-        self, service: PreviewService, machine_config: MachineConfigFile
+        self, service: CameraFeed, machine_config: MachineConfigFile
     ):
         """ストリーム継続中の crop 変更が、再接続なしで次フレームの ROI 枠へ反映される.
 
@@ -195,7 +203,7 @@ class TestOverlays:
         finally:
             stream.close()
 
-    def test_copper_overlay_marks_edges_green(self, service: PreviewService):
+    def test_copper_overlay_marks_edges_green(self, service: CameraFeed):
         # canny 既定値は machine.toml の [alignment]（81 / 192）。固定画像の
         # 矩形・直線パターンのエッジが緑で重畳される
         stream = service.mjpeg_stream("copper")
@@ -207,7 +215,7 @@ class TestOverlays:
         assert _count_dominant(frame, channel=1) > 500
 
     def test_copper_overlay_uses_gray_processed_background_and_green_edges(
-        self, reflective_board_service: PreviewService
+        self, reflective_board_service: CameraFeed
     ):
         stream = reflective_board_service.mjpeg_stream("copper")
         try:
@@ -226,7 +234,7 @@ class TestOverlays:
         background_chroma = np.ptp(planes[~green], axis=1)
         assert np.quantile(background_chroma, 0.95) < 15
 
-    def test_circle_overlay_draws_red_circle(self, service: PreviewService):
+    def test_circle_overlay_draws_red_circle(self, service: CameraFeed):
         # 固定画像の直径 120px 円が検出され、赤の円描画が乗る
         stream = service.mjpeg_stream("circle")
         try:
@@ -239,7 +247,7 @@ class TestOverlays:
     @pytest.mark.parametrize(("tolerance_mm", "drawn"), [(0.5, False), (1.0, True)])
     def test_circle_overlay_uses_the_job_tolerance(
         self,
-        service: PreviewService,
+        service: CameraFeed,
         machine_config: MachineConfigFile,
         tolerance_mm: float,
         drawn: bool,
@@ -275,10 +283,15 @@ class _ManualClock:
 
 @contextlib.contextmanager
 def _override_setup(
-    state: AppState, clock: _ManualClock, override_ttl: float
-) -> Iterator[tuple[PreviewService, Image, Iterator[bytes]]]:
+    backend: Backend, clock: _ManualClock, override_ttl: float
+) -> Iterator[tuple[CameraFeed, Image, Iterator[bytes]]]:
     """Override スロット検証の共通セットアップ（service + magenta + 開始済み stream）."""
-    service = PreviewService(state, override_ttl=override_ttl, clock=clock)
+    service = CameraFeed(
+        backend.devices,
+        backend.machine_config,
+        override_ttl=override_ttl,
+        clock=clock,
+    )
     magenta = Image(np.full((720, 1280, 3), (255, 0, 255), dtype=np.uint8))
     stream = service.mjpeg_stream("none")
     try:
@@ -291,9 +304,9 @@ def _override_setup(
 class TestOverrideSlot:
     """ジョブ用オーバーライドスロット（Phase 3 の ctx.frame の受け口）."""
 
-    def test_override_frame_takes_priority(self, state: AppState):
+    def test_override_frame_takes_priority(self, camera_backend: Backend):
         clock = _ManualClock()
-        with _override_setup(state, clock, override_ttl=0.2) as (
+        with _override_setup(camera_backend, clock, override_ttl=0.2) as (
             service,
             magenta,
             stream,
@@ -305,9 +318,9 @@ class TestOverrideSlot:
         assert frame[..., 1].mean() < 50  # G
         assert frame[..., 2].mean() > 200  # R
 
-    def test_override_expires_after_ttl(self, state: AppState):
+    def test_override_expires_after_ttl(self, camera_backend: Backend):
         clock = _ManualClock()
-        with _override_setup(state, clock, override_ttl=0.2) as (
+        with _override_setup(camera_backend, clock, override_ttl=0.2) as (
             service,
             magenta,
             stream,
@@ -319,9 +332,9 @@ class TestOverrideSlot:
         # 生フレーム（明るい無彩色の基板風画像）に戻っている
         assert frame[..., 1].mean() > 100
 
-    def test_persistent_override_stays_until_cleared(self, state: AppState):
+    def test_persistent_override_stays_until_cleared(self, camera_backend: Backend):
         clock = _ManualClock()
-        with _override_setup(state, clock, override_ttl=0.05) as (
+        with _override_setup(camera_backend, clock, override_ttl=0.05) as (
             service,
             magenta,
             stream,
@@ -342,53 +355,54 @@ class TestOverrideSlot:
 class TestHoldCamera:
     """ジョブ用のカメラ保持（Phase 4: JobContext.open_camera の受け口）.
 
-    計画書 webui-phase4.md「src/webui/preview.py」節が契約: hold_camera は
-    参照カウントを保持して FrameHub を貸し出し（0→1 で start、1→0 で stop）、 MJPEG
-    ストリームと同一カウントを共有する。
+    計画書 webui-phase4.md「src/webui/preview.py」節が契約: hold は 参照カウントを保持して
+    FrameHub を貸し出し（0→1 で start、1→0 で stop）、 MJPEG ストリームと同一カウントを共有する。
     """
 
     def test_hold_starts_hub_and_stops_on_exit(
-        self, service: PreviewService, state: AppState
+        self, service: CameraFeed, camera_backend: Backend
     ):
-        with service.hold_camera() as hub:
+        with service.hold() as hub:
             assert hub.running
-            assert state.devices.frame_hub().running
+            assert camera_backend.devices.frame_hub().running
 
-        assert not state.devices.frame_hub().running
+        assert not camera_backend.devices.frame_hub().running
 
     def test_hold_keeps_hub_running_after_stream_closes(
-        self, service: PreviewService, state: AppState
+        self, service: CameraFeed, camera_backend: Backend
     ):
         """Preview クライアントの切断でジョブ使用中の hub は止まらない."""
         stream = service.mjpeg_stream("none")
         next(stream)
 
-        with service.hold_camera():
+        with service.hold():
             stream.close()
-            assert state.devices.frame_hub().running  # ジョブが保持している間は稼働
+            assert (
+                camera_backend.devices.frame_hub().running
+            )  # ジョブが保持している間は稼働
 
-        assert not state.devices.frame_hub().running
+        assert not camera_backend.devices.frame_hub().running
 
     def test_stream_keeps_hub_running_after_hold_exits(
-        self, service: PreviewService, state: AppState
+        self, service: CameraFeed, camera_backend: Backend
     ):
         """逆方向: ジョブ解放後も preview クライアントが残れば hub は止まらない."""
         stream = service.mjpeg_stream("none")
         next(stream)
 
-        with service.hold_camera():
+        with service.hold():
             pass
 
-        assert state.devices.frame_hub().running
+        assert camera_backend.devices.frame_hub().running
         stream.close()
-        assert not state.devices.frame_hub().running
+        assert not camera_backend.devices.frame_hub().running
 
     def test_nested_holds_release_only_at_zero(
-        self, service: PreviewService, state: AppState
+        self, service: CameraFeed, camera_backend: Backend
     ):
-        with service.hold_camera():
-            with service.hold_camera():
-                assert state.devices.frame_hub().running
-            assert state.devices.frame_hub().running
+        with service.hold():
+            with service.hold():
+                assert camera_backend.devices.frame_hub().running
+            assert camera_backend.devices.frame_hub().running
 
-        assert not state.devices.frame_hub().running
+        assert not camera_backend.devices.frame_hub().running

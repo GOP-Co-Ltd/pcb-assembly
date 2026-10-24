@@ -35,8 +35,8 @@ from shapely import Polygon
 from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.pasting.params import PASTE_PARAM_NAMES
 from tests.web.api.conftest import COPPER_PCB_FIXTURE, REAL_PCB_FIXTURE
+from web.api.backend import Backend
 from web.api.env import Env
-from web.api.state import AppState
 
 # selected_client が選ぶ PCB（copper_pcb_path）。PATCH の expected_pcb に添える
 _SELECTED_PCB = "real/led_blinker.kicad_pcb"
@@ -46,10 +46,10 @@ _U1_PADS = {f"U1.{n}" for n in range(1, 7)}  # U1 は 6 pad、全て同形状（
 
 @pytest.fixture
 def selected_client(
-    client: TestClient, appstate: AppState, copper_pcb_path: Path
+    client: TestClient, backend: Backend, copper_pcb_path: Path
 ) -> TestClient:
     """led_blinker を選択済みの TestClient."""
-    appstate.select_pcb(copper_pcb_path)
+    backend.selection.select(copper_pcb_path)
     return client
 
 
@@ -1100,12 +1100,12 @@ class TestExportImport:
             assert _pad_by_id(config, "U1.1")["resolved"]["prime_extra_delay"] == 0.3
 
     def test_export_filename_keeps_non_ascii_board_name(
-        self, client: TestClient, appstate: AppState, pcb_root: Path
+        self, client: TestClient, backend: Backend, pcb_root: Path
     ):
         japanese = pcb_root / "real" / "日本語基板.kicad_pcb"
         japanese.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(COPPER_PCB_FIXTURE, japanese)
-        appstate.select_pcb(japanese.relative_to(pcb_root))
+        backend.selection.select(japanese.relative_to(pcb_root))
 
         response = client.get("/api/pasting/pad-config/export")
 

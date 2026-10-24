@@ -25,6 +25,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from pcbasm.hal.fake import FakeAudioPlayer
+from tests.support.backend import devices_with_audio
 from tests.support.polling import before_deadline
 from tests.web.update_support import UpdateSandbox, make_update_sandbox
 from web.api.app import create_app as create_backend_app
@@ -263,7 +264,7 @@ class TestUpdateNotice:
         """Frontend も機体 backend も sandbox のリポジトリを見る構成を組む."""
         backend = create_backend_app(
             backend_settings,
-            audio_player=FakeAudioPlayer(),
+            devices=devices_with_audio(backend_settings, FakeAudioPlayer()),
             paste_test_board_footprint_root=footprint_root,
             update_runner=machine_runner,
         )
@@ -276,9 +277,7 @@ class TestUpdateNotice:
             with TestClient(app) as test_client:
                 yield test_client
         finally:
-            backend.state.preview.request_shutdown()
-            backend.state.jobs.shutdown()
-            backend.state.appstate.close()
+            backend.state.backend.close()
 
     @pytest.fixture
     def notice_client(

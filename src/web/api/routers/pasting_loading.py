@@ -7,7 +7,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from pcbasm.pasting.dispense_calibration.mass import MassFlowEstimate
-from web.api.dependencies import StateDep
+from web.api.deps import MachineConfigDep
 
 router = APIRouter(prefix="/api")
 
@@ -23,7 +23,7 @@ class LoadingCalibrationResult(BaseModel):
 
 @router.get("/pasting/loading/calibration")
 def get_loading_calibration(
-    state: StateDep,
+    machine_config: MachineConfigDep,
     mass_mg: float = 0.0,
     rotations: float = 0.0,
     rate: float = 0.0,
@@ -35,7 +35,7 @@ def get_loading_calibration(
     非正・非有限入力や表現不能な算出値は ``None`` で返す（エラーにしない）。算出は
     :meth:`pcbasm.pasting.dispense_calibration.mass.MassFlowEstimate.estimate` へ委譲する（丸め済み）。
     """
-    density = state.machine().paste_dispenser.solder_paste_density
+    density = machine_config.machine().paste_dispenser.solder_paste_density
     estimate = MassFlowEstimate.estimate(
         mass_mg=mass_mg,
         rotations=rotations,

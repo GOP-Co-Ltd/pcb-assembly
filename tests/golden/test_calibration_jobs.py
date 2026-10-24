@@ -52,13 +52,13 @@ from tests.support.golden import assert_document, assert_transcript
 from tests.support.paste_session import full_board_correction
 from tests.support.paths import TESTING_DATA_DIR
 from tests.web.api.jobs.conftest import answer_next_prompt, register_synthetic
+from web.api.backend import Backend
 from web.api.env import Env
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.context import JobContext
 from web.api.jobs.manager import JobManager, JobRecord
 from web.api.jobs.pasting.common import LOADING_STAGE
 from web.api.jobs.pasting.dispense_calibration import CALIBRATION_MENU_STAGE
-from web.api.state import AppState
 
 ARTIFACTS = GOLDEN_DIR / "artifacts"
 PENDING_PIN = TESTING_DATA_DIR / "schemas" / "paste_dataset_pending_v1.json"
@@ -81,14 +81,14 @@ def _mask_created_at(calibration: dict[str, Any]) -> dict[str, Any]:
 
 @pytest.fixture
 def plate_shapes(
-    tmp_path: Path, job_state: AppState
+    tmp_path: Path, job_backend: Backend
 ) -> Callable[[float, float], list[Polygon]]:
     """ジョブがその場で作る銅板（外形だけ）を置いたときの基準円を返す関数を返す."""
 
     def shapes(width: float, height: float) -> list[Polygon]:
         path = tmp_path / f"plate_{width:g}x{height:g}.kicad_pcb"
         save_board(generate_rect_pcb(width, height), path)
-        return board_shapes(load_board(path), job_state.machine())
+        return board_shapes(load_board(path), job_backend.machine_config.machine())
 
     return shapes
 
@@ -100,7 +100,7 @@ class TestDispenseCalibration:
     def test_all(
         self,
         manager: JobManager,
-        job_state: AppState,
+        job_backend: Backend,
         machine_klipper: FakeKlipper,
         audio_player: FakeAudioPlayer,
         mount_camera: Callable[[Camera], None],
@@ -132,9 +132,9 @@ class TestDispenseCalibration:
         # ③ 速度を振った線を引き、きれいに引けた最大の番号を選ぶ
         answer_next_prompt(record, manager, "3: 6.40 mm/s", answered)
         manager.submit_command({"type": "run_calib", "which": "finish"})
-        finish(job_state, record)
+        finish(job_backend, record)
 
-        dispenser = job_state.machine().paste_dispenser
+        dispenser = job_backend.machine_config.machine().paste_dispenser
         assert dispenser.rotations_per_ul == pytest.approx(48.07229)
         assert dispenser.motion.max_dispense_rate == 3.0
         assert dispenser.motion.max_fill_speed == pytest.approx(6.4)
@@ -150,7 +150,7 @@ class TestPasteVolumeCalibration:
     def test_small_grid(
         self,
         manager: JobManager,
-        job_state: AppState,
+        job_backend: Backend,
         job_settings: Env,
         machine_klipper: FakeKlipper,
         audio_player: FakeAudioPlayer,
@@ -185,7 +185,7 @@ class TestPasteVolumeCalibration:
         manager.submit_command({"type": "extrude", "amount": 0.1})
         manager.submit_command({"type": "finish"})
         answer_next_prompt(record, manager, 2.4, answered, timeout=120.0)
-        finish(job_state, record)
+        finish(job_backend, record)
 
         assert (job_settings.paste_volume_calibration_dir / SAVE_NAME).is_file()
         (metadata,) = job_settings.paste_dataset_dir.glob("*/metadata.json")
@@ -210,14 +210,14 @@ class TestFlowCalibration:
         manager: JobManager,
         catalog: JobCatalog,
         job_settings: Env,
-        job_state: AppState,
+        job_backend: Backend,
         machine_klipper: FakeKlipper,
         mount_camera: Callable[[Camera], None],
         led_blinker_shapes: list[Polygon],
         scenario: Scenario,
     ):
         """paste_solder の運転時補正だけを合成ジョブで走らせ、rotations_per_ul の補正値を出す."""
-        enable_flow_calibration(job_settings, job_state, LED_BLINKER)
+        enable_flow_calibration(job_settings, job_backend, LED_BLINKER)
         mount_camera(
             scene_camera(machine_klipper, scenario.rotation, shapes=led_blinker_shapes)
         )
@@ -256,7 +256,7 @@ class TestFlowCalibration:
                     )
 
         register_synthetic(catalog, run, name="flow_calibration")
-        finish(job_state, manager.start("flow_calibration", {}))
+        finish(job_backend, manager.start("flow_calibration", {}))
 
         (outcome,) = outcomes
         assert outcome is not None
@@ -270,7 +270,7 @@ class TestPasteVolumeRefit:
     def test_sends_nothing_and_writes_calibration(
         self,
         manager: JobManager,
-        job_state: AppState,
+        job_backend: Backend,
         job_settings: Env,
         machine_klipper: FakeKlipper,
     ):
@@ -281,7 +281,7 @@ class TestPasteVolumeRefit:
 
         record = manager.start("paste_volume_refit", {"save_name": SAVE_NAME})
         answer_next_prompt(record, manager, session.name, set())
-        finish(job_state, record)
+        finish(job_backend, record)
 
         assert machine_klipper.sent == ()
         path = job_settings.paste_volume_calibration_dir / SAVE_NAME
@@ -297,7 +297,7 @@ class TestPasteDatasetFinalize:
     def test_sends_nothing_and_writes_metadata(
         self,
         manager: JobManager,
-        job_state: AppState,
+        job_backend: Backend,
         job_settings: Env,
         machine_klipper: FakeKlipper,
     ):
@@ -315,7 +315,7 @@ class TestPasteDatasetFinalize:
 
         record = manager.start("paste_dataset_finalize", {"measured_mass": 0.945})
         answer_next_prompt(record, manager, incomplete.name, set())
-        finish(job_state, record)
+        finish(job_backend, record)
 
         assert machine_klipper.sent == ()
         metadata = job_settings.paste_dataset_dir / self.STEM / "metadata.json"

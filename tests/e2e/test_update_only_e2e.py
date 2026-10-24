@@ -29,6 +29,7 @@ from zeroconf.asyncio import AsyncZeroconf
 from pcbasm.hal.fake import FakeAudioPlayer
 from tests.e2e.conftest import E2E_MACHINE_ID, LiveServer, RunningServer, start_app
 from tests.helpers import random_service_type, skip_if_no_mdns
+from tests.support.backend import devices_with_audio
 from tests.support.polling import wait_until
 from tests.support.settings import make_api_settings, make_ui_settings
 from tests.web.api.jobs.conftest import register_gated
@@ -75,13 +76,14 @@ def old_backend(
     sandbox: UpdateSandbox, tmp_path: Path, paste_test_board_footprint_root: Path
 ) -> Iterator[RunningServer]:
     """版のずれた機体の backend（版のずれは広告か登録で与える）."""
+    env = make_api_settings(tmp_path / "old", hostname=OLD_MACHINE_ID)
     app = create_app(
-        make_api_settings(tmp_path / "old", hostname=OLD_MACHINE_ID),
-        audio_player=FakeAudioPlayer(),
+        env,
+        devices=devices_with_audio(env, FakeAudioPlayer()),
         paste_test_board_footprint_root=paste_test_board_footprint_root,
         update_runner=UpdateRunner(sandbox.settings),
     )
-    register_gated(app.state.catalog, name=_STOPPABLE_JOB)
+    register_gated(app.state.backend.catalog, name=_STOPPABLE_JOB)
     old = start_app(app)
     try:
         yield old

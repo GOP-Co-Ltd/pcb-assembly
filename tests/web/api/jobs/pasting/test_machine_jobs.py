@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 
 from tests.web.api.jobs.conftest import WaitUntil
+from web.api.backend import Backend
 from web.api.jobs.manager import JobManager, JobStatus
-from web.api.state import AppState
 
 
 @pytest.mark.usefixtures("unreachable_klipper")
@@ -32,33 +32,33 @@ class TestMachineJobsWithoutKlipper:
     def test_job_fails_gracefully_and_releases_lock(
         self,
         manager: JobManager,
-        state: AppState,
+        camera_backend: Backend,
         real_pcb_path: Path,
         wait_until: WaitUntil,
         name: str,
         needs_pcb: bool,
     ):
         if needs_pcb:
-            state.select_pcb(real_pcb_path)
+            camera_backend.selection.select(real_pcb_path)
         record = manager.start(name, {})
         wait_until(lambda: record.status.terminal, timeout=60.0)
-        wait_until(lambda: state.busy_owner is None)
+        wait_until(lambda: camera_backend.lock.owner is None)
 
         assert record.status == JobStatus.FAILED
         assert record.error  # 接続エラーが error に載る
         assert "M84" in "\n".join(record.log_lines)  # relax 失敗警告
-        with state.machine_lock("after-failed-job"):  # ロックは解放済み
+        with camera_backend.lock.hold("after-failed-job"):  # ロックは解放済み
             pass
 
     def test_loading_starts_with_homing_before_enabling_dispenser(
         self,
         manager: JobManager,
-        state: AppState,
+        camera_backend: Backend,
         wait_until: WaitUntil,
     ):
         record = manager.start("loading", {"position_x": 10.0})
         wait_until(lambda: record.status.terminal, timeout=60.0)
-        wait_until(lambda: state.busy_owner is None)
+        wait_until(lambda: camera_backend.lock.owner is None)
 
         assert record.status == JobStatus.FAILED
         assert record.progress_stage == "ホーミング", record.error
@@ -67,7 +67,7 @@ class TestMachineJobsWithoutKlipper:
     def test_dispense_calibration_fails_gracefully_and_releases_lock(
         self,
         manager: JobManager,
-        state: AppState,
+        camera_backend: Backend,
         wait_until: WaitUntil,
     ):
         """共通土台でその場 PCB 生成 → カメラ確保 → ボード計測で Klipper 不通 → FAILED.
@@ -78,12 +78,12 @@ class TestMachineJobsWithoutKlipper:
         record = manager.start("dispense_calibration", {})
         # 実 pcbnew 読込・FakeCamera 起動・接続リトライを含むため長め
         wait_until(lambda: record.status.terminal, timeout=180.0)
-        wait_until(lambda: state.busy_owner is None)
+        wait_until(lambda: camera_backend.lock.owner is None)
 
         assert record.status == JobStatus.FAILED
         assert record.error  # 接続エラーが error に載る
         assert "M84" in "\n".join(record.log_lines)  # relax 失敗警告
-        with state.machine_lock("after-failed-job"):  # ロックは解放済み
+        with camera_backend.lock.hold("after-failed-job"):  # ロックは解放済み
             pass
 
     @pytest.mark.parametrize(

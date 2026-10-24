@@ -8,7 +8,7 @@ from fastapi import APIRouter
 
 from pcbasm.gcode import GCode
 from pcbasm.hal import XYZStage
-from web.api.dependencies import ControlDep, JobsDep, StateDep, UpdateDep
+from web.api.deps import ControlDep, DevicesDep, JobsDep, UpdateDep
 from web.api.errors import hal_errors_to_502
 from web.api.jobs.manager import JobManager
 from web.api.routers.common import fetch_status
@@ -21,15 +21,15 @@ router = APIRouter(prefix="/api")
 
 
 @router.get("/klipper/status")
-def get_klipper_status(state: StateDep) -> KlipperStatus:
+def get_klipper_status(devices: DevicesDep) -> KlipperStatus:
     """Klipper の位置と homed_axes を返す（不通でも 200 で ``connected=False``）."""
-    return fetch_status(state.devices.klipper(STATUS_TIMEOUT))
+    return fetch_status(devices.klipper(STATUS_TIMEOUT))
 
 
 @router.get("/stage/limits")
-def get_stage_limits(state: StateDep) -> dict[str, dict[str, float]]:
+def get_stage_limits(devices: DevicesDep) -> dict[str, dict[str, float]]:
     """選択マシンの XYZ 可動域を返す（Moonraker 不通と printer.cfg の不備は 502）."""
-    klipper = state.devices.klipper(STATUS_TIMEOUT)
+    klipper = devices.klipper(STATUS_TIMEOUT)
     with hal_errors_to_502():
         limits = XYZStage(klipper).limits
     return {
@@ -48,14 +48,14 @@ def _klipper_action(jobs: JobManager, action: Callable[[], object]) -> dict[str,
 
 
 @router.post("/emergency-stop")
-def post_emergency_stop(state: StateDep, jobs: JobsDep) -> dict[str, bool]:
+def post_emergency_stop(devices: DevicesDep, jobs: JobsDep) -> dict[str, bool]:
     """緊急停止（安全機能なので操作権でゲートしない。**ControlDep を足さない**）."""
-    return _klipper_action(jobs, state.devices.emergency_stop)
+    return _klipper_action(jobs, devices.emergency_stop)
 
 
 @router.post("/firmware-restart")
 def post_firmware_restart(
-    state: StateDep, jobs: JobsDep, update: UpdateDep, _control: ControlDep
+    devices: DevicesDep, jobs: JobsDep, update: UpdateDep, _control: ControlDep
 ) -> FirmwareRestartResponse:
     """ファームウェア再起動（復帰操作なので操作権が必要）.
 
@@ -70,9 +70,7 @@ def post_firmware_restart(
     """
     _klipper_action(
         jobs,
-        lambda: state.devices.klipper(STATUS_TIMEOUT).send_gcode(
-            GCode.firmware_restart()
-        ),
+        lambda: devices.klipper(STATUS_TIMEOUT).send_gcode(GCode.firmware_restart()),
     )
     units = update.restart_units()
     warning = update.restart_services() or ""

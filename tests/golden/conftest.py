@@ -1,7 +1,7 @@
 """ジョブの golden を採る実行環境（1 台の fake 機体、それを映すカメラ、ジョブの実行基盤）.
 
-ジョブは実 JobManager で走らせる。
-装置は fake の機体とカメラを持つ ``Devices`` を注入する。
+ジョブは実 Backend の上の実 JobManager で走らせる。
+装置は fake の機体・カメラ・通知音を持つ ``Devices`` を注入する。
 ``open_klipper`` は塞いだままなので、``Devices`` を通らずに Klipper を作る経路があればテストが落ちる。
 """
 
@@ -31,13 +31,13 @@ from pcbasm.pasting.paste_volume.calibration import (
 )
 from pcbasm.vision import CameraModel
 from tests.support import polling
+from tests.support.backend import job_manager
 from tests.support.paths import TESTING_DATA_DIR
+from web.api.backend import Backend, open_backend
 from web.api.env import Env
 from web.api.jobs.catalog import JobCatalog, default_catalog
 from web.api.jobs.manager import JobManager, JobRecord, JobStatus
 from web.api.machine_config import MachineConfigFile
-from web.api.preview import PreviewService
-from web.api.state import AppState
 
 GOLDEN_DIR = Path(__file__).parent
 JOBS = GOLDEN_DIR / "jobs"
@@ -90,11 +90,11 @@ def scene_camera(
 
 
 def finish(
-    state: AppState, record: JobRecord, status: JobStatus = JobStatus.SUCCEEDED
+    backend: Backend, record: JobRecord, status: JobStatus = JobStatus.SUCCEEDED
 ) -> None:
     """終了時の駐機が済む（装置のロックが外れる）まで待ち、ジョブの終わり方を確かめる."""
     polling.wait_until(
-        lambda: record.status.terminal and state.busy_owner is None, timeout=120.0
+        lambda: record.status.terminal and backend.lock.owner is None, timeout=120.0
     )
     assert record.status == status, record.error
 
@@ -110,7 +110,7 @@ def wait_operator(
     )
 
 
-def enable_flow_calibration(settings: Env, state: AppState, pcb: Path) -> None:
+def enable_flow_calibration(settings: Env, backend: Backend, pcb: Path) -> None:
     """校正ファイルと基板ごとの測定点を置き、運転時補正を有効にする."""
     calibration, error = parse_calibration(
         json.loads(CALIBRATION_PIN.read_text(encoding="utf-8"))
@@ -126,7 +126,9 @@ def enable_flow_calibration(settings: Env, state: AppState, pcb: Path) -> None:
     )
     board = load_board(pcb)
     store = BoardOverrides(settings.webui_data_dir)
-    model = store.load_or_init(pcb.name, state.machine().paste_dispenser)
+    model = store.load_or_init(
+        pcb.name, backend.machine_config.machine().paste_dispenser
+    )
     store.save(
         pcb.name,
         model.with_flow_calibration_points(FLOW_POINTS),
@@ -153,13 +155,17 @@ def mount_camera(mounted_cameras: list[Camera]) -> Callable[[Camera], None]:
 
 @pytest.fixture
 def devices(
-    job_settings: Env, machine_klipper: FakeKlipper, mounted_cameras: list[Camera]
+    job_settings: Env,
+    machine_klipper: FakeKlipper,
+    mounted_cameras: list[Camera],
+    audio_player: FakeAudioPlayer,
 ) -> Devices:
     return Devices(
         MachineConfigFile(job_settings.config_dir).path,
         job_settings.journal_dir,
         klipper=machine_klipper,
         camera=lambda: mounted_cameras[-1],
+        audio=audio_player,
     )
 
 
@@ -187,22 +193,22 @@ def job_settings(tmp_path: Path) -> Env:
 
 
 @pytest.fixture
-def job_state(job_settings: Env, devices: Devices) -> Iterator[AppState]:
-    state = AppState(job_settings, MachineConfigFile(job_settings.config_dir), devices)
-    yield state
-    state.close()
+def job_backend(job_settings: Env, devices: Devices) -> Iterator[Backend]:
+    backend = open_backend(job_settings, devices=devices)
+    yield backend
+    backend.close()
 
 
 @pytest.fixture
 def place_board(
-    job_settings: Env, job_state: AppState
+    job_settings: Env, job_backend: Backend
 ) -> Callable[[Path], list[Polygon]]:
     """PCB を選び、置いた基板の基準円と銅箔を返す関数を返す."""
 
     def place(pcb: Path) -> list[Polygon]:
         shutil.copy(pcb, job_settings.pcb_browse_root)
-        job_state.select_pcb(Path(pcb.name))
-        return board_shapes(load_board(pcb), job_state.machine())
+        job_backend.selection.select(Path(pcb.name))
+        return board_shapes(load_board(pcb), job_backend.machine_config.machine())
 
     return place
 
@@ -241,19 +247,7 @@ def audio_player() -> FakeAudioPlayer:
 
 
 @pytest.fixture
-def manager(
-    job_state: AppState,
-    job_settings: Env,
-    catalog: JobCatalog,
-    audio_player: FakeAudioPlayer,
-) -> Iterator[JobManager]:
-    manager = JobManager(
-        job_state,
-        PreviewService(job_state),
-        catalog,
-        job_settings,
-        BoardOverrides(job_settings.webui_data_dir),
-        audio_player=audio_player,
-    )
+def manager(job_backend: Backend, catalog: JobCatalog) -> Iterator[JobManager]:
+    manager = job_manager(job_backend, catalog)
     yield manager
     manager.shutdown()

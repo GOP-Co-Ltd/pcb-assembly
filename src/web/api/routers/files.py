@@ -13,14 +13,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from web.api.dependencies import (
-    ControlDep,
-    EnvDep,
-    IdentityDep,
-    JobsDep,
-    PreviewDep,
-    StateDep,
-)
+from web.api.deps import BackendDep, ControlDep, EnvDep, IdentityDep
 from web.api.env import Env
 from web.api.routers.common import build_state_response
 from web.contract.models import StateResponse
@@ -44,9 +37,9 @@ class PcbFileSelect(BaseModel):
     path: str
 
 
-def _allowed_roots(settings: Env) -> tuple[Path, ...]:
+def _allowed_roots(env: Env) -> tuple[Path, ...]:
     """公開を許可するサブツリーの絶対パス（symlink 解決済み）."""
-    return tuple(allowed.resolve() for allowed in settings.pcb_browse_allowed)
+    return tuple(allowed.resolve() for allowed in env.pcb_browse_allowed)
 
 
 def _is_allowed(resolved: Path, allowed: tuple[Path, ...]) -> bool:
@@ -74,14 +67,14 @@ def _resolve_under_root(root: Path, rel: str) -> Path:
     return resolved
 
 
-def _resolve_browsable(settings: Env, rel: str) -> Path:
+def _resolve_browsable(env: Env, rel: str) -> Path:
     """Root 配下へ解決し、許可サブツリーの内側であることを検証する.
 
     Raises:
         HTTPException: 許可サブツリー外の場合（400）
     """
-    resolved = _resolve_under_root(settings.pcb_browse_root.resolve(), rel)
-    if not _is_allowed(resolved, _allowed_roots(settings)):
+    resolved = _resolve_under_root(env.pcb_browse_root.resolve(), rel)
+    if not _is_allowed(resolved, _allowed_roots(env)):
         raise HTTPException(
             status_code=400, detail=f"公開が許可されていないパスです: {rel}"
         )
@@ -89,13 +82,13 @@ def _resolve_browsable(settings: Env, rel: str) -> Path:
 
 
 @router.get("/files")
-def list_files(settings: EnvDep, path: str = "") -> FilesResponse:
+def list_files(env: EnvDep, path: str = "") -> FilesResponse:
     """ディレクトリと ``.kicad_pcb`` ファイルを列挙する（``path`` は pcb_browse_root からの相対）.
 
     400: 絶対パス・範囲外・許可サブツリー外 / 404: ディレクトリが無い。
     """
-    root = settings.pcb_browse_root.resolve()
-    allowed = _allowed_roots(settings)
+    root = env.pcb_browse_root.resolve()
+    allowed = _allowed_roots(env)
     directory = _resolve_under_root(root, path)
     inside = _is_allowed(directory, allowed)
     if not inside and not _leads_to_allowed(directory, allowed):
@@ -127,19 +120,17 @@ def list_files(settings: EnvDep, path: str = "") -> FilesResponse:
 @router.put("/pcb-file")
 def put_pcb_file(
     body: PcbFileSelect,
-    state: StateDep,
-    settings: EnvDep,
-    preview: PreviewDep,
-    jobs: JobsDep,
+    env: EnvDep,
+    backend: BackendDep,
     identity: IdentityDep,
-    control: ControlDep,
+    _control: ControlDep,
 ) -> StateResponse:
     """既存の PCB ファイルを選択し、更新後のアプリ状態を返す.
 
     400: 許可サブツリー外・拡張子不正 / 404: ファイルが無い / 409: 装置が使用中。
     """
-    root = settings.pcb_browse_root.resolve()
-    resolved = _resolve_browsable(settings, body.path)
+    root = env.pcb_browse_root.resolve()
+    resolved = _resolve_browsable(env, body.path)
     if resolved.suffix != PCB_SUFFIX:
         raise HTTPException(
             status_code=400,
@@ -149,20 +140,18 @@ def put_pcb_file(
         raise HTTPException(
             status_code=404, detail=f"ファイルが存在しません: {body.path}"
         )
-    state.select_pcb(resolved.relative_to(root))
-    jobs.publish_state_changed()
-    return build_state_response(state, settings, preview, jobs, control, identity)
+    backend.selection.select(resolved.relative_to(root))
+    backend.events.publish_state_changed()
+    return build_state_response(backend, identity)
 
 
 @router.post("/pcb-file/upload", status_code=201)
 async def upload_pcb_file(
     file: UploadFile,
-    state: StateDep,
-    settings: EnvDep,
-    preview: PreviewDep,
-    jobs: JobsDep,
+    env: EnvDep,
+    backend: BackendDep,
     identity: IdentityDep,
-    control: ControlDep,
+    _control: ControlDep,
 ) -> StateResponse:
     """PCB ファイルを pcb_upload_dir に保存し、そのまま選択する."""
     # Path(...).name でディレクトリ成分を除く（traversal 防止）
@@ -172,17 +161,17 @@ async def upload_pcb_file(
             status_code=400,
             detail=f"{PCB_SUFFIX} ファイルをアップロードしてください: {file.filename}",
         )
-    root = settings.pcb_browse_root.resolve()
-    upload_dir = settings.pcb_upload_dir.resolve()
-    if not _is_allowed(upload_dir, _allowed_roots(settings)):
+    root = env.pcb_browse_root.resolve()
+    upload_dir = env.pcb_upload_dir.resolve()
+    if not _is_allowed(upload_dir, _allowed_roots(env)):
         raise HTTPException(
             status_code=400,
             detail=f"アップロード先が公開範囲外です: {upload_dir}",
         )
     # 保存先のファイル自体が公開範囲外への symlink の場合も、書き込み前に拒否する。
     destination = _resolve_browsable(
-        settings, (upload_dir / filename).relative_to(root).as_posix()
+        env, (upload_dir / filename).relative_to(root).as_posix()
     )
-    state.select_pcb(destination.relative_to(root), content=await file.read())
-    jobs.publish_state_changed()
-    return build_state_response(state, settings, preview, jobs, control, identity)
+    backend.selection.select(destination.relative_to(root), content=await file.read())
+    backend.events.publish_state_changed()
+    return build_state_response(backend, identity)

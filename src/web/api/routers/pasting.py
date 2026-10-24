@@ -27,12 +27,12 @@ from pcbasm.pasting.paste_volume.runtime_correction import (
     validate_flow_calibration_point,
 )
 from pcbasm.pasting.plan import plan_paste
-from web.api.dependencies import (
+from web.api.deps import (
     ControlDep,
-    EnvDep,
+    LockDep,
     MachineConfigDep,
     OverridesDep,
-    StateDep,
+    SelectionDep,
 )
 from web.api.routers.pasting_view import (
     FlowCalibrationPatch,
@@ -66,58 +66,58 @@ router = APIRouter(prefix="/api")
 
 @router.get("/pasting/pad-config")
 def get_pad_config(
-    state: StateDep,
-    settings: EnvDep,
+    selection: SelectionDep,
+    machine_config: MachineConfigDep,
     overrides: OverridesDep,
 ) -> PadConfigResponse:
     """選択中基板の pad ジオメトリ・階層・解決済み設定・疎 override を返す."""
-    return build_pad_config(load_session(state, settings, overrides))
+    return build_pad_config(load_session(selection, machine_config, overrides))
 
 
 @router.get("/pasting/pad-config/copper")
 def get_pad_config_copper(
-    state: StateDep,
-    settings: EnvDep,
+    selection: SelectionDep,
+    machine_config: MachineConfigDep,
     overrides: OverridesDep,
 ) -> PadConfigCopperResponse:
     """選択中基板の銅箔島を表示用に返す（基板ごとに 1 回取る読み取り専用）."""
-    return build_copper(load_session(state, settings, overrides))
+    return build_copper(load_session(selection, machine_config, overrides))
 
 
 @router.post("/pasting/pad-config/route")
 def calculate_pad_route(
     body: PasteRouteRequest,
-    state: StateDep,
-    settings: EnvDep,
+    selection: SelectionDep,
+    machine_config: MachineConfigDep,
     overrides: OverridesDep,
 ) -> PasteRouteResponse:
     """選択中基板の有効 pad だけを対象に塗布順路を返す（POST だが読み取り専用計算）."""
-    loaded = load_session(state, settings, overrides)
+    loaded = load_session(selection, machine_config, overrides)
     return build_route(plan_paste(loaded, layer=body.layer), body.layer)
 
 
 @router.post("/pasting/pad-config/fill-path")
 def calculate_pad_fill_path(
     body: PasteFillPathRequest,
-    state: StateDep,
-    settings: EnvDep,
+    selection: SelectionDep,
+    machine_config: MachineConfigDep,
     overrides: OverridesDep,
 ) -> PasteFillPathResponse:
     """選択中基板の有効 pad だけを対象に塗布パスを返す（POST だが読み取り専用計算）."""
-    loaded = load_session(state, settings, overrides)
+    loaded = load_session(selection, machine_config, overrides)
     return build_fill_path(plan_paste(loaded, layer=body.layer), body.layer)
 
 
 @router.patch("/pasting/pad-config/node")
 def patch_pad_config_node(
     body: NodePatch,
-    state: StateDep,
-    settings: EnvDep,
+    selection: SelectionDep,
+    machine_config: MachineConfigDep,
     overrides: OverridesDep,
     _control: ControlDep,
 ) -> PatchResponse:
     """ノードの enabled/values upsert・clear を適用し、影響 pad を返す."""
-    loaded = load_session(state, settings, overrides)
+    loaded = load_session(selection, machine_config, overrides)
     _check_expected_pcb(body.expected_pcb, loaded)
     if (message := validate_param_values(body.values)) is not None:
         raise HTTPException(status_code=400, detail=message)
@@ -146,13 +146,13 @@ def patch_pad_config_node(
 @router.patch("/pasting/pad-config/pads")
 def patch_pad_config_pads(
     body: PadEnablePatch,
-    state: StateDep,
-    settings: EnvDep,
+    selection: SelectionDep,
+    machine_config: MachineConfigDep,
     overrides: OverridesDep,
     _control: ControlDep,
 ) -> PatchResponse:
     """Pad id 配列を L4 ノードの enabled 設定として一括適用する."""
-    loaded = load_session(state, settings, overrides)
+    loaded = load_session(selection, machine_config, overrides)
     _check_expected_pcb(body.expected_pcb, loaded)
     l4_keys, unknown = loaded.hierarchy.l4_keys_for_pad_ids(body.ids)
     if unknown:
@@ -172,14 +172,14 @@ def patch_pad_config_pads(
 @router.patch("/pasting/pad-config/initial-purge")
 def patch_initial_purge(
     body: InitialPurgePatch,
-    state: StateDep,
-    settings: EnvDep,
-    overrides: OverridesDep,
+    selection: SelectionDep,
     machine_config: MachineConfigDep,
+    overrides: OverridesDep,
+    lock: LockDep,
     _control: ControlDep,
 ) -> InitialPurgeResponse:
     """初回パージ量と塗布座標を即時保存し、解決済み設定を返す."""
-    loaded = load_session(state, settings, overrides)
+    loaded = load_session(selection, machine_config, overrides)
     _check_expected_pcb(body.expected_pcb, loaded)
     amount_sent = "initial_purge_ul" in body.model_fields_set
     point_sent = "point" in body.model_fields_set
@@ -206,7 +206,7 @@ def patch_initial_purge(
         raise HTTPException(status_code=400, detail=error)
 
     if amount_sent:
-        with state.machine_lock("pasting-initial-purge"):
+        with lock.hold("pasting-initial-purge"):
             machine_config.write({"paste_dispenser.initial_purge_ul": next_amount})
     model = loaded.model
     if point_sent:
@@ -221,7 +221,9 @@ def patch_initial_purge(
         loaded,
         model=model,
         base_config=(
-            state.machine().paste_dispenser if amount_sent else loaded.base_config
+            machine_config.machine().paste_dispenser
+            if amount_sent
+            else loaded.base_config
         ),
     )
     return InitialPurgeResponse(initial_purge=build_initial_purge(plan_paste(updated)))
@@ -230,8 +232,8 @@ def patch_initial_purge(
 @router.patch("/pasting/pad-config/flow-calibration")
 def patch_flow_calibration(
     body: FlowCalibrationPatch,
-    state: StateDep,
-    settings: EnvDep,
+    selection: SelectionDep,
+    machine_config: MachineConfigDep,
     overrides: OverridesDep,
     _control: ControlDep,
 ) -> FlowCalibrationResponse:
@@ -247,7 +249,7 @@ def patch_flow_calibration(
     crop 寸法を先に変えただけで保存できなくなるのを避けるため、判定は計画時に行い
     ``flow_calibration.error`` として返す。
     """
-    loaded = load_session(state, settings, overrides)
+    loaded = load_session(selection, machine_config, overrides)
     _check_expected_pcb(body.expected_pcb, loaded)
     if "points" not in body.model_fields_set:
         return FlowCalibrationResponse(
@@ -306,10 +308,10 @@ def _initial_purge_point(value: list[float] | None) -> Point2d | None:
 
 @router.get("/pasting/pad-config/export")
 def export_pad_config(
-    state: StateDep, settings: EnvDep, overrides: OverridesDep
+    selection: SelectionDep, machine_config: MachineConfigDep, overrides: OverridesDep
 ) -> JSONResponse:
     """現在の基板 override 設定をダウンロード用 JSON として返す."""
-    loaded = load_session(state, settings, overrides)
+    loaded = load_session(selection, machine_config, overrides)
     doc = overrides.export_doc(
         loaded.source_pcb,
         loaded.model,
@@ -337,13 +339,13 @@ def _attachment(filename: str) -> str:
 @router.post("/pasting/pad-config/import")
 def import_pad_config(
     body: PadConfigImport,
-    state: StateDep,
-    settings: EnvDep,
+    selection: SelectionDep,
+    machine_config: MachineConfigDep,
     overrides: OverridesDep,
     _control: ControlDep,
 ) -> PadConfigResponse:
     """アップロードされた基板 override 設定を検証して保存し、最新設定を返す."""
-    loaded = load_session(state, settings, overrides)
+    loaded = load_session(selection, machine_config, overrides)
     try:
         model = overrides.model_from_doc(
             body.document,

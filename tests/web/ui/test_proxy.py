@@ -314,7 +314,7 @@ class TestRelayToRealBackend:
         self, backend_client: TestClient, backend_app: FastAPI
     ):
         """409 の `{detail, owner}` が潰れると app.js のトーストが owner を出せない."""
-        with backend_app.state.appstate.machine_lock("pytest-job"):
+        with backend_app.state.backend.lock.hold("pytest-job"):
             response = backend_client.put(
                 f"/m/{MACHINE_ID}/api/pcb-file",
                 json={"path": "boards/sample.kicad_pcb"},

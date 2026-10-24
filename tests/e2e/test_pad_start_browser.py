@@ -19,6 +19,7 @@ from tests.e2e.conftest import (
     start_app,
 )
 from tests.e2e.network import delayed_ui
+from tests.support.backend import devices_with_audio
 from web.api.app import create_app
 from web.api.env import Env
 from web.api.jobs.context import JobContext
@@ -26,7 +27,9 @@ from web.api.jobs.context import JobContext
 
 @pytest.fixture
 def live_server(e2e_settings: Env) -> Iterator[LiveServer]:
-    app = create_app(e2e_settings, audio_player=FakeAudioPlayer())
+    app = create_app(
+        e2e_settings, devices=devices_with_audio(e2e_settings, FakeAudioPlayer())
+    )
 
     def run(ctx: JobContext) -> None:
         assert ctx.source_pcb is not None

@@ -20,10 +20,10 @@ from tests.golden.conftest import CAMERA_MODEL, JOBS, finish, scene_camera
 from tests.golden.scenarios import Scenario, scenarios_of
 from tests.support.golden import assert_transcript
 from tests.web.api.jobs.conftest import answer_next_prompt
+from web.api.backend import Backend
 from web.api.env import Env
 from web.api.jobs.manager import JobManager, JobStatus
 from web.api.machine_config import MachineConfigFile
-from web.api.state import AppState
 
 FOCUS_Z = CAMERA_MODEL.focus_z
 
@@ -35,7 +35,7 @@ class TestReferencePointSetup:
     def test_jog_then_record(
         self,
         manager: JobManager,
-        job_state: AppState,
+        job_backend: Backend,
         machine_klipper: FakeKlipper,
         mount_camera: Callable[[Camera], None],
         scenario: Scenario,
@@ -51,9 +51,9 @@ class TestReferencePointSetup:
             {"type": "record"},
         ):
             manager.submit_command(command)
-        finish(job_state, record)
+        finish(job_backend, record)
 
-        reference = job_state.machine().reference_point
+        reference = job_backend.machine_config.machine().reference_point
         assert (reference.x, reference.y) == (8.0, 6.0)
         assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")
 
@@ -65,7 +65,7 @@ class TestCameraCalibration:
     def test_checkerboard(
         self,
         manager: JobManager,
-        job_state: AppState,
+        job_backend: Backend,
         machine_klipper: FakeKlipper,
         mount_camera: Callable[[Camera], None],
         scenario: Scenario,
@@ -81,7 +81,7 @@ class TestCameraCalibration:
 
         record = manager.start("camera_calibration", {"square_size": 1.5})
         answer_next_prompt(record, manager, True, set())
-        finish(job_state, record)
+        finish(job_backend, record)
 
         (file,) = manager.apply_payload().files
         result = CameraCalibration.from_dict(json.loads(file.content))
@@ -92,7 +92,7 @@ class TestCameraCalibration:
     def test_applied_calibration_is_used_by_the_next_job_without_restart(
         self,
         manager: JobManager,
-        job_state: AppState,
+        job_backend: Backend,
         job_settings: Env,
         machine_klipper: FakeKlipper,
         mount_camera: Callable[[Camera], None],
@@ -116,21 +116,21 @@ class TestCameraCalibration:
         )
         record = manager.start("camera_calibration", {"square_size": 1.5})
         answer_next_prompt(record, manager, True, set())
-        finish(job_state, record)
+        finish(job_backend, record)
         payload = manager.apply_payload()
         MachineConfigFile(job_settings.config_dir).write(
             payload.values,
             files={file.filename: file.content for file in payload.files},
         )
         manager.mark_applied()
-        machine = job_state.machine()
+        machine = job_backend.machine_config.machine()
         applied = CameraModel.load(machine.camera.calibration_file)
         assert applied.pixel_per_mm == pytest.approx(
             CAMERA_MODEL.pixel_per_mm * 1.25, rel=1e-2
         )
 
         machine_klipper.clear_sent()
-        finish(job_state, manager.start("board_tour", {"tolerance": 0.1}))
+        finish(job_backend, manager.start("board_tour", {"tolerance": 0.1}))
 
         reference, rotation_probe = machine_klipper.g1_moves()[:2]
         assert rotation_probe["x"] - reference["x"] == pytest.approx(
@@ -147,7 +147,7 @@ class TestCalibrationWithoutFocusZ:
     def test_job_fails_before_homing(
         self,
         manager: JobManager,
-        job_state: AppState,
+        job_backend: Backend,
         job_settings: Env,
         machine_klipper: FakeKlipper,
         mount_camera: Callable[[Camera], None],
@@ -163,7 +163,7 @@ class TestCalibrationWithoutFocusZ:
         mount_camera(scene_camera(machine_klipper, 0.0, shapes=grid_shapes))
 
         record = manager.start(job, params)
-        finish(job_state, record, JobStatus.FAILED)
+        finish(job_backend, record, JobStatus.FAILED)
 
         assert "z_position" in str(record.error)
         assert "G28 X Y Z" not in machine_klipper.sent_lines
@@ -176,7 +176,7 @@ class TestBoardTour:
     def test_success(
         self,
         manager: JobManager,
-        job_state: AppState,
+        job_backend: Backend,
         machine_klipper: FakeKlipper,
         mount_camera: Callable[[Camera], None],
         grid_shapes: list[Polygon],
@@ -189,7 +189,7 @@ class TestBoardTour:
             scene_camera(machine_klipper, scenario.rotation, shapes=grid_shapes)
         )
 
-        finish(job_state, manager.start("board_tour", {"tolerance": 0.1}))
+        finish(job_backend, manager.start("board_tour", {"tolerance": 0.1}))
 
         assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")
 
@@ -201,7 +201,7 @@ class TestOrthogonalityTest:
     def test_one_cycle(
         self,
         manager: JobManager,
-        job_state: AppState,
+        job_backend: Backend,
         machine_klipper: FakeKlipper,
         mount_camera: Callable[[Camera], None],
         grid_shapes: list[Polygon],
@@ -216,6 +216,6 @@ class TestOrthogonalityTest:
         answered: set[str] = set()
         for answer in [True] * 8 + [False]:
             answer_next_prompt(record, manager, answer, answered)
-        finish(job_state, record)
+        finish(job_backend, record)
 
         assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")

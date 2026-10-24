@@ -70,7 +70,10 @@ logger = logging.getLogger(__name__)
 
 
 class UpdateRunner:
-    """1 ホスト分の自己更新を受け持つ（`app.state.update` に 1 つ置く）."""
+    """1 ホスト分の自己更新を受け持つ.
+
+    backend は `Backend.update`、frontend は `app.state.update` に 1 つ置く。
+    """
 
     def __init__(self, settings: UpdateSettings) -> None:
         """設定を保持する（副作用なし）.

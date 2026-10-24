@@ -25,11 +25,12 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeAudioPlayer, FakeKlipper
+from tests.support.backend import devices_with_audio
 from tests.web.api.jobs.conftest import register_gated
 from tests.web.update_support import UpdateSandbox, make_update_sandbox
 from web.api.app import create_app
+from web.api.backend import Backend
 from web.api.env import Env
-from web.api.state import AppState
 from web.selfupdate.runner import UpdateRunner
 
 
@@ -63,7 +64,7 @@ class TestEmergencyStop:
     ):
         # Phase 3: E-STOP の先頭で jobs.request_abort()（Klipper 送信失敗でも
         # abort フラグは立つ）
-        register_gated(app.state.catalog, name="estop_target")
+        register_gated(app.state.backend.catalog, name="estop_target")
         assert client.post("/api/jobs/estop_target", json={}).status_code == 201
 
         assert client.post("/api/emergency-stop").status_code == 502
@@ -86,10 +87,10 @@ class TestFirmwareRestart:
 
         assert response.status_code == 502
 
-    def test_bypasses_machine_lock(self, client: TestClient, appstate: AppState):
+    def test_bypasses_machine_lock(self, client: TestClient, backend: Backend):
         # firmware restart はロック非経由: busy 中でも 409 にはならない
         # （Moonraker 不達のため 502 に到達する = ロックで弾かれていない）
-        with appstate.machine_lock("pytest-job"):
+        with backend.lock.hold("pytest-job"):
             response = client.post("/api/firmware-restart")
 
         assert response.status_code == 502
@@ -99,7 +100,7 @@ class TestFirmwareRestart:
     ):
         # firmware restart の先頭で jobs.request_abort()。
         # Klipper 送信が 502 でも実行中ジョブは abort へ進む。
-        register_gated(app.state.catalog, name="firmware_restart_target")
+        register_gated(app.state.backend.catalog, name="firmware_restart_target")
         response = client.post("/api/jobs/firmware_restart_target", json={})
         assert response.status_code == 201
 
@@ -159,7 +160,7 @@ class TestFirmwareRestartAlsoRestartsServices:
     ) -> Iterator[TestClient]:
         app = create_app(
             webui_settings,
-            audio_player=FakeAudioPlayer(),
+            devices=devices_with_audio(webui_settings, FakeAudioPlayer()),
             paste_test_board_footprint_root=paste_test_board_footprint_root,
             update_runner=UpdateRunner(sandbox.settings),
         )

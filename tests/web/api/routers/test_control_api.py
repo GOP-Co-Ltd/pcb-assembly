@@ -152,7 +152,7 @@ def _register_prompting(app: FastAPI, name: str = "control_prompt") -> None:
     def run(ctx: JobContext) -> None:
         ctx.prompt(PromptSpec(kind="confirm", message="続行しますか"))
 
-    register_synthetic(app.state.catalog, run, name=name)
+    register_synthetic(app.state.backend.catalog, run, name=name)
 
 
 def _register_commanded(app: FastAPI, name: str) -> None:
@@ -161,7 +161,7 @@ def _register_commanded(app: FastAPI, name: str) -> None:
     def run(ctx: JobContext) -> None:
         ctx.next_command(timeout=None)
 
-    register_synthetic(app.state.catalog, run, name=name, accepts_commands=True)
+    register_synthetic(app.state.backend.catalog, run, name=name, accepts_commands=True)
 
 
 class TestControlEndpoints:

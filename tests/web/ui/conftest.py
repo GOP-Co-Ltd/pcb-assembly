@@ -10,7 +10,7 @@ backend app（`web.api.create_app`）を httpx の `ASGITransport` で in-proces
 - `ASGITransport` はレスポンスを最後までバッファしてから返すので、MJPEG
   （終端しない multipart）を読むと永久にハングする
 - `ASGITransport` は websocket scope を扱えないので WS 中継も検証できない
-- backend 側の lifespan も走らない（`JobManager.bind_loop` が呼ばれないため
+- backend 側の lifespan も走らない（`EventBus.bind_loop` が呼ばれないため
   ジョブ実行と WS イベント配信は成立しない）
 
 → MJPEG / WS / ジョブ実行は `tests/e2e` で実 uvicorn（実ソケット経由）で検証する。
@@ -79,9 +79,7 @@ def backend_app(
         paste_test_board_footprint_root=paste_test_board_footprint_root,
     )
     yield app
-    app.state.preview.request_shutdown()
-    app.state.jobs.shutdown()
-    app.state.appstate.close()
+    app.state.backend.close()
 
 
 @pytest.fixture

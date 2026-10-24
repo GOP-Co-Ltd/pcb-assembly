@@ -12,16 +12,14 @@ from pcbasm.geometry import Point3d
 from pcbasm.hal import KlipperClient
 from pcbasm.pasting.labels import clean_position_label
 from pcbasm.vision import load_focus_z
-from web.api.control import ClientIdentity, LeaseInfo
+from web.api.backend import Backend
+from web.api.control import ClientIdentity, control_payload
 from web.api.env import Env, resolve_machine_id
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
-from web.api.jobs.manager import JobManager
-from web.api.preview import PreviewService
-from web.api.state import AppState
+from web.api.selection import Selection
 from web.contract.discovery import API_VERSION
 from web.contract.models import (
     ClientInfo,
-    ControlInfo,
     JobBrief,
     KlipperStatus,
     MachineInfo,
@@ -54,16 +52,6 @@ def fetch_status(klipper: KlipperClient) -> KlipperStatus:
 # --------------------------------------------------------------------------- #
 
 
-def control_payload(info: LeaseInfo) -> ControlInfo:
-    """リーススナップショットを API 表現へ変換する（唯一の変換点）."""
-    return ControlInfo(
-        key=info.key,
-        display_name=info.display_name,
-        held=info.held,
-        connections=info.connections,
-    )
-
-
 def nozzle_clean_payload(position: Point3d) -> NozzleCleanInfo:
     """クリーニング位置を API 表現へ変換する（唯一の変換点）.
 
@@ -74,24 +62,17 @@ def nozzle_clean_payload(position: Point3d) -> NozzleCleanInfo:
     )
 
 
-def build_state_response(
-    state: AppState,
-    settings: Env,
-    preview: PreviewService,
-    jobs: JobManager,
-    control: LeaseInfo,
-    identity: ClientIdentity,
-) -> StateResponse:
+def build_state_response(backend: Backend, identity: ClientIdentity) -> StateResponse:
     """現在のアプリ状態から StateResponse を構築する."""
-    owner = state.busy_owner
-    pcb = state.selected_pcb
-    record = jobs.current()
-    machine, config_error = state.machine_or_error()
+    owner = backend.lock.owner
+    pcb = backend.selection.pcb
+    record = backend.jobs.current()
+    machine, config_error = backend.machine_config.machine_or_error()
     dispenser = None if machine is None else machine.paste_dispenser
     cap = None if dispenser is None else dispenser.nozzle_cap.position
     clean = None if dispenser is None else dispenser.nozzle_clean.position
     return StateResponse(
-        control=control_payload(control),
+        control=control_payload(backend.control.snapshot()),
         you=ClientInfo(key=identity.key),
         pcb_file=pcb.as_posix() if pcb else None,
         busy=owner is not None,
@@ -99,8 +80,8 @@ def build_state_response(
         focus_z=(
             None if machine is None else load_focus_z(machine.camera.calibration_file)
         ),
-        mainsail_url=settings.mainsail_url,
-        preview_clients=preview.client_count,
+        mainsail_url=backend.env.mainsail_url,
+        preview_clients=backend.camera.client_count,
         job=(
             JobBrief(id=record.id, name=record.name, status=record.status.value)
             if record is not None
@@ -109,8 +90,8 @@ def build_state_response(
         nozzle_cap=None if cap is None else Position(x=cap.x, y=cap.y, z=cap.z),
         nozzle_clean=None if clean is None else nozzle_clean_payload(clean),
         config_error=config_error,
-        config_notice=state.config_notice,
-        pcb_notice=state.pcb_notice,
+        config_notice=backend.machine_config.notice,
+        pcb_notice=backend.selection.notice,
     )
 
 
@@ -119,12 +100,12 @@ def build_state_response(
 # --------------------------------------------------------------------------- #
 
 
-def _fb_start(settings: Env) -> str:
+def _fb_start(env: Env) -> str:
     """ファイルブラウザの初期表示パス（pcb_browse_root からの相対）."""
     try:
         start = (
-            settings.pcb_browse_start.resolve()
-            .relative_to(settings.pcb_browse_root.resolve())
+            env.pcb_browse_start.resolve()
+            .relative_to(env.pcb_browse_root.resolve())
             .as_posix()
         )
     except ValueError:
@@ -144,24 +125,22 @@ def _default_mainsail_url(machine_id: str) -> str:
     return f"http://{host}"
 
 
-def build_machine_info(settings: Env) -> MachineInfo:
+def build_machine_info(env: Env) -> MachineInfo:
     """Backend の自己申告情報を組み立てる.
 
     ホスト名の解決といった環境依存の処理はここに集約する（pcbasm 層は machine.toml に
     書かれた値だけを返す）。``mainsail_url`` はリクエストのホスト名に依存させない
     （プロキシ配下で必ず誤るため）。
     """
-    machine_id = resolve_machine_id(settings)
+    machine_id = resolve_machine_id(env)
     # fake の機体は実機と同じ machine_id を名乗るので、実機の Mainsail へ導かない（空ならリンクを出さない）
     mainsail_url = (
-        ""
-        if settings.fake
-        else settings.mainsail_url or _default_mainsail_url(machine_id)
+        "" if env.fake else env.mainsail_url or _default_mainsail_url(machine_id)
     )
     return MachineInfo(
         machine_id=machine_id,
         mainsail_url=mainsail_url,
-        fb_start=_fb_start(settings),
+        fb_start=_fb_start(env),
         api_version=API_VERSION,
     )
 
@@ -172,14 +151,14 @@ def build_machine_info(settings: Env) -> MachineInfo:
 
 
 def param_specs_with_saved_defaults(
-    definition: JobDefinition, state: AppState, catalog: JobCatalog
+    definition: JobDefinition, selection: Selection, catalog: JobCatalog
 ) -> tuple[ParamSpec, ...]:
     """保存済み既定値を ParamSpec の default に反映する.
 
     型判定・coerce は :meth:`JobCatalog.filter_persisted_defaults` に一本化する
     （persisted_params 外・型不一致はエラーにせず除外 = spec 既定値のまま）。
     """
-    saved = state.job_param_defaults(definition.name)
+    saved = selection.job_param_defaults(definition.name)
     if not saved or not definition.persisted_params:
         return definition.params
     valid = catalog.filter_persisted_defaults(definition, saved)

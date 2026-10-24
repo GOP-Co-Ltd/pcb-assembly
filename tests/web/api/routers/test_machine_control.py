@@ -29,8 +29,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from pcbasm.hal.fake import FakeKlipper
+from web.api.backend import Backend
 from web.api.env import Env
-from web.api.state import AppState
 
 
 @pytest.mark.usefixtures("unreachable_klipper")
@@ -176,9 +176,9 @@ class TestMachineControlExclusion:
     """ジョブ共有ロックとの排他."""
 
     def test_busy_returns_409_with_owner_in_detail(
-        self, client: TestClient, appstate: AppState
+        self, client: TestClient, backend: Backend
     ):
-        with appstate.machine_lock("pytest-job"):
+        with backend.lock.hold("pytest-job"):
             response = client.post("/api/machine-control", json={"type": "relax"})
 
         assert response.status_code == 409
