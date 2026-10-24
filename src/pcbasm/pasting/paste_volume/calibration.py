@@ -11,8 +11,7 @@
 達成条件を session 総体積の誤差で見る根拠がここに残る。
 
 永続化の判断:
-    strict converter は :mod:`pcbasm.pasting.paste_volume.dataset.metadata` のものを共有する
-    （未知 key と暗黙の型変換を拒否する挙動が dataset schema と同じでよい）。
+    strict な変換は :mod:`pcbasm.document` を使う（未知 key・欠落 key・暗黙の型変換を拒否する）。
     ``schema_version`` が現版と異なる document は移行せず ``(None, 理由)`` で拒否する。
 """
 
@@ -28,12 +27,13 @@ from typing import Any, Literal
 import attrs
 
 from pcbasm.atomic import write_text_atomic
-from pcbasm.pasting.paste_volume.dataset.metadata import structure_document
+from pcbasm.document import check_header, structure_document
 from pcbasm.pasting.paste_volume.detect import DotDetectionSpec
 from pcbasm.pasting.paste_volume.model import CubicVolumeModel
 
 CALIBRATION_KIND = "pcbasm-paste-volume-diameter-calibration"
 CALIBRATION_SCHEMA_VERSION = 1
+_LABEL = "塗布量の校正ファイル"
 
 # 校正ファイルの拡張子（dataset の JSON と取り違えないための識別子を兼ねる）
 CALIBRATION_SUFFIX = ".paste-volume.json"
@@ -179,33 +179,29 @@ class PasteVolumeCalibration:
 def parse_calibration(
     data: Mapping[str, object],
 ) -> tuple[PasteVolumeCalibration | None, str | None]:
-    """校正 document を復元する（暗黙の型変換と未知 key は受理しない）.
+    """校正 document を復元する（暗黙の型変換と未知 key・欠落 key は受理しない）.
 
     ``detection`` / ``model`` の ``kind`` は方式の識別子で、DTO には持たせない。
-    現版が扱える方式かをここで確かめてから取り除く。
+    版と document の ``kind`` を確かめたあと、現版が扱える方式かを確かめてから取り除く。
 
-    ``detection`` だけは key の欠落も拒否する。
-
-    :class:`DotDetectionSpec` は既定値を持つので欠落が警告なく既定値で埋まり、既定値を
-    将来変えるとキーを欠いた既存ファイルの意味が気づかれないまま変わる。
-
+    :class:`DotDetectionSpec` は既定値を持つが、欠落を既定値で埋めない。
     検出ハイパラは校正と不可分なので、書かれていないことを既定値の指定として扱わない。
     """
-    version = data.get("schema_version")
-    if version != CALIBRATION_SCHEMA_VERSION:
-        return None, f"未対応の校正schema_versionです: {version!r}"
-    if data.get("kind") != CALIBRATION_KIND:
-        return None, f"校正ファイルではありません: kind={data.get('kind')!r}"
+    error = check_header(
+        data, kind=CALIBRATION_KIND, version=CALIBRATION_SCHEMA_VERSION, label=_LABEL
+    )
+    if error is not None:
+        return None, error
     document, error = _without_method_kinds(data)
     if document is None:
-        return None, error
-    error = _missing_detection_keys(document["detection"])
-    if error is not None:
         return None, error
     try:
         calibration = structure_document(document, PasteVolumeCalibration)
     except Exception as error_detail:
-        return None, f"校正schema v1が不正です: {error_detail}"
+        return (
+            None,
+            f"{_LABEL} schema v{CALIBRATION_SCHEMA_VERSION} が不正です: {error_detail}",
+        )
     invalid = calibration.validate()
     if invalid is not None:
         return None, invalid
@@ -321,17 +317,6 @@ def _safe_stem(stem: str) -> str:
 # strict converter が Literal の一致まで見るので、方式追加のたびに DTO が増える。
 _DETECTION_KIND = "diameter_otsu_v1"
 _MODEL_KIND = "cubic_through_origin"
-
-
-def _missing_detection_keys(detection: object) -> str | None:
-    """``detection`` が検出ハイパラを 1 つ残らず書いているかを確かめる."""
-    if not isinstance(detection, dict):
-        return "detectionセクションがobjectではありません"
-    required = {field.name for field in attrs.fields(DotDetectionSpec)}
-    missing = sorted(required - set(detection))
-    if missing:
-        return f"detectionに検出ハイパラがありません: {', '.join(missing)}"
-    return None
 
 
 def _without_method_kinds(

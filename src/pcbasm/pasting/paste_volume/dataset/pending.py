@@ -11,7 +11,7 @@
 :func:`finalize_pending` が計量質量 1 つでこれを metadata v3 へ戻す。
 
 永続化の判断:
-    metadata v3 と同じ DTO / converter を共有し、pending 固有の型は「質量依存の値を
+    metadata v3 と同じ DTO と :mod:`pcbasm.document` の変換を共有し、pending 固有の型は「質量依存の値を
     持たない sample」の 1 つだけにする。復元経路が本経路と同じ組立を通るので、
     救出した dataset が本経路の出力と一致することを型で担保できる。
 """
@@ -23,6 +23,7 @@ from typing import Any, Literal
 
 import attrs
 
+from pcbasm.document import parse_document
 from pcbasm.geometry import Point2d
 from pcbasm.geometry.packing import Rect
 from pcbasm.pasting.dispense import DispenseSummary
@@ -43,7 +44,6 @@ from pcbasm.pasting.paste_volume.dataset.metadata import (
     PasteDatasetSample,
     PasteDatasetTotal,
     allocate_volume_by_rotations,
-    structure_document,
 )
 from pcbasm.validators import is_finite_number
 
@@ -105,13 +105,13 @@ def parse_pending(
     data: Mapping[str, object],
 ) -> tuple[PasteDatasetPending | None, str | None]:
     """``pending.json`` の dict を復元する（暗黙の型変換と未知 key は受理しない）."""
-    version = data.get("schema_version")
-    if version != PENDING_SCHEMA_VERSION:
-        return None, f"未対応のpending schema_versionです: {version!r}"
-    try:
-        return structure_document(data, PasteDatasetPending), None
-    except Exception as error:
-        return None, f"pending schema v1が不正です: {error}"
+    return parse_document(
+        data,
+        PasteDatasetPending,
+        kind=PENDING_KIND,
+        version=PENDING_SCHEMA_VERSION,
+        label="質量未確定のdataset",
+    )
 
 
 def finalize_pending(

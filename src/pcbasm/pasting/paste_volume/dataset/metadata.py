@@ -1,6 +1,6 @@
 """ペースト塗布画像 dataset の metadata.json（schema v3）.
 
-DTO と strict な cattrs converter、:func:`parse_metadata` を置く。
+DTO と :func:`parse_metadata` を置く。strict な変換は :mod:`pcbasm.document` が持つ。
 
 永続化の判断:
     v3 はパージ廃止版で、収集の初回パージをインタラクティブローディングへ置き換えた。
@@ -14,17 +14,15 @@ DTO と strict な cattrs converter、:func:`parse_metadata` を置く。
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping
-from typing import Any, Literal, get_args, get_origin, get_type_hints
+from typing import Any, Literal
 
 import attrs
-import cattrs
 
+from pcbasm.document import parse_document
 from pcbasm.geometry import Point2d
 from pcbasm.geometry.packing import Rect
 from pcbasm.pasting.dispense import DispenseSummary
-from pcbasm.pasting.fill_path import AppliedDispenseMode
 from pcbasm.validators import is_finite_number
 from pcbasm.vision.image import PixelRect
 
@@ -257,103 +255,15 @@ class PasteDatasetMetadata:
 def parse_metadata(
     data: Mapping[str, object],
 ) -> tuple[PasteDatasetMetadata | None, str | None]:
-    """metadata.json の dict を schema_version で分岐して復元する.
+    """metadata.json の dict を strict に復元する.
 
     暗黙の型変換と未知 key は受理しない。現版（v3）以外の版は移行関数が無いため
     ``(None, 理由)`` を返す（将来版は ``_migrate_vN`` を追加して現版 dict に写す）。
     """
-    version = data.get("schema_version")
-    if version != METADATA_SCHEMA_VERSION:
-        return None, f"未対応のmetadata schema_versionです: {version!r}"
-    try:
-        return _METADATA_CONVERTER.structure(data, PasteDatasetMetadata), None
-    except Exception as error:
-        return None, f"metadata schema v3が不正です: {error}"
-
-
-def structure_document[T](data: Mapping[str, object], target: type[T]) -> T:
-    """Schema DTO を暗黙変換・未知 key なしで復元する（不正は例外）.
-
-    metadata v3 と、その質量未確定版（:mod:`pcbasm.pasting.paste_volume.dataset.pending`）が
-    同じ strict converter を共有するための入口。
-
-    Raises:
-        Exception: cattrs の structure が失敗した場合（呼び出し側が理由文へ変換する）
-    """
-    return _METADATA_CONVERTER.structure(data, target)
-
-
-def _make_metadata_converter() -> cattrs.Converter:
-    """Schema 型定義を使い、暗黙変換なしで復元する converter を構成する."""
-    converter = cattrs.Converter(
-        forbid_extra_keys=True,
-        detailed_validation=False,
+    return parse_document(
+        data,
+        PasteDatasetMetadata,
+        kind=METADATA_KIND,
+        version=METADATA_SCHEMA_VERSION,
+        label="dataset",
     )
-
-    def strict_float(value: object, _: object) -> float:
-        if type(value) is not float or not math.isfinite(value):
-            raise ValueError(f"有限なfloatが必要です: {value!r}")
-        return value
-
-    def strict_int(value: object, _: object) -> int:
-        if type(value) is not int:
-            raise ValueError(f"intが必要です: {value!r}")
-        return value
-
-    def strict_bool(value: object, _: object) -> bool:
-        # bool は int のサブクラスなので、hook を分けないと strict_int の hook が適用される
-        if type(value) is not bool:
-            raise ValueError(f"boolが必要です: {value!r}")
-        return value
-
-    def strict_string(value: object, _: object) -> str:
-        if type(value) is not str:
-            raise ValueError(f"strが必要です: {value!r}")
-        return value
-
-    def strict_literal(value: object, target: object) -> object:
-        if any(
-            type(value) is type(expected) and value == expected
-            for expected in get_args(target)
-        ):
-            return value
-        raise ValueError(f"{target!r}の値が必要です: {value!r}")
-
-    def strict_tuple(value: object, target: object) -> tuple[object, ...]:
-        if not isinstance(value, (list, tuple)):
-            raise ValueError(f"arrayが必要です: {value!r}")
-        item_types = get_args(target)
-        if len(item_types) == 2 and item_types[1] is Ellipsis:
-            return tuple(converter.structure(item, item_types[0]) for item in value)
-        if len(value) != len(item_types):
-            raise ValueError(f"{len(item_types)}要素のarrayが必要です: {value!r}")
-        return tuple(
-            converter.structure(item, item_type)
-            for item, item_type in zip(value, item_types, strict=True)
-        )
-
-    def strict_applied_mode(value: object, _: object) -> object:
-        # DispenseSummary.applied_mode: 塗布方式 literal / "mixed" / None
-        if value is None or value in (*get_args(AppliedDispenseMode), "mixed"):
-            return value
-        raise ValueError(f"applied_modeが不正です: {value!r}")
-
-    converter.register_structure_hook(float, strict_float)
-    converter.register_structure_hook(int, strict_int)
-    converter.register_structure_hook(bool, strict_bool)
-    converter.register_structure_hook(str, strict_string)
-    converter.register_structure_hook(
-        get_type_hints(DispenseSummary)["applied_mode"], strict_applied_mode
-    )
-    converter.register_structure_hook_func(
-        lambda target: get_origin(target) is Literal,
-        strict_literal,
-    )
-    converter.register_structure_hook_func(
-        lambda target: get_origin(target) is tuple,
-        strict_tuple,
-    )
-    return converter
-
-
-_METADATA_CONVERTER = _make_metadata_converter()

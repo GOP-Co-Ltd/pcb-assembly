@@ -32,6 +32,7 @@ import pytest
 from fastapi.testclient import TestClient
 from shapely import Polygon
 
+from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.pasting.params import PASTE_PARAM_NAMES
 from tests.web.api.conftest import COPPER_PCB_FIXTURE, REAL_PCB_FIXTURE
 from web.api.env import Settings
@@ -120,6 +121,48 @@ class TestPcbNotSelected:
         )
 
         assert response.status_code == 409
+
+
+class TestUnreadableBoardSettings:
+    """保存済みの塗布設定を読めない基板は、理由とファイルの場所を 409 で返す（500 にしない）."""
+
+    @pytest.mark.parametrize(
+        ("method", "suffix", "payload"),
+        [
+            pytest.param("GET", "", None, id="config"),
+            pytest.param(
+                "PATCH",
+                "/node",
+                {"node": "L0", "enabled": False, "expected_pcb": _SELECTED_PCB},
+                id="node",
+            ),
+            pytest.param("POST", "/route", {"layer": "Top"}, id="route"),
+        ],
+    )
+    def test_reports_the_reason_and_the_file(
+        self,
+        selected_client: TestClient,
+        webui_settings: Settings,
+        method: str,
+        suffix: str,
+        payload: dict | None,
+    ):
+        doc = selected_client.get("/api/pasting/pad-config/export").json()
+        doc["settings"]["initial_purge_pad_id"] = "U1.1"
+        board_id = BoardOverrides(webui_settings.webui_data_dir).board_id(_SELECTED_PCB)
+        path = webui_settings.webui_data_dir / "board_settings" / f"{board_id}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(doc), encoding="utf-8")
+
+        response = selected_client.request(
+            method, f"/api/pasting/pad-config{suffix}", json=payload
+        )
+
+        assert response.status_code == 409
+        assert response.json()["detail"] == (
+            "保存済みの基板の塗布設定を読めません: 基板の塗布設定 schema v1 が不正です: "
+            f"未知のキーです: initial_purge_pad_id ({path})"
+        )
 
 
 class TestReplacedBoard:

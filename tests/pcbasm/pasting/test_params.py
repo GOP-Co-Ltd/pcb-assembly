@@ -113,16 +113,11 @@ class TestPasteParams:
 
 
 class TestPasteParamsPatch:
-    def test_from_dict_and_to_dict_round_trip_sparse_values(self):
-        patch = PasteParamsPatch.from_dict({"ul_per_mm2": 0.5, "dispense_mode": "line"})
+    def test_to_dict_keeps_only_the_written_values_in_field_order(self):
+        patch = PasteParamsPatch(ul_per_mm2=0.5, dispense_mode="line")
 
         assert patch.to_dict() == {"dispense_mode": "line", "ul_per_mm2": 0.5}
         assert patch.is_empty is False
-
-    def test_from_dict_drops_unknown_fields(self):
-        patch = PasteParamsPatch.from_dict({"ul_per_mm2": 0.5, "bogus": 1.0})
-
-        assert patch == PasteParamsPatch(ul_per_mm2=0.5)
 
     def test_unknown_field_is_rejected(self):
         with pytest.raises(TypeError, match="bogus"):

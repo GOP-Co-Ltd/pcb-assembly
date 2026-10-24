@@ -37,6 +37,7 @@ from pcbasm.pasting.overrides import (
     BoardSession,
     LevelSetting,
     PasteSettingsModel,
+    StoredBoardSettingsError,
     board_settings_export_filename,
     decode_board_settings,
     descendant_override_summary,
@@ -374,8 +375,12 @@ class TestJsonShape:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({"version": 99, "settings": {}}), encoding="utf-8")
 
-        with pytest.raises(ValueError):
+        with pytest.raises(StoredBoardSettingsError) as raised:
             store.load_or_init("boards/a.kicad_pcb", _base_config())
+        assert str(raised.value) == (
+            f"保存済みの基板の塗布設定を読めません: "
+            f"未対応の基板の塗布設定です: version=99 ({path})"
+        )
 
     def test_signature_mismatch_initializes_fresh_model(self, tmp_path: Path):
         store = BoardOverrides(tmp_path)
@@ -493,7 +498,9 @@ class TestUpdate:
             tmp_path / "board_settings" / f"{store.board_id('boards/a.kicad_pcb')}.json"
         )
         doc = json.loads(path.read_text(encoding="utf-8"))
-        doc["settings"]["levels"].append({"key": ["L2", "U2"], "enabled": False})
+        doc["settings"]["levels"].append(
+            {"key": ["L2", "U2"], "enabled": False, "override": {}}
+        )
         path.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
 
         result = store.update(
@@ -702,22 +709,6 @@ class TestInitialPurgePointCodec:
 
         assert restored.initial_purge_point == Point2d(3.5, -1.25)
 
-    @pytest.mark.parametrize(
-        "value",
-        [
-            [1.0],
-            [1.0, 2.0, 3.0],
-            ["1.0", "2.0"],
-            {"x": 1.0, "y": 2.0},
-            [float("nan"), 0.0],
-        ],
-    )
-    def test_malformed_point_decodes_to_none(self, value: object):
-        # 壊れた保存内容でページを開けなくしない（pad id と同じく黙って捨てる）
-        restored = _decode({"version": 1, "settings": {"initial_purge_point": value}})
-
-        assert restored.initial_purge_point is None
-
 
 class TestFlowCalibrationPoints:
     """流量キャリブレーションの測定位置は ``settings.flow_calibration_points`` に残す."""
@@ -759,41 +750,6 @@ class TestFlowCalibrationPoints:
 
         assert restored.initial_purge_point == Point2d(1.0, 2.0)
         assert restored.flow_calibration_points == (Point2d(9.5, 2.25),)
-
-    @pytest.mark.parametrize(
-        "value",
-        [
-            [1.0],
-            [1.0, 2.0, 3.0],
-            ["1.0", "2.0"],
-            {"x": 1.0, "y": 2.0},
-            [float("nan"), 0.0],
-        ],
-    )
-    def test_malformed_points_are_dropped(self, value: object):
-        # 壊れた保存内容でページを開けなくしない（pad id と同じく黙って捨てる）
-        restored = _decode(
-            {"version": 1, "settings": {"flow_calibration_points": [value]}}
-        )
-
-        assert restored.flow_calibration_points == ()
-
-    def test_a_malformed_entry_does_not_drop_the_sound_ones(self):
-        restored = _decode(
-            {
-                "version": 1,
-                "settings": {"flow_calibration_points": [[1.0], [9.5, 2.25]]},
-            }
-        )
-
-        assert restored.flow_calibration_points == (Point2d(9.5, 2.25),)
-
-    def test_a_non_sequence_decodes_to_an_empty_set(self):
-        restored = _decode(
-            {"version": 1, "settings": {"flow_calibration_points": "nope"}}
-        )
-
-        assert restored.flow_calibration_points == ()
 
 
 class TestCodecRoundTrip:
@@ -841,28 +797,165 @@ class TestCodecRoundTrip:
         assert restored.base == new_base
 
 
+def _encoded_sample() -> dict:
+    model = PasteSettingsModel(
+        base=_base(),
+        initial_purge_point=Point2d(1.0, 2.0),
+        flow_calibration_points=(Point2d(9.5, 2.25),),
+        levels=(LevelSetting(("L2", "U1"), patch=PasteParamsPatch(ul_per_mm2=0.5)),),
+    )
+    return encode_board_settings(model, source_pcb="a")
+
+
 class TestDecodeErrors:
+    """保存 JSON は strict に読む（未知 key・欠落 key・型・値の不正を黙って捨てず、理由を返す）."""
+
     def test_unknown_version_is_an_error(self):
         decoded, error = decode_board_settings(
             {"version": 99, "settings": {"levels": []}}, base=_base()
         )
 
         assert decoded is None
-        assert error is not None
-        assert "schema version" in error
+        assert error == "未対応の基板の塗布設定です: version=99"
 
-    def test_missing_settings_is_an_error(self):
-        decoded, error = decode_board_settings({"version": 1}, base=_base())
+    @pytest.mark.parametrize(
+        ("mutate", "reason"),
+        [
+            pytest.param(
+                lambda doc: doc.pop("settings"),
+                "必須の項目がありません: settings",
+                id="missing-settings",
+            ),
+            pytest.param(
+                lambda doc: doc.pop("source_pcb"),
+                "必須の項目がありません: source_pcb",
+                id="missing-source-pcb",
+            ),
+            pytest.param(
+                lambda doc: doc["settings"].pop("levels"),
+                "必須の項目がありません: levels",
+                id="missing-levels",
+            ),
+            pytest.param(
+                lambda doc: doc.update(extra=1),
+                "未知のキーです: extra",
+                id="unknown-top-key",
+            ),
+            pytest.param(
+                lambda doc: doc["settings"]["levels"][0].update(extra=1),
+                "未知のキーです: extra",
+                id="unknown-level-key",
+            ),
+            pytest.param(
+                lambda doc: doc["settings"].update(initial_purge_point=[1.0]),
+                "配列または未設定（null）が必要です: [1.0]",
+                id="short-purge-point",
+            ),
+            pytest.param(
+                lambda doc: doc["settings"].update(
+                    flow_calibration_points=[[1.0, 2.0, 3.0]]
+                ),
+                "2要素の配列が必要です: [1.0, 2.0, 3.0]",
+                id="long-calibration-point",
+            ),
+            pytest.param(
+                lambda doc: doc["settings"].update(
+                    flow_calibration_points=[[float("nan"), 0.0]]
+                ),
+                "有限な数値が必要です: nan",
+                id="nan-calibration-point",
+            ),
+            pytest.param(
+                lambda doc: doc["settings"]["levels"][0].update(enabled="yes"),
+                "真偽値または未設定（null）が必要です: 'yes'",
+                id="enabled-not-bool",
+            ),
+            pytest.param(
+                lambda doc: doc["settings"]["levels"][0]["override"].update(bogus=1.0),
+                "未知の設定項目です: bogus (key=['L2', 'U1'])",
+                id="unknown-override-field",
+            ),
+            pytest.param(
+                lambda doc: doc["settings"]["levels"][0]["override"].update(
+                    ul_per_mm2=-1.0
+                ),
+                "ul_per_mm2は正の有限値である必要があります: -1.0 (key=['L2', 'U1'])",
+                id="invalid-override-value",
+            ),
+        ],
+    )
+    def test_malformed_document_is_an_error(
+        self, mutate: Callable[[dict], object], reason: str
+    ):
+        doc = _encoded_sample()
+        mutate(doc)
+
+        decoded, error = decode_board_settings(doc, base=_base())
 
         assert decoded is None
-        assert error is not None
+        assert error == f"基板の塗布設定 schema v1 が不正です: {reason}"
 
-    def test_missing_levels_decodes_to_empty_model(self):
-        restored = _decode({"version": 1, "settings": {}})
+    @pytest.mark.parametrize(
+        ("mutate", "reason"),
+        [
+            pytest.param(
+                lambda doc: doc.update(machine="kurousagi"),
+                "未知のキーです: machine",
+                id="machine-until-2026-07-27",
+            ),
+            pytest.param(
+                lambda doc: doc["settings"].update(base={}, base_enabled=True),
+                "未知のキーです: base, base_enabled",
+                id="base-until-2026-09-03",
+            ),
+            pytest.param(
+                lambda doc: doc["settings"].update(initial_purge_pad_id="U1.1"),
+                "未知のキーです: initial_purge_pad_id",
+                id="purge-pad-id-until-2026-09-08",
+            ),
+            pytest.param(
+                lambda doc: doc["settings"].update(flow_calibration_point=[1.0, 2.0]),
+                "未知のキーです: flow_calibration_point",
+                id="single-calibration-point-2026-09-11",
+            ),
+            pytest.param(
+                lambda doc: doc["settings"]["levels"][0]["override"].update(
+                    fill_speed=1.0
+                ),
+                "未知の設定項目です: fill_speed (key=['L2', 'U1'])",
+                id="fill-speed-until-2026-06-24",
+            ),
+        ],
+    )
+    def test_keys_written_by_older_versions_are_rejected_by_name(
+        self, mutate: Callable[[dict], object], reason: str
+    ):
+        """旧版が書き、旧版の decode が黙って捨てていた key も、名前を挙げて拒否する."""
+        doc = _encoded_sample()
+        mutate(doc)
 
-        assert restored.levels == ()
-        assert restored.initial_purge_point is None
-        assert restored.flow_calibration_points == ()
+        _, error = decode_board_settings(doc, base=_base())
+
+        assert error == f"基板の塗布設定 schema v1 が不正です: {reason}"
+
+    def test_integral_numbers_from_a_browser_roundtrip_are_read_as_floats(self):
+        """書き出した JSON をブラウザで読み込むと ``1.0`` が ``1`` になる."""
+        doc = {
+            "version": 1,
+            "source_pcb": "a",
+            "settings": {
+                "levels": [
+                    {"key": ["L0"], "enabled": None, "override": {"overlap": 0}}
+                ],
+                "initial_purge_point": [3, 4],
+            },
+        }
+
+        restored = _decode(doc)
+
+        assert restored.initial_purge_point == Point2d(3.0, 4.0)
+        assert restored.levels[0].patch.to_dict() == {"overlap": 0.0}
+        assert type(restored.levels[0].patch.to_dict()["overlap"]) is float
 
 
 class TestExportFilename:

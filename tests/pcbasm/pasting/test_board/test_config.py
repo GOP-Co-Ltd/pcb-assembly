@@ -1,5 +1,7 @@
 """テスト塗布基板configとschema 1文書のテスト."""
 
+import json
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -13,6 +15,7 @@ from pcbasm.pasting.test_board.config import (
     PurgePadSpec,
     parse_board_document,
 )
+from pcbasm.paths import PROJECT_ROOT
 from tests.pcbasm.pasting.test_board.support import (
     CUSTOM_A,
     R0402,
@@ -281,7 +284,7 @@ class TestBoardDocument:
         )
 
         document = config.normalized().to_document()
-        restored = parse_board_document(document)
+        restored, error = parse_board_document(document)
 
         assert document["kind"] == "paste_test_board"
         assert document["schema_version"] == 1
@@ -292,24 +295,30 @@ class TestBoardDocument:
             R0603,
             CUSTOM_A,
         ]
-        assert restored == config.normalized()
+        assert (restored, error) == (config.normalized(), None)
 
     @pytest.mark.parametrize(
-        ("key", "value"),
+        ("key", "value", "reason"),
         [
-            ("kind", "calibration_board"),
-            ("kind", True),
-            ("schema_version", 0),
-            ("schema_version", 2),
-            ("schema_version", "1"),
-            ("schema_version", True),
+            (
+                "kind",
+                "calibration_board",
+                "テスト塗布基板ではありません: kind='calibration_board'",
+            ),
+            ("kind", True, "テスト塗布基板ではありません: kind=True"),
+            ("schema_version", 0, "未対応のテスト塗布基板です: schema_version=0"),
+            ("schema_version", 2, "未対応のテスト塗布基板です: schema_version=2"),
+            ("schema_version", "1", "未対応のテスト塗布基板です: schema_version='1'"),
+            ("schema_version", True, "未対応のテスト塗布基板です: schema_version=True"),
         ],
     )
-    def test_rejects_wrong_document_identity(self, key: str, value: object):
+    def test_rejects_wrong_document_identity(
+        self, key: str, value: object, reason: str
+    ):
         document = BoardConfig().normalized().to_document()
         document[key] = value
 
-        assert parse_board_document(document) is None
+        assert parse_board_document(document) == (None, reason)
 
     def test_rejects_extra_top_level_or_nested_fields(self):
         top_level = BoardConfig().normalized().to_document()
@@ -317,26 +326,78 @@ class TestBoardDocument:
         nested = BoardConfig().normalized().to_document()
         nested["board"]["unexpected"] = True
 
-        assert parse_board_document(top_level) is None
-        assert parse_board_document(nested) is None
+        reason = "テスト塗布基板 schema v1 が不正です: 未知のキーです: unexpected"
+        assert parse_board_document(top_level) == (None, reason)
+        assert parse_board_document(nested) == (None, reason)
 
     @pytest.mark.parametrize(
-        "document",
+        ("document", "reason"),
         [
-            None,
-            [],
-            "not-an-object",
-            {},
-            {"kind": "paste_test_board", "schema_version": 1},
+            ({}, "未対応のテスト塗布基板です: schema_version=None"),
+            (
+                {"kind": "paste_test_board", "schema_version": 1},
+                "テスト塗布基板 schema v1 が不正です: "
+                "必須の項目がありません: board, purge_pad, custom_pads, patterns",
+            ),
         ],
     )
-    def test_malformed_documents_return_none_without_an_exception(self, document):
-        assert (
-            parse_board_document(  # type: ignore[arg-type]
-                document
-            )
-            is None
+    def test_malformed_documents_return_a_reason_without_an_exception(
+        self, document: dict, reason: str
+    ):
+        assert parse_board_document(document) == (None, reason)
+
+    @pytest.mark.parametrize(
+        ("section", "key"),
+        [("board", "pad_gap_mm"), ("purge_pad", "width_mm")],
+    )
+    def test_rejects_a_missing_key_instead_of_filling_the_default(
+        self, section: str, key: str
+    ):
+        document = BoardConfig().normalized().to_document()
+        del document[section][key]
+
+        assert parse_board_document(document) == (
+            None,
+            f"テスト塗布基板 schema v1 が不正です: 必須の項目がありません: {key}",
         )
+
+    def test_accepts_integral_numbers_from_a_browser_roundtrip(self):
+        """ブラウザで読み込んだ document は ``40.0`` が ``40`` になっている."""
+        document = BoardConfig().normalized().to_document()
+        document["board"]["width_mm"] = 40
+        document["patterns"][0]["rotation_span_deg"] = 180
+
+        restored, _ = parse_board_document(document)
+
+        assert restored == BoardConfig().normalized()
+        assert restored is not None
+        assert type(restored.board.width_mm) is float
+        assert type(restored.patterns[0].rotation_span_deg) is float
+
+    def test_rejects_a_fractional_count(self):
+        document = BoardConfig().normalized().to_document()
+        document["patterns"][0]["rotation_count"] = 4.0
+
+        assert parse_board_document(document) == (
+            None,
+            "テスト塗布基板 schema v1 が不正です: 整数が必要です: 4.0",
+        )
+
+    def test_rejects_a_value_out_of_the_domain(self):
+        document = BoardConfig().normalized().to_document()
+        document["board"]["width_mm"] = -1.0
+
+        assert parse_board_document(document) == (None, "基板幅は正の有限値が必要です")
+
+    @pytest.mark.parametrize(
+        "path",
+        sorted((PROJECT_ROOT / "data" / "paste-test-board").glob("*.json")),
+        ids=lambda path: path.name,
+    )
+    def test_reads_every_tracked_board_document(self, path: Path):
+        document = json.loads(path.read_text(encoding="utf-8"))
+
+        assert parse_board_document(document)[1] is None
 
     @pytest.mark.parametrize(
         ("key", "value"),
@@ -349,4 +410,7 @@ class TestBoardDocument:
         document = BoardConfig().normalized().to_document()
         document[key] = value
 
-        assert parse_board_document(document) is None
+        assert parse_board_document(document) == (
+            None,
+            f"テスト塗布基板 schema v1 が不正です: 配列が必要です: {value!r}",
+        )

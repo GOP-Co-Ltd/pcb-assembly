@@ -207,9 +207,7 @@ class TestApplicator:
                 params = targets.params_for(pad)
                 applicator.apply(
                     pad.polygon,
-                    params=params.patched(
-                        PasteParamsPatch.from_dict({"dispense_mode": mode})
-                    ),
+                    params=params.patched(PasteParamsPatch(dispense_mode=mode)),
                     transform=session.pad_transform(pad, CORRECTION),
                     line_reference=session.component_positions.get(pad.designator),
                 )
@@ -256,9 +254,7 @@ class TestFillPathFallback:
             applicator.retract()
             result = applicator.apply(
                 pad.polygon,
-                params=applicator.default_params.patched(
-                    PasteParamsPatch.from_dict(values)
-                ),
+                params=applicator.default_params.patched(PasteParamsPatch(**values)),
                 transform=session.pad_transform(pad, CORRECTION),
             )
 

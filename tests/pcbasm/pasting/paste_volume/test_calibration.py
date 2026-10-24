@@ -25,6 +25,7 @@ from pcbasm.pasting.paste_volume.calibration import (
     parse_calibration,
     write_calibration,
 )
+from pcbasm.paths import PROJECT_ROOT
 from tests.support.paths import TESTING_DATA_DIR
 
 PIN = TESTING_DATA_DIR / "schemas" / "paste_volume_calibration_v1.json"
@@ -224,6 +225,17 @@ class TestCalibrationFiles:
 
     def test_lists_nothing_when_the_directory_is_missing(self, tmp_path: Path):
         assert list_calibrations(tmp_path / "absent") == ()
+
+    @pytest.mark.parametrize(
+        "path",
+        list_calibrations(PROJECT_ROOT / "data" / "paste-volume-calibrations"),
+        ids=lambda path: path.name,
+    )
+    def test_loads_every_tracked_calibration(self, path: Path):
+        calibration, error = load_calibration(path)
+
+        assert error is None, error
+        assert calibration is not None
 
 
 class TestCalibrationPath:

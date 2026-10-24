@@ -59,8 +59,9 @@ web/api/jobs/pasting/*  →  pasting.{session,overrides,plan,prepare,dispense_ca
 - `overrides` はジョブ以外に pad 編集 API（`web/api/routers/pasting.py` / `pasting_view.py`）からも使う。
     `BoardOverrides` は backend のプロセスで 1 つを共有する（pad PATCH をそのロックで直列化するため）
 - 汎用の計算幾何は `pcbasm.geometry`、KiCad 汎用処理は `pcbasm.kicad`（`units` / `footprint` / `build`）に置く
-- 永続 JSON（基板別 override / dataset metadata / テスト塗布基板 document）は `schema_version` で分岐し、
-    旧版は純関数 `_migrate_vN` で新版 dict へ写してから structure する。形状を変えない限り版は上げない
+- 永続 JSON（基板別 override / dataset metadata / 塗布量の校正 / テスト塗布基板 document）は `pcbasm.document` の strict な変換で読む
+    （未知 key・欠落 key・暗黙の型変換を拒否する）。版が違えば拒否し、旧版を読むときは純関数 `_migrate_vN` で新版 dict へ写してから structure する。
+    形状を変えない限り版は上げない
 
 ## 規約
 

@@ -276,11 +276,6 @@ class PasteParamsPatch:
             if (value := values.get(name)) is not None
         }
 
-    @classmethod
-    def from_dict(cls, values: Mapping[str, Any]) -> Self:
-        """``None`` と欠落の項目を継承として復元する（未知の項目は読み捨てる。値は検証済みであること）."""
-        return cls(**{name: values.get(name) for name in PASTE_PARAM_NAMES})
-
     def to_dict(self) -> dict[str, PasteParamValue]:
         """書かれている項目だけの dict（:data:`PASTE_PARAM_NAMES` の順）."""
         return dict(self._values)

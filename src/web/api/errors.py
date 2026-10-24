@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 from pcbasm.config import ConfigError
 from pcbasm.errors import DeviceError
 from pcbasm.kicad.units import KicadError
+from pcbasm.pasting.overrides import StoredBoardSettingsError
 from pcbasm.pasting.test_board.config import BoardConfigError
 from web.api.control import ControlDeniedError, LeaseInfo
 from web.api.machine_config import InvalidSettingError
@@ -99,6 +100,13 @@ def install_error_handlers(app: FastAPI) -> None:
         request: Request, exc: BoardConfigError
     ) -> JSONResponse:
         return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+    @app.exception_handler(StoredBoardSettingsError)
+    async def stored_board_settings_error_handler(
+        request: Request, exc: StoredBoardSettingsError
+    ) -> JSONResponse:
+        """保存済みの塗布設定を読めない間は、その基板の pad 設定を扱う操作を断る."""
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
 
     @app.exception_handler(KicadError)
     async def kicad_error_handler(request: Request, exc: KicadError) -> JSONResponse:

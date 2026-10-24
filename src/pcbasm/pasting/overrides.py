@@ -44,7 +44,7 @@ import threading
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path, PurePosixPath
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 import attrs
 from shapely import Point, Polygon
@@ -52,6 +52,7 @@ from shapely import Point, Polygon
 from pcbasm.atomic import write_text_atomic
 from pcbasm.board import Board, Pad
 from pcbasm.config.dispenser import PasteDispenserConfig
+from pcbasm.document import omittable, structure_document
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.hierarchy import HierKey, PadHierarchy, PadHierarchyNode
 from pcbasm.pasting.params import (
@@ -59,10 +60,11 @@ from pcbasm.pasting.params import (
     PasteParams,
     PasteParamsPatch,
     PasteParamValue,
+    validate_param_values,
 )
-from pcbasm.validators import is_finite_number
 
 BOARD_SETTINGS_SCHEMA_VERSION = 1
+_LABEL = "基板の塗布設定"
 
 # 書き出し名で path 片として使えない文字（空白を含む）。日本語の基板名を置き換えないよう
 # ASCII 以外は残し、Content-Disposition 側で RFC 5987 の filename* に載せる
@@ -320,6 +322,10 @@ def _iter_descendants(node: PadHierarchyNode) -> Iterator[PadHierarchyNode]:
         yield from _iter_descendants(child)
 
 
+class StoredBoardSettingsError(ValueError):
+    """保存済みの基板の塗布設定を復元できない（理由とファイルの場所を運転者へ返す）."""
+
+
 class BoardOverrides:
     """基板ごとの塗布設定 JSON を読み書きするストア.
 
@@ -361,13 +367,17 @@ class BoardOverrides:
         保存時と基板署名が異なる場合も初期値に戻す。
 
         Raises:
-            ValueError: JSON を復元できない（schema version が未知など）場合
+            StoredBoardSettingsError: 保存済みの JSON を復元できない場合
         """
         path = self._path(source_pcb)
         if not path.is_file():
             return PasteSettingsModel.from_config(base_config)
         doc = json.loads(path.read_text(encoding="utf-8"))
-        decoded = self._decode(doc, base_config, where=str(path))
+        decoded, error = decode_board_settings(doc, base=base_config.defaults)
+        if decoded is None:
+            raise StoredBoardSettingsError(
+                f"保存済みの{_LABEL}を読めません: {error} ({path})"
+            )
         if _signature_mismatch(decoded, board_signature):
             return PasteSettingsModel.from_config(base_config)
         return decoded.model
@@ -397,7 +407,9 @@ class BoardOverrides:
         Raises:
             ValueError: 復元できない／PCB や基板構成が一致しない場合
         """
-        decoded = self._decode(doc, base_config, where="<uploaded board settings>")
+        decoded, error = decode_board_settings(doc, base=base_config.defaults)
+        if decoded is None:
+            raise ValueError(error)
         if (
             expected_source_pcb is not None
             and decoded.source_pcb != expected_source_pcb
@@ -475,14 +487,6 @@ class BoardOverrides:
         self.save(source_pcb, pruned, board_signature=board_signature)
         return pruned
 
-    def _decode(
-        self, doc: dict, base_config: PasteDispenserConfig, *, where: str
-    ) -> DecodedBoardSettings:
-        decoded, error = decode_board_settings(doc, base=base_config.defaults)
-        if decoded is None:
-            raise ValueError(f"{error} ({where})")
-        return decoded
-
     def _path(self, source_pcb: str) -> Path:
         return self._root / f"{self.board_id(source_pcb)}.json"
 
@@ -518,7 +522,7 @@ class BoardSession:
         """基板から階層と署名を組み、保存済みの塗布設定を読む.
 
         Raises:
-            ValueError: 保存済みの JSON を復元できない場合
+            StoredBoardSettingsError: 保存済みの JSON を復元できない場合
         """
         hierarchy = PadHierarchy.build(board.components, board.pads)
         signature = hierarchy.signature()
@@ -539,8 +543,32 @@ class DecodedBoardSettings:
     """Decode 結果（モデルと保存時のメタ情報）."""
 
     model: PasteSettingsModel
-    source_pcb: str | None
+    source_pcb: str
     board_signature: str | None
+
+
+@attrs.frozen
+class _StoredLevel:
+    key: HierKey
+    enabled: bool | None
+    override: dict[str, PasteParamValue]
+
+
+@attrs.frozen
+class _StoredSettings:
+    levels: tuple[_StoredLevel, ...]
+    initial_purge_point: tuple[float, float] | None = omittable(None)
+    flow_calibration_points: tuple[tuple[float, float], ...] = omittable(())
+
+
+@attrs.frozen
+class _StoredBoardSettings:
+    """保存 JSON（schema v1）の形."""
+
+    version: Literal[1]
+    source_pcb: str
+    settings: _StoredSettings
+    board_signature: str | None = omittable(None)
 
 
 def encode_board_settings(
@@ -582,37 +610,45 @@ def decode_board_settings(
 ) -> tuple[DecodedBoardSettings | None, str | None]:
     """保存 JSON ドキュメントを現在の machine.toml デフォルト ``base`` に重ねて復元する.
 
+    形式（未知 key・欠落 key・型）と override の値を strict に検証する。
+    書き出した JSON をブラウザで読み込むと ``1.0`` が ``1`` になるので、float の欄に int を受ける。
+
     Returns:
         ``(decoded, None)`` または ``(None, エラー文)``
     """
     version = doc.get("version")
     if version != BOARD_SETTINGS_SCHEMA_VERSION:
-        return None, (
-            f"未知の board_settings schema version です: {version} "
-            f"(対応 v{BOARD_SETTINGS_SCHEMA_VERSION})"
-        )
-    settings = doc.get("settings")
-    if not isinstance(settings, Mapping):
-        return None, "settings がありません"
-
-    levels = tuple(
-        _level_from_entry(entry) for entry in _as_sequence(settings.get("levels"))
-    )
-    source_pcb = doc.get("source_pcb")
-    board_signature = doc.get("board_signature")
+        return None, f"未対応の{_LABEL}です: version={version!r}"
+    invalid = f"{_LABEL} schema v{BOARD_SETTINGS_SCHEMA_VERSION} が不正です"
+    try:
+        stored = structure_document(doc, _StoredBoardSettings, int_as_float=True)
+    except Exception as error:
+        return None, f"{invalid}: {error}"
+    settings = stored.settings
+    for level in settings.levels:
+        if (message := validate_param_values(level.override)) is not None:
+            return None, f"{invalid}: {message} (key={list(level.key)})"
+    purge = settings.initial_purge_point
     model = PasteSettingsModel(
         base=base,
-        initial_purge_point=_point(settings.get("initial_purge_point")),
-        flow_calibration_points=_points(settings.get("flow_calibration_points")),
-        levels=levels,
+        initial_purge_point=None if purge is None else Point2d(*purge),
+        flow_calibration_points=tuple(
+            Point2d(*point) for point in settings.flow_calibration_points
+        ),
+        levels=tuple(
+            LevelSetting(
+                key=level.key,
+                enabled=level.enabled,
+                patch=PasteParamsPatch(**level.override),
+            )
+            for level in settings.levels
+        ),
     )
     return (
         DecodedBoardSettings(
             model=model,
-            source_pcb=source_pcb if isinstance(source_pcb, str) else None,
-            board_signature=(
-                board_signature if isinstance(board_signature, str) else None
-            ),
+            source_pcb=stored.source_pcb,
+            board_signature=stored.board_signature,
         ),
         None,
     )
@@ -632,43 +668,6 @@ def board_settings_export_filename(
     stem = _UNSAFE_FILENAME.sub("-", PurePosixPath(source_pcb).stem).strip("-")
     moment = (created_at or datetime.now()).strftime("%Y%m%dT%H%M%S")
     return f"{stem or 'board'}-paste-overrides-{moment}.json"
-
-
-def _level_from_entry(entry: Mapping[str, Any]) -> LevelSetting:
-    return LevelSetting(
-        key=tuple(entry["key"]),
-        enabled=entry.get("enabled"),
-        patch=PasteParamsPatch.from_dict(entry.get("override") or {}),
-    )
-
-
-def _as_sequence(value: object) -> Sequence[Any]:
-    return value if isinstance(value, Sequence) and not isinstance(value, str) else []
-
-
-def _points(value: object) -> tuple[Point2d, ...]:
-    """保存値 ``[[x, y], ...]`` を Point2d の並びへ戻す.
-
-    形が違う要素は :func:`_point` と同じく通知せずに捨てる。
-    """
-    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
-        return ()
-    return tuple(point for entry in value if (point := _point(entry)) is not None)
-
-
-def _point(value: object) -> Point2d | None:
-    """保存値 ``[x, y]`` を Point2d へ戻す（形が違えば ``None``）.
-
-    不正な保存内容でページを開けなくならないよう、pad id と同じく通知せずに捨てる。
-    """
-    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
-        return None
-    if len(value) != 2:
-        return None
-    x, y = value
-    if not is_finite_number(x) or not is_finite_number(y):
-        return None
-    return Point2d(float(x), float(y))
 
 
 def _signature_mismatch(

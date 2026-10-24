@@ -230,12 +230,9 @@ def import_paste_test_board_config(
 ) -> ResolvedConfigResponse:  # type: ignore[valid-type]
     """自己識別情報を含む JSON を検証・正規化して返す（保存はしない）."""
 
-    parsed = parse_board_document(body.document)
+    parsed, error = parse_board_document(body.document)
     if parsed is None:
-        raise HTTPException(
-            status_code=400,
-            detail=("テスト塗布基板の設定JSONではないか、" "内容が不正です"),
-        )
+        raise HTTPException(status_code=400, detail=error)
     return ResolvedConfigResponse.model_validate(
         generator.resolve_config(parsed), strict=False
     )

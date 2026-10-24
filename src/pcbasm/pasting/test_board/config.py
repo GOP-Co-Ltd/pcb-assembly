@@ -9,6 +9,7 @@ from typing import Any, Literal, TypeAlias, TypeGuard
 
 import attrs
 
+from pcbasm.document import parse_document
 from pcbasm.kicad.footprint import format_footprint_id, parse_footprint_id
 from pcbasm.kicad.units import (
     KICAD_COORD_MAX_NM,
@@ -317,14 +318,28 @@ class BoardConfig:
     def to_document(self) -> dict[str, Any]:
         """この設定をそのまま自己識別可能な JSON document へ変換する."""
 
-        return {
-            "kind": BOARD_KIND,
-            "schema_version": BOARD_SCHEMA_VERSION,
-            "board": attrs.asdict(self.board),
-            "purge_pad": attrs.asdict(self.purge_pad),
-            "custom_pads": [attrs.asdict(item) for item in self.custom_pads],
-            "patterns": [attrs.asdict(pattern) for pattern in self.patterns],
-        }
+        return attrs.asdict(
+            _BoardDocument(
+                kind=BOARD_KIND,
+                schema_version=BOARD_SCHEMA_VERSION,
+                board=self.board,
+                purge_pad=self.purge_pad,
+                custom_pads=self.custom_pads,
+                patterns=self.patterns,
+            )
+        )
+
+
+@attrs.frozen
+class _BoardDocument:
+    """設定 JSON document（schema 1）の形."""
+
+    kind: BoardKind
+    schema_version: BoardSchemaVersion
+    board: BoardSpec
+    purge_pad: PurgePadSpec
+    custom_pads: tuple[CustomPadSpec, ...]
+    patterns: tuple[PatternSpec, ...]
 
 
 def validate_custom_pad(
@@ -383,169 +398,39 @@ def validate_custom_pad(
 
 def parse_board_document(
     document: Mapping[str, object],
-) -> BoardConfig | None:
-    """JSON document を設定へ変換する。不正な形式・値では None を返す."""
+) -> tuple[BoardConfig | None, str | None]:
+    """JSON document を正規化した設定へ変換する.
 
-    if not isinstance(document, Mapping) or not _has_exact_keys(
+    ブラウザで読み込んだ document は ``1.0`` が ``1`` になっているので、float の欄に int を受ける。
+
+    Returns:
+        ``(config, None)``。不正な形式・値なら ``(None, 理由)``
+    """
+    parsed, error = parse_document(
         document,
-        (
-            "kind",
-            "schema_version",
-            "board",
-            "purge_pad",
-            "custom_pads",
-            "patterns",
-        ),
-    ):
-        return None
-    if document.get("kind") != BOARD_KIND:
-        return None
-    schema_version = document.get("schema_version")
-    if (
-        isinstance(schema_version, bool)
-        or not isinstance(schema_version, int)
-        or schema_version != BOARD_SCHEMA_VERSION
-    ):
-        return None
-    board_data = document.get("board")
-    purge_data = document.get("purge_pad")
-    custom_pad_data = document.get("custom_pads")
-    pattern_data = document.get("patterns")
-    if not isinstance(board_data, Mapping) or not _has_exact_keys(
-        board_data, ("width_mm", "height_mm", "edge_margin_mm", "pad_gap_mm")
-    ):
-        return None
-    if not isinstance(purge_data, Mapping) or not _has_exact_keys(
-        purge_data, ("width_mm", "height_mm")
-    ):
-        return None
-    if not isinstance(custom_pad_data, list) or not isinstance(pattern_data, list):
-        return None
-
-    width = _document_float(board_data.get("width_mm"))
-    height = _document_float(board_data.get("height_mm"))
-    edge_margin = _document_float(board_data.get("edge_margin_mm"))
-    pad_gap = _document_float(board_data.get("pad_gap_mm"))
-    purge_width = _document_float(purge_data.get("width_mm"))
-    purge_height = _document_float(purge_data.get("height_mm"))
-    if (
-        width is None
-        or height is None
-        or edge_margin is None
-        or pad_gap is None
-        or purge_width is None
-        or purge_height is None
-    ):
-        return None
-
-    custom_pads: list[CustomPadSpec] = []
-    for value in custom_pad_data:
-        if not isinstance(value, Mapping) or not _has_exact_keys(
-            value,
-            (
-                "catalog_id",
-                "name",
-                "shape",
-                "width_mm",
-                "height_mm",
-                "corner_radius_mm",
-            ),
-        ):
-            return None
-        catalog_id = value.get("catalog_id")
-        name = value.get("name")
-        shape = value.get("shape")
-        custom_width = _document_float(value.get("width_mm"))
-        custom_height = _document_float(value.get("height_mm"))
-        radius = _document_float(value.get("corner_radius_mm"))
-        if not isinstance(catalog_id, str) or not isinstance(name, str):
-            return None
-        if not is_custom_pad_shape_id(shape):
-            return None
-        if custom_width is None or custom_height is None or radius is None:
-            return None
-        custom_pads.append(
-            CustomPadSpec(
-                catalog_id=catalog_id,
-                name=name,
-                shape=shape,
-                width_mm=custom_width,
-                height_mm=custom_height,
-                corner_radius_mm=radius,
-            )
-        )
-
-    patterns: list[PatternSpec] = []
-    for value in pattern_data:
-        if not isinstance(value, Mapping) or not _has_exact_keys(
-            value,
-            (
-                "catalog_id",
-                "rotation_span_deg",
-                "rotation_count",
-                "repeat_count",
-            ),
-        ):
-            return None
-        catalog_id = value.get("catalog_id")
-        span = _document_float(value.get("rotation_span_deg"))
-        rotation_count = _document_int(value.get("rotation_count"))
-        repeat_count = _document_int(value.get("repeat_count"))
-        if not isinstance(catalog_id, str):
-            return None
-        if span is None or rotation_count is None or repeat_count is None:
-            return None
-        patterns.append(
-            PatternSpec(
-                catalog_id=catalog_id,
-                rotation_span_deg=span,
-                rotation_count=rotation_count,
-                repeat_count=repeat_count,
-            )
-        )
-
-    config = BoardConfig(
-        board=BoardSpec(
-            width_mm=width,
-            height_mm=height,
-            edge_margin_mm=edge_margin,
-            pad_gap_mm=pad_gap,
-        ),
-        purge_pad=PurgePadSpec(
-            width_mm=purge_width,
-            height_mm=purge_height,
-        ),
-        custom_pads=tuple(custom_pads),
-        patterns=tuple(patterns),
+        _BoardDocument,
+        kind=BOARD_KIND,
+        version=BOARD_SCHEMA_VERSION,
+        label="テスト塗布基板",
+        int_as_float=True,
     )
-    if config.validate() is not None:
-        return None
-    return config.normalized()
+    if parsed is None:
+        return None, error
+    config = BoardConfig(
+        board=parsed.board,
+        purge_pad=parsed.purge_pad,
+        custom_pads=parsed.custom_pads,
+        patterns=parsed.patterns,
+    )
+    if (error := config.validate()) is not None:
+        return None, error
+    return config.normalized(), None
 
 
 def is_custom_pad_shape_id(
     value: object,
 ) -> TypeGuard[CustomPadShapeId]:
     return isinstance(value, str) and value in _CUSTOM_PAD_SHAPE_BY_ID
-
-
-def _has_exact_keys(value: Mapping[Any, Any], expected: tuple[str, ...]) -> bool:
-    keys = tuple(value.keys())
-    return len(keys) == len(expected) and all(
-        isinstance(key, str) and key in expected for key in keys
-    )
-
-
-def _document_float(value: object) -> float | None:
-    if not is_finite_number(value):
-        return None
-    return float(value)
-
-
-def _document_int(value: object) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, int):
-        return None
-    return value
 
 
 def parse_pad_catalog_id(catalog_id: object) -> tuple[str, str, int] | None:

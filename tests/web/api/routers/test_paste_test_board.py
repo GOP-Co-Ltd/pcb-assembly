@@ -306,14 +306,17 @@ class TestPasteTestBoardConfigTransfer:
             _R0603,
         ]
 
-    def test_import_rejects_a_wrong_document(self, client: TestClient):
-        """文書 identity / schema 版 / 余剰キーの判定は core が担う。ここは 400 写像だけ."""
+    def test_import_rejects_a_wrong_document_with_the_reason(self, client: TestClient):
+        """文書 identity / schema 版 / 余剰キーの判定は core が担う。ここは理由つきの 400 写像だけ."""
         response = client.post(
             f"{_BASE}/import",
             json={"document": {"kind": "calibration_board", "schema_version": 1}},
         )
 
         assert response.status_code == 400
+        assert response.json()["detail"] == (
+            "テスト塗布基板ではありません: kind='calibration_board'"
+        )
 
     @pytest.mark.parametrize("document", [None, [], "not-an-object"])
     def test_import_wrapper_is_strict(self, client: TestClient, document: object):
