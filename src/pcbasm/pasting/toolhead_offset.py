@@ -17,9 +17,8 @@ from cattrs.preconf.json import make_converter
 from shapely import Point as ShapelyPoint, Polygon
 
 from pcbasm.gcode import GCode
-from pcbasm.geometry import Identity, Point2d
+from pcbasm.geometry import Point2d, Shift
 from pcbasm.pasting.applicator import PasteApplicator, build_applicator
-from pcbasm.pasting.params import PasteParamsPatch
 from pcbasm.pasting.probe import ProbeExecutor
 from pcbasm.pasting.session import toolhead_transform
 from pcbasm.posctrl import (
@@ -438,17 +437,11 @@ class ToolheadOffsetProcedure:
         self, applicator: PasteApplicator, probed: ProbedPoint, *, amount_ul: float
     ) -> None:
         """プローブ済み点の吐出位置へ、表面 Z + 塗布高さで点塗布する."""
-        default_params = applicator.default_params
-        # transform は Identity なので machine XY と絶対 Z（表面 + 塗布高さ）を渡す。
+        # 吐出位置は machine XY なので、変換は Z を表面の高さへ持ち上げるだけ
         applicator.deposit_at(
             probed.point.dispense,
             amount_ul=amount_ul,
-            transform=Identity(),
-            params=default_params.patched(
-                PasteParamsPatch(
-                    paste_height=probed.surface_z + default_params.paste_height_mm
-                )
-            ),
+            transform=Shift(z=probed.surface_z),
         )
 
     def measure(

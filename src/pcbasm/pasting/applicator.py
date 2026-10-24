@@ -33,7 +33,7 @@ from pcbasm.pasting.fill_path import (
     micro_line_auto_height,
 )
 from pcbasm.pasting.fill_sequence import FillSequence, MicroLineSequence
-from pcbasm.pasting.params import DispenseSettings, PasteParams
+from pcbasm.pasting.params import PasteParams
 
 logger = logging.getLogger(__name__)
 
@@ -152,18 +152,21 @@ class PasteApplicator:
         *,
         lift_height: float | None = None,
     ) -> None:
-        """設定は検証済みの ``MachineConfig.paste_dispenser`` から写す（ここでは再検証しない）."""
+        """設定は検証済みの ``MachineConfig.paste_dispenser`` を使う（ここでは再検証しない）."""
         self._klipper = klipper
         self._dispenser = dispenser
         self._stage = stage
         self._config = config
-        self._settings = DispenseSettings.from_config(config, lift_height=lift_height)
-        self._default_params = PasteParams.from_config(config)
+        self._motion = (
+            config.motion
+            if lift_height is None
+            else attrs.evolve(config.motion, lift_height=lift_height)
+        )
 
     @property
     def default_params(self) -> PasteParams:
-        """Machine 設定由来の塗布パラメータ（pad 個別設定が無いときに使う）."""
-        return self._default_params
+        """Machine 設定の塗布パラメータ既定値（pad 個別設定が無いときに使う）."""
+        return self._config.defaults
 
     @property
     def rotations_per_ul(self) -> float:
@@ -200,7 +203,7 @@ class PasteApplicator:
         """
         logger.info("ペーストローディング: %s μL", amount_ul)
         push = self._dispenser.pushpull(
-            amount_ul, self._settings.retract_rate, self._settings.retract_accel
+            amount_ul, self._motion.retract_rate, self._motion.retract_accel
         )
         self._klipper.send_gcode(push + GCode.wait_for_done())
         logger.info("ローディング完了")
@@ -242,7 +245,7 @@ class PasteApplicator:
 
     def retract(self) -> None:
         """リトラクション量分だけペーストを引き戻す（ブロッキング）."""
-        self.load(-self._settings.retract_amount)
+        self.load(-self._motion.retract_amount)
 
     def prime(self) -> None:
         """リトラクション量分だけ押し戻して引き込みを解消する（ブロッキング）.
@@ -254,7 +257,7 @@ class PasteApplicator:
         いるので、これを使うのはそれらを経由しない押し出し（ノズルクリーニングの
         パージ）を挟むときだけ。
         """
-        self.load(self._settings.retract_amount)
+        self.load(self._motion.retract_amount)
 
     def apply(
         self,
@@ -336,7 +339,7 @@ class PasteApplicator:
             transform: 塗布点に適用する座標変換
             params: 塗布高さ・プライム遅延に使うパラメータ（``None`` で machine 既定）
         """
-        params = self._default_params if params is None else params
+        params = self._config.defaults if params is None else params
         return PasteApplicationResult(
             (
                 self._draw_polyline(
@@ -379,8 +382,8 @@ class PasteApplicator:
             (start, end),
             applied_mode="line",
             amount_ul=amount_ul,
-            paste_height_mm=self._default_params.paste_height_mm,
-            prime_extra_delay=self._default_params.prime_extra_delay,
+            paste_height_mm=self._config.defaults.paste_height_mm,
+            prime_extra_delay=self._config.defaults.prime_extra_delay,
             transform=transform,
             fill_speed=fill_speed,
             rate_cap=rate_cap,
@@ -407,7 +410,7 @@ class PasteApplicator:
         sequence = FillSequence(
             path=path,
             total_amount_ul=amount_ul,
-            settings=self._settings,
+            motion=self._motion,
             prime_extra_delay=prime_extra_delay,
             fill_speed=fill_speed,
             rate_cap=rate_cap,
@@ -465,7 +468,7 @@ class PasteApplicator:
         sequence = MicroLineSequence(
             path=path,
             total_amount_ul=amount_ul,
-            settings=self._settings,
+            motion=self._motion,
         )
         self._klipper.send_gcode(
             sequence.to_gcode(self._stage, self._dispenser) + GCode.wait_for_done()

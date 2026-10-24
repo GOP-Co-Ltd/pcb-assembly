@@ -27,7 +27,7 @@ import attrs
 from shapely import Polygon
 from shapely.geometry import LineString
 
-from pcbasm.config.dispenser import DispenseMode, PasteDispenserConfig
+from pcbasm.config.dispenser import PasteDispenserConfig
 from pcbasm.geometry import (
     Point2d,
     clip_segment,
@@ -37,7 +37,7 @@ from pcbasm.geometry import (
     polyline_length,
     ring_segment,
 )
-from pcbasm.pasting.params import PasteParams
+from pcbasm.pasting.params import DispenseMode, PasteParams
 
 AppliedDispenseMode = Literal["dot", "line", "area", "micro_line"]
 
@@ -79,7 +79,7 @@ class FillPlan:
         （``nozzle_diameter > 0``、``0 <= overlap < 1``、``boundary_margin`` は有限値、
         ``bead_width_factor > 0``、``auto_line_aspect_ratio > 1``、
         ``auto_area_short_side_factor > 0``、``nozzle_outer_diameter >= nozzle_diameter``。
-        検証は ``PasteDispenserConfig`` 読込と
+        検証は ``PasteDispenserConfig`` と ``PasteParams`` の読込、
         :func:`pcbasm.pasting.params.validate_param_values` が担う）。
 
         数式::

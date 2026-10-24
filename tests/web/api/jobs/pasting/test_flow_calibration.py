@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from pcbasm.config import MachineConfig, load_machine
-from pcbasm.config.dispenser import FlowCalibrationConfig
+from pcbasm.config.dispenser import VolumeCorrectionConfig
 from pcbasm.geometry import Point2d
 from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeCamera, FakeKlipper
 from pcbasm.pasting.paste_volume.calibration import (
@@ -156,7 +156,7 @@ class TestRunFlowCalibration:
         def run(ctx: JobContext) -> JobResult:
             klipper = FakeKlipper()
             session = paste_session(FakeCamera([uniform_frame()]), klipper, machine)
-            config = FlowCalibrationConfig(
+            config = VolumeCorrectionConfig(
                 calibration_file=str(ctx.params["calibration_file"]),
                 settle_seconds=float(ctx.params["settle_seconds"]),
             )
@@ -298,6 +298,6 @@ class TestRunFlowCalibration:
         assert record.status == JobStatus.SUCCEEDED, record.error
         retract_ul = load_machine(
             TESTING_CONFIG_DIR / "machine.toml"
-        ).paste_dispenser.retract_amount
-        expected = retract_ul + FlowCalibrationConfig().amount_ul
+        ).paste_dispenser.motion.retract_amount
+        expected = retract_ul + VolumeCorrectionConfig().amount_ul
         assert dispensed == pytest.approx([expected] * len(POINTS))

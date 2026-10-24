@@ -47,8 +47,8 @@ class Klipper:
 
     def __init__(
         self,
-        host: str = "localhost",
-        port: int = 7125,
+        host: str,
+        port: int,
         timeout: float | None = None,
         journal: GCodeJournal | None = None,
     ) -> None:

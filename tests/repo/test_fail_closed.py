@@ -15,7 +15,7 @@ from web.selfupdate.settings import UpdateSettings
 class TestFailClosed:
     def test_open_klipper_fails_the_test(self):
         with pytest.raises(pytest.fail.Exception):
-            hal.open_klipper(KlipperConfig())
+            hal.open_klipper(KlipperConfig(host="127.0.0.1", port=7126))
 
     @pytest.mark.parametrize("field", ["systemctl_bin", "sudo_bin"])
     def test_update_settings_default_bin_refuses_to_run(self, field: str):

@@ -1,26 +1,17 @@
-"""pcbasm.pasting.params のテスト（実 PasteDispenserConfig を使う）."""
+"""pcbasm.pasting.params のテスト."""
 
 import attrs
 import pytest
 
-from pcbasm.config import load_machine
 from pcbasm.pasting.params import (
     PASTE_PARAM_FIELDS,
     PASTE_PARAM_NAMES,
-    DispenseSettings,
+    DispenseMotion,
     PasteParams,
     PasteParamsPatch,
     validate_field_names,
     validate_param_values,
 )
-from tests.support.paths import TESTING_DATA_DIR
-
-TESTING_MACHINE_TOML = TESTING_DATA_DIR / "machine.toml"
-
-
-@pytest.fixture
-def config():
-    return load_machine(TESTING_MACHINE_TOML).paste_dispenser
 
 
 def _params(**overrides: object) -> PasteParams:
@@ -41,10 +32,24 @@ def _params(**overrides: object) -> PasteParams:
 
 
 class TestPasteParamFields:
-    def test_field_metadata_matches_attrs_fields_in_order(self):
-        assert PASTE_PARAM_NAMES == tuple(f.name for f in attrs.fields(PasteParams))
-        assert PASTE_PARAM_NAMES == tuple(
-            f.name for f in attrs.fields(PasteParamsPatch)
+    def test_field_names_are_fixed(self):
+        """項目名は基板ごとの override（board_settings）の鍵なので変えない."""
+        assert PASTE_PARAM_NAMES == (
+            "dispense_mode",
+            "line_direction",
+            "ul_per_mm2",
+            "paste_height",
+            "prime_extra_delay",
+            "bead_width_factor",
+            "overlap",
+            "boundary_margin",
+            "micro_line_z_start",
+            "micro_line_z_end",
+        )
+
+    def test_field_metadata_follows_attrs_fields_in_order(self):
+        assert tuple(field.name for field in PASTE_PARAM_FIELDS) == tuple(
+            f.name for f in attrs.fields(PasteParams)
         )
         # WebUI の widget 種別も field メタデータが単一ソース
         by_name = {field.name: field for field in PASTE_PARAM_FIELDS}
@@ -103,8 +108,16 @@ class TestPasteParamsPatch:
         patch = PasteParamsPatch.from_dict({"ul_per_mm2": 0.5, "dispense_mode": "line"})
 
         assert patch.to_dict() == {"dispense_mode": "line", "ul_per_mm2": 0.5}
-        assert patch.paste_height is None
         assert patch.is_empty is False
+
+    def test_from_dict_drops_unknown_fields(self):
+        patch = PasteParamsPatch.from_dict({"ul_per_mm2": 0.5, "bogus": 1.0})
+
+        assert patch == PasteParamsPatch(ul_per_mm2=0.5)
+
+    def test_unknown_field_is_rejected(self):
+        with pytest.raises(TypeError, match="bogus"):
+            PasteParamsPatch(bogus=1.0)
 
     def test_updated_applies_values_then_clears(self):
         patch = PasteParamsPatch(ul_per_mm2=0.5, overlap=0.2)
@@ -177,19 +190,52 @@ class TestValidateParamValues:
         assert validate_field_names(["ul_per_mm2", "prime_extra_delay"]) is None
 
 
-class TestDispenseSettings:
-    def test_from_config_uses_effective_retract_rate(self, config):
-        settings = DispenseSettings.from_config(config)
+class TestPasteParamsValidators:
+    def test_defaults_fill_optional_fields(self):
+        params = PasteParams(ul_per_mm2=0.1, paste_height="auto")
 
-        assert settings.retract_rate == pytest.approx(config.effective_retract_rate)
-        assert settings.lift_height == pytest.approx(config.lift_height)
-
-    def test_from_config_copies_post_dispense_settle(self, config):
-        settings = DispenseSettings.from_config(config)
-
-        assert settings.post_dispense_settle_seconds == pytest.approx(
-            config.post_dispense_settle_seconds
+        assert params == _params(
+            prime_extra_delay=0.0,
+            paste_height="auto",
+            micro_line_z_start="auto",
+            micro_line_z_end="auto",
         )
 
-    def test_lift_height_override(self, config):
-        assert DispenseSettings.from_config(config, lift_height=5.0).lift_height == 5.0
+    @pytest.mark.parametrize(
+        "values",
+        [{"overlap": 1.0}, {"paste_height": 0.0}, {"dispense_mode": "spray"}],
+    )
+    def test_invalid_values_are_rejected(self, values: dict):
+        with pytest.raises(ValueError):
+            _params(**values)
+
+
+class TestDispenseMotion:
+    def _motion(self, **overrides: object) -> DispenseMotion:
+        values: dict = {
+            "max_fill_speed": 2.0,
+            "max_dispense_rate": 10.0,
+            "dispense_accel": 8.0,
+            "retract_amount": 10.0,
+            "retract_rate": 5.0,
+            "retract_accel_factor": 4.0,
+        }
+        values.update(overrides)
+        return DispenseMotion(**values)
+
+    def test_retract_accel(self):
+        # factor * rate^2 / amount = 4.0 * 25 / 10
+        assert self._motion().retract_accel == pytest.approx(10.0)
+
+    @pytest.mark.parametrize(
+        "values",
+        [
+            {"retract_accel_factor": 1.0},
+            {"lift_height": 0.0},
+            {"dispense_accel": 0.0},
+            {"post_dispense_settle_seconds": -0.1},
+        ],
+    )
+    def test_invalid_values_are_rejected(self, values: dict):
+        with pytest.raises(ValueError):
+            self._motion(**values)

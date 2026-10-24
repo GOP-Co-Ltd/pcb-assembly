@@ -14,7 +14,7 @@ class TestManualStepper:
     @pytest.fixture
     def mock_klipper(self, mocker: MockerFixture):
         """Klipperをモックするフィクスチャ."""
-        klipper = Klipper()
+        klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(
             klipper.readonly,
             "get_config",
@@ -29,7 +29,7 @@ class TestManualStepper:
         return ManualStepper(mock_klipper.readonly, STEPPER_NAME)
 
     def test_init_missing_stepper_section(self, mocker: MockerFixture):
-        klipper = Klipper()
+        klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(klipper.readonly, "get_config", return_value={})
 
         with pytest.raises(

@@ -31,6 +31,7 @@ from pcbasm.pasting.dataset.recorder import (
     validate_dataset_run,
 )
 from pcbasm.pasting.dataset.writer import PasteDatasetWriter
+from pcbasm.pasting.params import DispenseMotion, PasteParams
 from pcbasm.vision.calibration import CalibrationResult
 from pcbasm.vision.crop import RectCrop
 from tests.support.paths import TESTING_DATA_DIR
@@ -96,18 +97,18 @@ def _dispenser() -> PasteDispenserConfig:
     return PasteDispenserConfig(
         rotations_per_ul=20.0,
         nozzle_diameter=0.34,
-        max_fill_speed=2.0,
-        max_dispense_rate=5.0,
-        dispense_accel=10.0,
-        retract_amount=10.0,
-        retract_rate=10.0,
-        retract_accel_factor=2.0,
         toolhead=ToolheadConfig(x=0.0, y=0.0),
-        paste_height=0.5,
-        prime_extra_delay=0.8,
-        ul_per_mm2=0.05,
         solder_paste_density=DENSITY,
         initial_purge_ul=0.5,
+        defaults=PasteParams(ul_per_mm2=0.05, paste_height=0.5, prime_extra_delay=0.8),
+        motion=DispenseMotion(
+            max_fill_speed=2.0,
+            max_dispense_rate=5.0,
+            dispense_accel=10.0,
+            retract_amount=10.0,
+            retract_rate=10.0,
+            retract_accel_factor=2.0,
+        ),
     )
 
 

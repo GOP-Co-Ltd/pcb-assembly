@@ -78,7 +78,7 @@ class PasteSettingsModel:
     @classmethod
     def from_config(cls, config: PasteDispenserConfig) -> Self:
         """Override の無い初期モデル（machine.toml デフォルトのみ）."""
-        return cls(base=PasteParams.from_config(config))
+        return cls(base=config.defaults)
 
     def level(self, key: HierKey) -> LevelSetting | None:
         for setting in self.levels:

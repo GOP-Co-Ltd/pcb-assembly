@@ -58,7 +58,7 @@ class TestMoveToCap:
 
     @pytest.fixture
     def stage(self, mocker: MockerFixture) -> XYZStage:
-        klipper = Klipper()
+        klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(klipper.readonly, "get_config", return_value=_LIMITS_CONFIG)
         return XYZStage(klipper.readonly)
 
@@ -72,7 +72,7 @@ class TestMoveToCap:
         max_velocity: int,
         expected_feed: float,
     ):
-        klipper = Klipper()
+        klipper = Klipper("127.0.0.1", 7126)
         limits_config = {
             **_LIMITS_CONFIG,
             "printer": {"max_velocity": str(max_velocity)},

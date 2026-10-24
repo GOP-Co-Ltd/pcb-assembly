@@ -16,7 +16,7 @@ class TestPasteDispenser:
     @pytest.fixture
     def mock_klipper(self, mocker: MockerFixture):
         """Klipperをモックするフィクスチャ."""
-        klipper = Klipper()
+        klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(
             klipper.readonly,
             "get_config",
@@ -28,7 +28,7 @@ class TestPasteDispenser:
         return klipper
 
     def test_init_missing_stepper_section(self, mocker: MockerFixture):
-        klipper = Klipper()
+        klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(
             klipper.readonly,
             "get_config",
@@ -41,7 +41,7 @@ class TestPasteDispenser:
             PasteDispenser(klipper.readonly, rotations_per_ul=0.5)
 
     def test_init_missing_air_pump_section(self, mocker: MockerFixture):
-        klipper = Klipper()
+        klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(
             klipper.readonly,
             "get_config",

@@ -280,13 +280,13 @@ class PreviewService:
                     self._build_circle_detector(machine), crop_size, detect_interval
                 )
             case "copper":
-                pad_align = machine.paste_dispenser.pad_align
-                low = canny_low if canny_low is not None else pad_align.canny_low
-                high = canny_high if canny_high is not None else pad_align.canny_high
+                alignment = machine.alignment
+                low = canny_low if canny_low is not None else alignment.canny_low
+                high = canny_high if canny_high is not None else alignment.canny_high
                 detector = CopperEdgeDetector(
                     canny_low=low,
                     canny_high=high,
-                    blur_ksize=pad_align.blur_ksize,
+                    blur_ksize=alignment.blur_ksize,
                 )
                 return _CopperRenderer(detector, low, high, detect_interval)
 

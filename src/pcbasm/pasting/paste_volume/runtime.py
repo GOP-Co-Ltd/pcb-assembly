@@ -19,7 +19,7 @@ from collections.abc import Sequence
 import attrs
 from shapely import Point, Polygon
 
-from pcbasm.config.dispenser import FlowCalibrationConfig
+from pcbasm.config.dispenser import VolumeCorrectionConfig
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.paste_volume.estimator import PasteVolumePrediction
 from pcbasm.validators import is_finite_number
@@ -82,7 +82,7 @@ class FlowCalibrationOutcome:
 
 def plan_flow_calibration(
     *,
-    config: FlowCalibrationConfig,
+    config: VolumeCorrectionConfig,
     points: Sequence[Point2d],
     outline: Polygon,
 ) -> tuple[FlowCalibrationPlan | None, str | None]:

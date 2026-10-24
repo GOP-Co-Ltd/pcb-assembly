@@ -70,7 +70,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             hierarchy,
             model,
             initial_purge_ul=result.machine.paste_dispenser.initial_purge_ul,
-            flow_calibration=result.machine.paste_dispenser.flow_calibration,
+            flow_calibration=result.machine.paste_dispenser.volume_correction,
         )
         if targets is None:
             raise ValueError(error)

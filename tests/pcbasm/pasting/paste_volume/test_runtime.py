@@ -10,7 +10,7 @@ import math
 import pytest
 from shapely import Polygon
 
-from pcbasm.config.dispenser import FlowCalibrationConfig
+from pcbasm.config.dispenser import VolumeCorrectionConfig
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.paste_volume.estimator import PasteVolumePrediction
 from pcbasm.pasting.paste_volume.runtime import (
@@ -23,7 +23,7 @@ from pcbasm.pasting.paste_volume.runtime import (
 )
 
 OUTLINE = Polygon([(0.0, 0.0), (40.0, 0.0), (40.0, 30.0), (0.0, 30.0)])
-ENABLED = FlowCalibrationConfig(calibration_file="cal.paste-volume.json")
+ENABLED = VolumeCorrectionConfig(calibration_file="cal.paste-volume.json")
 
 
 def _accepted(volume_ul: float) -> PasteVolumePrediction:
@@ -78,7 +78,7 @@ class TestPlanFlowCalibration:
 
     def test_is_disabled_when_no_calibration_file_is_configured(self):
         plan, error = plan_flow_calibration(
-            config=FlowCalibrationConfig(),
+            config=VolumeCorrectionConfig(),
             points=(Point2d(10.0, 12.0),),
             outline=OUTLINE,
         )
@@ -108,7 +108,7 @@ class TestPlanFlowCalibration:
     def test_rejects_points_whose_crops_overlap(self):
         """隣のドットが crop へ写り込むと最大連結成分が別のドットになる."""
         plan, error = plan_flow_calibration(
-            config=FlowCalibrationConfig(
+            config=VolumeCorrectionConfig(
                 calibration_file="cal.paste-volume.json", crop_size_mm=4.0
             ),
             points=(Point2d(10.0, 12.0), Point2d(13.0, 12.0)),
@@ -134,7 +134,7 @@ class TestPlanFlowCalibration:
         self, crop_size_mm: float, points: tuple[Point2d, ...]
     ):
         plan, error = plan_flow_calibration(
-            config=FlowCalibrationConfig(
+            config=VolumeCorrectionConfig(
                 calibration_file="cal.paste-volume.json", crop_size_mm=crop_size_mm
             ),
             points=points,

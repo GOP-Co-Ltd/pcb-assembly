@@ -196,7 +196,7 @@ class TestOverlays:
             stream.close()
 
     def test_copper_overlay_marks_edges_green(self, service: PreviewService):
-        # canny 既定値は machine.toml の pad_align（81 / 192）。固定画像の
+        # canny 既定値は machine.toml の [alignment]（81 / 192）。固定画像の
         # 矩形・直線パターンのエッジが緑で重畳される
         stream = service.mjpeg_stream("copper")
         try:

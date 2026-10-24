@@ -51,7 +51,7 @@
 
 ### 設定
 
-`machine.toml` の `[paste_dispenser.flow_calibration]` に置く。WebUI では 2 か所で編集できる。
+`machine.toml` の `[paste_dispenser.volume_correction]` に置く。WebUI では 2 か所で編集できる。
 pad editor のツールバーにある流量キャリブレーションの箱（測定点と並んでいる）と、設定ページの
 「ペーストディスペンサー」→「流量キャリブレーション」である。
 

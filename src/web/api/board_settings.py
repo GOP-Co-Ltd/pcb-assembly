@@ -191,9 +191,7 @@ class BoardSettingsStore:
     def _decode(
         self, doc: dict, base_config: PasteDispenserConfig, *, where: str
     ) -> DecodedBoardSettings:
-        decoded, error = decode_board_settings(
-            doc, base=PasteParams.from_config(base_config)
-        )
+        decoded, error = decode_board_settings(doc, base=base_config.defaults)
         if decoded is None:
             raise ValueError(f"{error} ({where})")
         return decoded

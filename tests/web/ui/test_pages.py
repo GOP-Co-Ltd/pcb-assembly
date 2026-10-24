@@ -58,7 +58,7 @@ ALL_PAGE_URLS = ["/settings"] + [
     for url in (f"/{tab}", *(f"/{tab}/{feature}" for feature in features))
 ]
 
-# 設定フォームの現在値（ConfigStore / tomlkit）や paste_dispenser・pad_align の
+# 設定フォームの現在値（ConfigStore / tomlkit）や paste_dispenser・alignment の
 # 現在値をコンテキストに載せるページ。machine.toml がパース不能だと backend の
 # `/api/settings/machine` が 500 になり、frontend は 503 ページを返す（直す経路は設定履歴）
 _MACHINE_TOML_DEPENDENT_URLS = frozenset(

@@ -25,7 +25,12 @@ from pcbasm.geometry import Compose, HeightPlane, Identity, Point2d, Point3d, Sh
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeKlipper
 from pcbasm.pasting.applicator import PasteApplicator, build_applicator
-from pcbasm.pasting.params import PasteParamsPatch
+from pcbasm.pasting.params import (
+    PASTE_PARAM_NAMES,
+    DispenseMotion,
+    PasteParams,
+    PasteParamsPatch,
+)
 
 ROTATIONS_PER_UL = 45.0
 ROTATION_DISTANCE = float(
@@ -74,24 +79,41 @@ def _machine_height_plane():
 
 
 def _config(**overrides: object) -> PasteDispenserConfig:
-    """テスト既定の PasteDispenserConfig（実 ``MachineConfig.paste_dispenser`` と同型）."""
+    """テスト既定の PasteDispenserConfig.
+
+    ``overrides`` には defaults / motion の項目名も渡せる。
+    """
     config = PasteDispenserConfig(
         rotations_per_ul=ROTATIONS_PER_UL,
         nozzle_diameter=0.34,
-        max_fill_speed=2.0,
-        max_dispense_rate=5.0,
-        dispense_accel=10.0,
-        retract_amount=RETRACT_AMOUNT,
-        retract_rate=10.0,
-        retract_accel_factor=2.0,
         toolhead=ToolheadConfig(x=0.0, y=0.0),
-        paste_height=0.5,
-        lift_height=5.0,
-        ul_per_mm2=0.05,
-        dispense_mode="area",
-        prime_extra_delay=0.0,
+        defaults=PasteParams(
+            dispense_mode="area",
+            ul_per_mm2=0.05,
+            paste_height=0.5,
+            prime_extra_delay=0.0,
+        ),
+        motion=DispenseMotion(
+            max_fill_speed=2.0,
+            max_dispense_rate=5.0,
+            dispense_accel=10.0,
+            retract_amount=RETRACT_AMOUNT,
+            retract_rate=10.0,
+            retract_accel_factor=2.0,
+            lift_height=5.0,
+        ),
     )
-    return attrs.evolve(config, **overrides)
+    defaults = {k: v for k, v in overrides.items() if k in PASTE_PARAM_NAMES}
+    motion = {
+        k: v for k, v in overrides.items() if k in attrs.fields_dict(DispenseMotion)
+    }
+    flat = {k: v for k, v in overrides.items() if k not in defaults | motion}
+    return attrs.evolve(
+        config,
+        defaults=attrs.evolve(config.defaults, **defaults),
+        motion=attrs.evolve(config.motion, **motion),
+        **flat,
+    )
 
 
 def _applicator(klipper: FakeKlipper, **overrides: object) -> PasteApplicator:

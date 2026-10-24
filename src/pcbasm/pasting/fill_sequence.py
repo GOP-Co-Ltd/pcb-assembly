@@ -11,7 +11,7 @@ import attrs
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Path
 from pcbasm.hal import PasteDispenser, Speed, XYZStage
-from pcbasm.pasting.params import DispenseSettings
+from pcbasm.pasting.params import DispenseMotion
 
 # 接近・退避の移動速度（ステージ最大速度に対する比率）
 _TRAVEL_SPEED = Speed.rate(1.0)
@@ -42,14 +42,14 @@ class FillSequence:
 
     接近→下降→prime 同期吐出→速度 0→塗布後の静定待ち→リトラクト・上昇同時開始→同期の順で実行する。
 
-    移動速度（``fill_speed``、既定 ``settings.max_fill_speed``）を主設定とし、吐出レートは
+    移動速度（``fill_speed``、既定 ``motion.max_fill_speed``）を主設定とし、吐出レートは
     これに追従して導出する。導出レートが吐出レート上限を超える（吐出が移動に追いつかない）
     場合はレートを上限で頭打ちし、移動速度を下げて ``motion_time == dispense_time`` を保つ。
     これにより塗布量 ``total_amount_ul`` は経路全体に均一に塗布され、経路上で吐出量が不足しない。
 
     吐出レートの頭打ち値は ``rate_cap`` で決まる:
 
-    - ``None`` = ``settings.max_dispense_rate`` で cap（通常塗布）
+    - ``None`` = ``motion.max_dispense_rate`` で cap（通常塗布）
     - ``float`` = その値で cap（固定レート塗布）
     - ``math.inf`` = cap 無効（移動速度のみで律速）
 
@@ -62,23 +62,21 @@ class FillSequence:
 
     path: Path
     total_amount_ul: float
-    settings: DispenseSettings
+    motion: DispenseMotion
     prime_extra_delay: float = 0.0  # prime 後の追加遅延 [sec]
     fill_speed: float | None = (
-        None  # 塗布移動速度 [mm/sec]（None=settings.max_fill_speed）
+        None  # 塗布移動速度 [mm/sec]（None=motion.max_fill_speed）
     )
     rate_cap: float | None = (
-        None  # 吐出レートの頭打ち値（None=settings.max_dispense_rate）
+        None  # 吐出レートの頭打ち値（None=motion.max_dispense_rate）
     )
 
     def _rate_cap(self) -> float:
-        return (
-            self.settings.max_dispense_rate if self.rate_cap is None else self.rate_cap
-        )
+        return self.motion.max_dispense_rate if self.rate_cap is None else self.rate_cap
 
     def _fill_speed(self) -> float:
         return (
-            self.settings.max_fill_speed if self.fill_speed is None else self.fill_speed
+            self.motion.max_fill_speed if self.fill_speed is None else self.fill_speed
         )
 
     def _effective_rate(self) -> float:
@@ -115,9 +113,9 @@ class FillSequence:
         """
         return (
             _trapezoidal_time(
-                self.settings.retract_amount,
+                self.motion.retract_amount,
                 self._effective_rate(),
-                self.settings.dispense_accel,
+                self.motion.dispense_accel,
             )
             + self.prime_extra_delay
         )
@@ -142,7 +140,7 @@ class FillSequence:
         gc = GCode()
 
         # 1. 最初の点の上空へ移動 → Z 下降（両方とも明示座標）
-        lift = self.settings.lift_height
+        lift = self.motion.lift_height
         gc.append(
             stage.move(x=first.x, y=first.y, z=first.z + lift, speed=_TRAVEL_SPEED)
         )
@@ -151,10 +149,10 @@ class FillSequence:
 
         # 2. prime+吐出を 1 連続動作として非同期開始
         amount = (
-            self.settings.retract_amount + self._extra_amount() + self.total_amount_ul
+            self.motion.retract_amount + self._extra_amount() + self.total_amount_ul
         )
         gc.append(
-            dispenser.pushpull(amount, rate, self.settings.dispense_accel, sync=False)
+            dispenser.pushpull(amount, rate, self.motion.dispense_accel, sync=False)
         )
 
         # 3. prime 後にステージ移動（経路長 0 の場合は吐出時間ぶん待機）
@@ -171,15 +169,15 @@ class FillSequence:
 
         # 5. 塗布後の静定待ち。Klipper の MANUAL_STEPPER は MOVE のたびに冒頭でツールヘッドの
         # 時刻へ揃えるので、続くリトラクションも Z 上昇も待ちの後から同時に始まる。
-        gc.append(GCode.wait(self.settings.post_dispense_settle_seconds))
+        gc.append(GCode.wait(self.motion.post_dispense_settle_seconds))
 
         # 6. リトラクションを非同期開始
         gc.append(
             dispenser.continue_pushpull(
                 amount,
-                -self.settings.retract_amount,
-                self.settings.retract_rate,
-                self.settings.retract_accel,
+                -self.motion.retract_amount,
+                self.motion.retract_rate,
+                self.motion.retract_accel,
                 sync=False,
             )
         )
@@ -195,9 +193,9 @@ class MicroLineSequence:
     """微小線の塗布動作を 1 本の送信可能な GCode に組むプログラムオブジェクト.
 
     始点上空で prime と塗布量 ``total_amount_ul`` を押し出し、静定待ち
-    （``settings.micro_line_settle_seconds``）でノズル先端のドームを落ち着かせる。
+    （``motion.micro_line_settle_seconds``）でノズル先端のドームを落ち着かせる。
     その後に始点へ下降し、経路を ``max_fill_speed`` で走行して基板へこすりつける。
-    走行後は塗布後の静定待ち（``settings.post_dispense_settle_seconds``）を置いてから
+    走行後は塗布後の静定待ち（``motion.post_dispense_settle_seconds``）を置いてから
     終点上空へ上昇し、上昇してからリトラクトする（接触中に引くと塗った膜を吸い戻す）。
 
     吐出と移動を同期させないので、吐出の立ち上がり遅れが始点・終点の量に影響しない。
@@ -209,22 +207,22 @@ class MicroLineSequence:
 
     path: Path
     total_amount_ul: float
-    settings: DispenseSettings
+    motion: DispenseMotion
 
     @property
     def effective_rate(self) -> float:
         """上空での押し出しレート [μL/sec]（吐出レート上限）."""
-        return self.settings.max_dispense_rate
+        return self.motion.max_dispense_rate
 
     def actual_fill_speed(self) -> Speed:
         """こすりつけの移動速度（``max_fill_speed``）."""
-        return Speed.absolute(self.settings.max_fill_speed)
+        return Speed.absolute(self.motion.max_fill_speed)
 
     def to_gcode(self, stage: XYZStage, dispenser: PasteDispenser) -> GCode:
         """微小線の塗布プログラムを 1 本の GCode として組み立てる（明示座標のみ使用）."""
         first = self.path[0]
         last = self.path[-1]
-        lift = self.settings.lift_height
+        lift = self.motion.lift_height
         gc = GCode()
 
         # 1. 始点の上空へ移動し、到達を待ってから押し出す
@@ -234,25 +232,25 @@ class MicroLineSequence:
         gc.append(GCode.wait_for_done())
         gc.append(
             dispenser.pushpull(
-                self.settings.retract_amount + self.total_amount_ul,
+                self.motion.retract_amount + self.total_amount_ul,
                 self.effective_rate,
-                self.settings.dispense_accel,
+                self.motion.dispense_accel,
             )
         )
         # 2. 吐出の遅れで後から出てくる分が出きるまで待ってから下降する
-        gc.append(GCode.wait(self.settings.micro_line_settle_seconds))
+        gc.append(GCode.wait(self.motion.micro_line_settle_seconds))
         gc.append(stage.move(x=first.x, y=first.y, z=first.z, speed=_TRAVEL_SPEED))
 
         # 3. こすりつけ、静定を待って終点上空へ上昇し、上昇後にリトラクトする
         gc.append(stage.to_gcode(self.path, speed=self.actual_fill_speed()))
-        gc.append(GCode.wait(self.settings.post_dispense_settle_seconds))
+        gc.append(GCode.wait(self.motion.post_dispense_settle_seconds))
         gc.append(stage.move(x=last.x, y=last.y, z=last.z + lift, speed=_TRAVEL_SPEED))
         gc.append(GCode.wait_for_done())
         gc.append(
             dispenser.pushpull(
-                -self.settings.retract_amount,
-                self.settings.retract_rate,
-                self.settings.retract_accel,
+                -self.motion.retract_amount,
+                self.motion.retract_rate,
+                self.motion.retract_accel,
             )
         )
         return gc

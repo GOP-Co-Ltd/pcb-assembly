@@ -48,7 +48,7 @@ from pcbasm.pasting.flowcalib.lines import plan_rate_sweep, plan_speed_sweep
 from pcbasm.pasting.flowcalib.params import CalibrationParams
 from pcbasm.pasting.flowcalib.procedure import FlowCalibrationProcedure
 from pcbasm.pasting.nozzle_clean import clean_nozzle, resolve_nozzle_clean
-from pcbasm.pasting.params import DispenseSettings, PasteParams, PasteParamsPatch
+from pcbasm.pasting.params import PasteParamsPatch
 from pcbasm.pasting.session import PasteSession
 from pcbasm.pasting.settings import PasteSettingsModel
 from pcbasm.pasting.toolhead_offset import (
@@ -189,7 +189,7 @@ def _targets(session: PasteSession) -> PasteTargets:
         PadHierarchy.build(session.pcb.components, session.pcb.pads),
         PasteSettingsModel.from_config(dispenser),
         initial_purge_ul=dispenser.initial_purge_ul,
-        flow_calibration=dispenser.flow_calibration,
+        flow_calibration=dispenser.volume_correction,
     )
     assert targets is not None, error
     return targets
@@ -279,21 +279,21 @@ class TestFillSequence:
             klipper=klipper.readonly,
             rotations_per_ul=machine.paste_dispenser.rotations_per_ul,
         )
-        settings = DispenseSettings.from_config(machine.paste_dispenser)
+        motion = machine.paste_dispenser.motion
         line = geometry.Path([Point3d(50.0, 90.0, 0.3), Point3d(53.0, 90.5, 0.32)])
         point = geometry.Path([Point3d(51.0, 92.0, 0.3)])
         sequences = [
             FillSequence(
-                path=line, total_amount_ul=0.05, settings=settings, rate_cap=math.inf
+                path=line, total_amount_ul=0.05, motion=motion, rate_cap=math.inf
             ),
-            FillSequence(path=line, total_amount_ul=0.5, settings=settings),
+            FillSequence(path=line, total_amount_ul=0.5, motion=motion),
             FillSequence(
                 path=point,
                 total_amount_ul=0.02,
-                settings=settings,
+                motion=motion,
                 prime_extra_delay=0.4,
             ),
-            MicroLineSequence(path=line, total_amount_ul=0.01, settings=settings),
+            MicroLineSequence(path=line, total_amount_ul=0.01, motion=motion),
         ]
 
         for sequence in sequences:
@@ -491,7 +491,7 @@ class TestFlowCalibration:
         result: BoardCalibrationResult,
     ):
         """② レートごとに 1 本引いては退避する."""
-        fill_speed = machine.paste_dispenser.max_fill_speed
+        fill_speed = machine.paste_dispenser.motion.max_fill_speed
         points, error = plan_rate_sweep(params, fill_speed=fill_speed)
         assert points is not None, error
 
@@ -522,8 +522,8 @@ class TestFlowCalibration:
         dispenser = machine.paste_dispenser
         sweep, error = plan_speed_sweep(
             params,
-            ul_per_mm2=dispenser.ul_per_mm2,
-            bead_width=dispenser.nozzle_diameter * dispenser.bead_width_factor,
+            ul_per_mm2=dispenser.defaults.ul_per_mm2,
+            bead_width=dispenser.nozzle_diameter * dispenser.defaults.bead_width_factor,
         )
         assert sweep is not None, error
 
@@ -553,7 +553,7 @@ class TestPasteDataset:
         )
         transform = session.plate_transform(height_plane=height_plane)
         params = attrs.evolve(
-            PasteParams.from_config(machine.paste_dispenser),
+            machine.paste_dispenser.defaults,
             paste_height=DEFAULT_PASTE_HEIGHT_MM,
             prime_extra_delay=0.0,
         )
