@@ -19,10 +19,11 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 import attrs
 from fastapi import HTTPException
 from pydantic import BaseModel
+from shapely import Polygon
 
 from pcbasm.board import Layer, Pad
 from pcbasm.config.dispenser import PasteDispenserConfig, VolumeCorrectionConfig
-from pcbasm.geometry import Point2d, display_rings
+from pcbasm.geometry import Point2d
 from pcbasm.kicad import PcbFile
 from pcbasm.pasting.applied_mode import AppliedModeSummary, applied_mode_summaries
 from pcbasm.pasting.fill_path import FillPlan
@@ -650,22 +651,29 @@ def build_pad_config(loaded: Loaded) -> PadConfigResponse:
 def build_copper(loaded: Loaded) -> PadConfigCopperResponse:
     """銅箔島を表示用に簡略化して返す（pad 編集ごとには取り直さない前提）."""
     islands = [
-        CopperIslandInfo(
-            layer=copper.layer.value,
-            rings=[[[x, y] for x, y in ring] for ring in rings],
-        )
+        CopperIslandInfo(layer=copper.layer.value, rings=rings)
         for copper in loaded.pcb.copper
-        if (
-            rings := display_rings(
-                copper.polygon, tolerance=COPPER_DISPLAY_TOLERANCE_MM
-            )
-        )
+        if (rings := _display_rings(copper.polygon))
     ]
     return PadConfigCopperResponse(
         pcb_file=loaded.source_pcb,
         tolerance_mm=COPPER_DISPLAY_TOLERANCE_MM,
         islands=islands,
     )
+
+
+def _display_rings(polygon: Polygon) -> list[list[list[float]]]:
+    """頂点を間引いて 3 桁に丸めた環列（exterior が先、以降が穴）を返す.
+
+    各環は閉環（末尾が始点の重複）。簡略化で退化して消えた島は空の環列になる。
+    """
+    shape = polygon.simplify(COPPER_DISPLAY_TOLERANCE_MM)
+    if not isinstance(shape, Polygon) or shape.is_empty:
+        return []
+    return [
+        [[round(x, 3), round(y, 3)] for x, y in ring.coords]
+        for ring in (shape.exterior, *shape.interiors)
+    ]
 
 
 def build_route(loaded: Loaded, layer: Layer) -> PasteRouteResponse:

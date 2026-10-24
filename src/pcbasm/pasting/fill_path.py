@@ -34,8 +34,6 @@ from pcbasm.geometry import (
     exterior_points,
     offset_components,
     oriented_bbox,
-    polyline_length,
-    ring_segment,
 )
 from pcbasm.pasting.params import DispenseMode, PasteParams
 
@@ -288,7 +286,7 @@ def micro_line_auto_height(
     box = oriented_bbox(polygon)
     assert box is not None  # 微小線を引けた pad は外接矩形を持つ
     width = min(box.short_length, nozzle_outer_diameter)
-    swept = polyline_length(line) + nozzle_outer_diameter
+    swept = _polyline_length(line) + nozzle_outer_diameter
     return amount_ul / (width * swept)
 
 
@@ -416,11 +414,30 @@ def _connect_via_outline(
     i_end = min(range(n), key=lambda i: (vertices[i] - end).norm)
 
     # 外周を時計回り・反時計回りの両方向で辿り、短い方を採用
-    forward = ring_segment(vertices, i_start, i_end, step=1)
-    backward = ring_segment(vertices, i_start, i_end, step=-1)
+    forward = _ring_segment(vertices, i_start, i_end, step=1)
+    backward = _ring_segment(vertices, i_start, i_end, step=-1)
     return (
-        forward if polyline_length(forward) <= polyline_length(backward) else backward
+        forward if _polyline_length(forward) <= _polyline_length(backward) else backward
     )
+
+
+def _ring_segment(
+    vertices: Sequence[Point2d], i_start: int, i_end: int, *, step: int
+) -> list[Point2d]:
+    """巡回頂点列を ``i_start`` から ``i_end`` まで ``step``（+1 か -1）方向に辿った点列（両端を含む）."""
+    n = len(vertices)
+    path: list[Point2d] = []
+    i = i_start
+    while i != i_end:
+        path.append(vertices[i])
+        i = (i + step) % n
+    path.append(vertices[i_end])
+    return path
+
+
+def _polyline_length(points: Sequence[Point2d]) -> float:
+    """ポリラインの総延長を返す（点が 2 未満なら 0）."""
+    return sum((points[i + 1] - points[i]).norm for i in range(len(points) - 1))
 
 
 def _zigzag_rows(component: Polygon, line_spacing: float) -> list[list[Point2d]]:

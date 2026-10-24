@@ -12,7 +12,6 @@
 | `routing.py`   | 巡回順の最適化 `sort_by_nearest`（nearest neighbor + 2-opt）                                                                            |
 | `sampling.py`  | ポリゴン内部からのプローブ点サンプリング `sample_points_in_polygons` と診断 `sampling_diagnostics`                                      |
 | `polygon.py`   | shapely ポリゴンの結合・変換・最小回転外接矩形 `oriented_bbox`・線分クリップ `clip_segment`                                             |
-| `polyline.py`  | 点列の総延長 `polyline_length`・環の部分列 `ring_segment`                                                                               |
 | `packing.py`   | 軸平行矩形のビンパッキング `pack_rects`（MaxRects）。左上原点・下向き正                                                                 |
 
 `packing.py` 以外の公開名は `pcbasm.geometry` から re-export している。
