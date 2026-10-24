@@ -1,6 +1,6 @@
 """Backend（web.api）と frontend（web.ui）の起動部品: env の読み取りと logging の初期化.
 
-標準ライブラリだけに依存する。
+標準ライブラリだけに依存する（`tests/test_architecture.py`）。
 """
 
 from __future__ import annotations
