@@ -36,7 +36,7 @@ from pcbasm.pasting.dataset.pending import (
 from pcbasm.pasting.dataset.plan import DotCell, DotGridPlan, DotTarget
 from pcbasm.pasting.dataset.writer import PasteDatasetWriter
 from pcbasm.validators import is_finite_number
-from pcbasm.vision.calibration import CameraCalibration
+from pcbasm.vision import CameraModel
 from pcbasm.vision.crop import RectCrop
 
 
@@ -59,7 +59,7 @@ class DatasetRunInfo:
         loading: 塗布パス先頭のインタラクティブローディング実績
         started_at: 収集開始時刻（timezone 付き）
         dispenser: 収集時の ``[paste_dispenser]`` 設定
-        calibration: 収集時のカメラ calibration
+        camera_model: 収集時のカメラの写像（校正の値）
     """
 
     machine_id: str
@@ -73,7 +73,7 @@ class DatasetRunInfo:
     loading: PasteDatasetLoading
     started_at: datetime
     dispenser: PasteDispenserConfig
-    calibration: CameraCalibration
+    camera_model: CameraModel
 
 
 def validate_dataset_run(
@@ -146,7 +146,7 @@ class PasteDatasetRecorder:
         plan = self._plan
         spec = plan.spec
         dispenser = run.dispenser
-        calibration = run.calibration
+        camera_model = run.camera_model
         return PasteDatasetPending(
             kind=PENDING_KIND,
             schema_version=PENDING_SCHEMA_VERSION,
@@ -165,10 +165,10 @@ class PasteDatasetRecorder:
                 density_mg_per_ul=dispenser.solder_paste_density,
             ),
             camera=PasteDatasetCamera(
-                pixel_per_mm=calibration.pixel_per_mm,
-                resolution=calibration.resolution,
-                calibrated_at=calibration.calibrated_at.isoformat(),
-                z_position_mm=calibration.z_position,
+                pixel_per_mm=camera_model.pixel_per_mm,
+                resolution=camera_model.image_size,
+                calibrated_at=camera_model.calibrated_at.isoformat(),
+                z_position_mm=camera_model.focus_z,
             ),
             nozzle=PasteDatasetNozzle(diameter_mm=dispenser.nozzle_diameter),
             config=PasteDatasetConfig(

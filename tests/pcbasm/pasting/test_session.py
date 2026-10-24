@@ -18,8 +18,6 @@ from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.session import PasteSession
 from pcbasm.vision import Offset
 
-PPM = 10.0
-
 
 def _region_result(
     index: int,
@@ -36,7 +34,7 @@ def _region_result(
             board_area=area,
         ),
         match=EdgeMatch(
-            offset=Offset(px=Point2d(0.0, 0.0), pixel_per_mm=PPM),
+            offset=Offset(px=Point2d(0.0, 0.0)),
             rms_distance_px=0.0,
         ),
         displacement=displacement,
@@ -66,8 +64,7 @@ def _session() -> PasteSession:
         camera=unused,
         board_frame=BoardFrame(
             board=unused,
-            calibration=unused,
-            offset_transform=unused,
+            camera_model=unused,
             board_transform=Rotation(90.0),
         ),
         toolhead_offset=Shift(10.0, 20.0),

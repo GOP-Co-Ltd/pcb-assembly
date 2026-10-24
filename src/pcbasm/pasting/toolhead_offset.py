@@ -368,11 +368,11 @@ class ToolheadOffsetProcedure:
             point_spacing: 計測点の最小間隔 [mm]（円検出 ROI の一辺に使う）
             frame_sink: 検出注釈画像を送る sink
         """
-        calibration = board_frame.calibration
+        camera_model = board_frame.camera_model
         self._klipper = klipper
         self._stage = stage
         self._camera = camera
-        self._calibration = calibration
+        self._focus_z = camera_model.focus_z
         self._board_transform = board_frame.board_transform
         self._dispenser_config = machine.paste_dispenser
         self._toolhead_transform = toolhead_transform(machine.paste_dispenser.toolhead)
@@ -385,10 +385,10 @@ class ToolheadOffsetProcedure:
             lift_height=machine.probe.lift_height,
             settle_sec=machine.settle.probe_sec,
         )
-        roi_side = max(1, round(point_spacing * calibration.pixel_per_mm))
+        roi_side = max(1, round(point_spacing * camera_model.pixel_per_mm))
         self._roi_size = (roi_side, roi_side)
         detector = PasteDotDetector(
-            pixel_per_mm=calibration.pixel_per_mm,
+            pixel_per_mm=camera_model.pixel_per_mm,
             diameter_min_mm=diameter_min,
             diameter_max_mm=diameter_max,
             crop_size=self._roi_size,
@@ -396,6 +396,7 @@ class ToolheadOffsetProcedure:
         observer = OffsetObserver(
             detector=detector,
             camera=camera,
+            camera_model=camera_model,
             crop_size=self._roi_size,
             frame_sink=frame_sink,
             sample_count=machine.detection.sample_count,
@@ -409,7 +410,7 @@ class ToolheadOffsetProcedure:
             observe=observer.observe,
             klipper=klipper,
             stage=stage,
-            offset_transform=board_frame.offset_transform,
+            camera_model=camera_model,
             tolerance=tolerance,
         )
 
@@ -466,7 +467,7 @@ class ToolheadOffsetProcedure:
             self._stage.move_settled(
                 x=point.camera.x,
                 y=point.camera.y,
-                z=self._calibration.z_position,
+                z=self._focus_z,
                 settle_sec=self._settle_sec,
             )
         )

@@ -6,8 +6,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 import numpy as np
 import pytest
 import shapely
@@ -27,7 +25,7 @@ from pcbasm.kicad import load_board
 from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.session import PasteSession
 from pcbasm.vision import Image, Offset
-from pcbasm.vision.calibration import CameraCalibration
+from tests.support.camera_model import make_camera_model
 from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.pasting import register_pasting_jobs
@@ -73,17 +71,7 @@ def paste_session(
     """
     board_frame = BoardFrame(
         board=load_board(LED_BLINKER),
-        calibration=CameraCalibration(
-            pixel_per_mm=PPM,
-            square_size_mm=1.0,
-            mean_distance_px=PPM,
-            std_distance_px=0.0,
-            resolution=RESOLUTION,
-            crop_size=(400, 400),
-            calibrated_at=datetime(2026, 9, 11, 12, 0, 0, tzinfo=UTC),
-            z_position=FOCUS_Z,
-        ),
-        offset_transform=Identity(),
+        camera_model=make_camera_model(PPM, RESOLUTION, focus_z=FOCUS_Z),
         board_transform=Shift(100.0, 50.0),
     )
     return PasteSession.from_board_frame(
@@ -110,7 +98,7 @@ def full_board_correction() -> PasteCorrection:
                         board_area=area,
                     ),
                     match=EdgeMatch(
-                        offset=Offset(px=Point2d(0.0, 0.0), pixel_per_mm=PPM),
+                        offset=Offset(px=Point2d(0.0, 0.0)),
                         rms_distance_px=0.0,
                     ),
                     displacement=Point2d(0.0, 0.0),

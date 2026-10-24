@@ -24,6 +24,7 @@ from pcbasm.align.copper import CopperProjector
 from pcbasm.align.render import PadResultRenderer, render_edge_match, render_label
 from pcbasm.geometry import Identity, Point2d
 from pcbasm.vision import CopperEdgeDetector, Image
+from tests.support.camera_model import make_camera_model
 
 WIDTH, HEIGHT = 1280, 720  # カメラフレームサイズ (px)
 PPM = 10.0  # pixel/mm
@@ -170,9 +171,7 @@ class TestPadResultRenderer:
         projector = CopperProjector(
             polygons=[TestPadResultRenderer.COPPER],
             board_transform=Identity(),
-            offset_transform=Identity(),
-            pixel_per_mm=PPM,
-            image_size=(WIDTH, HEIGHT),
+            camera_model=make_camera_model(PPM, (WIDTH, HEIGHT)),
         )
         return PadResultRenderer(
             projector=projector,

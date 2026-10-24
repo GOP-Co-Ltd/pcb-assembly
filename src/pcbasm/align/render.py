@@ -10,12 +10,13 @@ import cv2
 import numpy as np
 from shapely import Polygon
 
-from pcbasm.align.copper import CopperProjector, PixelRect
+from pcbasm.align.copper import CopperProjector
 from pcbasm.geometry import Point2d
 from pcbasm.vision import (
     CopperEdgeDetector,
     Image,
     ImageArray,
+    PixelRect,
     draw_crosshair,
     draw_overlay,
 )

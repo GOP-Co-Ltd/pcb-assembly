@@ -17,6 +17,9 @@ from pcbasm.align.observe import CircleDetectionError, OffsetObserver
 from pcbasm.geometry import Point2d
 from pcbasm.hal.fake import FakeCamera
 from pcbasm.vision import CircleDetector, Image
+from tests.support.camera_model import make_camera_model
+
+CAMERA_MODEL = make_camera_model(10.0, (200, 200))
 
 
 def _circle_image(offset_x: int = 10) -> Image:
@@ -42,15 +45,19 @@ class TestOffsetObserver:
         )
 
     def test_returns_mean_mm_shift_transform_without_frame_sink(self, detector):
-        """frame_sink=None（既定）でも observe は mean_mm の Shift を返す.
+        """frame_sink=None（既定）でも observe は平均オフセット [mm] の Shift を返す.
 
-        observer 契約統一（observe() -> Transform、想定→観測）。原点に適用すると mean_mm
-        に一致する。表示なしで例外も出ない。
+        observer 契約統一（observe() -> Transform、想定→観測）。
+
+        原点に適用すると、pixel のずれをカメラ mm へ写した値になる。
+
+        表示なしで例外も出ない。
         """
         camera = FakeCamera([_circle_image()])
         observer = OffsetObserver(
             detector=detector,
             camera=camera,
+            camera_model=CAMERA_MODEL,
             crop_size=(200, 200),
             sample_count=3,
             minimum_sample_count=1,
@@ -69,6 +76,7 @@ class TestOffsetObserver:
         observer = OffsetObserver(
             detector=detector,
             camera=camera,
+            camera_model=CAMERA_MODEL,
             crop_size=(200, 200),
             frame_sink=frames.append,
             sample_count=3,
@@ -93,6 +101,7 @@ class TestOffsetObserver:
         observer = OffsetObserver(
             detector=detector,
             camera=camera,
+            camera_model=CAMERA_MODEL,
             crop_size=(200, 200),
             sample_count=2,
             minimum_sample_count=2,
@@ -111,6 +120,7 @@ class TestOffsetObserver:
         observer = OffsetObserver(
             detector=detector,
             camera=camera,
+            camera_model=CAMERA_MODEL,
             crop_size=(200, 200),
             frame_sink=frames.append,
             sample_count=2,
@@ -130,6 +140,7 @@ class TestOffsetObserver:
         observer = OffsetObserver(
             detector=detector,
             camera=camera,
+            camera_model=CAMERA_MODEL,
             crop_size=(200, 200),
             sample_count=2,
             minimum_sample_count=2,
@@ -159,6 +170,7 @@ class TestOffsetObserver:
             OffsetObserver(
                 detector=detector,
                 camera=FakeCamera([_circle_image()]),
+                camera_model=CAMERA_MODEL,
                 crop_size=(200, 200),
                 **{"sample_count": 3, "minimum_sample_count": 1, **overrides},
             )

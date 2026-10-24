@@ -6,9 +6,9 @@ from pcbasm.align.copper import CopperEdgeMatcher, CopperProjector, EdgeMatch
 from pcbasm.align.correction import to_machine_transform
 from pcbasm.align.region import AlignmentRegion
 from pcbasm.align.render import render_edge_match
-from pcbasm.geometry import Point2d, Shift, Transform
+from pcbasm.geometry import Point2d, Shift
 from pcbasm.hal import Camera, KlipperClient, Speed, XYZStage
-from pcbasm.vision import CopperEdgeDetector, FrameSink
+from pcbasm.vision import CameraModel, CopperEdgeDetector, FrameSink
 
 
 @attrs.frozen
@@ -37,13 +37,12 @@ class RegionAligner:
         self,
         *,
         camera: Camera,
+        camera_model: CameraModel,
         klipper: KlipperClient,
         stage: XYZStage,
         projector: CopperProjector,
         matcher: CopperEdgeMatcher,
         edge_detector: CopperEdgeDetector,
-        offset_transform: Transform,
-        focus_z: float | None = None,
         max_correction_mm: float = 1.0,
         max_passes: int = 5,
         converge_tolerance_mm: float = 0.03,
@@ -58,13 +57,12 @@ class RegionAligner:
         if converge_tolerance_mm <= 0:
             raise ValueError("converge_tolerance_mmは正の値である必要があります")
         self._camera = camera
+        self._camera_model = camera_model
         self._klipper = klipper
         self._stage = stage
         self._projector = projector
         self._matcher = matcher
         self._edge_detector = edge_detector
-        self._offset_transform = offset_transform
-        self._focus_z = focus_z
         self._max_correction_mm = max_correction_mm
         self._max_passes = max_passes
         self._converge_tolerance_mm = converge_tolerance_mm
@@ -97,7 +95,7 @@ class RegionAligner:
                 self._stage.move_settled(
                     x=target.x,
                     y=target.y,
-                    z=self._focus_z,
+                    z=self._camera_model.focus_z,
                     speed=Speed.rate(0.5),
                     settle_sec=self._settle_sec,
                 )
@@ -116,9 +114,13 @@ class RegionAligner:
                     f"領域 {region.index} の銅箔エッジ照合に失敗しました"
                 )
 
+            # 想定→観測の並進（カメラ mm 空間、o ↦ o + d）
+            camera_transform = Shift.from_point(
+                self._camera_model.pixel_offset_to_camera(match.offset.px)
+            )
             machine_transform = to_machine_transform(
-                match.camera_transform,
-                self._offset_transform,
+                camera_transform,
+                self._camera_model,
                 projection_anchor=target,
                 observed_at=self._stage.get_position().to2d(),
             )

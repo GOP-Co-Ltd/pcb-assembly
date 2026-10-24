@@ -8,13 +8,13 @@
 import numpy as np
 import pytest
 
-from pcbasm.geometry import Point2d
+from pcbasm.geometry import Affine2d, Point2d
 from pcbasm.vision import Image
 from pcbasm.vision.crop import crop_centered, crop_pixel_size
 
 PPM = 10.0
-MATRIX = np.array([[PPM, 0.0], [0.0, PPM]])
 SHIFT = np.array([50.0, 40.0])
+AFFINE = Affine2d(np.array([[PPM, 0.0], [0.0, PPM]]), SHIFT)
 PIXEL_SIZE = 21
 
 
@@ -30,9 +30,7 @@ def _projected(center: Point2d) -> tuple[float, float]:
 
 
 def _cropped(center: Point2d, *, pixel_size: int = PIXEL_SIZE):
-    crop, error = crop_centered(
-        _source_image(), center, MATRIX, SHIFT, pixel_size=pixel_size
-    )
+    crop, error = crop_centered(_source_image(), center, AFFINE, pixel_size=pixel_size)
 
     assert error is None
     assert crop is not None
@@ -110,7 +108,7 @@ class TestCropCentered:
         source = _source_image()
 
         crop, error = crop_centered(
-            Image(source), Point2d(2.0, 3.0), MATRIX, SHIFT, pixel_size=PIXEL_SIZE
+            Image(source), Point2d(2.0, 3.0), AFFINE, pixel_size=PIXEL_SIZE
         )
 
         assert error is None
@@ -160,7 +158,7 @@ class TestCropCentered:
         self, center: Point2d
     ):
         crop, error = crop_centered(
-            _source_image(), center, MATRIX, SHIFT, pixel_size=PIXEL_SIZE
+            _source_image(), center, AFFINE, pixel_size=PIXEL_SIZE
         )
 
         assert crop is None
@@ -168,10 +166,10 @@ class TestCropCentered:
         assert "収まりません" in error
 
     def test_rejects_non_finite_board_to_pixel_affine(self):
-        matrix = np.array([[float("nan"), 0.0], [0.0, PPM]])
+        affine = Affine2d(np.array([[float("nan"), 0.0], [0.0, PPM]]), SHIFT)
 
         crop, error = crop_centered(
-            _source_image(), Point2d(2.0, 3.0), matrix, SHIFT, pixel_size=PIXEL_SIZE
+            _source_image(), Point2d(2.0, 3.0), affine, pixel_size=PIXEL_SIZE
         )
 
         assert crop is None

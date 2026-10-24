@@ -9,10 +9,12 @@ from pcbasm.align import (
     plan_alignment_regions,
 )
 from pcbasm.geometry import Identity, Point2d, Rotation, Transform
+from tests.support.camera_model import make_camera_model
 
 PPM = 10.0
 IMAGE_SIZE = (400, 400)
 REGION_SIZE_PX = 100
+CAMERA_MODEL = make_camera_model(PPM, IMAGE_SIZE)
 
 
 def _square(cx: float, cy: float, half: float) -> shapely.Polygon:
@@ -26,9 +28,7 @@ def _projector(
     return CopperProjector(
         polygons=polygons,
         board_transform=board_transform,
-        offset_transform=Identity(),
-        pixel_per_mm=PPM,
-        image_size=IMAGE_SIZE,
+        camera_model=CAMERA_MODEL,
     )
 
 
@@ -49,9 +49,8 @@ def _plan(
         board_transform,
         pad_centers,
         safe_area=_square(0.0, 0.0, 30.0) if safe_area is None else safe_area,
-        region_size_px=region_size_px,
+        roi=CAMERA_MODEL.centered_roi(region_size_px),
         overlap=overlap,
-        image_size=IMAGE_SIZE,
         tour_start=Point2d(0.0, 0.0),
     )
 

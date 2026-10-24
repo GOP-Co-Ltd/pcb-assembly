@@ -67,7 +67,7 @@ from pcbasm.pasting.paste_volume.plot import (
     render_evaluation_scatter,
 )
 from pcbasm.pasting.session import PasteSession
-from pcbasm.vision import CameraCalibration
+from pcbasm.vision import CameraModel
 from pcbasm.vision.crop import RectCrop, crop_pixel_size
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import (
@@ -418,17 +418,17 @@ def _plan_collection(
 
     # crop がカメラ視野に収まるかは calibration ファイルだけで判定できるので、
     # 装置を開く前に確定させる（setup_board も同じファイルを読む）。
-    calibration = CameraCalibration.load(ctx.machine.camera.calibration_file)
+    camera_model = CameraModel.load(ctx.machine.camera.calibration_file)
     crop_size_px, crop_error = crop_pixel_size(
-        plan.spec.crop_size_mm, calibration.pixel_per_mm
+        plan.spec.crop_size_mm, camera_model.pixel_per_mm
     )
     if crop_size_px is None:
         raise ValueError(crop_error)
     frame_error = validate_crop_in_frame(
         views,
         crop_size_px=crop_size_px,
-        pixel_per_mm=calibration.pixel_per_mm,
-        resolution=calibration.resolution,
+        pixel_per_mm=camera_model.pixel_per_mm,
+        resolution=camera_model.image_size,
     )
     if frame_error is not None:
         raise ValueError(frame_error)
@@ -695,7 +695,7 @@ def _run_paste_volume_calibration(ctx: JobContext) -> JobResult:
                 ),
                 started_at=started_at,
                 dispenser=dispenser_config,
-                calibration=session.board_frame.calibration,
+                camera_model=session.board_frame.camera_model,
             )
             # 計量質量は装置の外から来る唯一の値なので、それ以外を先に永続化する。
             # プロンプトへ応答できないまま停止しても、撮影済み画像の教師値が残る。

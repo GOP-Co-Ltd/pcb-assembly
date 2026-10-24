@@ -13,28 +13,14 @@ from shapely import Polygon
 from shapely.coords import CoordinateSequence
 
 from pcbasm.board import Layer
-from pcbasm.geometry import Compose, Point2d, Shift, Transform
-from pcbasm.vision import ImageArray, Offset
+from pcbasm.geometry import Affine2d, Compose, Point2d, Transform
+from pcbasm.vision import CameraModel, ImageArray, Offset, PixelRect
 
 if TYPE_CHECKING:
     from pcbasm.align.board_frame import BoardFrame
 
 type _Bounds = tuple[float, float, float, float]
-# ROI 矩形 (x0, y0, x1, y1)。半開区間、全画面 pixel 座標
-type PixelRect = tuple[int, int, int, int]
 _MIN_MATCH_SHARPNESS = 0.15
-
-
-def centered_roi(image_size: tuple[int, int], size_px: int) -> PixelRect:
-    """画像中心に一辺 ``size_px`` の正方 ROI を返す."""
-    if size_px < 1:
-        raise ValueError(f"size_pxは1以上である必要があります: {size_px}")
-    width, height = image_size
-    if size_px > min(image_size):
-        raise ValueError(f"size_px {size_px} が画像サイズ {image_size} を超えています")
-    x0 = (width - size_px) // 2
-    y0 = (height - size_px) // 2
-    return (x0, y0, x0 + size_px, y0 + size_px)
 
 
 @attrs.frozen
@@ -55,27 +41,17 @@ class EdgeMatch:
     """観測エッジと想定エッジの照合結果.
 
     Attributes:
-        offset: サブ pixel 並進（観測 − 想定、px。``.mm`` で mm）
+        offset: サブ pixel 並進（観測 − 想定、px）
         rms_distance_px: 想定エッジ 1 点あたりの RMS chamfer 距離 [px]
     """
 
     offset: Offset
     rms_distance_px: float
 
-    @property
-    def camera_transform(self) -> Transform:
-        """想定→観測の Transform（o ↦ o + d）."""
-        return Shift.from_point(self.offset.mm)
 
-
-def _ring_to_pixels(
-    coords: CoordinateSequence,
-    matrix: ImageArray,
-    shift: ImageArray,
-) -> ImageArray:
+def _ring_to_pixels(coords: CoordinateSequence, affine: Affine2d) -> ImageArray:
     """リング座標列 (mm) を pixel 座標の int32 配列へ変換する."""
-    points = np.asarray(coords, dtype=np.float64)
-    pixels = points @ matrix.T + shift
+    pixels = affine.map(np.asarray(coords, dtype=np.float64))
     return np.round(pixels).astype(np.int32).reshape(-1, 1, 2)
 
 
@@ -87,42 +63,34 @@ def _bounds_overlap(a: _Bounds, b: _Bounds) -> bool:
 class CopperProjector:
     """設計銅箔ポリゴンをカメラ pixel 空間へ投影するクラス.
 
-    投影公式は ``pixel(b, s) = image_center + ppm * R(s - T_b(b))``
-    （s: ステージ位置, T_b: board 変換, R: オフセット変換）。
-    画像中心は全画面中心 (width/2, height/2) を基準とする。
+    写像は :meth:`CameraModel.machine_to_pixel` に board 変換を前置したもの。
     """
 
     def __init__(
         self,
         polygons: Sequence[Polygon],
         board_transform: Transform,
-        offset_transform: Transform,
-        pixel_per_mm: float,
-        image_size: tuple[int, int],
+        camera_model: CameraModel,
     ) -> None:
         """CopperProjector を初期化する.
 
         Args:
             polygons: 銅箔ポリゴン列（shapely、mm 単位、board 座標）
             board_transform: board 座標→機械座標の変換
-            offset_transform: 観測オフセット系から機械座標系への変換
-            pixel_per_mm: pixel/mm 比率
-            image_size: 出力マスクのサイズ (width, height)
+            camera_model: カメラの写像（出力マスクの大きさは ``camera_model.image_size``）
         """
         self._polygons = list(polygons)
         self._board_transform = board_transform
-        self._offset_transform = offset_transform
-        self._pixel_per_mm = pixel_per_mm
-        self._image_size = image_size
+        self._camera_model = camera_model
 
     @classmethod
     def from_board_frame(
         cls, board_frame: BoardFrame, *, layer: Layer = Layer.TOP
     ) -> CopperProjector:
-        """基板の位置関係の変換・calibration から、対象レイヤの銅箔投影器を組む.
+        """基板の位置関係から、対象レイヤの銅箔投影器を組む.
 
         外形だけの銅板のように ``layer`` の銅箔島が無い PCB では、投影対象が空になる。
-        その場合も ``board_to_pixel_affine``（変換と calibration だけに依存）は使える。
+        その場合も ``board_to_pixel``（変換とカメラだけに依存）は使える。
         """
         return cls(
             polygons=[
@@ -131,9 +99,7 @@ class CopperProjector:
                 if copper.layer == layer
             ],
             board_transform=board_frame.board_transform,
-            offset_transform=board_frame.offset_transform,
-            pixel_per_mm=board_frame.calibration.pixel_per_mm,
-            image_size=board_frame.calibration.resolution,
+            camera_model=board_frame.camera_model,
         )
 
     @property
@@ -146,9 +112,7 @@ class CopperProjector:
         return CopperProjector(
             polygons=self._polygons,
             board_transform=Compose([self._board_transform, machine_transform]),
-            offset_transform=self._offset_transform,
-            pixel_per_mm=self._pixel_per_mm,
-            image_size=self._image_size,
+            camera_model=self._camera_model,
         )
 
     def project(self, stage_xy: Point2d) -> CopperProjection:
@@ -160,19 +124,18 @@ class CopperProjector:
         Returns:
             塗り潰しマスクとエッジマスクの組
         """
-        matrix, shift = self.board_to_pixel_affine(stage_xy)
-        width, height = self._image_size
+        affine = self.board_to_pixel(stage_xy)
+        width, height = self._camera_model.image_size
         fill_mask = np.zeros((height, width), dtype=np.uint8)
         edge_mask = np.zeros((height, width), dtype=np.uint8)
 
-        view_bounds = self._view_bounds(matrix, shift)
+        view_bounds = self._view_bounds(affine)
         for polygon in self._polygons:
             if not _bounds_overlap(polygon.bounds, view_bounds):
                 continue
-            exterior = _ring_to_pixels(polygon.exterior.coords, matrix, shift)
+            exterior = _ring_to_pixels(polygon.exterior.coords, affine)
             interiors = [
-                _ring_to_pixels(ring.coords, matrix, shift)
-                for ring in polygon.interiors
+                _ring_to_pixels(ring.coords, affine) for ring in polygon.interiors
             ]
 
             # 穴の中に別の銅箔島が入れ子になり得るため、polygon ごとに
@@ -192,45 +155,22 @@ class CopperProjector:
         return CopperProjection(fill_mask=fill_mask, edge_mask=edge_mask)
 
     def pixel_of(self, board_point: Point2d, stage_xy: Point2d) -> Point2d:
-        """Board 座標の点を投影公式で pixel 座標へ変換する.
-
-        Args:
-            board_point: board 座標の点（mm）
-            stage_xy: ステージの XY 位置（機械座標、mm）
-
-        Returns:
-            全画面 pixel 座標の点
-        """
-        offset_mm = self._offset_transform.apply(
-            stage_xy - self._board_transform.apply(board_point)
-        )
-        width, height = self._image_size
-        return Point2d(
-            x=width / 2 + self._pixel_per_mm * offset_mm.x,
-            y=height / 2 + self._pixel_per_mm * offset_mm.y,
+        """Board 座標の点を全画面 pixel 座標へ写す（ステージは ``stage_xy`` [機械座標 mm]）."""
+        return self._camera_model.machine_to_pixel(stage_xy).apply(
+            self._board_transform.apply(board_point)
         )
 
-    def board_to_pixel_affine(self, stage_xy: Point2d) -> tuple[ImageArray, ImageArray]:
+    def board_to_pixel(self, stage_xy: Point2d) -> Affine2d:
         """Board 座標→pixel 座標のアフィン変換を返す."""
-        origin = self.pixel_of(Point2d(0.0, 0.0), stage_xy)
-        unit_x = self.pixel_of(Point2d(1.0, 0.0), stage_xy)
-        unit_y = self.pixel_of(Point2d(0.0, 1.0), stage_xy)
-        matrix = np.array(
-            [
-                [unit_x.x - origin.x, unit_y.x - origin.x],
-                [unit_x.y - origin.y, unit_y.y - origin.y],
-            ]
-        )
-        shift = np.array([origin.x, origin.y])
-        return matrix, shift
+        return self._camera_model.board_to_pixel(self._board_transform, stage_xy)
 
-    def _view_bounds(self, matrix: ImageArray, shift: ImageArray) -> _Bounds:
+    def _view_bounds(self, affine: Affine2d) -> _Bounds:
         """Pixel 空間の 4 隅を board 座標へ逆変換し、視野の bbox を返す."""
-        width, height = self._image_size
+        width, height = self._camera_model.image_size
         corners_px = np.array(
             [[0.0, 0.0], [width, 0.0], [0.0, height], [width, height]]
         )
-        corners_board = (corners_px - shift) @ np.linalg.inv(matrix).T
+        corners_board = affine.inverse().map(corners_px)
         return (
             float(corners_board[:, 0].min()),
             float(corners_board[:, 1].min()),
@@ -282,7 +222,6 @@ class CopperEdgeMatcher:
             pixel_per_mm: pixel/mm 比率
             search_window_mm: 探索窓の片側幅 (mm)
         """
-        self._pixel_per_mm = pixel_per_mm
         self._window_px = round(search_window_mm * pixel_per_mm)
 
     @property
@@ -353,6 +292,6 @@ class CopperEdgeMatcher:
         # ROI 基準の並進にする
         offset_px = Point2d(x=float(sx0 - x0 + cx + dsx), y=float(sy0 - y0 + cy + dsy))
         return EdgeMatch(
-            offset=Offset(px=offset_px, pixel_per_mm=self._pixel_per_mm),
+            offset=Offset(px=offset_px),
             rms_distance_px=math.sqrt(max(cstar, 0.0) / count),
         )

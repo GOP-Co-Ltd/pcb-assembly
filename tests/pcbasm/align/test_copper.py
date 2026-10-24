@@ -1,8 +1,8 @@
 """Copper-alignment 仕様テスト.
 
 計画書 memory/agents/implementation-planner/copper-alignment.md §1/§2/§4 に基づく。
-投影公式: pixel(b, s) = image_center_px + ppm * offset_transform.apply(
-s - board_transform.apply(b))。x 右・y 下、image_center は全画面中心。
+投影公式: pixel(b, s) = image_center_px + ppm * R(s - board_transform.apply(b))。
+x 右・y 下、image_center は全画面中心。
 EdgeMatch.offset は「観測 - 想定」(px)。
 """
 
@@ -18,7 +18,7 @@ from pcbasm.align import (
     EdgeMatch,
 )
 from pcbasm.geometry import Compose, Matrix2d, Point2d, Rotation, Shift, Transform
-from pcbasm.vision import Offset
+from tests.support.camera_model import make_camera_model
 
 PPM = 10.0  # pixel/mm
 MATCH_ROI = (20, 20, 180, 180)
@@ -39,20 +39,18 @@ def _square(cx: float, cy: float, half: float) -> shapely.Polygon:
 def _projector(
     polygons: list[shapely.Polygon],
     board_transform: Transform | None = None,
-    offset_transform: Rotation | Compose | None = None,
+    rotation: Rotation | Compose | None = None,
     image_size: tuple[int, int] = (200, 200),
 ) -> CopperProjector:
     """恒等変換をデフォルトとする CopperProjector を組み立てる."""
     if board_transform is None:
         board_transform = Shift(0.0, 0.0)
-    if offset_transform is None:
-        offset_transform = Rotation(0.0)
+    if rotation is None:
+        rotation = Rotation(0.0)
     return CopperProjector(
         polygons=polygons,
         board_transform=board_transform,
-        offset_transform=offset_transform,
-        pixel_per_mm=PPM,
-        image_size=image_size,
+        camera_model=make_camera_model(PPM, image_size, rotation=rotation),
     )
 
 
@@ -164,11 +162,11 @@ class TestCopperProjector:
         assert c1[1] - c0[1] == pytest.approx(PPM, abs=1.0)  # col(x): +10px
         assert c1[0] - c0[0] == pytest.approx(0.0, abs=1.0)  # row(y): 不変
 
-    def test_rotation_180_offset_transform_projects_point_symmetric(self):
-        """offset_transform=Rotation(180) で投影が画像中心の点対称になる."""
+    def test_rotation_180_projects_point_symmetric(self):
+        """カメラの回転 Rotation(180) で投影が画像中心の点対称になる."""
         polygons = [_square(2.0, 1.0, 0.5)]
-        plain = _projector(polygons, offset_transform=Rotation(0.0))
-        rotated = _projector(polygons, offset_transform=Rotation(180.0))
+        plain = _projector(polygons, rotation=Rotation(0.0))
+        rotated = _projector(polygons, rotation=Rotation(180.0))
 
         c_plain = _centroid(plain.project(Point2d(0.0, 0.0)).fill_mask)
         c_rot = _centroid(rotated.project(Point2d(0.0, 0.0)).fill_mask)
@@ -253,7 +251,7 @@ class TestCopperProjector:
         projector = _projector(
             [_square(0.0, 0.0, 2.0)],
             board_transform=Shift(2.0, 1.0),
-            offset_transform=Rotation(90.0),
+            rotation=Rotation(90.0),
             image_size=(320, 200),
         )
 
@@ -381,27 +379,6 @@ class TestCopperEdgeMatcherRoi:
         assert match.offset.px.x == pytest.approx(5.0, abs=1.0)
         assert match.offset.px.y == pytest.approx(3.0, abs=1.0)
 
-    def test_camera_transform_maps_expected_vertices_onto_observed(
-        self, matcher: CopperEdgeMatcher
-    ):
-        """camera_transform（想定→観測）が合成時の頂点対応を mm 空間で再現する."""
-        center = Point2d(240.0, 180.0)
-        image_center = Point2d(200.0, 200.0)
-        vertices = _rect_vertices(center, 120.0, 90.0)
-        moved = [v + Point2d(5.0, 3.0) for v in vertices]
-        expected = _draw_ring(vertices, shape=(400, 400))
-        observed = _draw_ring(moved, shape=(400, 400))
-
-        match = matcher.match(observed, expected, roi=(110, 80, 370, 280))
-
-        assert match is not None
-        transform = match.camera_transform
-        for v_expected, v_observed in zip(vertices, moved, strict=True):
-            mapped = transform.apply((v_expected - image_center) / PPM)
-            target = (v_observed - image_center) / PPM
-            assert mapped.x == pytest.approx(target.x, abs=0.2)
-            assert mapped.y == pytest.approx(target.y, abs=0.2)
-
     def test_match_uses_only_template_inside_roi(self):
         """ROI 外の逆ずれ構造が照合結果に影響しない（pad ROI 限定の核心）."""
         matcher = CopperEdgeMatcher(pixel_per_mm=PPM, search_window_mm=1.0)
@@ -453,26 +430,3 @@ class TestCopperEdgeMatcherRoi:
         match = matcher.match(_edge_ring(), expected, roi=(60, 60, 140, 140))
 
         assert match is None
-
-
-class TestEdgeMatch:
-    """EdgeMatch の camera_transform 契約のテスト."""
-
-    def test_camera_transform_is_pure_shift_by_offset(self):
-        """camera_transform = o ↦ o + d（d = offset.mm）.
-
-        θ 撤去後の camera_transform は Shift.from_point(offset.mm) と等価な純並進。
-        回転中心という概念が無く、どの点でも同じ変位ベクトルになる。
-        """
-        match = EdgeMatch(
-            offset=Offset(px=Point2d(12.0, -8.0), pixel_per_mm=PPM),
-            rms_distance_px=0.0,
-        )
-
-        transform = match.camera_transform
-
-        d = Point2d(1.2, -0.8)  # offset.mm
-        for point in (Point2d(0.0, 0.0), Point2d(2.0, 1.0), Point2d(-30.0, 40.0)):
-            mapped = transform.apply(point)
-            assert mapped.x == pytest.approx(point.x + d.x, abs=1e-9)
-            assert mapped.y == pytest.approx(point.y + d.y, abs=1e-9)

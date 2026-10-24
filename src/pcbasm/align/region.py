@@ -9,8 +9,9 @@ from shapely.affinity import translate
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import nearest_points
 
-from pcbasm.align.copper import CopperProjector, PixelRect, centered_roi
+from pcbasm.align.copper import CopperProjector
 from pcbasm.geometry import Point2d, Transform, sort_by_nearest
+from pcbasm.vision import PixelRect
 
 
 @attrs.frozen
@@ -42,9 +43,8 @@ def plan_alignment_regions(
     pad_centers: Sequence[Point2d],
     *,
     safe_area: BaseGeometry,
-    region_size_px: int,
+    roi: PixelRect,
     overlap: float,
-    image_size: tuple[int, int],
     tour_start: Point2d,
 ) -> list[AlignmentRegion]:
     """塗布対象 pad の中心を覆う重複 ROI を計画し、巡回順に返す.
@@ -54,7 +54,9 @@ def plan_alignment_regions(
 
     巡回順は ``tour_start``（機械座標）からの最近傍順とする。
 
-    ``region_size_px`` と ``overlap`` は設定（:class:`~pcbasm.config.alignment.AlignmentConfig`）と照合器の組み立てで検証済みとする。
+    ``roi`` は画像中心の正方 ROI で、その一辺が領域の大きさになる。
+
+    ``roi`` と ``overlap`` は設定（:class:`~pcbasm.config.alignment.AlignmentConfig`）と照合器の組み立てで検証済みとする。
 
     Returns:
         領域のリスト。銅箔・pad・安全領域のどれかが空、または領域が収まらなければ空リスト
@@ -64,12 +66,12 @@ def plan_alignment_regions(
 
     minx, miny, maxx, maxy = safe_area.bounds
     reference_center = Point2d((minx + maxx) / 2, (miny + maxy) / 2)
-    matrix, shift = projector.board_to_pixel_affine(
-        board_transform.apply(reference_center)
-    )
-    inverse = np.linalg.inv(matrix)
-    pad_pixels = np.array([[p.x, p.y] for p in pad_centers]) @ matrix.T + shift
+    affine = projector.board_to_pixel(board_transform.apply(reference_center))
+    # 逆向きは並進を引いてから逆行列を掛ける。Affine2d.inverse() とは丸めが違い、領域の計画が変わる
+    inverse = np.linalg.inv(affine.matrix)
+    pad_pixels = affine.map(np.array([[p.x, p.y] for p in pad_centers]))
 
+    region_size_px = roi[2] - roi[0]
     half = region_size_px / 2
     stride = region_size_px * (1.0 - overlap)
     corner_offsets_px = np.array(
@@ -84,7 +86,7 @@ def plan_alignment_regions(
     if allowed_centers.is_empty:
         return []
     _, top_left_center = nearest_points(Point(minx, miny), allowed_centers)
-    base = np.array([top_left_center.x, top_left_center.y]) @ matrix.T + shift
+    base = affine.map(np.array([top_left_center.x, top_left_center.y]))
     lower = np.ceil((pad_pixels.min(axis=0) - half - base) / stride).astype(int)
     upper = np.floor((pad_pixels.max(axis=0) + half - base) / stride).astype(int)
 
@@ -92,11 +94,11 @@ def plan_alignment_regions(
     for column in range(int(lower[0]), int(upper[0]) + 1):
         for row in range(int(lower[1]), int(upper[1]) + 1):
             center_px = base + np.array([column, row]) * stride
-            board_center_xy = (center_px - shift) @ inverse.T
+            board_center_xy = (center_px - affine.shift) @ inverse.T
             board_center = Point2d(
                 x=float(board_center_xy[0]), y=float(board_center_xy[1])
             )
-            corners = (center_px + corner_offsets_px - shift) @ inverse.T
+            corners = (center_px + corner_offsets_px - affine.shift) @ inverse.T
             board_area = Polygon(corners)
             if not any(
                 board_area.covers(Point(center.x, center.y)) for center in pad_centers
@@ -114,7 +116,6 @@ def plan_alignment_regions(
             key = (round(board_center.x, 9), round(board_center.y, 9))
             candidates.setdefault(key, (board_center, board_area))
 
-    roi = centered_roi(image_size, region_size_px)
     ordered = sort_by_nearest(
         [
             (board_transform.apply(board_center), board_center, board_area)

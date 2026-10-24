@@ -1,4 +1,5 @@
 from .calibration import CameraCalibration, CheckerboardCalibrator, load_focus_z
+from .camera_model import CameraModel
 from .copper import CopperEdgeDetection, CopperEdgeDetector
 from .detection import (
     CenterOffsetDetector,
@@ -9,11 +10,12 @@ from .detection import (
     validate_paste_diameters,
 )
 from .dot import DotDetectionSpec
-from .image import FrameSink, Image, ImageArray, safe_move_distance
+from .image import FrameSink, Image, ImageArray, PixelRect, safe_move_distance
 from .overlay import draw_crosshair, draw_detected_circle, draw_overlay
 
 __all__ = [
     "CameraCalibration",
+    "CameraModel",
     "CenterOffsetDetector",
     "CheckerboardCalibrator",
     "CircleDetector",
@@ -25,6 +27,7 @@ __all__ = [
     "Image",
     "ImageArray",
     "Offset",
+    "PixelRect",
     "PasteDotDetector",
     "draw_crosshair",
     "draw_detected_circle",

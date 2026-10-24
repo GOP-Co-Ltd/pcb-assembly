@@ -16,7 +16,7 @@ import httpx
 from pcbasm.config import MachineConfig
 from pcbasm.hal import AudioDevice, Camera, KlipperClient, PasteDispenser, XYZStage
 from pcbasm.machine.park import PRESENT_SECTION
-from pcbasm.vision import CameraCalibration
+from pcbasm.vision import CameraModel
 
 # ProbeExecutor（pcbasm.pasting.probe）が要求する section
 # pasting は machine より上の層で import できないので、ProbeExecutor を作らずに section だけを見る
@@ -72,7 +72,7 @@ def check_camera(
     """カメラから 1 枚撮り、その解像度が校正ファイルの解像度と一致するか確かめる."""
     name = "カメラの解像度"
     try:
-        calibration = CameraCalibration.load(calibration_file)
+        camera_model = CameraModel.load(calibration_file)
     except OSError as exc:
         return Check(name, False, f"校正ファイルを読めません: {exc}")
     try:
@@ -80,13 +80,10 @@ def check_camera(
             size = camera.capture().size
     except (OSError, RuntimeError) as exc:
         return Check(name, False, f"カメラから撮れません: {exc}")
-    if size != calibration.resolution:
-        return Check(
-            name,
-            False,
-            f"カメラ {_size(size)} が校正 {_size(calibration.resolution)} と違います",
-        )
-    return Check(name, True, f"{_size(size)}（校正と一致）")
+    error = camera_model.image_size_error(size)
+    if error is not None:
+        return Check(name, False, error)
+    return Check(name, True, f"{size[0]}x{size[1]}（校正と一致）")
 
 
 def check_audio(devices: Sequence[AudioDevice], device: str) -> Check:
@@ -130,7 +127,3 @@ def _section(config: dict[str, dict[str, Any]], name: str, section: str) -> Chec
     if section in config:
         return Check(name, True, f"[{section}] があります")
     return Check(name, False, f"printer.cfg に [{section}] を追加してください")
-
-
-def _size(size: tuple[int, int]) -> str:
-    return f"{size[0]}x{size[1]}"

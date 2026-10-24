@@ -29,7 +29,7 @@ from pcbasm.hal import Camera, KlipperClient, Speed, XYZStage
 from pcbasm.kicad.build import generate_grid_pcb
 from pcbasm.machine.commands import COMMAND_TIMEOUT
 from pcbasm.vision import (
-    CameraCalibration,
+    CameraModel,
     CheckerboardCalibrator,
     CircleDetector,
     Image,
@@ -154,11 +154,11 @@ def _run_reference_point_setup(ctx: JobContext) -> JobResult:
     stage = XYZStage(klipper)
     cam_config = machine.camera
     try:
-        calibration = CameraCalibration.load(cam_config.calibration_file)
+        camera_model = CameraModel.load(cam_config.calibration_file)
     except Exception as exc:
         raise RuntimeError(f"カメラキャリブレーションが読み込めません: {exc}") from exc
     detector = CircleDetector(
-        pixel_per_mm=calibration.pixel_per_mm,
+        pixel_per_mm=camera_model.pixel_per_mm,
         target_diameter_mm=machine.reference_point.target_diameter,
         crop_size=cam_config.crop.size,
         diameter_tolerance_mm=0.5,
@@ -166,9 +166,9 @@ def _run_reference_point_setup(ctx: JobContext) -> JobResult:
 
     ctx.progress("ホーミング")
     klipper.send_gcode(GCode.homing(x=True, y=True, z=True) + GCode.wait_for_done())
-    if calibration.z_position is not None:
-        ctx.log(f"カメラ Z 高さへ移動: {calibration.z_position:.3f} mm")
-        klipper.send_gcode(stage.move(z=calibration.z_position) + GCode.wait_for_done())
+    if camera_model.focus_z is not None:
+        ctx.log(f"カメラ Z 高さへ移動: {camera_model.focus_z:.3f} mm")
+        klipper.send_gcode(stage.move(z=camera_model.focus_z) + GCode.wait_for_done())
     else:
         ctx.log("キャリブレーションに Z 位置がありません。Z は移動しません")
 
@@ -178,7 +178,11 @@ def _run_reference_point_setup(ctx: JobContext) -> JobResult:
         ctx.log("マシン操作パネルでジョグし、Record で現在位置を記録してください")
         ctx.notify_operator()
         while True:
-            ctx.frame(_reference_point_frame(camera, detector, machine, position))
+            ctx.frame(
+                _reference_point_frame(
+                    camera, detector, camera_model, machine, position
+                )
+            )
             command = ctx.next_command(timeout=0)
             if command is not None and _dispatch_reference_command(
                 ctx, klipper, stage, position, command
@@ -202,6 +206,7 @@ def _run_reference_point_setup(ctx: JobContext) -> JobResult:
 def _reference_point_frame(
     camera: Camera,
     detector: CircleDetector,
+    camera_model: CameraModel,
     machine: MachineConfig,
     position: _CachedPosition,
 ) -> Image:
@@ -209,7 +214,11 @@ def _reference_point_frame(
     crop_size = machine.camera.crop.size
     image = camera.capture()
     result = detector.detect_nearest_center(image)
-    offset = result.offset.mm if result is not None else None
+    offset = (
+        camera_model.pixel_offset_to_camera(result.offset.px)
+        if result is not None
+        else None
+    )
     preview = draw_overlay(image, crop_size, offset).numpy()
     if result is not None:
         draw_detected_circle(preview, result, crop_size)

@@ -350,6 +350,61 @@ class Matrix2d(Transform):
 
 
 @attrs.frozen
+class Affine2d(Transform):
+    """XY 平面のアフィン変換 ``p ↦ matrix @ p + shift``.
+
+    Point3d の z は変えない。
+
+    Attributes:
+        matrix: 2x2 の線形部
+        shift: 長さ 2 の並進部
+    """
+
+    matrix: npt.NDArray[np.floating] = attrs.field(
+        eq=attrs.cmp_using(eq=np.array_equal)
+    )
+    shift: npt.NDArray[np.floating] = attrs.field(eq=attrs.cmp_using(eq=np.array_equal))
+
+    @classmethod
+    def from_transform(cls, transform: Transform) -> Self:
+        """XY でアフィンな変換を、原点と 2 つの単位点の像から求める."""
+        origin = transform.apply(Point2d(0.0, 0.0))
+        unit_x = transform.apply(Point2d(1.0, 0.0))
+        unit_y = transform.apply(Point2d(0.0, 1.0))
+        matrix = np.array(
+            [
+                [unit_x.x - origin.x, unit_y.x - origin.x],
+                [unit_x.y - origin.y, unit_y.y - origin.y],
+            ]
+        )
+        return cls(matrix, np.array([origin.x, origin.y]))
+
+    def map(self, points: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
+        """形状 (..., 2) の点列を一度に写す."""
+        return points @ self.matrix.T + self.shift
+
+    @overload
+    def apply(self, point: Point2d) -> Point2d: ...
+
+    @overload
+    def apply(self, point: Point3d) -> Point3d: ...
+
+    @override
+    def apply(self, point: Point) -> Point:
+        """点にアフィン変換を適用する."""
+        v = self.map(np.array([point.x, point.y]))
+        if isinstance(point, Point2d):
+            return Point2d(float(v[0]), float(v[1]))
+        return Point3d(float(v[0]), float(v[1]), point.z)
+
+    @override
+    def inverse(self) -> Self:
+        """逆変換を返す."""
+        matrix = np.linalg.inv(self.matrix)
+        return self.__class__(matrix, -(matrix @ self.shift))
+
+
+@attrs.frozen
 class HeightPlane(Transform):
     """計測した基板表面に 2 次曲面を当てはめ、点の Z に表面高さを足す変換.
 

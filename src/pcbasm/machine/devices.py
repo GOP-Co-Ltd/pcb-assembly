@@ -24,7 +24,7 @@ from pcbasm.hal.fake import (
     SceneCamera,
 )
 from pcbasm.machine.journal import Journal
-from pcbasm.vision import CameraCalibration, Image
+from pcbasm.vision import CameraModel, Image
 
 EMERGENCY_STOP_TIMEOUT = 10.0
 
@@ -201,13 +201,13 @@ def _scene_camera(
 ) -> Camera:
     """校正ファイルと machine.toml のとおりに、klipper の位置から scene を描くカメラ."""
     machine = load_machine(config_path)
-    calibration = CameraCalibration.load(machine.camera.calibration_file)
+    camera_model = CameraModel.load(machine.camera.calibration_file)
     dispenser = machine.paste_dispenser
     return SceneCamera(
         klipper,
-        pixel_per_mm=calibration.pixel_per_mm,
+        pixel_per_mm=camera_model.pixel_per_mm,
         toolhead=Point2d(dispenser.toolhead.x, dispenser.toolhead.y),
         rotations_per_ul=dispenser.rotations_per_ul,
-        size=calibration.resolution,
+        size=camera_model.image_size,
         shapes=scene(),
     )

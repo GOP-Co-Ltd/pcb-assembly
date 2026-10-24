@@ -13,7 +13,7 @@ import cv2
 from pcbasm.config import MachineConfig
 from pcbasm.hal import FrameHub
 from pcbasm.vision import (
-    CameraCalibration,
+    CameraModel,
     CircleDetector,
     CopperEdgeDetector,
     DetectedCircle,
@@ -40,33 +40,41 @@ def _draw_status_text(img: ImageArray, text: str) -> None:
     cv2.putText(img, text, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
 
 
+def _uncalibrated(image: Image, crop_size: tuple[int, int]) -> Image:
+    """十字線に "no calibration" を添える（円検出に使う校正が無いとき）."""
+    img = draw_overlay(image, crop_size).numpy()
+    _draw_status_text(img, "no calibration")
+    return Image(img)
+
+
 class _CircleRenderer:
     """円検出オーバーレイ。検出は detect_fps に間引き、直近結果を再利用する."""
 
     def __init__(
         self,
-        detector: CircleDetector | None,
+        detector: CircleDetector,
+        camera_model: CameraModel,
         crop_size: tuple[int, int],
         detect_interval: float,
     ) -> None:
         self._detector = detector
+        self._camera_model = camera_model
         self._crop_size = crop_size
         self._detect_interval = detect_interval
         self._next_detect = 0.0
         self._circle: DetectedCircle | None = None
 
     def __call__(self, image: Image) -> Image:
-        if self._detector is None:
-            img = draw_overlay(image, self._crop_size).numpy()
-            _draw_status_text(img, "no calibration")
-            return Image(img)
-
         now = time.monotonic()
         if now >= self._next_detect:
             self._circle = self._detector.detect_nearest_center(image)
             self._next_detect = now + self._detect_interval
 
-        offset = self._circle.offset.mm if self._circle is not None else None
+        offset = (
+            self._camera_model.pixel_offset_to_camera(self._circle.offset.px)
+            if self._circle is not None
+            else None
+        )
         img = draw_overlay(image, self._crop_size, offset).numpy()
         if self._circle is not None:
             draw_detected_circle(img, self._circle, self._crop_size)
@@ -269,16 +277,13 @@ class PreviewService:
             return lambda image: image
 
         machine = self._state.machine()
-        crop_size = machine.camera.crop.size
         detect_interval = 1.0 / self._detect_fps
 
         match overlay:
             case "crosshair":
                 return lambda image: draw_overlay(image, self._crop_size())
             case "circle":
-                return _CircleRenderer(
-                    self._build_circle_detector(machine), crop_size, detect_interval
-                )
+                return self._build_circle_renderer(machine, detect_interval)
             case "copper":
                 alignment = machine.alignment
                 low = canny_low if canny_low is not None else alignment.canny_low
@@ -290,17 +295,21 @@ class PreviewService:
                 )
                 return _CopperRenderer(detector, low, high, detect_interval)
 
-    def _build_circle_detector(self, machine: MachineConfig) -> CircleDetector | None:
-        """円検出器を構築する（calibration が読めなければ None）."""
+    def _build_circle_renderer(
+        self, machine: MachineConfig, detect_interval: float
+    ) -> _Renderer:
+        """円検出のレンダラを構築する（calibration が読めなければ "no calibration" を出す）."""
+        crop_size = machine.camera.crop.size
         try:
-            calibration = CameraCalibration.load(machine.camera.calibration_file)
+            camera_model = CameraModel.load(machine.camera.calibration_file)
         except Exception:
-            return None
-        return CircleDetector(
-            pixel_per_mm=calibration.pixel_per_mm,
+            return lambda image: _uncalibrated(image, crop_size)
+        detector = CircleDetector(
+            pixel_per_mm=camera_model.pixel_per_mm,
             target_diameter_mm=machine.reference_point.target_diameter,
-            crop_size=machine.camera.crop.size,
+            crop_size=crop_size,
         )
+        return _CircleRenderer(detector, camera_model, crop_size, detect_interval)
 
     def _encode_jpeg(self, image: Image) -> bytes:
         ok, buffer = cv2.imencode(

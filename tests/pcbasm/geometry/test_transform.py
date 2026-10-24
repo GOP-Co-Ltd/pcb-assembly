@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from pcbasm.geometry.transform import (
+    Affine2d,
     Compose,
     HeightPlane,
     Matrix2d,
@@ -210,6 +211,49 @@ class TestMatrix2d:
     def test_invalid_shape_raises(self):
         with pytest.raises(ValueError, match="2x2"):
             Matrix2d(np.array([[1.0, 2.0, 3.0]]))
+
+
+class TestAffine2d:
+    """Affine2dクラスのテスト."""
+
+    def test_apply_point2d(self):
+        affine = Affine2d(np.array([[0.0, -2.0], [2.0, 0.0]]), np.array([10.0, 20.0]))
+
+        assert affine.apply(Point2d(1.0, 3.0)) == Point2d(4.0, 22.0)
+
+    def test_apply_point3d_preserves_z(self):
+        affine = Affine2d(np.array([[2.0, 0.0], [0.0, 3.0]]), np.array([1.0, 1.0]))
+
+        assert affine.apply(Point3d(1.0, 2.0, 5.0)) == Point3d(3.0, 7.0, 5.0)
+
+    def test_map_transforms_point_rows_like_apply(self):
+        affine = Affine2d(np.array([[1.0, 2.0], [3.0, 4.0]]), np.array([5.0, 6.0]))
+        points = np.array([[1.0, 0.0], [0.0, 1.0], [2.0, -1.0]])
+
+        mapped = affine.map(points)
+
+        for (x, y), (mx, my) in zip(points, mapped, strict=True):
+            assert affine.apply(Point2d(x, y)) == Point2d(mx, my)
+
+    def test_from_transform_reproduces_an_affine_compose(self):
+        transform = Compose([Rotation(30.0), Scale(2.0, 3.0), Shift(4.0, -5.0)])
+
+        affine = Affine2d.from_transform(transform)
+
+        for point in (Point2d(0.0, 0.0), Point2d(1.5, -2.0), Point2d(-7.0, 3.25)):
+            expected = transform.apply(point)
+            result = affine.apply(point)
+            assert result.x == pytest.approx(expected.x, abs=1e-10)
+            assert result.y == pytest.approx(expected.y, abs=1e-10)
+
+    def test_inverse(self):
+        affine = Affine2d(np.array([[2.0, 1.0], [0.0, 4.0]]), np.array([3.0, -1.0]))
+        point = Point2d(3.0, 5.0)
+
+        restored = affine.inverse().apply(affine.apply(point))
+
+        assert restored.x == pytest.approx(point.x, abs=1e-10)
+        assert restored.y == pytest.approx(point.y, abs=1e-10)
 
 
 class TestScale:

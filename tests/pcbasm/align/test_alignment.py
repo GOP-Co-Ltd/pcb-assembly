@@ -1,7 +1,5 @@
 """重複する成功領域から pad 別補正を導く仕様テストと、照合の失敗を None で返す契約."""
 
-from datetime import UTC, datetime
-
 import numpy as np
 import pytest
 import shapely
@@ -23,7 +21,7 @@ from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FakeCamera, FakeKlipper
 from pcbasm.kicad import load_board
 from pcbasm.vision import Image, Offset
-from pcbasm.vision.calibration import CameraCalibration
+from tests.support.camera_model import make_camera_model
 from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR
 
 PPM = 10.0
@@ -46,7 +44,7 @@ def _alignment(
             board_area=board_area,
         ),
         match=EdgeMatch(
-            offset=Offset(px=Point2d(0.0, 0.0), pixel_per_mm=PPM),
+            offset=Offset(px=Point2d(0.0, 0.0)),
             rms_distance_px=rms_distance_px,
         ),
         displacement=displacement,
@@ -302,17 +300,7 @@ class TestRegionAlignmentSessionFailure:
                 board=load_board(
                     TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
                 ),
-                calibration=CameraCalibration(
-                    pixel_per_mm=PPM,
-                    square_size_mm=1.0,
-                    mean_distance_px=PPM,
-                    std_distance_px=0.0,
-                    resolution=resolution,
-                    crop_size=(400, 400),
-                    calibrated_at=datetime(2026, 8, 20, 12, 0, 0, tzinfo=UTC),
-                    z_position=12.0,
-                ),
-                offset_transform=Identity(),
+                camera_model=make_camera_model(PPM, resolution, focus_z=12.0),
                 board_transform=Identity(),
             ),
             load_machine(TESTING_CONFIG_DIR / "machine.toml"),
