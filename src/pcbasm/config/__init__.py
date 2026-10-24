@@ -1,6 +1,7 @@
 """machine.toml のスキーマと読み込み.
 
-TOML の 1 節を 1 モジュールに置く（``[paste_dispenser]`` は :mod:`.dispenser`、その下の ``pad_align`` は :mod:`.alignment`）。
+TOML の 1 節を 1 モジュールに置く（``[paste_dispenser]`` は :mod:`.dispenser`、``[alignment]`` は :mod:`.alignment`）。
+TOML のパスと属性のパスは一致する（``paste_dispenser.defaults.ul_per_mm2`` は ``MachineConfig.paste_dispenser.defaults.ul_per_mm2``）。
 ここは全体の :class:`MachineConfig` と、読み込み・一括検証だけを持つ。
 """
 
@@ -16,23 +17,27 @@ import attrs
 import cattrs
 from cattrs.gen import make_dict_structure_fn
 
+from pcbasm.config.alignment import AlignmentConfig
 from pcbasm.config.audio import AudioConfig
 from pcbasm.config.camera import CameraConfig
 from pcbasm.config.detection import DetectionConfig
 from pcbasm.config.dispenser import (
-    DISPENSE_MODES,
-    LINE_DIRECTIONS,
-    DispenseMode,
-    LineDirection,
     NozzleCapConfig,
     NozzleCleanConfig,
     PasteDispenserConfig,
-    PasteHeight,
 )
 from pcbasm.config.klipper import KlipperConfig
 from pcbasm.config.probe import ProbeConfig
 from pcbasm.config.reference_point import ReferencePointConfig
 from pcbasm.config.settle import SettleConfig
+from pcbasm.pasting.params import (
+    DISPENSE_MODES,
+    LINE_DIRECTIONS,
+    DispenseMode,
+    DispenseMotion,
+    LineDirection,
+    PasteHeight,
+)
 from pcbasm.paths import PROJECT_ROOT
 
 
@@ -80,8 +85,26 @@ def _position_hook(
     return hook
 
 
+def _motion_hook(
+    converter: cattrs.Converter,
+) -> Callable[[Mapping[str, Any], object], DispenseMotion]:
+    """``[paste_dispenser.motion]`` の structure hook を作る.
+
+    ``retract_rate`` を省略したら ``max_dispense_rate`` と同じ値にする。
+    """
+    structure = make_dict_structure_fn(DispenseMotion, converter)
+
+    def hook(value: Mapping[str, Any], _: object) -> DispenseMotion:
+        data = dict(value)
+        if "retract_rate" not in data and "max_dispense_rate" in data:
+            data["retract_rate"] = data["max_dispense_rate"]
+        return structure(data, DispenseMotion)
+
+    return hook
+
+
 def _make_converter() -> cattrs.Converter:
-    converter = cattrs.Converter()
+    converter = cattrs.Converter(forbid_extra_keys=True)
     converter.register_structure_hook_func(
         lambda t: t == DispenseMode, _structure_dispense_mode
     )
@@ -93,6 +116,7 @@ def _make_converter() -> cattrs.Converter:
     )
     for cls in (NozzleCapConfig, NozzleCleanConfig):
         converter.register_structure_hook(cls, _position_hook(cls, converter))
+    converter.register_structure_hook(DispenseMotion, _motion_hook(converter))
     return converter
 
 
@@ -115,7 +139,7 @@ class ConfigError(Exception):
 class MachineConfig:
     """machine.toml 全体の設定（:func:`load_machine` が一括で検証して作る）.
 
-    未知のキーは読み飛ばす（稼働機の machine.toml には、もう読まない ``machine_type`` が残っている）。
+    未知のキーは設定エラーにする（書き間違えたキーが黙って既定値で動くのを防ぐ）。
     """
 
     klipper: KlipperConfig
@@ -123,28 +147,43 @@ class MachineConfig:
     camera: CameraConfig
     reference_point: ReferencePointConfig
     probe: ProbeConfig
+    alignment: AlignmentConfig = attrs.field(factory=AlignmentConfig)
     audio: AudioConfig = attrs.field(factory=AudioConfig)
     settle: SettleConfig = attrs.field(factory=SettleConfig)
     detection: DetectionConfig = attrs.field(factory=DetectionConfig)
+    # PR #34（タクトタイム見積り）のための予約節。#34 が merge されるまで中身は読まずに受け入れる
+    tact: dict[str, Any] | None = None
 
 
 def _describe(exc: BaseException, _: object) -> str:
     if isinstance(exc, KeyError):
         return "必須の項目がありません"
+    if isinstance(exc, cattrs.ForbiddenExtraKeysError):
+        return f"未知のキーです: {', '.join(sorted(exc.extra_fields))}"
     return str(exc) or type(exc).__name__
 
 
-def _structure[T](value: object, cls: type[T]) -> T:
-    """Machine.toml の値を ``cls`` へ structure する（不正なら全件を挙げた ConfigError）."""
+def _structure[T](
+    value: Mapping[str, Any], cls: type[T], path: str = "machine.toml"
+) -> T:
+    """machine.toml の値を ``cls`` へ structure する.
+
+    ``path`` は誤りの位置を示す接頭辞。不正なら全件を挙げた ConfigError を出す。
+    """
     try:
         return _CONVERTER.structure(value, cls)
     except cattrs.BaseValidationError as exc:
-        errors = cattrs.transform_error(exc, "machine.toml", _describe)
-        # transform_error は 1 件を「理由 @ machine.toml.<節>.<キー>」の書式で返す
-        sections = frozenset(
-            error.rpartition(" @ machine.toml.")[2].split(".")[0] for error in errors
-        )
-        raise ConfigError(" / ".join(errors), sections) from exc
+        errors = cattrs.transform_error(exc, path, _describe)
+        # transform_error は 1 件を「理由 @ machine.toml.<節>.<キー>」の書式で返す。
+        # 最上位の未知のキーは「理由 @ machine.toml」なので、そのキー自身を節とする
+        sections = {
+            error.rpartition(" @ machine.toml")[2].removeprefix(".").split(".")[0]
+            for error in errors
+        }
+        if "" in sections:
+            sections.remove("")
+            sections.update(set(value) - attrs.fields_dict(cls).keys())  # type: ignore[arg-type]
+        raise ConfigError(" / ".join(errors), frozenset(sections)) from exc
 
 
 def _read_toml(path: Path) -> dict[str, Any]:
@@ -190,7 +229,7 @@ def load_klipper(path: str | Path) -> KlipperConfig:
     data = _read_toml(Path(path))
     if "klipper" not in data:
         raise ConfigError("machine.toml に [klipper] がありません")
-    return _structure(data["klipper"], KlipperConfig)
+    return _structure(data["klipper"], KlipperConfig, "machine.toml.klipper")
 
 
 def get_config_dir() -> Path:

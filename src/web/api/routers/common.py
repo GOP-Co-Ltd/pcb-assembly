@@ -139,6 +139,7 @@ def build_state_response(
         nozzle_cap=None if cap is None else Position(x=cap.x, y=cap.y, z=cap.z),
         nozzle_clean=None if clean is None else nozzle_clean_payload(clean),
         config_error=config_error,
+        config_notice=state.config_notice,
     )
 
 

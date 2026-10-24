@@ -23,10 +23,10 @@ from pcbasm.gcode import GCode
 from pcbasm.geometry import Path, Point3d
 from pcbasm.pasting.fill_sequence import FillSequence, MicroLineSequence
 from pcbasm.pasting.flowcalib.flow import rate_sweep_amount_ul
-from pcbasm.pasting.params import DispenseSettings
+from pcbasm.pasting.params import DispenseMotion
 
 # retract_accel = factor * rate^2 / amount = 4.0 * 25 / 10 = 10.0
-_SETTINGS = DispenseSettings(
+_MOTION = DispenseMotion(
     max_fill_speed=2.0,
     max_dispense_rate=10.0,
     dispense_accel=8.0,
@@ -71,7 +71,7 @@ def _sequence(path: Path, *, rate_cap: float | None = None) -> FillSequence:
     return FillSequence(
         path=path,
         total_amount_ul=20.0,
-        settings=_SETTINGS,
+        motion=_MOTION,
         prime_extra_delay=0.5,
         rate_cap=rate_cap,
     )
@@ -271,7 +271,7 @@ class TestRateCap:
         sequence = FillSequence(
             path=Path([Point3d(0.0, 0.0, 5.0), Point3d(length, 0.0, 5.0)]),
             total_amount_ul=rate_sweep_amount_ul(rate, length, speed),
-            settings=_SETTINGS,
+            motion=_MOTION,
             fill_speed=speed,
             rate_cap=rate,
         )
@@ -284,11 +284,11 @@ class TestRateCap:
 
 
 def _micro_sequence(path: Path, *, settle_seconds: float = 1.5) -> MicroLineSequence:
-    """total_amount=0.5 の微小線シーケンス（静定待ちだけ _SETTINGS から差し替える）."""
+    """total_amount=0.5 の微小線シーケンス（静定待ちだけ _MOTION から差し替える）."""
     return MicroLineSequence(
         path=path,
         total_amount_ul=0.5,
-        settings=attrs.evolve(_SETTINGS, micro_line_settle_seconds=settle_seconds),
+        motion=attrs.evolve(_MOTION, micro_line_settle_seconds=settle_seconds),
     )
 
 
@@ -376,8 +376,8 @@ class TestPostDispenseSettle:
     """塗布の移動が終わってから静定待ちし、そのあとでヘッドを上げる."""
 
     @staticmethod
-    def _settled(settle: float = 0.25) -> DispenseSettings:
-        return attrs.evolve(_SETTINGS, post_dispense_settle_seconds=settle)
+    def _settled(settle: float = 0.25) -> DispenseMotion:
+        return attrs.evolve(_MOTION, post_dispense_settle_seconds=settle)
 
     @pytest.mark.parametrize(
         "path",
@@ -396,7 +396,7 @@ class TestPostDispenseSettle:
         ]
         mock_dispenser.continue_pushpull.return_value = GCode("RETRACT")
         mock_dispenser.sync.return_value = GCode("SYNC_DISPENSER")
-        sequence = attrs.evolve(_sequence(path), settings=self._settled())
+        sequence = attrs.evolve(_sequence(path), motion=self._settled())
 
         commands = sequence.to_gcode(mock_stage, mock_dispenser).to_list()
 
@@ -411,7 +411,7 @@ class TestPostDispenseSettle:
         path = Path([Point3d(0.0, 0.0, 5.0), Point3d(10.0, 0.0, 5.0)])
 
         mock_stage.to_gcode.return_value = GCode("FILL")
-        settled = attrs.evolve(_sequence(path), settings=self._settled(0.0))
+        settled = attrs.evolve(_sequence(path), motion=self._settled(0.0))
 
         commands = settled.to_gcode(mock_stage, mock_dispenser).to_list()
 
@@ -430,7 +430,7 @@ class TestPostDispenseSettle:
         mock_stage.to_gcode.return_value = GCode("FILL")
         mock_dispenser.pushpull.side_effect = [GCode("PUSH"), GCode("RETRACT")]
         sequence = MicroLineSequence(
-            path=_MICRO_PATH, total_amount_ul=0.5, settings=self._settled()
+            path=_MICRO_PATH, total_amount_ul=0.5, motion=self._settled()
         )
 
         commands = sequence.to_gcode(mock_stage, mock_dispenser).to_list()

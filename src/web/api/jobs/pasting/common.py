@@ -371,7 +371,7 @@ def prepare_paste_workflow(
     _check_all_pads_correctable(alignment, alignment_pads)
     ctx.log(f"位置合わせ成功: {len(aligned)}/{len(regions)} 領域")
 
-    max_short_side = result.machine.paste_dispenser.pad_align.refine_max_short_side
+    max_short_side = result.machine.alignment.refine_max_short_side
     targets = refinement_targets(alignment_pads, max_short_side_mm=max_short_side)
     ctx.log(
         f"pad中心照合対象: {len(targets)}/{len(alignment_pads)} pads "

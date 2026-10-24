@@ -59,6 +59,7 @@ from pcbasm.pasting.nozzle_clean import (
     wipe_gcode,
     wipe_points,
 )
+from pcbasm.pasting.params import DispenseMotion, PasteParams
 from tests.support.paths import TESTING_DATA_DIR
 
 # FAKE_PRINTER_CONFIG: x,y ∈ [0,300] / z ∈ [-5,50] / max_velocity = 100
@@ -116,16 +117,17 @@ def applicator(klipper: FakeKlipper) -> Iterator[PasteApplicator]:
     config = PasteDispenserConfig(
         rotations_per_ul=ROTATIONS_PER_UL,
         nozzle_diameter=0.34,
-        max_fill_speed=5.0,
-        max_dispense_rate=1.0,
-        dispense_accel=10.0,
-        retract_amount=10.0,
-        retract_rate=10.0,
-        retract_accel_factor=2.0,
         toolhead=ToolheadConfig(x=0.0, y=0.0),
-        paste_height=0.5,
-        lift_height=5.0,
-        ul_per_mm2=0.05,
+        defaults=PasteParams(ul_per_mm2=0.05, paste_height=0.5),
+        motion=DispenseMotion(
+            max_fill_speed=5.0,
+            max_dispense_rate=1.0,
+            dispense_accel=10.0,
+            retract_amount=10.0,
+            retract_rate=10.0,
+            retract_accel_factor=2.0,
+            lift_height=5.0,
+        ),
     )
     with build_applicator(klipper, XYZStage(klipper.readonly), config) as enabled:
         klipper.clear_sent()  # enable() の送信を数えない

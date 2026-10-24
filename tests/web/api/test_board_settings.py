@@ -31,7 +31,7 @@ from shapely import Polygon
 
 from pcbasm.config.dispenser import PasteDispenserConfig, ToolheadConfig
 from pcbasm.geometry import Point2d
-from pcbasm.pasting.params import PasteParamsPatch
+from pcbasm.pasting.params import DispenseMotion, PasteParams, PasteParamsPatch
 from pcbasm.pasting.settings import LevelSetting, PasteSettingsModel
 from pcbasm.pcb import Component, Layer, Pad, PadHierarchy
 from web.api.board_settings import BoardSettingsStore
@@ -44,21 +44,25 @@ def _base_config() -> PasteDispenserConfig:
     return PasteDispenserConfig(
         rotations_per_ul=10.0,
         nozzle_diameter=0.4,
-        max_fill_speed=0.8,
-        max_dispense_rate=1.0,
-        dispense_accel=1.0,
-        retract_amount=0.1,
-        retract_rate=1.0,
-        retract_accel_factor=2.0,
         toolhead=ToolheadConfig(x=0.0, y=0.0),
-        paste_height="auto",
-        ul_per_mm2=0.05,
-        dispense_mode="auto",
         auto_line_aspect_ratio=1.618,
-        prime_extra_delay=0.2,
-        bead_width_factor=1.1,
-        overlap=0.3,
-        boundary_margin=0.05,
+        defaults=PasteParams(
+            dispense_mode="auto",
+            ul_per_mm2=0.05,
+            paste_height="auto",
+            prime_extra_delay=0.2,
+            bead_width_factor=1.1,
+            overlap=0.3,
+            boundary_margin=0.05,
+        ),
+        motion=DispenseMotion(
+            max_fill_speed=0.8,
+            max_dispense_rate=1.0,
+            dispense_accel=1.0,
+            retract_amount=0.1,
+            retract_rate=1.0,
+            retract_accel_factor=2.0,
+        ),
     )
 
 
@@ -149,11 +153,11 @@ class TestLoadOrInit:
         model = store.load_or_init("boards/a.kicad_pcb", config)
 
         assert model.levels == ()
-        assert model.base.dispense_mode == config.dispense_mode
-        assert model.base.line_direction == config.line_direction
-        assert model.base.prime_extra_delay == config.prime_extra_delay
-        assert model.base.paste_height == config.paste_height
-        assert model.base.boundary_margin == config.boundary_margin
+        assert model.base.dispense_mode == config.defaults.dispense_mode
+        assert model.base.line_direction == config.defaults.line_direction
+        assert model.base.prime_extra_delay == config.defaults.prime_extra_delay
+        assert model.base.paste_height == config.defaults.paste_height
+        assert model.base.boundary_margin == config.defaults.boundary_margin
 
     def test_init_does_not_write_file(self, tmp_path: Path):
         store = BoardSettingsStore(tmp_path)
@@ -177,7 +181,7 @@ class TestLoadOrInit:
 
         assert _level(loaded, ("L0",)).enabled is False
         assert _level(loaded, ("L2", "U1")).enabled is True
-        assert loaded.base.prime_extra_delay == config.prime_extra_delay
+        assert loaded.base.prime_extra_delay == config.defaults.prime_extra_delay
 
 
 class TestRoundTrip:
@@ -203,10 +207,8 @@ class TestRoundTrip:
 
         setting = _level(loaded, ("L2", "U1"))
         assert setting.enabled is False
-        assert setting.patch.prime_extra_delay == 0.5
-        assert setting.patch.overlap == 0.1
-        # 未設定項目は継承（None）のまま
-        assert setting.patch.paste_height is None
+        # 未設定項目は継承のまま
+        assert setting.patch.to_dict() == {"prime_extra_delay": 0.5, "overlap": 0.1}
 
 
 class TestInitialPurgePoint:

@@ -137,7 +137,7 @@ class TestJobLifecycleOverWebSocket:
             timeout=_HTTP_TIMEOUT,
         )
         assert apply.status_code == 200
-        assert apply.json()["applied"] == {"paste_dispenser.pad_align.canny_low": 77.0}
+        assert apply.json()["applied"] == {"alignment.canny_low": 77.0}
 
         # 隔離した tmp の machine.toml に書かれている（実機設定は汚していない）
         machine_toml = (live_server.settings.config_dir / "machine.toml").read_text()

@@ -632,7 +632,7 @@ def _run_paste_volume_calibration(ctx: JobContext) -> JobResult:
         # prime 後の追加遅延は量に依らず一定量を押し出すので、小さい量の点で
         # ラベルと blob の対応が歪む。収集では 0 固定にする。
         params = attrs.evolve(
-            PasteParams.from_config(dispenser_config),
+            dispenser_config.defaults,
             paste_height=paste_height_mm,
             prime_extra_delay=0.0,
         )

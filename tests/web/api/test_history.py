@@ -26,27 +26,27 @@ class TestSnapshotOnWrite:
     ):
         original = store.machine_toml_path().read_bytes()
 
-        store.write_machine_settings({"paste_dispenser.lift_height": 3.0})
+        store.write_machine_settings({"paste_dispenser.motion.lift_height": 3.0})
 
         [entry] = history.entries()
         assert (config_dir / "history" / entry.name).read_bytes() == original
-        assert entry.changes == ["paste_dispenser.lift_height: 2.0 → 3.0"]
+        assert entry.changes == ["paste_dispenser.motion.lift_height: 2.0 → 3.0"]
 
     def test_entries_are_newest_first_and_each_shows_its_own_change(
         self, store: ConfigStore, history: ConfigHistory
     ):
-        store.write_machine_settings({"paste_dispenser.lift_height": 3.0})
+        store.write_machine_settings({"paste_dispenser.motion.lift_height": 3.0})
         store.write_machine_settings({"camera.fps": 20.0})
 
         assert [entry.changes for entry in history.entries()] == [
             ["camera.fps: 30.0 → 20.0"],
-            ["paste_dispenser.lift_height: 2.0 → 3.0"],
+            ["paste_dispenser.motion.lift_height: 2.0 → 3.0"],
         ]
 
     def test_order_follows_the_name_not_the_mtime(
         self, store: ConfigStore, history: ConfigHistory, config_dir: Path
     ):
-        store.write_machine_settings({"paste_dispenser.lift_height": 3.0})
+        store.write_machine_settings({"paste_dispenser.motion.lift_height": 3.0})
         store.write_machine_settings({"camera.fps": 20.0})
         # 置き直しで古い世代ほど mtime が新しくなった状態
         newest_first = sorted((config_dir / "history").iterdir(), reverse=True)
@@ -55,13 +55,13 @@ class TestSnapshotOnWrite:
 
         assert [entry.changes for entry in history.entries()] == [
             ["camera.fps: 30.0 → 20.0"],
-            ["paste_dispenser.lift_height: 2.0 → 3.0"],
+            ["paste_dispenser.motion.lift_height: 2.0 → 3.0"],
         ]
 
     def test_write_without_change_keeps_no_snapshot(
         self, store: ConfigStore, history: ConfigHistory
     ):
-        store.write_machine_settings({"paste_dispenser.lift_height": 2.0})
+        store.write_machine_settings({"paste_dispenser.motion.lift_height": 2.0})
 
         assert history.entries() == []
 
@@ -76,7 +76,7 @@ class TestSnapshotOnWrite:
     def test_unreadable_toml_is_reported_instead_of_a_diff(
         self, store: ConfigStore, history: ConfigHistory
     ):
-        store.write_machine_settings({"paste_dispenser.lift_height": 3.0})
+        store.write_machine_settings({"paste_dispenser.motion.lift_height": 3.0})
         store.machine_toml_path().write_text("[paste_dispenser\n")
 
         [entry] = history.entries()
@@ -107,7 +107,7 @@ class TestRestore:
     ):
         path = store.machine_toml_path()
         original = path.read_bytes()
-        store.write_machine_settings({"paste_dispenser.lift_height": 3.0})
+        store.write_machine_settings({"paste_dispenser.motion.lift_height": 3.0})
         written = path.read_bytes()
         [entry] = history.entries()
 
@@ -117,14 +117,14 @@ class TestRestore:
         assert path.read_bytes() == original
         newest, restored = history.entries()
         assert (config_dir / "history" / newest.name).read_bytes() == written
-        assert newest.changes == ["paste_dispenser.lift_height: 3.0 → 2.0"]
+        assert newest.changes == ["paste_dispenser.motion.lift_height: 3.0 → 2.0"]
         assert restored.name == entry.name
 
     @pytest.mark.parametrize("name", ["machine-missing.toml", "../machine.toml"])
     def test_unknown_name_changes_nothing(
         self, store: ConfigStore, history: ConfigHistory, name: str
     ):
-        store.write_machine_settings({"paste_dispenser.lift_height": 3.0})
+        store.write_machine_settings({"paste_dispenser.motion.lift_height": 3.0})
         written = store.machine_toml_path().read_bytes()
 
         with pytest.raises(UnknownSnapshotError):

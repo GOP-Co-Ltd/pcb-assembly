@@ -96,6 +96,6 @@ def _run_job_demo(ctx: JobContext) -> JobResult:
         summary=f"demo 完了（canny_low = {canny_low:g}）",
         apply=ApplyPayload(
             label=f"canny_low = {canny_low:g} を設定に反映",
-            values={"paste_dispenser.pad_align.canny_low": canny_low},
+            values={"alignment.canny_low": canny_low},
         ),
     )

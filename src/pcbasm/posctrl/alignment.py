@@ -121,28 +121,28 @@ class RegionAlignmentSession:
         self, result: BoardCalibrationResult, frame_sink: FrameSink | None = None
     ) -> None:
         """BoardCalibrationResult から照合器を組み立てる."""
-        pad_align = result.machine.paste_dispenser.pad_align
+        alignment = result.machine.alignment
         self._pcb = result.pcb
         self._stage = result.stage
-        self._pad_align = pad_align
+        self._alignment = alignment
         self._board_transform = result.board_transform
         self._image_size = result.calibration.resolution
         self._projector = CopperProjector.from_calibration(result, layer=Layer.TOP)
         matcher = CopperEdgeMatcher(
             pixel_per_mm=result.calibration.pixel_per_mm,
-            search_window_mm=pad_align.search_window,
+            search_window_mm=alignment.search_window,
         )
-        required = pad_align.region_size_px + 2 * matcher.window_px
+        required = alignment.region_size_px + 2 * matcher.window_px
         if required > min(self._image_size):
             raise ValueError(
-                f"region_size_px {pad_align.region_size_px} px + 探索窓 "
+                f"region_size_px {alignment.region_size_px} px + 探索窓 "
                 f"{matcher.window_px} px x2 = {required} px が"
                 f"キャリブレーション解像度 {self._image_size} に収まりません"
             )
         self._edge_detector = CopperEdgeDetector(
-            canny_low=pad_align.canny_low,
-            canny_high=pad_align.canny_high,
-            blur_ksize=pad_align.blur_ksize,
+            canny_low=alignment.canny_low,
+            canny_high=alignment.canny_high,
+            blur_ksize=alignment.blur_ksize,
         )
         self._aligner = RegionAligner(
             camera=result.camera,
@@ -153,9 +153,9 @@ class RegionAlignmentSession:
             edge_detector=self._edge_detector,
             offset_transform=result.offset_transform,
             focus_z=result.calibration.z_position,
-            max_correction_mm=pad_align.max_correction,
-            max_passes=pad_align.max_passes,
-            converge_tolerance_mm=pad_align.converge_tolerance,
+            max_correction_mm=alignment.max_correction,
+            max_passes=alignment.max_passes,
+            converge_tolerance_mm=alignment.converge_tolerance,
             settle_sec=result.machine.settle.move_sec,
             frame_sink=frame_sink,
         )
@@ -170,10 +170,10 @@ class RegionAlignmentSession:
             self._board_transform,
             pad_centers,
             safe_area=self._pcb.outline.polygon.buffer(
-                -self._pad_align.board_edge_margin
+                -self._alignment.board_edge_margin
             ),
-            region_size_px=self._pad_align.region_size_px,
-            overlap=self._pad_align.region_overlap,
+            region_size_px=self._alignment.region_size_px,
+            overlap=self._alignment.region_overlap,
             image_size=self._image_size,
             tour_start=self._stage.get_position().to2d(),
         )
@@ -237,4 +237,4 @@ class RegionAlignmentSession:
     @property
     def region_roi(self) -> PixelRect:
         """全領域共通の画像中心 ROI."""
-        return centered_roi(self._image_size, self._pad_align.region_size_px)
+        return centered_roi(self._image_size, self._alignment.region_size_px)

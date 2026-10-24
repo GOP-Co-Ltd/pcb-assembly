@@ -58,7 +58,7 @@ ALL_PAGE_URLS = ["/settings"] + [
     for url in (f"/{tab}", *(f"/{tab}/{feature}" for feature in features))
 ]
 
-# 設定フォームの現在値（ConfigStore / tomlkit）や paste_dispenser・pad_align の
+# 設定フォームの現在値（ConfigStore / tomlkit）や paste_dispenser・alignment の
 # 現在値をコンテキストに載せるページ。machine.toml がパース不能だと backend の
 # `/api/settings/machine` が 500 になり、frontend は 503 ページを返す（直す経路は設定履歴）
 _MACHINE_TOML_DEPENDENT_URLS = frozenset(
@@ -478,10 +478,10 @@ class TestPastingJobPages:
     PASTE_SOLDER_SETTING_KEYS = (
         "paste_dispenser.auto_line_aspect_ratio",
         "paste_dispenser.auto_area_short_side_factor",
-        "paste_dispenser.flow_calibration.calibration_file",
-        "paste_dispenser.flow_calibration.amount_ul",
-        "paste_dispenser.flow_calibration.crop_size_mm",
-        "paste_dispenser.flow_calibration.settle_seconds",
+        "paste_dispenser.volume_correction.calibration_file",
+        "paste_dispenser.volume_correction.amount_ul",
+        "paste_dispenser.volume_correction.crop_size_mm",
+        "paste_dispenser.volume_correction.settle_seconds",
     )
 
     @pytest.mark.parametrize("setting_key", PASTE_SOLDER_SETTING_KEYS)
@@ -859,8 +859,7 @@ class TestUnsetMachineSettingsShowResolvedValues:
         assert response.status_code == 200
         assert "逐次位置合わせ対象の最大短辺" in response.text
         input_tag = re.search(
-            r'<input[^>]*name="paste_dispenser\.pad_align\.'
-            r'refine_max_short_side"[^>]*>',
+            r'<input[^>]*name="alignment\.refine_max_short_side"[^>]*>',
             response.text,
         )
         assert input_tag is not None
@@ -896,7 +895,7 @@ class TestUnresolvableMachineSettingsAreNotFabricated:
 
         assert response.status_code == 200
         fields = {field["key"]: field for field in response.json()["fields"]}
-        assert fields["paste_dispenser.pad_align.canny_low"]["resolved"] is None
+        assert fields["alignment.canny_low"]["resolved"] is None
         assert fields["probe.min_samples"]["resolved"] is None
         assert fields["paste_dispenser.rotations_per_ul"]["value"] == 45.783133
 

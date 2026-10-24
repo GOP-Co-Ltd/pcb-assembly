@@ -17,10 +17,10 @@ class TestKlipper:
 
     @pytest.fixture
     def klipper(self) -> Klipper:
-        return Klipper()
+        return Klipper("127.0.0.1", 7126)
 
     def test_get_macros_parses_config(self, mocker):
-        klipper = Klipper()
+        klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(
             klipper,
             "get_config",
@@ -43,7 +43,7 @@ class TestKlipper:
         assert macros["NO_DESC"] == GCodeMacro(gcode=GCode("M400"))
 
     def test_send_present_or_relax_uses_present_macro(self, mocker: MockerFixture):
-        klipper = Klipper()
+        klipper = Klipper("127.0.0.1", 7126)
         has_macro = mocker.patch.object(klipper, "has_macro", return_value=True)
         send_gcode = mocker.patch.object(klipper, "send_gcode")
 
@@ -57,7 +57,7 @@ class TestKlipper:
     def test_send_present_or_relax_warns_and_relaxes_without_macro(
         self, mocker: MockerFixture
     ):
-        klipper = Klipper()
+        klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(klipper, "has_macro", return_value=False)
         send_gcode = mocker.patch.object(klipper, "send_gcode")
         warnings: list[str] = []
@@ -74,7 +74,7 @@ class TestKlipper:
     def test_send_present_or_relax_warns_and_relaxes_when_macro_check_fails(
         self, mocker: MockerFixture
     ):
-        klipper = Klipper()
+        klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(
             klipper, "has_macro", side_effect=RuntimeError("config unavailable")
         )

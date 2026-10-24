@@ -13,33 +13,29 @@ port = 7126 # Moonraker 実機 (7125) と意図的にずらした非リッスン
 rotations_per_ul = 45.783133 # キャリブレーション値 2026/06/08 23G S3X70-E150DN
 solder_paste_density = 3.78 # はんだペースト密度 [mg/uL] (S3X70-E150DN)
 nozzle_diameter = 0.34 # ノズル内径 [mm] (23G)
-dispense_mode = "auto" # 塗布方式: auto / dot / line / area
 auto_line_aspect_ratio = 1.618 # Auto時に線塗布へ切り替える縦横比
-max_dispense_rate = 0.1 # 吐出レート上限 [uL/sec]
-max_fill_speed = 0.8 # 連続塗布できる移動速度上限 [mm/sec]
-dispense_accel = 0.2 # 吐出加速度 [uL/sec^2]
-retract_amount = 0.1 # リトラクション量 [uL]
-retract_rate = 0.1 # リトラクションレート [uL/sec]
-retract_accel_factor = 2.0 # リトラクション加速度係数
-paste_height = "auto" # 塗布面のZ高さ [mm]、または auto
-lift_height = 2.0 # 吐出後の上昇高さ [mm]
-ul_per_mm2 = 0.10 # パッド面積あたりのペースト量 [uL/mm^2]
-prime_extra_delay = 0.0 # プライム後の追加遅延 [sec]
-overlap = 0.2
-# bead_width_factor / boundary_margin は意図的に未定義（欠落キー → None のテスト素材）
 
 [paste_dispenser.toolhead]
 # カメラに対するツールヘッドの相対位置 (mm)
 x = -1.772
 y = 23.0375
 
-[paste_dispenser.pad_align]
-# 領域単位の銅箔照合による位置合わせ
-max_correction = 0.3 # 許容する累積最大ずれ [mm]。超過は照合失敗
-search_window = 1.4 # 照合の探索窓 片側幅 [mm]
-canny_low = 81.0    # Cannyエッジ検出の下側閾値
-canny_high = 192.0  # Cannyエッジ検出の上側閾値
-blur_ksize = 5      # GaussianBlurカーネルサイズ (奇数)
+[paste_dispenser.defaults]
+dispense_mode = "auto" # 塗布方式: auto / dot / line / area
+ul_per_mm2 = 0.10 # パッド面積あたりのペースト量 [uL/mm^2]
+paste_height = "auto" # 塗布面のZ高さ [mm]、または auto
+prime_extra_delay = 0.0 # プライム後の追加遅延 [sec]
+overlap = 0.2
+# bead_width_factor / boundary_margin は意図的に未定義（欠落キー → None のテスト素材）
+
+[paste_dispenser.motion]
+max_fill_speed = 0.8 # 連続塗布できる移動速度上限 [mm/sec]
+max_dispense_rate = 0.1 # 吐出レート上限 [uL/sec]
+dispense_accel = 0.2 # 吐出加速度 [uL/sec^2]
+retract_amount = 0.1 # リトラクション量 [uL]
+retract_rate = 0.1 # リトラクションレート [uL/sec]
+retract_accel_factor = 2.0 # リトラクション加速度係数
+lift_height = 2.0 # 吐出後の上昇高さ [mm]
 
 [camera]
 device_id = 0
@@ -72,3 +68,11 @@ top_left = [5.0, -5.0]
 top_right = [-5.0, -5.0]
 bottom_left = [5.0, 5.0]
 bottom_right = [-5.0, 5.0]
+
+[alignment]
+# 領域単位の銅箔照合による位置合わせ
+max_correction = 0.3 # 許容する累積最大ずれ [mm]。超過は照合失敗
+search_window = 1.4 # 照合の探索窓 片側幅 [mm]
+canny_low = 81.0    # Cannyエッジ検出の下側閾値
+canny_high = 192.0  # Cannyエッジ検出の上側閾値
+blur_ksize = 5      # GaussianBlurカーネルサイズ (奇数)

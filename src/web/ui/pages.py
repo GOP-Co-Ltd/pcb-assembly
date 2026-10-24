@@ -236,6 +236,7 @@ def _chrome_context(
         # 更新専用ページでは、中継されない機体コマンド（操作権・PCB・再起動）を出さない
         "update_only": False,
         "config_error": None,
+        "config_notice": None,
     }
 
 
@@ -258,6 +259,7 @@ def _base_context(
         mainsail_url=info.mainsail_url,
         focus_z=state.focus_z,
         config_error=state.config_error,
+        config_notice=state.config_notice,
     )
     return context
 
@@ -471,9 +473,11 @@ def _loading_context(job: JobSpecInfo, settings: _MachineSettings) -> dict[str, 
         "solder_paste_density": settings.number("paste_dispenser.solder_paste_density"),
         "current_rotations_per_ul": settings.number("paste_dispenser.rotations_per_ul"),
         "current_max_dispense_rate": settings.number(
-            "paste_dispenser.max_dispense_rate"
+            "paste_dispenser.motion.max_dispense_rate"
         ),
-        "current_dispense_accel": settings.number("paste_dispenser.dispense_accel"),
+        "current_dispense_accel": settings.number(
+            "paste_dispenser.motion.dispense_accel"
+        ),
     }
 
 
@@ -536,11 +540,10 @@ def _copper_detection_context(
     state: StateResponse, settings: _MachineSettings
 ) -> dict[str, Any]:
     """Copper_detection ページ専用コンテキスト（エッジ検出パラメータ現在値）."""
-    prefix = "paste_dispenser.pad_align"
     return {
-        "canny_low": settings.number(f"{prefix}.canny_low"),
-        "canny_high": settings.number(f"{prefix}.canny_high"),
-        "blur_ksize": int(settings.number(f"{prefix}.blur_ksize")),
+        "canny_low": settings.number("alignment.canny_low"),
+        "canny_high": settings.number("alignment.canny_high"),
+        "blur_ksize": int(settings.number("alignment.blur_ksize")),
     }
 
 

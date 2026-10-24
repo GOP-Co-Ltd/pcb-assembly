@@ -22,7 +22,7 @@ import attrs
 from fastapi import HTTPException
 from pydantic import BaseModel
 
-from pcbasm.config.dispenser import FlowCalibrationConfig, PasteDispenserConfig
+from pcbasm.config.dispenser import PasteDispenserConfig, VolumeCorrectionConfig
 from pcbasm.geometry import Point2d, display_rings
 from pcbasm.pasting.applied_mode import AppliedModeSummary, applied_mode_summaries
 from pcbasm.pasting.fill_path import FillPlan
@@ -500,7 +500,7 @@ def build_flow_calibration(loaded: Loaded) -> FlowCalibrationInfo:
 
     塗布を始める前にページで直せるよう、理由を載せて返す。
     """
-    config = loaded.base_config.flow_calibration
+    config = loaded.base_config.volume_correction
     points = loaded.model.flow_calibration_points
     plan, error = plan_flow_calibration(
         config=config, points=points, outline=loaded.pcb.outline.polygon
@@ -518,7 +518,7 @@ def build_flow_calibration(loaded: Loaded) -> FlowCalibrationInfo:
 
 
 def _flow_calibration_label(
-    config: FlowCalibrationConfig,
+    config: VolumeCorrectionConfig,
     points: Sequence[Point2d],
     plan: FlowCalibrationPlan | None,
     error: str | None,

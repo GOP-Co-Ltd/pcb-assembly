@@ -27,7 +27,7 @@ MACHINE = load_machine(TESTING_DATA_DIR / "machine.toml")
 ROTATION_DISTANCE = float(
     FAKE_PRINTER_CONFIG["manual_stepper paste_dispenser"]["rotation_distance"]
 )
-RETRACT_AMOUNT = MACHINE.paste_dispenser.retract_amount
+RETRACT_AMOUNT = MACHINE.paste_dispenser.motion.retract_amount
 
 _MOVE_RE = re.compile(r"MANUAL_STEPPER STEPPER=paste_dispenser MOVE=(\S+)(.*)")
 
@@ -263,7 +263,7 @@ class TestAdopt:
         # 採用後の吐出加速度 [μL/sec²] は machine 設定の値そのもの
         # （applicator は rotations_per_ul だけ差し替わり、加速度は設定由来のまま）
         assert _dispense_accels_ul_s2(klipper, 2.0) == pytest.approx(
-            [MACHINE.paste_dispenser.dispense_accel]
+            [MACHINE.paste_dispenser.motion.dispense_accel]
         )
         # 旧 applicator の無効化 → 新 applicator の有効化
         assert [line for line in switched if "ENABLE=" in line] == [

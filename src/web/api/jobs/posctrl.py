@@ -460,7 +460,7 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
 
         # 補正適用済みの全 pad 巡回
         entries = _corrected_entries(result, session, alignment, top_pads)
-        max_short_side = result.machine.paste_dispenser.pad_align.refine_max_short_side
+        max_short_side = result.machine.alignment.refine_max_short_side
         refinement_target_count = sum(
             is_pad_refinement_target(pad, max_short_side_mm=max_short_side)
             for pad in top_pads

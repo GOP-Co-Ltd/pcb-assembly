@@ -82,13 +82,13 @@ class TestMachineSettings:
     def test_read_returns_values_with_declared_types(self, store: ConfigStore):
         values = store.read_machine_settings()
 
-        assert values["paste_dispenser.dispense_mode"] == "auto"
-        assert values["paste_dispenser.line_direction"] is None
+        assert values["paste_dispenser.defaults.dispense_mode"] == "auto"
+        assert values["paste_dispenser.defaults.line_direction"] is None
         assert values["paste_dispenser.auto_line_aspect_ratio"] == 1.618
-        assert values["paste_dispenser.max_fill_speed"] == 0.8
+        assert values["paste_dispenser.motion.max_fill_speed"] == 0.8
         assert values["paste_dispenser.solder_paste_density"] == 3.78
-        assert values["paste_dispenser.paste_height"] == "auto"
-        assert values["paste_dispenser.lift_height"] == 2.0
+        assert values["paste_dispenser.defaults.paste_height"] == "auto"
+        assert values["paste_dispenser.motion.lift_height"] == 2.0
         assert values["paste_dispenser.toolhead.x"] == -1.772
         assert values["probe.min_radius"] == 0.7
         assert values["probe.board_edge_margin"] == 2.5
@@ -106,27 +106,27 @@ class TestMachineSettings:
         values = store.read_machine_settings()
 
         assert values["paste_dispenser.initial_purge_ul"] is None
-        assert values["paste_dispenser.bead_width_factor"] is None
-        assert values["paste_dispenser.boundary_margin"] is None
+        assert values["paste_dispenser.defaults.bead_width_factor"] is None
+        assert values["paste_dispenser.defaults.boundary_margin"] is None
         assert values["paste_dispenser.auto_area_short_side_factor"] is None
-        assert values["paste_dispenser.pad_align.refine_max_short_side"] is None
+        assert values["alignment.refine_max_short_side"] is None
         assert values["probe.lift_height"] is None
 
     @pytest.mark.parametrize(
         ("key", "value"),
         [
-            ("paste_dispenser.max_fill_speed", 0.9),
-            ("paste_dispenser.dispense_mode", "line"),
-            ("paste_dispenser.line_direction", "outward"),
+            ("paste_dispenser.motion.max_fill_speed", 0.9),
+            ("paste_dispenser.defaults.dispense_mode", "line"),
+            ("paste_dispenser.defaults.line_direction", "outward"),
             ("paste_dispenser.solder_paste_density", 4.1),
             ("paste_dispenser.initial_purge_ul", 0.2),
             # 境界: 0 は「初回パージをしない」設定として受理する
             ("paste_dispenser.initial_purge_ul", 0.0),
-            ("paste_dispenser.paste_height", 0.25),
-            ("paste_dispenser.paste_height", "auto"),
-            ("paste_dispenser.lift_height", 3.25),
+            ("paste_dispenser.defaults.paste_height", 0.25),
+            ("paste_dispenser.defaults.paste_height", "auto"),
+            ("paste_dispenser.motion.lift_height", 3.25),
             # machine.toml に無いキーは追記される
-            ("paste_dispenser.bead_width_factor", 1.5),
+            ("paste_dispenser.defaults.bead_width_factor", 1.5),
             ("paste_dispenser.auto_area_short_side_factor", 4.0),
             ("probe.board_edge_margin", 3.0),
             ("reference_point.offsets.bottom_right", [-4.0, 4.0]),
@@ -138,8 +138,8 @@ class TestMachineSettings:
             ("paste_dispenser.nozzle_clean.purge_ul", 0.0),
             ("paste_dispenser.nozzle_clean.stroke", 0.0),
             ("paste_dispenser.nozzle_clean.passes", 0),
-            ("paste_dispenser.pad_align.region_size_px", 160),
-            ("paste_dispenser.pad_align.region_overlap", 0.25),
+            ("alignment.region_size_px", 160),
+            ("alignment.region_overlap", 0.25),
         ],
     )
     def test_write_then_reread_reflects_value(
@@ -155,7 +155,7 @@ class TestMachineSettings:
         path = config_dir / "machine.toml"
         before = path.read_text(encoding="utf-8").splitlines()
 
-        store.write_machine_settings({"paste_dispenser.max_fill_speed": 0.9})
+        store.write_machine_settings({"paste_dispenser.motion.max_fill_speed": 0.9})
 
         after = path.read_text(encoding="utf-8").splitlines()
         assert len(after) == len(before)
@@ -216,18 +216,18 @@ class TestMachineSettings:
         ("key", "value"),
         [
             ("paste_dispenser.no_such_key", 1.0),
-            ("paste_dispenser.max_fill_speed", "fast"),
+            ("paste_dispenser.motion.max_fill_speed", "fast"),
             # bool は int のサブクラスなので数値フィールドへの投入は拒否する
-            ("paste_dispenser.max_fill_speed", True),
+            ("paste_dispenser.motion.max_fill_speed", True),
             ("camera.calibration_file", 1.0),
-            ("paste_dispenser.dispense_mode", "spray"),
-            ("paste_dispenser.line_direction", "sideways"),
+            ("paste_dispenser.defaults.dispense_mode", "spray"),
+            ("paste_dispenser.defaults.line_direction", "sideways"),
             ("paste_dispenser.auto_line_aspect_ratio", 1.0),
             ("paste_dispenser.auto_area_short_side_factor", 0.0),
             ("paste_dispenser.auto_area_short_side_factor", -1.0),
-            ("paste_dispenser.lift_height", 0.0),
-            ("paste_dispenser.lift_height", -1.0),
-            ("paste_dispenser.paste_height", 0.0),
+            ("paste_dispenser.motion.lift_height", 0.0),
+            ("paste_dispenser.motion.lift_height", -1.0),
+            ("paste_dispenser.defaults.paste_height", 0.0),
             ("paste_dispenser.solder_paste_density", 0.0),
             ("probe.board_edge_margin", 0.0),
             ("probe.board_edge_margin", -1.0),
@@ -238,7 +238,7 @@ class TestMachineSettings:
             ("paste_dispenser.nozzle_clean.wipe_speed", 0.0),
             ("paste_dispenser.nozzle_clean.passes", -1),
             # int フィールドへ整数でない float
-            ("paste_dispenser.pad_align.blur_ksize", 5.5),
+            ("alignment.blur_ksize", 5.5),
             ("audio.volume", float("nan")),
             ("audio.volume", -0.01),
             ("audio.volume", 1.01),
@@ -268,7 +268,7 @@ class TestFiniteMachineSettings:
         ("key", "pair"),
         [
             ("reference_point.x", False),
-            ("paste_dispenser.paste_height", False),
+            ("paste_dispenser.defaults.paste_height", False),
             ("reference_point.offsets.top_left", True),
         ],
     )
@@ -399,11 +399,11 @@ class TestWholeDocumentValidation:
             path.read_text().replace("max_fill_speed = 0.8", "max_fill_speed = 0.6")
         )
 
-        store.write_machine_settings({"paste_dispenser.lift_height": 2.5})
+        store.write_machine_settings({"paste_dispenser.motion.lift_height": 2.5})
 
         values = store.read_machine_settings()
-        assert values["paste_dispenser.max_fill_speed"] == 0.6
-        assert values["paste_dispenser.lift_height"] == 2.5
+        assert values["paste_dispenser.motion.max_fill_speed"] == 0.6
+        assert values["paste_dispenser.motion.lift_height"] == 2.5
 
     def test_fixes_one_error_at_a_time_while_degraded(
         self, store: ConfigStore, config_dir: Path
@@ -419,9 +419,12 @@ class TestWholeDocumentValidation:
             .replace("lift_height = 2.0", "lift_height = 0.0")
         )
 
-        store.write_machine_settings({"paste_dispenser.max_fill_speed": 0.8})
+        store.write_machine_settings({"paste_dispenser.motion.max_fill_speed": 0.8})
 
-        assert store.read_machine_settings()["paste_dispenser.max_fill_speed"] == 0.8
+        assert (
+            store.read_machine_settings()["paste_dispenser.motion.max_fill_speed"]
+            == 0.8
+        )
 
     def test_rejects_breaking_another_section_while_degraded(
         self, store: ConfigStore, config_dir: Path
@@ -445,15 +448,15 @@ class TestPadAlignRegionSettings:
     def test_missing_region_settings_read_as_none(self, store: ConfigStore):
         values = store.read_machine_settings()
 
-        assert values["paste_dispenser.pad_align.region_size_px"] is None
-        assert values["paste_dispenser.pad_align.region_overlap"] is None
-        assert values["paste_dispenser.pad_align.refine_max_short_side"] is None
+        assert values["alignment.region_size_px"] is None
+        assert values["alignment.region_overlap"] is None
+        assert values["alignment.refine_max_short_side"] is None
 
     @pytest.mark.parametrize("threshold", [0.0, 0.25])
     def test_write_refinement_threshold_then_reread_reflects_value(
         self, store: ConfigStore, threshold: float
     ):
-        key = "paste_dispenser.pad_align.refine_max_short_side"
+        key = "alignment.refine_max_short_side"
 
         store.write_machine_settings({key: threshold})
 
@@ -468,16 +471,14 @@ class TestPadAlignRegionSettings:
         self, store: ConfigStore, threshold: MachineSettingValue
     ):
         with pytest.raises(UnknownFieldError, match="refine_max_short_side"):
-            store.write_machine_settings(
-                {"paste_dispenser.pad_align.refine_max_short_side": threshold}
-            )
+            store.write_machine_settings({"alignment.refine_max_short_side": threshold})
 
     @pytest.mark.parametrize(
         ("key", "value"),
         [
-            ("paste_dispenser.pad_align.region_size_px", 0),
-            ("paste_dispenser.pad_align.region_overlap", -0.01),
-            ("paste_dispenser.pad_align.region_overlap", 1.0),
+            ("alignment.region_size_px", 0),
+            ("alignment.region_overlap", -0.01),
+            ("alignment.region_overlap", 1.0),
         ],
     )
     def test_invalid_values_raise(self, store: ConfigStore, key: str, value):
@@ -493,9 +494,7 @@ class TestCopperPreprocessingSettings:
         self, store: ConfigStore, blur_ksize: int
     ):
         with pytest.raises(UnknownFieldError, match="blur_ksize"):
-            store.write_machine_settings(
-                {"paste_dispenser.pad_align.blur_ksize": blur_ksize}
-            )
+            store.write_machine_settings({"alignment.blur_ksize": blur_ksize})
 
 
 class TestCameraCropFields:
@@ -565,7 +564,7 @@ class TestAudioFields:
 class TestFlowCalibrationFields:
     """運転時流量キャリブレーション設定の読み書き."""
 
-    _PREFIX = "paste_dispenser.flow_calibration"
+    _PREFIX = "paste_dispenser.volume_correction"
 
     def test_missing_settings_read_as_none(self, store: ConfigStore):
         values = store.read_machine_settings()

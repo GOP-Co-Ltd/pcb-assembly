@@ -28,7 +28,7 @@ class TestProbeExecutor:
 
     @pytest.fixture
     def klipper(self, mocker: MockerFixture):
-        klipper = Klipper()
+        klipper = Klipper("127.0.0.1", 7126)
         _patch_config(mocker, klipper, {"load_cell_probe": {}})
         get_status = mocker.Mock(return_value=-2.0)
         mocker.patch.object(klipper, "get_status", get_status)
@@ -44,7 +44,7 @@ class TestProbeExecutor:
         return stage
 
     def test_init_without_load_cell_probe_section_raises(self, mocker: MockerFixture):
-        klipper = Klipper()
+        klipper = Klipper("127.0.0.1", 7126)
         _patch_config(mocker, klipper, {"probe": {}})
 
         with pytest.raises(RuntimeError) as exc:

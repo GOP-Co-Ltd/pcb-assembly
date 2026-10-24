@@ -19,10 +19,10 @@ from shapely import LineString, Polygon
 from shapely.affinity import rotate
 from shapely.geometry import Point as ShapelyPoint
 
-from pcbasm.config.dispenser import DISPENSE_MODES, PasteDispenserConfig, ToolheadConfig
+from pcbasm.config.dispenser import PasteDispenserConfig, ToolheadConfig
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.fill_path import FillPlan, micro_line_auto_height
-from pcbasm.pasting.params import PasteParams
+from pcbasm.pasting.params import DISPENSE_MODES, DispenseMotion, PasteParams
 
 # セグメント内包・外周マージン判定の浮動小数誤差を吸収する微小バッファ（定数）。
 # ジグザグ端点が外周に乗るため、境界一致を covers が拾えるよう微小に膨らませる。
@@ -51,17 +51,18 @@ def _config(nozzle_diameter: float) -> PasteDispenserConfig:
     return PasteDispenserConfig(
         rotations_per_ul=45.0,
         nozzle_diameter=nozzle_diameter,
-        max_fill_speed=2.0,
-        max_dispense_rate=5.0,
-        dispense_accel=10.0,
-        retract_amount=10.0,
-        retract_rate=10.0,
-        retract_accel_factor=2.0,
         toolhead=ToolheadConfig(x=0.0, y=0.0),
-        paste_height=0.5,
-        ul_per_mm2=0.05,
         auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
         auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
+        defaults=PasteParams(ul_per_mm2=0.05, paste_height=0.5),
+        motion=DispenseMotion(
+            max_fill_speed=2.0,
+            max_dispense_rate=5.0,
+            dispense_accel=10.0,
+            retract_amount=10.0,
+            retract_rate=10.0,
+            retract_accel_factor=2.0,
+        ),
     )
 
 
@@ -685,7 +686,7 @@ class TestNegativeExteriorMargin:
         # Arrange: margin=0 では buffer(-0.5) が消えて線も引けず点になる 0.8 角の pad
         polygon = _rectangle(0.8, 0.8)
         config = _config(nozzle_diameter=1.0)
-        base = PasteParams.from_config(config)
+        base = config.defaults
         params = attrs.evolve(base, dispense_mode="area")
 
         # Act

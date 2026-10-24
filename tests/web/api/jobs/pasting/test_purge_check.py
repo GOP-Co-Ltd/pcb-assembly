@@ -276,7 +276,7 @@ class TestPurgeWithCleaning:
         assert self._count(moves, self._is_capture) == 3
         # 直前のパージはリトラクトで終わっている。押し戻してから掃除のパージをしないと
         # 設定した量が先端から出ない（出たあとはまた引き戻す）
-        retract = _dispenser().retract_amount
+        retract = _dispenser().motion.retract_amount
         assert loads == pytest.approx([retract, CLEAN.purge_ul, -retract])
 
     def test_fails_the_job_when_the_second_purge_still_shows_nothing(

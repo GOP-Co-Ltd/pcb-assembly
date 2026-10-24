@@ -447,7 +447,7 @@ class TestToolheadOffsetProcedure:
             moves = klipper.g1_moves()
             paste_height = applicator.default_params.paste_height_mm
 
-        assert result.machine.paste_dispenser.paste_height == "auto"
+        assert result.machine.paste_dispenser.defaults.paste_height == "auto"
         approach, descend = moves[0], moves[1]
         assert approach["x"] == pytest.approx(probed.point.dispense.x)
         assert approach["y"] == pytest.approx(probed.point.dispense.y)

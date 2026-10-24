@@ -135,8 +135,8 @@ class TestDispenseCalibration:
 
         dispenser = job_state.machine().paste_dispenser
         assert dispenser.rotations_per_ul == pytest.approx(48.07229)
-        assert dispenser.max_dispense_rate == 3.0
-        assert dispenser.max_fill_speed == pytest.approx(6.4)
+        assert dispenser.motion.max_dispense_rate == 3.0
+        assert dispenser.motion.max_fill_speed == pytest.approx(6.4)
         assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")
 
 
@@ -217,7 +217,7 @@ class TestFlowCalibration:
         def run(ctx: JobContext) -> None:
             pcb = PcbFile(LED_BLINKER)
             plan, error = plan_flow_calibration(
-                config=ctx.machine.paste_dispenser.flow_calibration,
+                config=ctx.machine.paste_dispenser.volume_correction,
                 points=FLOW_POINTS,
                 outline=pcb.outline.polygon,
             )

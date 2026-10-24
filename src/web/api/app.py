@@ -158,6 +158,7 @@ def create_app(
             f"（./scripts/setup-machine-config.sh を実行してください）"
         )
     state = AppState(settings, store)
+    state.migrate_config()
     # 設定エラーでもプロセスは落とさず degraded で上げる（落とすと WebUI から直せない）
     _, config_error = state.machine_or_error()
     if config_error is not None:

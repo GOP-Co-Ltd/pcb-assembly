@@ -466,7 +466,7 @@ class TestFlowCalibrationPoints:
             "/api/settings/machine",
             json={
                 "values": {
-                    "paste_dispenser.flow_calibration.calibration_file": "cal.json"
+                    "paste_dispenser.volume_correction.calibration_file": "cal.json"
                 }
             },
         )
@@ -514,7 +514,7 @@ class TestFlowCalibrationPoints:
         """
         configured = selected_client.put(
             "/api/settings/machine",
-            json={"values": {"paste_dispenser.flow_calibration.crop_size_mm": 2.5}},
+            json={"values": {"paste_dispenser.volume_correction.crop_size_mm": 2.5}},
         )
         assert configured.status_code == 200, configured.text
 
@@ -533,8 +533,8 @@ class TestFlowCalibrationPoints:
             "/api/settings/machine",
             json={
                 "values": {
-                    "paste_dispenser.flow_calibration.calibration_file": "cal.json",
-                    "paste_dispenser.flow_calibration.crop_size_mm": 4.0,
+                    "paste_dispenser.volume_correction.calibration_file": "cal.json",
+                    "paste_dispenser.volume_correction.crop_size_mm": 4.0,
                 }
             },
         )

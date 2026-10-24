@@ -2,7 +2,7 @@
 
 import pytest
 
-from pcbasm.config.dispenser import FlowCalibrationConfig
+from pcbasm.config.dispenser import VolumeCorrectionConfig
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.params import PasteParams
 from pcbasm.pasting.settings import PasteSettingsModel
@@ -35,8 +35,8 @@ def hierarchy(pcb: PcbFile) -> PadHierarchy:
     return PadHierarchy.build(pcb.components, pcb.pads)
 
 
-_DISABLED = FlowCalibrationConfig()
-_ENABLED = FlowCalibrationConfig(calibration_file="cal.paste-volume.json")
+_DISABLED = VolumeCorrectionConfig()
+_ENABLED = VolumeCorrectionConfig(calibration_file="cal.paste-volume.json")
 
 
 def _model() -> PasteSettingsModel:

@@ -28,7 +28,7 @@ Board / オフセット調整用の観測は `observe() -> Transform`
 
 ## 銅箔位置合わせの仕様
 
-以下の既定値は machine 設定 `[paste_dispenser.pad_align]`（`pcbasm.config.alignment.AlignmentConfig`）で変えられる。
+以下の既定値は machine 設定 `[alignment]`（`pcbasm.config.alignment.AlignmentConfig`）で変えられる。
 
 銅箔位置合わせでは、基板 outline を既定 0.5 mm inset した safe area 内に、
 既定 100 px・overlap 0.5 の grid を左上から計画する。対象 pad の所属は中心点で
@@ -44,7 +44,7 @@ Board / オフセット調整用の観測は `observe() -> Transform`
 中止する。
 
 Board 巡回とペースト塗布では、`Pad.polygon` の最小回転外接矩形の短辺が machine
-設定 `paste_dispenser.pad_align.refine_max_short_side` 以下の pad だけ、この領域補正を
+設定 `alignment.refine_max_short_side` 以下の pad だけ、この領域補正を
 初期値として pad 中心で反復照合する。既定値は 0.4 mm で、0 にすると pad ごとの
 逐次位置合わせを無効化する。照合対象は従来どおり ROI 内の全銅箔輪郭であり、pad
 輪郭だけには限定しない。対象外または照合失敗・非収束の pad は元の領域補正へ

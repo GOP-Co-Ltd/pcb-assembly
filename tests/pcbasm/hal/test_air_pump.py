@@ -8,7 +8,7 @@ from pcbasm.hal.klipper import Klipper
 class TestAirPump:
     @pytest.fixture
     def mock_klipper(self, mocker: MockerFixture):
-        klipper = Klipper()
+        klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(
             klipper.readonly,
             "get_config",
@@ -21,7 +21,7 @@ class TestAirPump:
         return AirPump(mock_klipper.readonly)
 
     def test_init_missing_section(self, mocker: MockerFixture):
-        klipper = Klipper()
+        klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(klipper.readonly, "get_config", return_value={})
         with pytest.raises(
             RuntimeError, match=r"printer\.cfgに\[output_pin air_pump\]"

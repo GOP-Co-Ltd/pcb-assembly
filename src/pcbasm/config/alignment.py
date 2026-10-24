@@ -1,4 +1,4 @@
-"""[paste_dispenser.pad_align] 節：重複領域の銅箔照合による位置合わせ."""
+"""[alignment] 節：重複領域の銅箔照合による位置合わせ."""
 
 import attrs
 

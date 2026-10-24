@@ -473,12 +473,8 @@ class TestCopperDetectionOverBrowser:
 
         browser_page.locator("#canny-save").click()
 
-        _wait_machine_field(
-            live_server.base_url, "paste_dispenser.pad_align.canny_low", 91.0
-        )
-        _wait_machine_field(
-            live_server.base_url, "paste_dispenser.pad_align.canny_high", 193.0
-        )
+        _wait_machine_field(live_server.base_url, "alignment.canny_low", 91.0)
+        _wait_machine_field(live_server.base_url, "alignment.canny_high", 193.0)
 
 
 class TestNozzlePositionsOverBrowser:
@@ -608,7 +604,7 @@ class TestConfigHistoryOverBrowser:
         original = path.read_bytes()
         response = httpx.put(
             f"{live_server.base_url}/api/settings/machine",
-            json={"values": {"paste_dispenser.max_fill_speed": 0.9}},
+            json={"values": {"paste_dispenser.motion.max_fill_speed": 0.9}},
             timeout=_HTTP_TIMEOUT,
         )
         assert response.status_code == 200, response.text
@@ -621,7 +617,7 @@ class TestConfigHistoryOverBrowser:
         )
         expect(entries).to_have_count(1)
         expect(entries.first).to_contain_text(
-            "paste_dispenser.max_fill_speed: 0.8 → 0.9"
+            "paste_dispenser.motion.max_fill_speed: 0.8 → 0.9"
         )
 
         browser_page.once("dialog", lambda dialog: dialog.accept())
@@ -630,7 +626,7 @@ class TestConfigHistoryOverBrowser:
         # 復元する前の内容が新しい世代として先頭に増える
         expect(entries).to_have_count(2)
         expect(entries.first).to_contain_text(
-            "paste_dispenser.max_fill_speed: 0.9 → 0.8"
+            "paste_dispenser.motion.max_fill_speed: 0.9 → 0.8"
         )
         assert path.read_bytes() == original
 
@@ -760,10 +756,10 @@ class TestLoadingOverBrowser:
             live_server.base_url, "paste_dispenser.rotations_per_ul", 1.89
         )
         _wait_machine_field(
-            live_server.base_url, "paste_dispenser.max_dispense_rate", 0.26455
+            live_server.base_url, "paste_dispenser.motion.max_dispense_rate", 0.26455
         )
         _wait_machine_field(
-            live_server.base_url, "paste_dispenser.dispense_accel", 0.26455
+            live_server.base_url, "paste_dispenser.motion.dispense_accel", 0.26455
         )
         expect(browser_page.locator("#lc-current-dispense-rate")).to_have_text(
             "0.264550"

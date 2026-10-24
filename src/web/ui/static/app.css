@@ -898,6 +898,15 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+.config-notice {
+  margin: 0.6rem 1rem 0;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-weak);
+  overflow-wrap: anywhere;
+}
+
 /* ---- toasts ---- */
 .job-completion-notice {
   position: fixed;

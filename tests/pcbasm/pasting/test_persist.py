@@ -229,9 +229,7 @@ class TestRoundTrip:
         restored = _decode(encode_board_settings(model, source_pcb="a"))
         patch = restored.levels[0].patch
 
-        assert patch.ul_per_mm2 == pytest.approx(0.5)
-        assert patch.prime_extra_delay is None
-        assert patch.paste_height is None
+        assert patch.to_dict() == {"ul_per_mm2": pytest.approx(0.5)}
 
     def test_decode_uses_current_base_not_saved_one(self):
         doc = encode_board_settings(PasteSettingsModel(base=_base()), source_pcb="a")

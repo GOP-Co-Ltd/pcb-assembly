@@ -77,20 +77,22 @@ class TestPasteSettingsValidation:
         path = config_dir / "machine.toml"
         document = tomlkit.parse(path.read_text())
         document["paste_dispenser"]["nozzle_diameter"] = 0.0
-        document["paste_dispenser"]["max_fill_speed"] = 0.0
+        document["paste_dispenser"]["motion"]["max_fill_speed"] = 0.0
         path.write_text(tomlkit.dumps(document))
 
         # 他の不正値が残っていても画面を開けて、編集した値だけを直せる。
         assert client.get("/api/settings/machine").status_code == 200
-        for field, value in (("nozzle_diameter", 0.3), ("max_fill_speed", 2.0)):
+        for key, value in (
+            ("paste_dispenser.nozzle_diameter", 0.3),
+            ("paste_dispenser.motion.max_fill_speed", 2.0),
+        ):
             response = client.put(
-                "/api/settings/machine",
-                json={"values": {f"paste_dispenser.{field}": value}},
+                "/api/settings/machine", json={"values": {key: value}}
             )
             assert response.status_code == 200, response.text
         dispenser = load_machine(path).paste_dispenser
         assert dispenser.nozzle_diameter == 0.3
-        assert dispenser.max_fill_speed == 2.0
+        assert dispenser.motion.max_fill_speed == 2.0
 
 
 class TestMachineSettingsApi:
@@ -106,47 +108,62 @@ class TestMachineSettingsApi:
         assert all(field["label"] for field in fields.values())
 
         # 代表 2 型: そのまま返る float と、"auto" を取り得る float_or_auto
-        assert fields["paste_dispenser.max_fill_speed"]["value"] == 0.8
-        assert fields["paste_dispenser.max_fill_speed"]["value_type"] == "float"
-        assert fields["paste_dispenser.paste_height"]["value"] == "auto"
-        assert fields["paste_dispenser.paste_height"]["value_type"] == "float_or_auto"
+        assert fields["paste_dispenser.motion.max_fill_speed"]["value"] == 0.8
+        assert fields["paste_dispenser.motion.max_fill_speed"]["value_type"] == "float"
+        assert fields["paste_dispenser.defaults.paste_height"]["value"] == "auto"
+        assert (
+            fields["paste_dispenser.defaults.paste_height"]["value_type"]
+            == "float_or_auto"
+        )
 
     @pytest.mark.parametrize(
         ("key", "value"),
         [
-            pytest.param("paste_dispenser.dispense_mode", "line", id="dispense_mode"),
             pytest.param(
-                "paste_dispenser.dispense_mode", "micro_line", id="micro_line_mode"
+                "paste_dispenser.defaults.dispense_mode", "line", id="dispense_mode"
+            ),
+            pytest.param(
+                "paste_dispenser.defaults.dispense_mode",
+                "micro_line",
+                id="micro_line_mode",
             ),
             pytest.param(
                 "paste_dispenser.nozzle_outer_diameter", 0.4, id="nozzle_outer"
             ),
             pytest.param(
-                "paste_dispenser.micro_line_settle_seconds", 2.0, id="micro_line"
+                "paste_dispenser.motion.micro_line_settle_seconds", 2.0, id="micro_line"
             ),
             pytest.param(
-                "paste_dispenser.micro_line_z_start", "auto", id="micro_line_auto"
+                "paste_dispenser.defaults.micro_line_z_start",
+                "auto",
+                id="micro_line_auto",
             ),
             pytest.param(
-                "paste_dispenser.post_dispense_settle_seconds", 0.3, id="post_settle"
+                "paste_dispenser.motion.post_dispense_settle_seconds",
+                0.3,
+                id="post_settle",
             ),
             pytest.param(
-                "paste_dispenser.line_direction", "outward", id="line_direction"
+                "paste_dispenser.defaults.line_direction",
+                "outward",
+                id="line_direction",
             ),
-            pytest.param("paste_dispenser.paste_height", "auto", id="float_or_auto"),
+            pytest.param(
+                "paste_dispenser.defaults.paste_height", "auto", id="float_or_auto"
+            ),
             pytest.param("paste_dispenser.auto_line_aspect_ratio", 1.7, id="float"),
             pytest.param("audio.device", "plughw:CARD=Audio,DEV=0", id="str"),
             pytest.param("audio.volume", 0.4, id="audio-volume"),
             pytest.param(
                 "reference_point.offsets.bottom_right", [-4.0, 4.0], id="float_pair"
             ),
-            pytest.param("paste_dispenser.pad_align.region_size_px", 160, id="int"),
-            pytest.param(
-                "paste_dispenser.pad_align.region_overlap", 0.25, id="region-overlap"
-            ),
+            pytest.param("alignment.region_size_px", 160, id="int"),
+            pytest.param("alignment.region_overlap", 0.25, id="region-overlap"),
             # 負の外周余白は pad 外形をはみ出して塗る指定
             pytest.param(
-                "paste_dispenser.boundary_margin", -0.2, id="negative-boundary-margin"
+                "paste_dispenser.defaults.boundary_margin",
+                -0.2,
+                id="negative-boundary-margin",
             ),
         ],
     )
@@ -168,12 +185,16 @@ class TestMachineSettingsApi:
                 "reference_point.offsets.top_left", [1.0], id="short-float-pair"
             ),
             # bool を受け付けるフィールドは無く、数値へ暗黙変換もされない
-            pytest.param("paste_dispenser.max_fill_speed", True, id="bool-for-float"),
             pytest.param(
-                "paste_dispenser.dispense_mode", "spray", id="unknown-dispense-mode"
+                "paste_dispenser.motion.max_fill_speed", True, id="bool-for-float"
             ),
             pytest.param(
-                "paste_dispenser.line_direction",
+                "paste_dispenser.defaults.dispense_mode",
+                "spray",
+                id="unknown-dispense-mode",
+            ),
+            pytest.param(
+                "paste_dispenser.defaults.line_direction",
                 "sideways",
                 id="unknown-line-direction",
             ),
@@ -181,28 +202,28 @@ class TestMachineSettingsApi:
                 "paste_dispenser.auto_line_aspect_ratio", 1.0, id="auto-line-ratio-at-1"
             ),
             pytest.param("probe.board_edge_margin", 0.0, id="non-positive-margin"),
-            pytest.param("paste_dispenser.lift_height", 0.0, id="non-positive-lift"),
+            pytest.param(
+                "paste_dispenser.motion.lift_height", 0.0, id="non-positive-lift"
+            ),
             pytest.param("audio.device", " ", id="blank-audio-device"),
             pytest.param("audio.volume", -0.1, id="audio-volume-below-range"),
             pytest.param("audio.volume", 1.1, id="audio-volume-above-range"),
             pytest.param(
-                "paste_dispenser.pad_align.refine_max_short_side",
+                "alignment.refine_max_short_side",
                 True,
                 id="bool-refinement-threshold",
             ),
             pytest.param(
-                "paste_dispenser.pad_align.refine_max_short_side",
+                "alignment.refine_max_short_side",
                 -0.01,
                 id="negative-refinement-threshold",
             ),
             pytest.param(
-                "paste_dispenser.pad_align.region_overlap",
+                "alignment.region_overlap",
                 -0.01,
                 id="overlap-below-range",
             ),
-            pytest.param(
-                "paste_dispenser.pad_align.region_overlap", 1.0, id="overlap-at-1"
-            ),
+            pytest.param("alignment.region_overlap", 1.0, id="overlap-at-1"),
             # camera.crop.* は 1 以上の int（webui-camera-calib 計画書・要確認事項 2）
             pytest.param("camera.crop.width", 0, id="zero-crop-width"),
             pytest.param("camera.crop.height", -1, id="negative-crop-height"),
@@ -256,7 +277,7 @@ class TestMachineSettingsApi:
             for field in client.get("/api/settings/machine").json()["fields"]
         }
 
-        assert fields["paste_dispenser.bead_width_factor"]["value"] is None
+        assert fields["paste_dispenser.defaults.bead_width_factor"]["value"] is None
         assert fields["probe.lift_height"]["value"] is None
 
     def test_get_resolves_defaults_for_missing_keys(self, client: TestClient):
@@ -270,11 +291,11 @@ class TestMachineSettingsApi:
             for field in client.get("/api/settings/machine").json()["fields"]
         }
 
-        assert fields["paste_dispenser.bead_width_factor"]["resolved"] == 1.0
+        assert fields["paste_dispenser.defaults.bead_width_factor"]["resolved"] == 1.0
         assert fields["probe.lift_height"]["resolved"] == 1.0
         # 記載があるキーは書かれている値がそのまま実効値
-        assert fields["paste_dispenser.max_fill_speed"]["resolved"] == 0.8
-        assert fields["paste_dispenser.paste_height"]["resolved"] == "auto"
+        assert fields["paste_dispenser.motion.max_fill_speed"]["resolved"] == 0.8
+        assert fields["paste_dispenser.defaults.paste_height"]["resolved"] == "auto"
         assert fields["reference_point.offsets.top_left"]["resolved"] == [5.0, -5.0]
 
     def test_get_returns_written_values_without_resolved_while_degraded(
@@ -302,8 +323,8 @@ class TestMachineSettingsApi:
 
         assert fields["probe.min_samples"]["resolved"] is None
         assert fields["probe.min_samples"]["value"] == 6
-        assert fields["paste_dispenser.pad_align.canny_low"]["resolved"] is None
-        assert fields["paste_dispenser.pad_align.canny_low"]["value"] == 81.0
+        assert fields["alignment.canny_low"]["resolved"] is None
+        assert fields["alignment.canny_low"]["value"] == 81.0
 
     def test_put_writes_file_and_preserves_comments(
         self, client: TestClient, config_dir: Path
@@ -316,7 +337,7 @@ class TestMachineSettingsApi:
             json={
                 "values": {
                     "paste_dispenser.rotations_per_ul": 9.876543,
-                    "paste_dispenser.max_fill_speed": 0.9,
+                    "paste_dispenser.motion.max_fill_speed": 0.9,
                     "probe.min_radius": 2.5,
                     "probe.board_edge_margin": 3.0,
                     "probe.min_samples": 7,
@@ -327,7 +348,7 @@ class TestMachineSettingsApi:
         assert response.status_code == 200
         fields = {field["key"]: field for field in response.json()["fields"]}
         assert fields["paste_dispenser.rotations_per_ul"]["value"] == 9.876543
-        assert fields["paste_dispenser.max_fill_speed"]["value"] == 0.9
+        assert fields["paste_dispenser.motion.max_fill_speed"]["value"] == 0.9
         assert fields["probe.min_radius"]["value"] == 2.5
         assert fields["probe.board_edge_margin"]["value"] == 3.0
         assert fields["probe.min_samples"]["value"] == 7
@@ -355,7 +376,7 @@ class TestMachineSettingsApi:
         with appstate.machine_lock("pytest-job"):
             response = client.put(
                 "/api/settings/machine",
-                json={"values": {"paste_dispenser.max_fill_speed": 0.9}},
+                json={"values": {"paste_dispenser.motion.max_fill_speed": 0.9}},
             )
 
         assert response.status_code == 409
@@ -372,7 +393,7 @@ class TestPadAlignRegionSettingsApi:
             for field in client.get("/api/settings/machine").json()["fields"]
         }
 
-        threshold = fields["paste_dispenser.pad_align.refine_max_short_side"]
+        threshold = fields["alignment.refine_max_short_side"]
         assert threshold["label"] == "逐次位置合わせ対象の最大短辺"
         assert threshold["value_type"] == "float"
         assert threshold["unit"] == "mm"
@@ -382,7 +403,7 @@ class TestPadAlignRegionSettingsApi:
     def test_put_zero_disables_refinement_and_persists_value(
         self, client: TestClient, config_dir: Path
     ):
-        key = "paste_dispenser.pad_align.refine_max_short_side"
+        key = "alignment.refine_max_short_side"
 
         response = client.put("/api/settings/machine", json={"values": {key: 0.0}})
 
@@ -425,7 +446,7 @@ class TestCameraSettingsRebuild:
 
         response = fake_camera_client.put(
             "/api/settings/machine",
-            json={"values": {"paste_dispenser.max_fill_speed": 0.9}},
+            json={"values": {"paste_dispenser.motion.max_fill_speed": 0.9}},
         )
 
         assert response.status_code == 200
@@ -469,17 +490,17 @@ class TestConfigHistoryApi:
         original = path.read_bytes()
         client.put(
             "/api/settings/machine",
-            json={"values": {"paste_dispenser.max_fill_speed": 0.9}},
+            json={"values": {"paste_dispenser.motion.max_fill_speed": 0.9}},
         )
         [entry] = client.get("/api/settings/history").json()["entries"]
-        assert entry["changes"] == ["paste_dispenser.max_fill_speed: 0.8 → 0.9"]
+        assert entry["changes"] == ["paste_dispenser.motion.max_fill_speed: 0.8 → 0.9"]
 
         response = client.post(f"/api/settings/history/{entry['name']}/restore")
 
         assert response.status_code == 200, response.text
         assert path.read_bytes() == original
         newest = response.json()["entries"][0]
-        assert newest["changes"] == ["paste_dispenser.max_fill_speed: 0.9 → 0.8"]
+        assert newest["changes"] == ["paste_dispenser.motion.max_fill_speed: 0.9 → 0.8"]
 
     def test_restore_rebuilds_frame_hub(
         self,
@@ -506,7 +527,7 @@ class TestConfigHistoryApi:
     ):
         client.put(
             "/api/settings/machine",
-            json={"values": {"paste_dispenser.max_fill_speed": 0.9}},
+            json={"values": {"paste_dispenser.motion.max_fill_speed": 0.9}},
         )
         [entry] = client.get("/api/settings/history").json()["entries"]
         written = (config_dir / "machine.toml").read_bytes()

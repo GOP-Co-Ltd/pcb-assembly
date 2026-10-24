@@ -15,7 +15,7 @@ from shapely import Polygon
 from pcbasm.config.dispenser import PasteDispenserConfig, ToolheadConfig
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.applied_mode import AppliedModeSummary, applied_mode_summaries
-from pcbasm.pasting.params import PasteParams, PasteParamValue
+from pcbasm.pasting.params import DispenseMotion, PasteParams, PasteParamValue
 from pcbasm.pasting.settings import (
     PasteSettingsModel,
     resolve_node_settings,
@@ -62,17 +62,18 @@ def _config() -> PasteDispenserConfig:
     return PasteDispenserConfig(
         rotations_per_ul=45.0,
         nozzle_diameter=1.0,
-        max_fill_speed=2.0,
-        max_dispense_rate=5.0,
-        dispense_accel=10.0,
-        retract_amount=10.0,
-        retract_rate=10.0,
-        retract_accel_factor=2.0,
         toolhead=ToolheadConfig(x=0.0, y=0.0),
-        paste_height=0.5,
-        ul_per_mm2=0.05,
         auto_line_aspect_ratio=1.618,
         auto_area_short_side_factor=3.0,
+        defaults=PasteParams(ul_per_mm2=0.05, paste_height=0.5),
+        motion=DispenseMotion(
+            max_fill_speed=2.0,
+            max_dispense_rate=5.0,
+            dispense_accel=10.0,
+            retract_amount=10.0,
+            retract_rate=10.0,
+            retract_accel_factor=2.0,
+        ),
     )
 
 

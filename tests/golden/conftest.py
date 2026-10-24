@@ -132,8 +132,8 @@ def enable_flow_calibration(settings: Settings, state: AppState, pcb: Path) -> N
     write_calibration(settings.paste_volume_calibration_dir / name, calibration)
     ConfigStore(settings.config_dir).write_machine_settings(
         {
-            "paste_dispenser.flow_calibration.calibration_file": name,
-            "paste_dispenser.flow_calibration.settle_seconds": 0.0,
+            "paste_dispenser.volume_correction.calibration_file": name,
+            "paste_dispenser.volume_correction.settle_seconds": 0.0,
         }
     )
     board = PcbFile(pcb)

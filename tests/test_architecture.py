@@ -1,6 +1,6 @@
 """ソースの import が層の規則に従う.
 
-単位は ``pcbasm.<名前>`` と ``web.<名前>``。単位の中の import と標準ライブラリはいつでもよい。
+単位は ``pcbasm.<名前>`` と ``web.<名前>``、それに下の層から import される ``_SUBUNITS``。単位の中の import と標準ライブラリはいつでもよい。
 pcbasm の単位は L0 の単位を常に import してよく、それより上は ``_RULES`` に挙げた単位だけを import してよい。
 L0 の葉（atomic、paths、validators）は標準ライブラリだけに依存する。
 web.ui と web.selfupdate が import してよい pcbasm は、葉のうち atomic と paths に限る。
@@ -24,6 +24,9 @@ _RENAMED = {
     "pcbasm.parking": "pcbasm.machine",
     "pcbasm.visualization": "pcbasm.plotting",
 }
+
+# 単位の中にあり、下の層から import されるので独立した単位として検査するモジュール
+_SUBUNITS = frozenset({"pcbasm.pasting.params"})
 
 _L0 = frozenset(
     f"pcbasm.{name}"
@@ -49,7 +52,10 @@ _ALIGN = frozenset(
 # 単位 → L0 のほかに import してよい単位（接頭辞で照合する）
 _RULES: dict[str, frozenset[str]] = {
     **{unit: frozenset() for unit in _L0},
-    "pcbasm.config": frozenset(),
+    # [paste_dispenser.defaults] と [paste_dispenser.motion] の型
+    "pcbasm.config": frozenset({"pcbasm.pasting.params"}),
+    # config が import するので、L0 だけに依存する（循環させない）
+    "pcbasm.pasting.params": frozenset(),
     "pcbasm.board": frozenset(),
     "pcbasm.vision": frozenset(),
     "pcbasm.hal": frozenset({"pcbasm.vision.image"}),
@@ -98,7 +104,7 @@ _MODULES = {_module_name(path): path for path in SRC.rglob("*.py")}
 
 
 def _unit(module: str) -> str:
-    return ".".join(module.split(".")[:2])
+    return module if module in _SUBUNITS else ".".join(module.split(".")[:2])
 
 
 def _renamed(name: str) -> str:

@@ -18,13 +18,14 @@ from pcbasm.config import ConfigError, parse_machine
 from pcbasm.config.alignment import validate_region_overlap
 from pcbasm.config.audio import validate_audio_device, validate_audio_volume
 from pcbasm.config.detection import DetectionConfig
-from pcbasm.config.dispenser import (
+from pcbasm.config.probe import validate_probe_board_edge_margin
+from pcbasm.pasting.params import (
     DISPENSE_MODES,
     LINE_DIRECTIONS,
-    PasteDispenserConfig,
-    validate_paste_lift_height,
+    DispenseMotion,
+    PasteParams,
+    validate_field_values,
 )
-from pcbasm.config.probe import validate_probe_board_edge_margin
 from pcbasm.validators import (
     is_finite_number,
     validate_non_negative_number,
@@ -62,8 +63,10 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     ),
     FieldSpec("paste_dispenser.nozzle_diameter", "ノズル内径", "float", "mm"),
     FieldSpec("paste_dispenser.nozzle_outer_diameter", "ノズル外径", "float", "mm"),
-    FieldSpec("paste_dispenser.dispense_mode", "塗布方式", "dispense_mode"),
-    FieldSpec("paste_dispenser.line_direction", "線の走行方向", "line_direction"),
+    FieldSpec("paste_dispenser.defaults.dispense_mode", "塗布方式", "dispense_mode"),
+    FieldSpec(
+        "paste_dispenser.defaults.line_direction", "線の走行方向", "line_direction"
+    ),
     FieldSpec(
         "paste_dispenser.auto_line_aspect_ratio",
         "Auto線塗布しきい縦横比",
@@ -74,102 +77,125 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
         "Auto面塗布しきい短辺倍率",
         "float",
     ),
-    FieldSpec("paste_dispenser.max_fill_speed", "最大塗布速度", "float", "mm/s"),
-    FieldSpec("paste_dispenser.max_dispense_rate", "吐出レート上限", "float", "uL/s"),
-    FieldSpec("paste_dispenser.dispense_accel", "吐出加速度", "float", "uL/s^2"),
+    FieldSpec("paste_dispenser.motion.max_fill_speed", "最大塗布速度", "float", "mm/s"),
+    FieldSpec(
+        "paste_dispenser.motion.max_dispense_rate", "吐出レート上限", "float", "uL/s"
+    ),
+    FieldSpec("paste_dispenser.motion.dispense_accel", "吐出加速度", "float", "uL/s^2"),
     FieldSpec(
         "paste_dispenser.solder_paste_density",
         "はんだペースト密度",
         "float",
         "mg/uL",
     ),
-    FieldSpec("paste_dispenser.retract_amount", "リトラクション量", "float", "uL"),
-    FieldSpec("paste_dispenser.retract_rate", "リトラクションレート", "float", "uL/s"),
     FieldSpec(
-        "paste_dispenser.retract_accel_factor", "リトラクション加速度係数", "float"
+        "paste_dispenser.motion.retract_amount", "リトラクション量", "float", "uL"
     ),
-    FieldSpec("paste_dispenser.paste_height", "塗布面のZ高さ", "float_or_auto", "mm"),
-    FieldSpec("paste_dispenser.lift_height", "吐出後の上昇高さ", "float", "mm"),
     FieldSpec(
-        "paste_dispenser.post_dispense_settle_seconds",
+        "paste_dispenser.motion.retract_rate", "リトラクションレート", "float", "uL/s"
+    ),
+    FieldSpec(
+        "paste_dispenser.motion.retract_accel_factor",
+        "リトラクション加速度係数",
+        "float",
+    ),
+    FieldSpec(
+        "paste_dispenser.defaults.paste_height", "塗布面のZ高さ", "float_or_auto", "mm"
+    ),
+    FieldSpec("paste_dispenser.motion.lift_height", "吐出後の上昇高さ", "float", "mm"),
+    FieldSpec(
+        "paste_dispenser.motion.post_dispense_settle_seconds",
         "塗布後の静定待ち（上昇前）",
         "float",
         "s",
     ),
     FieldSpec(
-        "paste_dispenser.ul_per_mm2", "面積あたりのペースト量", "float", "uL/mm^2"
+        "paste_dispenser.defaults.ul_per_mm2",
+        "面積あたりのペースト量",
+        "float",
+        "uL/mm^2",
     ),
     FieldSpec(
-        "paste_dispenser.prime_extra_delay", "プライム後の追加遅延", "float", "s"
+        "paste_dispenser.defaults.prime_extra_delay",
+        "プライム後の追加遅延",
+        "float",
+        "s",
     ),
     FieldSpec("paste_dispenser.initial_purge_ul", "初回パージ量", "float", "uL"),
-    # [paste_dispenser.flow_calibration] 運転時流量キャリブレーション
+    # [paste_dispenser.volume_correction] 運転時流量キャリブレーション
     FieldSpec(
-        "paste_dispenser.flow_calibration.calibration_file",
+        "paste_dispenser.volume_correction.calibration_file",
         "校正ファイル",
         "str",
     ),
     FieldSpec(
-        "paste_dispenser.flow_calibration.amount_ul",
+        "paste_dispenser.volume_correction.amount_ul",
         "1点あたりの塗布量",
         "float",
         "uL",
     ),
     FieldSpec(
-        "paste_dispenser.flow_calibration.crop_size_mm",
+        "paste_dispenser.volume_correction.crop_size_mm",
         "撮影crop寸法",
         "float",
         "mm",
     ),
     FieldSpec(
-        "paste_dispenser.flow_calibration.settle_seconds",
+        "paste_dispenser.volume_correction.settle_seconds",
         "静定待ち",
         "float",
         "s",
     ),
-    FieldSpec("paste_dispenser.bead_width_factor", "ビード幅係数", "float"),
-    FieldSpec("paste_dispenser.overlap", "ジグザグ行間オーバーラップ", "float"),
-    FieldSpec("paste_dispenser.boundary_margin", "外周マージン", "float", "mm"),
+    FieldSpec("paste_dispenser.defaults.bead_width_factor", "ビード幅係数", "float"),
     FieldSpec(
-        "paste_dispenser.micro_line_z_start", "微小線の始点高さ", "float_or_auto", "mm"
+        "paste_dispenser.defaults.overlap", "ジグザグ行間オーバーラップ", "float"
     ),
     FieldSpec(
-        "paste_dispenser.micro_line_z_end", "微小線の終点高さ", "float_or_auto", "mm"
+        "paste_dispenser.defaults.boundary_margin", "外周マージン", "float", "mm"
     ),
     FieldSpec(
-        "paste_dispenser.micro_line_settle_seconds", "微小線の静定待ち", "float", "s"
+        "paste_dispenser.defaults.micro_line_z_start",
+        "微小線の始点高さ",
+        "float_or_auto",
+        "mm",
+    ),
+    FieldSpec(
+        "paste_dispenser.defaults.micro_line_z_end",
+        "微小線の終点高さ",
+        "float_or_auto",
+        "mm",
+    ),
+    FieldSpec(
+        "paste_dispenser.motion.micro_line_settle_seconds",
+        "微小線の静定待ち",
+        "float",
+        "s",
     ),
     # [paste_dispenser.toolhead]
     FieldSpec("paste_dispenser.toolhead.x", "ツールヘッド相対位置 X", "float", "mm"),
     FieldSpec("paste_dispenser.toolhead.y", "ツールヘッド相対位置 Y", "float", "mm"),
-    # [paste_dispenser.pad_align]
+    # [alignment]
+    FieldSpec("alignment.region_size_px", "照合領域の一辺", "int", "px"),
+    FieldSpec("alignment.region_overlap", "照合領域の重なり", "float"),
     FieldSpec(
-        "paste_dispenser.pad_align.region_size_px", "照合領域の一辺", "int", "px"
-    ),
-    FieldSpec("paste_dispenser.pad_align.region_overlap", "照合領域の重なり", "float"),
-    FieldSpec(
-        "paste_dispenser.pad_align.board_edge_margin",
+        "alignment.board_edge_margin",
         "基板外形からの余白",
         "float",
         "mm",
     ),
-    FieldSpec("paste_dispenser.pad_align.max_passes", "再計測の上限回数", "int"),
+    FieldSpec("alignment.max_passes", "再計測の上限回数", "int"),
+    FieldSpec("alignment.converge_tolerance", "収束判定の増分", "float", "mm"),
+    FieldSpec("alignment.max_correction", "最大補正量", "float", "mm"),
+    FieldSpec("alignment.search_window", "探索窓 片側幅", "float", "mm"),
     FieldSpec(
-        "paste_dispenser.pad_align.converge_tolerance", "収束判定の増分", "float", "mm"
-    ),
-    FieldSpec("paste_dispenser.pad_align.max_correction", "最大補正量", "float", "mm"),
-    FieldSpec(
-        "paste_dispenser.pad_align.search_window", "探索窓 片側幅", "float", "mm"
-    ),
-    FieldSpec(
-        "paste_dispenser.pad_align.refine_max_short_side",
+        "alignment.refine_max_short_side",
         "逐次位置合わせ対象の最大短辺",
         "float",
         "mm",
     ),
-    FieldSpec("paste_dispenser.pad_align.canny_low", "Canny下側閾値", "float"),
-    FieldSpec("paste_dispenser.pad_align.canny_high", "Canny上側閾値", "float"),
-    FieldSpec("paste_dispenser.pad_align.blur_ksize", "ブラーカーネルサイズ", "int"),
+    FieldSpec("alignment.canny_low", "Canny下側閾値", "float"),
+    FieldSpec("alignment.canny_high", "Canny上側閾値", "float"),
+    FieldSpec("alignment.blur_ksize", "ブラーカーネルサイズ", "int"),
     # [paste_dispenser.nozzle_cap] タスク終了時の駐機先（マシン座標）
     FieldSpec(
         "paste_dispenser.nozzle_cap.position", "キャップ位置", "float_triple", "mm"
@@ -267,33 +293,30 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                     and coerced_float < 0.0
                 ):
                     raise UnknownFieldError(f"{spec.key}: 0以上の値が必要です")
-                if spec.key == "paste_dispenser.lift_height":
-                    if error := validate_paste_lift_height(coerced_float):
-                        raise UnknownFieldError(error)
                 if spec.key == "probe.board_edge_margin":
                     if error := validate_probe_board_edge_margin(coerced_float):
                         raise UnknownFieldError(error)
                 if spec.key == "audio.volume":
                     if error := validate_audio_volume(coerced_float):
                         raise UnknownFieldError(error)
-                if spec.key == "paste_dispenser.pad_align.region_overlap":
+                if spec.key == "alignment.region_overlap":
                     if error := validate_region_overlap(coerced_float):
                         raise UnknownFieldError(error)
                 if spec.key in {
-                    "paste_dispenser.flow_calibration.amount_ul",
-                    "paste_dispenser.flow_calibration.crop_size_mm",
-                    "paste_dispenser.pad_align.board_edge_margin",
-                    "paste_dispenser.pad_align.converge_tolerance",
-                    "paste_dispenser.pad_align.max_correction",
-                    "paste_dispenser.pad_align.search_window",
+                    "paste_dispenser.volume_correction.amount_ul",
+                    "paste_dispenser.volume_correction.crop_size_mm",
+                    "alignment.board_edge_margin",
+                    "alignment.converge_tolerance",
+                    "alignment.max_correction",
+                    "alignment.search_window",
                     "paste_dispenser.nozzle_clean.wipe_speed",
                 }:
                     name = spec.key.rsplit(".", 1)[-1]
                     if error := validate_positive_number(name, coerced_float):
                         raise UnknownFieldError(error)
                 if spec.key in {
-                    "paste_dispenser.flow_calibration.settle_seconds",
-                    "paste_dispenser.pad_align.refine_max_short_side",
+                    "paste_dispenser.volume_correction.settle_seconds",
+                    "alignment.refine_max_short_side",
                     "paste_dispenser.nozzle_clean.press_depth",
                     "paste_dispenser.nozzle_clean.purge_ul",
                     "paste_dispenser.nozzle_clean.stroke",
@@ -308,10 +331,7 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
             if value == "auto":
                 return "auto"
             if is_finite_number(value):
-                coerced_float = float(value)
-                if spec.key == "paste_dispenser.paste_height" and coerced_float <= 0.0:
-                    raise UnknownFieldError(f"{spec.key}: 正の値が必要です")
-                return coerced_float
+                return float(value)
         case "int":
             if isinstance(value, float) and value.is_integer():
                 value = int(value)
@@ -319,15 +339,15 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                 if (
                     spec.key
                     in {
-                        "paste_dispenser.pad_align.region_size_px",
-                        "paste_dispenser.pad_align.max_passes",
+                        "alignment.region_size_px",
+                        "alignment.max_passes",
                         "detection.sample_count",
                         "detection.minimum_sample_count",
                     }
                     and value < 1
                 ):
                     raise UnknownFieldError(f"{spec.key}: 1以上の値が必要です")
-                if spec.key == "paste_dispenser.pad_align.blur_ksize":
+                if spec.key == "alignment.blur_ksize":
                     if error := validate_positive_odd_integer("blur_ksize", value):
                         raise UnknownFieldError(error)
                 if (
@@ -449,13 +469,17 @@ class ConfigStore:
             key: _coerce(self._machine_spec(key), value)
             for key, value in values.items()
         }
-        paste_values = {
-            key.removeprefix("paste_dispenser."): value
-            for key, value in coerced.items()
-            if key.startswith("paste_dispenser.") and key.count(".") == 1
-        }
-        if error := PasteDispenserConfig.validate_values(paste_values):
-            raise UnknownFieldError(error)
+        for cls, prefix in (
+            (PasteParams, "paste_dispenser.defaults."),
+            (DispenseMotion, "paste_dispenser.motion."),
+        ):
+            section = {
+                key.removeprefix(prefix): value
+                for key, value in coerced.items()
+                if key.startswith(prefix)
+            }
+            if error := validate_field_values(cls, section):
+                raise UnknownFieldError(error)
         path = self.machine_toml_path()
         for filename in files or ():
             if (

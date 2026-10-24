@@ -12,7 +12,7 @@ class TestXYZStage:
 
     @pytest.fixture
     def mock_stage(self, mocker: MockerFixture) -> XYZStage:
-        klipper = Klipper()
+        klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(
             klipper.readonly,
             "get_config",
@@ -29,7 +29,7 @@ class TestXYZStage:
         assert mock_stage.max_velocity == 300.0
 
     def test_limits_missing_stepper_section(self, mocker: MockerFixture):
-        klipper = Klipper()
+        klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(
             klipper.readonly,
             "get_config",
@@ -41,7 +41,7 @@ class TestXYZStage:
             _ = stage.limits
 
     def test_limits_missing_position_keys(self, mocker: MockerFixture):
-        klipper = Klipper()
+        klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(
             klipper.readonly,
             "get_config",
@@ -58,7 +58,7 @@ class TestXYZStage:
             _ = stage.limits
 
     def test_limits_missing_printer_section(self, mocker: MockerFixture):
-        klipper = Klipper()
+        klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(
             klipper.readonly,
             "get_config",
@@ -74,7 +74,7 @@ class TestXYZStage:
             _ = stage.limits
 
     def test_limits_missing_max_velocity(self, mocker: MockerFixture):
-        klipper = Klipper()
+        klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(
             klipper.readonly,
             "get_config",
@@ -114,7 +114,7 @@ class TestXYZStage:
         # move() の部分/相対座標解決用に、現在位置を (10, 10, 10) に固定した stage。
         # limits は mock_stage と同じ。get_position は
         # get_status("gcode_move","gcode_position") の [0:3] を読むため列を返す。
-        klipper = Klipper()
+        klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(
             klipper.readonly,
             "get_config",
