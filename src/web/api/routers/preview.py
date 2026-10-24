@@ -96,7 +96,7 @@ def preview_stream(
 def _build_hub_or_503(state: AppState) -> None:
     """FrameHub を（必要なら）構築し、カメラ構築失敗を 503 へ変換する."""
     try:
-        state.frame_hub()
+        state.devices.frame_hub()
     except (OSError, RuntimeError) as exc:
         raise HTTPException(
             status_code=503, detail=f"カメラを構築できません: {exc}"

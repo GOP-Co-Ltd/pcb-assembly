@@ -123,8 +123,7 @@ class XYZStage:
     座標は機械座標（mm）、速度は mm/s。可動域と最大速度は printer.cfg から読む。
 
     Example:
-        klipper = hal.open_klipper(machine.klipper.host, machine.klipper.port)
-        stage = XYZStage(klipper)
+        stage = XYZStage(devices.klipper())
         position = stage.get_position()
         limits = stage.limits
     """

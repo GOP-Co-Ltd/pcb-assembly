@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from pcbasm.hal import AlsaAudioPlayer, AudioPlayer
+from pcbasm.machine.devices import Devices
 from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.pasting.testboard.generator import BoardGenerator
 from web.api.control import ControlLease
@@ -140,6 +141,7 @@ def _control_change_notifier(app: FastAPI) -> Callable[[], None]:
 def create_app(
     settings: Settings | None = None,
     *,
+    devices: Devices | None = None,
     audio_player: AudioPlayer | None = None,
     paste_test_board_footprint_root: Path | None = None,
     update_runner: UpdateRunner | None = None,
@@ -148,6 +150,7 @@ def create_app(
 
     Args:
         settings: WebUI 設定（None なら環境変数から構築。uvicorn --factory 用）
+        devices: 装置（None なら settings どおりに組む。テストは fake を注入する）
         audio_player: 通知音プレイヤー（None なら ALSA 実装を構築）
         paste_test_board_footprint_root: テスト塗布基板で使う
             KiCad footprint root。None なら環境変数または KiCad 9 標準パス
@@ -169,7 +172,7 @@ def create_app(
             f"machine.toml がありません: {machine_config.path} "
             f"（./scripts/setup-machine-config.sh を実行してください）"
         )
-    state = AppState(settings, machine_config)
+    state = AppState(settings, machine_config, devices)
     state.migrate_config()
     # 設定エラーでもプロセスは落とさず degraded で上げる（落とすと WebUI から直せない）
     _, config_error = state.machine_or_error()

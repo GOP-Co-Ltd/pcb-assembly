@@ -302,7 +302,7 @@ class TestOpenCamera:
         def run(ctx: JobContext) -> None:
             with ctx.open_camera() as camera:
                 sizes.append(camera.capture().size)
-                running_during.append(state.frame_hub().running)
+                running_during.append(state.devices.frame_hub().running)
 
         _register(catalog, run)
         record = manager.start("synthetic", {})
@@ -311,7 +311,7 @@ class TestOpenCamera:
         assert record.status == JobStatus.SUCCEEDED
         assert sizes == [(1280, 720)]  # fake_camera.png のフレームが capture できる
         assert running_during == [True]
-        assert not state.frame_hub().running  # 退出で解放（参照 0 で停止）
+        assert not state.devices.frame_hub().running  # 退出で解放（参照 0 で停止）
 
     def test_open_camera_releases_hub_when_job_fails_inside(
         self,
@@ -331,7 +331,7 @@ class TestOpenCamera:
         wait_until(lambda: record.status.terminal)
 
         assert record.status == JobStatus.FAILED
-        assert not state.frame_hub().running
+        assert not state.devices.frame_hub().running
 
 
 class TestNextCommand:

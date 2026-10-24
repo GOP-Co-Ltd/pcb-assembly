@@ -1,8 +1,8 @@
 """ジョブの golden を採る実行環境（1 台の fake 機体、それを映すカメラ、ジョブの実行基盤）.
 
 ジョブは実 JobManager で走らせる。
-``open_klipper``（PR02 の生成口）は、何度呼ばれても同じ fake 機体への接続を返す。
-カメラは AppState が組むものを差し替える（カメラの生成口は AppState の中にしか無い）。
+装置は fake の機体とカメラを持つ ``Devices`` を注入する。
+``open_klipper`` は塞いだままなので、``Devices`` を通らずに Klipper を作る経路があればテストが落ちる。
 """
 
 import json
@@ -20,6 +20,7 @@ from pcbasm.hal import Camera
 from pcbasm.hal.fake import Checkerboard, FakeAudioPlayer, FakeKlipper, SceneCamera
 from pcbasm.kicad import load_board
 from pcbasm.kicad.build import generate_grid_pcb
+from pcbasm.machine.devices import Devices
 from pcbasm.pasting.hierarchy import PadHierarchy
 from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.pasting.paste_volume.calibration import (
@@ -31,7 +32,6 @@ from pcbasm.posctrl.board import Corner, corner_offset
 from pcbasm.vision import CalibrationResult
 from tests.support import polling
 from tests.support.paths import TESTING_DATA_DIR
-from web.api import state as state_module
 from web.api.jobs.catalog import JobCatalog, default_catalog
 from web.api.jobs.manager import JobManager, JobRecord, JobStatus
 from web.api.machine_config import MachineConfigFile
@@ -149,13 +149,32 @@ def enable_flow_calibration(settings: Settings, state: AppState, pcb: Path) -> N
 
 
 @pytest.fixture
-def mount_camera(monkeypatch: pytest.MonkeyPatch) -> Callable[[Camera], None]:
-    """AppState がジョブに貸すカメラを差し替える関数を返す."""
+def machine_klipper() -> FakeKlipper:
+    """Golden を採る 1 台の fake 機体（ジョブも route も ``Devices`` を通してこれへ送る）."""
+    return FakeKlipper()
 
-    def mount(camera: Camera) -> None:
-        monkeypatch.setattr(state_module, "create_camera", lambda **kwargs: camera)
 
-    return mount
+@pytest.fixture
+def mounted_cameras() -> list[Camera]:
+    return []
+
+
+@pytest.fixture
+def mount_camera(mounted_cameras: list[Camera]) -> Callable[[Camera], None]:
+    """装置がジョブに貸すカメラを差し替える関数を返す（カメラを開くときに最後に置いたものを使う）."""
+    return mounted_cameras.append
+
+
+@pytest.fixture
+def devices(
+    job_settings: Settings, machine_klipper: FakeKlipper, mounted_cameras: list[Camera]
+) -> Devices:
+    return Devices(
+        MachineConfigFile(job_settings.config_dir).path,
+        job_settings.journal_dir,
+        klipper=machine_klipper,
+        camera=lambda: mounted_cameras[-1],
+    )
 
 
 @pytest.fixture
@@ -182,8 +201,8 @@ def job_settings(tmp_path: Path) -> Settings:
 
 
 @pytest.fixture
-def job_state(job_settings: Settings) -> Iterator[AppState]:
-    state = AppState(job_settings, MachineConfigFile(job_settings.config_dir))
+def job_state(job_settings: Settings, devices: Devices) -> Iterator[AppState]:
+    state = AppState(job_settings, MachineConfigFile(job_settings.config_dir), devices)
     yield state
     state.close()
 

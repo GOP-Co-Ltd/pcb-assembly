@@ -108,12 +108,12 @@ class TestMjpegStream:
         next(stream)
 
         assert service.client_count == 1
-        assert state.frame_hub().running
+        assert state.devices.frame_hub().running
 
         stream.close()
 
         assert service.client_count == 0
-        assert not state.frame_hub().running
+        assert not state.devices.frame_hub().running
 
     def test_shutdown_request_ends_stream_and_releases_camera(
         self, service: PreviewService, state: AppState
@@ -126,7 +126,7 @@ class TestMjpegStream:
         with pytest.raises(StopIteration):
             next(stream)
         assert service.client_count == 0
-        assert not state.frame_hub().running
+        assert not state.devices.frame_hub().running
 
     def test_parallel_streams_share_hub_until_last_close(
         self, service: PreviewService, state: AppState
@@ -140,12 +140,12 @@ class TestMjpegStream:
         stream_a.close()
 
         assert service.client_count == 1
-        assert state.frame_hub().running
+        assert state.devices.frame_hub().running
 
         stream_b.close()
 
         assert service.client_count == 0
-        assert not state.frame_hub().running
+        assert not state.devices.frame_hub().running
 
     def test_camera_construction_failure_propagates(
         self, fake_camera_settings: Settings, config_dir, tmp_path
@@ -329,9 +329,9 @@ class TestHoldCamera:
     ):
         with service.hold_camera() as hub:
             assert hub.running
-            assert state.frame_hub().running
+            assert state.devices.frame_hub().running
 
-        assert not state.frame_hub().running
+        assert not state.devices.frame_hub().running
 
     def test_hold_keeps_hub_running_after_stream_closes(
         self, service: PreviewService, state: AppState
@@ -342,9 +342,9 @@ class TestHoldCamera:
 
         with service.hold_camera():
             stream.close()
-            assert state.frame_hub().running  # ジョブが保持している間は稼働
+            assert state.devices.frame_hub().running  # ジョブが保持している間は稼働
 
-        assert not state.frame_hub().running
+        assert not state.devices.frame_hub().running
 
     def test_stream_keeps_hub_running_after_hold_exits(
         self, service: PreviewService, state: AppState
@@ -356,16 +356,16 @@ class TestHoldCamera:
         with service.hold_camera():
             pass
 
-        assert state.frame_hub().running
+        assert state.devices.frame_hub().running
         stream.close()
-        assert not state.frame_hub().running
+        assert not state.devices.frame_hub().running
 
     def test_nested_holds_release_only_at_zero(
         self, service: PreviewService, state: AppState
     ):
         with service.hold_camera():
             with service.hold_camera():
-                assert state.frame_hub().running
-            assert state.frame_hub().running
+                assert state.devices.frame_hub().running
+            assert state.devices.frame_hub().running
 
-        assert not state.frame_hub().running
+        assert not state.devices.frame_hub().running

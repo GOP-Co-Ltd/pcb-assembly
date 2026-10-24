@@ -19,7 +19,7 @@ from pcbasm.pasting.nozzle_clean import clean_nozzle, plan_nozzle_clean
 from web.api.dependencies import ControlDep, MachineConfigDep, StateDep
 from web.api.errors import hal_errors_to_502
 from web.api.machine_config import MachineConfigFile
-from web.api.routers.common import create_klipper, nozzle_clean_payload
+from web.api.routers.common import nozzle_clean_payload
 from web.api.state import AppState
 from web.contract.models import NozzleCleanInfo
 
@@ -83,7 +83,7 @@ def _record_current_position(
     """全軸ホーミングを検査し、現在位置を 3 桁丸めで ``prefix`` のテーブルへ書く."""
     with state.machine_lock(owner):
         with hal_errors_to_502():
-            klipper = create_klipper(state, STATUS_TIMEOUT)
+            klipper = state.devices.klipper(STATUS_TIMEOUT)
             _require_all_axes_homed(klipper, "全軸ホーミング後に記録してください")
             position = XYZStage(klipper).get_position()
         saved = Point3d(
@@ -153,7 +153,7 @@ def run_nozzle_clean_test(
         messages: list[str] = []
         try:
             with hal_errors_to_502():
-                klipper = create_klipper(state, CLEAN_TIMEOUT)
+                klipper = state.devices.klipper(CLEAN_TIMEOUT)
                 _require_all_axes_homed(klipper, "全軸ホーミング後に実行してください")
                 stage = XYZStage(klipper)
                 plan = plan_nozzle_clean(stage, clean.position, clean)

@@ -1,6 +1,6 @@
 """装置を動かす REST の route が実機へ送る G-code の列を golden で固定する.
 
-route は実アプリ（``create_app``）に TestClient で送り、送信先は 1 台の fake 機体にする。
+route は実アプリ（``create_app``）に TestClient で送り、送信先は ``Devices`` に注入した 1 台の fake 機体にする。
 golden は ``routes/<名前>.gcode`` に置く。
 ファームウェア再起動は WebUI のサービスも再起動するので、UpdateSandbox のスタブの中でだけ採る。
 """
@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper
+from pcbasm.machine.devices import Devices
 from tests.golden.conftest import GOLDEN_DIR
 from tests.support import polling
 from tests.support.golden import assert_transcript
@@ -38,13 +39,14 @@ def homed_klipper(machine_klipper: FakeKlipper) -> FakeKlipper:
 
 @pytest.fixture
 def make_app(
-    job_settings: Settings, paste_test_board_footprint_root: Path
+    job_settings: Settings, devices: Devices, paste_test_board_footprint_root: Path
 ) -> Callable[[UpdateRunner | None], FastAPI]:
-    """実アプリを golden 用の config で組む関数を返す（自己更新のランナーだけ差し替えられる）."""
+    """実アプリを golden 用の config と装置で組む関数を返す（自己更新のランナーだけ差し替えられる）."""
 
     def make(update_runner: UpdateRunner | None) -> FastAPI:
         return create_app(
             job_settings,
+            devices=devices,
             audio_player=FakeAudioPlayer(),
             paste_test_board_footprint_root=paste_test_board_footprint_root,
             update_runner=update_runner,

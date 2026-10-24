@@ -8,12 +8,12 @@ import time
 
 import attrs
 
-from pcbasm import hal
 from pcbasm.board import Board
 from pcbasm.config import MachineConfig
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Shift, Transform
-from pcbasm.hal import Camera, KlipperClient, XYZStage, create_camera
+from pcbasm.hal import Camera, KlipperClient, XYZStage
+from pcbasm.machine.devices import Devices
 from pcbasm.machine.journal import Journal
 from pcbasm.posctrl.board import BoardTransformMeasurer
 from pcbasm.posctrl.offset import OffsetTransformMeasurer
@@ -190,13 +190,14 @@ class BoardCalibrationResult:
 
 
 def setup_board_calibration(
+    devices: Devices,
     machine: MachineConfig,
     board: Board,
     tolerance: float = 0.1,
     *,
-    camera: Camera | None = None,
+    camera: Camera,
     frame_sink: FrameSink | None = None,
-    journal: Journal | None = None,
+    journal: Journal,
 ) -> BoardCalibrationResult:
     """マシン初期化から Board 変換計測までの共通セットアップを実行する.
 
@@ -206,15 +207,16 @@ def setup_board_calibration(
     この関数自体は終了時の駐機をしない（ジョブ管理が行う）。
 
     Args:
+        devices: 機体の装置（Klipper は machine の接続先へ、塗布の本体と同じ timeout 無しでつなぐ）
         machine: マシン設定
         board: 計測する基板
         tolerance: 位置合わせの許容誤差 (mm)
-        camera: 使用するカメラ。None の場合はマシン設定から生成する
+        camera: 使用するカメラ
         frame_sink: 検出注釈画像を送る sink。None の場合は表示しない
-        journal: 送信ブロックを書く G-code ジャーナル。None の場合は書かない
+        journal: 送信ブロックを書く G-code ジャーナル
 
     Returns:
-        接続済みの Klipper・ステージ・カメラと、計測した 2 つの変換
+        Klipper の接続・ステージ・カメラと、計測した 2 つの変換
 
     Raises:
         CircleDetectionError: 基準点マーカーを規定回数の再取得でも検出できない場合
@@ -227,24 +229,13 @@ def setup_board_calibration(
 
     # Klipper 接続
     logger.info("=== Klipper接続 ===")
-    klipper = hal.open_klipper(
-        machine.klipper.host, machine.klipper.port, journal=journal
-    )
+    klipper = devices.klipper(journal=journal, endpoint=machine.klipper)
     logger.info("接続先: %s:%s", machine.klipper.host, machine.klipper.port)
     stage = XYZStage(klipper)
 
     # カメラ初期化
     logger.info("=== カメラ初期化 ===")
     cam_config = machine.camera
-    if camera is None:
-        camera = create_camera(
-            device_id=cam_config.device_id,
-            width=cam_config.width,
-            height=cam_config.height,
-            fps=cam_config.fps,
-            format=cam_config.format,
-            backend=cam_config.backend,
-        )
     logger.info("カメラ: %s", camera.info.name)
     logger.info("解像度: %sx%s", cam_config.width, cam_config.height)
 

@@ -13,7 +13,7 @@ from pcbasm.parking import move_to_cap
 from pcbasm.vision import load_focus_z
 from web.api.dependencies import ControlDep, StateDep
 from web.api.errors import hal_errors_to_502
-from web.api.routers.common import create_klipper, fetch_status
+from web.api.routers.common import fetch_status
 from web.api.state import AppState
 from web.contract.models import KlipperStatus
 
@@ -44,7 +44,7 @@ def post_machine_control(
     with state.machine_lock("machine-control"):
         try:
             with hal_errors_to_502():
-                klipper = create_klipper(state, MOVE_TIMEOUT)
+                klipper = state.devices.klipper(MOVE_TIMEOUT)
                 stage = XYZStage(klipper)
                 commands = _build_gcode(body, state, stage)
                 klipper.send_gcode(commands)

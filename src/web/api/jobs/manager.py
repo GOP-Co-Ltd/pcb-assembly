@@ -19,7 +19,6 @@ from typing import Any, override
 
 import attrs
 
-from pcbasm import hal
 from pcbasm.config import MachineConfig
 from pcbasm.config.audio import AudioConfig
 from pcbasm.hal import AudioPlayer, FrameHub
@@ -497,6 +496,7 @@ class JobManager:
                 runtime,
                 pcb_path=pcb_path,
                 machine=machine,
+                devices=self._state.devices,
                 artifacts_dir=artifacts_dir,
                 journal=Journal.for_job(self._settings.journal_dir, record.id),
                 machine_id=resolve_machine_id(self._settings),
@@ -765,7 +765,15 @@ class JobManager:
                 record.finish(JobStatus.FAILED, error=str(exc) or type(exc).__name__)
             # 装置を動かすジョブは終了時に best-effort で退避する
             if definition.uses_machine:
-                self._park_machine(runtime, context)
+                try:
+                    park_or_present(
+                        context.klipper(PRESENT_TIMEOUT),
+                        context.machine,
+                        warn=runtime.log,
+                        timeout=PRESENT_TIMEOUT,
+                    )
+                except Exception as exc:
+                    runtime.log(f"タスク終了時の退避に失敗: {exc}")
             self._link_journal(record, context.journal)
             self._play_completion_sound(definition, record, context)
             # 終端ステータス確定 → job_status 発行 → ロック解放の順を守る
@@ -774,21 +782,6 @@ class JobManager:
             logger.removeHandler(bridge)
             logger.setLevel(previous_level)
             self._state.release_machine()
-
-    def _park_machine(self, runtime: _JobRuntime, context: JobContext) -> None:
-        """ジョブ終了時にノズルキャップ駐機（フォールバックは PRESENT / M84）を行う（失敗は log のみ）。"""
-        try:
-            klipper = hal.open_klipper(
-                context.machine.klipper.host,
-                context.machine.klipper.port,
-                timeout=PRESENT_TIMEOUT,
-                journal=context.journal,
-            )
-            park_or_present(
-                klipper, context.machine, warn=runtime.log, timeout=PRESENT_TIMEOUT
-            )
-        except Exception as exc:
-            runtime.log(f"タスク終了時の退避に失敗: {exc}")
 
     def _link_journal(self, record: JobRecord, journal: Journal) -> None:
         """送信があったジョブの成果物に G-code ジャーナルへのリンクを足す."""

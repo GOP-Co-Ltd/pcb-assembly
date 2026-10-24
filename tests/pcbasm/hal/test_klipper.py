@@ -105,6 +105,45 @@ class TestMoonrakerKlipper:
         assert _moonraker(handler).get_config() == config
         assert queries == [{"configfile": "config"}]
 
+    def test_get_config_reads_printer_cfg_once_per_connection(self):
+        """Mainsail で printer.cfg を書き換えると、次に開いた接続から見える."""
+        configs = [{"stepper_x": {"position_max": "300"}}, {"stepper_x": {}}]
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            status = {"configfile": {"config": configs.pop(0)}}
+            return httpx.Response(200, json={"result": {"status": status}})
+
+        klipper = _moonraker(handler)
+        connection = klipper.connection()
+
+        assert connection.get_config() == {"stepper_x": {"position_max": "300"}}
+        assert connection.get_config() == {"stepper_x": {"position_max": "300"}}
+        assert klipper.connection().get_config() == {"stepper_x": {}}
+
+    def test_connection_replaces_only_timeout_and_journal(self, tmp_path: Path):
+        requests: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            status = {"toolhead": {"homed_axes": "xyz"}}
+            return httpx.Response(200, json={"result": {"status": status}})
+
+        klipper = _moonraker(handler)
+        journal = Journal(tmp_path / "journal.gcode")
+        connection = klipper.connection(timeout=10.0, journal=journal)
+
+        connection.send_gcode("M400")
+        connection.get_status("toolhead", "homed_axes")
+        klipper.send_gcode("G28")
+
+        assert [
+            (request.url.host, request.extensions["timeout"]["read"])
+            for request in requests
+        ] == [("moonraker", 10.0), ("moonraker", 10.0), ("moonraker", None)]
+        assert journal.path.read_text(encoding="utf-8") == format_block(
+            GCode("M400"), 10.0
+        )
+
     def test_query_error_response_raises_http_error(self):
         klipper = _moonraker(lambda request: httpx.Response(503))
 
@@ -133,8 +172,8 @@ class TestOpenKlipper:
         # 応答しない相手なので送信は失敗するが、送ろうとしたブロックはジャーナルに残る
         journal = Journal(tmp_path / "journal.gcode")
         with socket.create_server(("127.0.0.1", 0)) as server:
-            klipper = open_klipper(
-                "127.0.0.1", server.getsockname()[1], timeout=0.2, journal=journal
+            klipper = open_klipper("127.0.0.1", server.getsockname()[1]).connection(
+                timeout=0.2, journal=journal
             )
             with pytest.raises(httpx.ReadTimeout):
                 klipper.send_gcode("G28\nM400")

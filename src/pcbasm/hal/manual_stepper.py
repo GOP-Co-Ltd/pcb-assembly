@@ -24,7 +24,11 @@ class ManualStepper:
         """
         self._klipper = klipper
         self._name = stepper_name
-        self._check_klipper()
+        section = f"manual_stepper {stepper_name}"
+        config = klipper.get_config()
+        if section not in config:
+            raise RuntimeError(f"printer.cfgに[{section}]を追加してください")
+        self._rotation_distance = float(config[section]["rotation_distance"])
 
     @property
     def name(self) -> str:
@@ -32,25 +36,13 @@ class ManualStepper:
         return self._name
 
     @property
-    def _stepper_section(self) -> str:
-        return f"manual_stepper {self._name}"
-
-    @property
     def _cmd_prefix(self) -> str:
         return f"MANUAL_STEPPER STEPPER={self._name}"
 
-    def _check_klipper(self) -> None:
-        config = self._klipper.get_config()
-        if self._stepper_section not in config:
-            raise RuntimeError(
-                f"printer.cfgに[{self._stepper_section}]を追加してください"
-            )
-
     @property
     def rotation_distance(self) -> float:
-        """rotation_distance [mm] を config から取得する."""
-        config = self._klipper.get_config()
-        return float(config[self._stepper_section]["rotation_distance"])
+        """rotation_distance [mm]（printer.cfg は作ったときに 1 回だけ読む）."""
+        return self._rotation_distance
 
     def _deg_to_mm(self, deg: float) -> float:
         return deg / 360 * self.rotation_distance
