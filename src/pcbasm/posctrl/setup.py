@@ -10,11 +10,12 @@ from pathlib import Path
 import attrs
 
 from pcbasm import hal
+from pcbasm.board import Board
 from pcbasm.config import MachineConfig
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Shift, Transform
 from pcbasm.hal import Camera, Klipper, XYZStage, create_camera
-from pcbasm.kicad import PcbFile
+from pcbasm.kicad import load_board
 from pcbasm.machine.journal import Journal
 from pcbasm.posctrl.board import BoardTransformMeasurer
 from pcbasm.posctrl.offset import OffsetTransformMeasurer
@@ -187,7 +188,7 @@ class BoardCalibrationResult:
     calibration: CalibrationResult
     offset_transform: Transform
     board_transform: Transform
-    pcb: PcbFile
+    pcb: Board
 
 
 def setup_board_calibration(
@@ -224,7 +225,7 @@ def setup_board_calibration(
     """
     # PCB ファイル読み込み
     logger.info("=== PCBファイル読み込み ===")
-    pcb = PcbFile(pcb_file_path)
+    pcb = load_board(pcb_file_path)
     outline = pcb.outline
     logger.info("PCBファイル: %s", pcb_file_path)
     logger.info("Board幅: %.3f mm", outline.width)

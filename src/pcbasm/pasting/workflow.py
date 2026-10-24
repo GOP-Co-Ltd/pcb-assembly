@@ -10,10 +10,9 @@ from collections.abc import Mapping
 
 import attrs
 
-from pcbasm.board import Layer, Pad
+from pcbasm.board import Board, Layer, Pad
 from pcbasm.config.dispenser import VolumeCorrectionConfig
-from pcbasm.kicad import PcbFile
-from pcbasm.pasting.hierarchy import PadHierarchy, PadRef
+from pcbasm.pasting.hierarchy import PadHierarchy
 from pcbasm.pasting.initial_purge import (
     ResolvedInitialPurge,
     resolve_initial_purge,
@@ -37,7 +36,6 @@ class PasteTargets:
     """通常塗布の対象と順路.
 
     Attributes:
-        hierarchy: pad 階層
         model: 基板の塗布設定モデル
         resolved: pad ごとの解決済み設定
         top_pads: 対象レイヤの全 pad（有効/無効問わず）
@@ -46,9 +44,8 @@ class PasteTargets:
         flow_calibration: 運転時流量キャリブレーション（無効なら ``None``）
     """
 
-    hierarchy: PadHierarchy
     model: PasteSettingsModel
-    resolved: Mapping[PadRef, ResolvedSetting]
+    resolved: Mapping[str, ResolvedSetting]
     top_pads: tuple[Pad, ...]
     routed_pads: tuple[Pad, ...]
     initial_purge: ResolvedInitialPurge | None
@@ -61,11 +58,11 @@ class PasteTargets:
 
     def params_for(self, pad: Pad) -> PasteParams:
         """Pad の解決済みパラメータを返す."""
-        return self.resolved[self.hierarchy.pad_ref_for_pad(pad)].params
+        return self.resolved[pad.ref].params
 
 
 def plan_paste_targets(
-    pcb: PcbFile,
+    pcb: Board,
     hierarchy: PadHierarchy,
     model: PasteSettingsModel,
     *,
@@ -112,7 +109,6 @@ def plan_paste_targets(
         return None, error
     return (
         PasteTargets(
-            hierarchy=hierarchy,
             model=model,
             resolved=resolved,
             top_pads=top_pads,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pcbasm.board.export import save_copper, save_outline, save_pads, save_pnp_csv
 from pcbasm.board.plot import render_pcb
-from pcbasm.kicad import PcbFile
+from pcbasm.kicad import load_board
 from pcbasm.kicad.build import build_fill_coverage_board, save_board
 from web.api.jobs.catalog import JobCatalog, JobDefinition
 from web.api.jobs.context import JobContext, JobResult
@@ -38,7 +38,7 @@ def _run_extract_pcb(ctx: JobContext) -> JobResult:
 
     ctx.progress("読込")
     ctx.log(f"PCBファイルを読み込み中: {ctx.pcb_path}")
-    pcb = PcbFile(ctx.pcb_path)
+    pcb = load_board(ctx.pcb_path)
 
     ctx.progress("抽出", 30.0)
     outline = pcb.outline

@@ -21,10 +21,10 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 from shapely import Polygon
 
-from pcbasm.board import Layer, Pad
+from pcbasm.board import Board, Layer, Pad
 from pcbasm.config.dispenser import PasteDispenserConfig, VolumeCorrectionConfig
 from pcbasm.geometry import Point2d
-from pcbasm.kicad import PcbFile
+from pcbasm.kicad import load_board as read_board
 from pcbasm.pasting.applied_mode import AppliedModeSummary, applied_mode_summaries
 from pcbasm.pasting.fill_path import FillPlan
 from pcbasm.pasting.hierarchy import PadHierarchy, PadHierarchyNode
@@ -544,13 +544,12 @@ def _purge_selection_label(point: Point2d | None, default_point: Point2d | None)
 
 def pad_info(
     pad: Pad,
-    pad_id: str,
     package: str,
     node_ids: list[str],
     resolved: ResolvedSetting,
 ) -> PadInfo:
     return PadInfo(
-        id=pad_id,
+        id=pad.ref,
         node_ids=node_ids,
         designator=pad.designator,
         pad_number=pad.pad_number,
@@ -570,7 +569,7 @@ def pad_info(
 class Loaded:
     source_pcb: str
     base_config: PasteDispenserConfig
-    pcb: PcbFile
+    pcb: Board
     hierarchy: PadHierarchy
     board_signature: str
     model: PasteSettingsModel
@@ -579,7 +578,7 @@ class Loaded:
 def load_board(
     state: AppState, settings: Settings, board_store: BoardSettingsStore
 ) -> Loaded:
-    """選択中基板の PcbFile / 階層 / 保存済みモデルをまとめてロードする.
+    """選択中基板の Board / 階層 / 保存済みモデルをまとめてロードする.
 
     Raises:
         HTTPException: PCB 未選択（409）の場合
@@ -589,7 +588,7 @@ def load_board(
         raise HTTPException(status_code=409, detail="PCB が選択されていません")
     source_pcb = pcb_rel.as_posix()
     abs_path = settings.pcb_browse_root / pcb_rel
-    pcb = PcbFile(abs_path)
+    pcb = read_board(abs_path)
     base_config = state.machine().paste_dispenser
     hierarchy = PadHierarchy.build(pcb.components, pcb.pads)
     signature = hierarchy.signature()
@@ -617,10 +616,9 @@ def build_pad_config(loaded: Loaded) -> PadConfigResponse:
     pads = [
         pad_info(
             pad,
-            hierarchy.pad_id_for_pad(pad),
             package_by_designator.get(pad.designator, ""),
             [node_id(key) for key in hierarchy.node_keys_for_pad(pad)],
-            resolved[hierarchy.pad_ref_for_pad(pad)],
+            resolved[pad.ref],
         )
         for pad in hierarchy.iter_pads()
     ]
@@ -680,7 +678,7 @@ def build_route(loaded: Loaded, layer: Layer) -> PasteRouteResponse:
     """ロード済みコンテキストから有効 pad の順路レスポンスを構築する."""
     route = [
         PasteRoutePad(
-            id=loaded.hierarchy.pad_id_for_pad(stop.pad),
+            id=stop.pad.ref,
             order=stop.order,
             group_label=stop.group_label,
             area=stop.area,
@@ -704,7 +702,7 @@ def build_fill_path(loaded: Loaded, layer: Layer) -> PasteFillPathResponse:
     }
     pads: list[PasteFillPathPad] = []
     for pad in loaded.hierarchy.iter_pads():
-        setting = resolved[loaded.hierarchy.pad_ref_for_pad(pad)]
+        setting = resolved[pad.ref]
         if pad.layer is not layer or not setting.enabled:
             continue
         plan = FillPlan.for_pad(
@@ -716,7 +714,7 @@ def build_fill_path(loaded: Loaded, layer: Layer) -> PasteFillPathResponse:
         points = [[[point.x, point.y] for point in path] for path in plan.paths]
         pads.append(
             PasteFillPathPad(
-                id=loaded.hierarchy.pad_id_for_pad(pad),
+                id=pad.ref,
                 dispense_mode=plan.dispense_mode,
                 path_count=len(points),
                 point_count=sum(len(path) for path in points),
@@ -739,18 +737,18 @@ def affected_pads(node: str, loaded: Loaded) -> list[AffectedPad]:
 def affected_pads_for_ids(ids: Iterable[str], loaded: Loaded) -> list[AffectedPad]:
     """指定 pad id 群を再解決して返す."""
     id_set = set(ids)
-    return _affected(loaded, lambda pad: loaded.hierarchy.pad_id_for_pad(pad) in id_set)
+    return _affected(loaded, lambda pad: pad.ref in id_set)
 
 
 def _affected(loaded: Loaded, include: Callable[[Pad], bool]) -> list[AffectedPad]:
     resolved = resolve_pad_settings(loaded.hierarchy, loaded.model)
     return [
         AffectedPad(
-            id=loaded.hierarchy.pad_id_for_pad(pad),
+            id=pad.ref,
             enabled=paste.enabled,
             resolved=resolved_settings(paste),
         )
         for pad in loaded.hierarchy.iter_pads()
         if include(pad)
-        for paste in (resolved[loaded.hierarchy.pad_ref_for_pad(pad)],)
+        for paste in (resolved[pad.ref],)
     ]

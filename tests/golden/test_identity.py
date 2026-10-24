@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from pcbasm.config import load_machine
-from pcbasm.kicad import PcbFile
+from pcbasm.kicad import load_board
 from pcbasm.pasting.hierarchy import PadHierarchy
 from tests.support.paths import TESTING_DATA_DIR
 from web.api.board_settings import BoardSettingsStore
@@ -20,7 +20,7 @@ BOARD_SETTINGS = GOLDEN_DIR / "board_settings_v1.json"
 
 
 def _hierarchy(name: str) -> PadHierarchy:
-    pcb = PcbFile(TESTING_DATA_DIR / name / f"{name}.kicad_pcb")
+    pcb = load_board(TESTING_DATA_DIR / name / f"{name}.kicad_pcb")
     return PadHierarchy.build(pcb.components, pcb.pads)
 
 

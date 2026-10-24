@@ -13,12 +13,12 @@ from pathlib import Path
 import pytest
 from shapely import Point, Polygon
 
-from pcbasm.board import Layer
+from pcbasm.board import Board, Layer
 from pcbasm.config import MachineConfig, load_machine
 from pcbasm.geometry import Compose, Point2d, Rotation, Shift, transform_polygon
 from pcbasm.hal import Camera
 from pcbasm.hal.fake import Checkerboard, FakeAudioPlayer, FakeKlipper, SceneCamera
-from pcbasm.kicad import PcbFile
+from pcbasm.kicad import load_board
 from pcbasm.kicad.build import generate_grid_pcb
 from pcbasm.pasting.hierarchy import PadHierarchy
 from pcbasm.pasting.paste_volume.calibration import (
@@ -55,7 +55,7 @@ BOARD_PLACEMENT = Compose([Rotation(0.3), Shift(6.2, 10.5)])
 COPPER_OFFSET = Shift(0.04, -0.03)
 
 
-def board_shapes(pcb: PcbFile, machine: MachineConfig) -> list[Polygon]:
+def board_shapes(pcb: Board, machine: MachineConfig) -> list[Polygon]:
     """基板を BOARD_PLACEMENT に置いたときの、4 隅の基準円と TOP 銅箔を機械座標で返す."""
     reference = machine.reference_point
     width, height = pcb.outline.width, pcb.outline.height
@@ -138,7 +138,7 @@ def enable_flow_calibration(settings: Settings, state: AppState, pcb: Path) -> N
             "paste_dispenser.volume_correction.settle_seconds": 0.0,
         }
     )
-    board = PcbFile(pcb)
+    board = load_board(pcb)
     store = BoardSettingsStore(settings.webui_data_dir)
     model = store.load_or_init(pcb.name, state.machine().paste_dispenser)
     store.save(
@@ -197,7 +197,7 @@ def place_board(
     def place(pcb: Path) -> list[Polygon]:
         shutil.copy(pcb, job_settings.pcb_browse_root)
         job_state.select_pcb(Path(pcb.name))
-        return board_shapes(PcbFile(pcb), job_state.machine())
+        return board_shapes(load_board(pcb), job_state.machine())
 
     return place
 

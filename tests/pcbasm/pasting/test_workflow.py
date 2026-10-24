@@ -2,10 +2,10 @@
 
 import pytest
 
-from pcbasm.board import Layer
+from pcbasm.board import Board, Layer
 from pcbasm.config.dispenser import VolumeCorrectionConfig
 from pcbasm.geometry import Point2d
-from pcbasm.kicad import PcbFile
+from pcbasm.kicad import load_board
 from pcbasm.pasting.hierarchy import PadHierarchy
 from pcbasm.pasting.params import PasteParams
 from pcbasm.pasting.settings import PasteSettingsModel
@@ -28,12 +28,12 @@ _BASE = PasteParams(
 
 
 @pytest.fixture(scope="module")
-def pcb() -> PcbFile:
-    return PcbFile(_LED_BLINKER)
+def pcb() -> Board:
+    return load_board(_LED_BLINKER)
 
 
 @pytest.fixture(scope="module")
-def hierarchy(pcb: PcbFile) -> PadHierarchy:
+def hierarchy(pcb: Board) -> PadHierarchy:
     return PadHierarchy.build(pcb.components, pcb.pads)
 
 
@@ -45,8 +45,8 @@ def _model() -> PasteSettingsModel:
     return PasteSettingsModel(base=_BASE)
 
 
-def _pad_ids(hierarchy: PadHierarchy, pads) -> list[str]:
-    return [hierarchy.pad_id_for_pad(pad) for pad in pads]
+def _pad_ids(pads) -> list[str]:
+    return [pad.ref for pad in pads]
 
 
 class TestPlanPasteTargets:
@@ -63,10 +63,8 @@ class TestPlanPasteTargets:
 
         assert error is None
         assert targets is not None
-        top_ids = {
-            hierarchy.pad_id_for_pad(p) for p in pcb.pads if p.layer is Layer.TOP
-        }
-        assert set(_pad_ids(hierarchy, targets.routed_pads)) == top_ids
+        top_ids = {p.ref for p in pcb.pads if p.layer is Layer.TOP}
+        assert set(_pad_ids(targets.routed_pads)) == top_ids
         assert len(targets.top_pads) == len(top_ids)
         assert targets.disabled_count == 0
         assert all(p.layer is Layer.TOP for p in targets.routed_pads)
@@ -105,7 +103,7 @@ class TestPlanPasteTargets:
         )
 
         assert targets is not None
-        routed_ids = _pad_ids(hierarchy, targets.routed_pads)
+        routed_ids = _pad_ids(targets.routed_pads)
         assert "U1.1" not in routed_ids
         assert "U1.2" not in routed_ids
         assert targets.disabled_count == 2
@@ -143,7 +141,7 @@ class TestPlanPasteTargets:
         )
 
         assert targets is not None
-        by_id = {hierarchy.pad_id_for_pad(p): p for p in targets.routed_pads}
+        by_id = {p.ref: p for p in targets.routed_pads}
         overridden = targets.params_for(by_id["U1.1"])
         inherited = targets.params_for(by_id["U1.2"])
         assert overridden.ul_per_mm2 == 0.25

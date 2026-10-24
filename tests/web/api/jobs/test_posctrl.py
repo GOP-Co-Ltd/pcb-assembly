@@ -7,7 +7,7 @@
   board_tour / orthogonality_test / generate_grid_pcb）の name / requires_pcb /
   uses_machine / accepts_commands（params の宣言内容は
   `routers/test_jobs.py` が API 越しに汎用で担保する）
-- generate_grid_pcb: 出力 .kicad_pcb が PcbFile で読めて pad 数 = divisions^2
+- generate_grid_pcb: 出力 .kicad_pcb が load_board で読めて pad 数 = divisions^2
   （装置非使用。dev タブから位置合わせタブへ移設）
 - camera_calibration: チェッカーボード FakeCamera でのフル結合（prompt 往復、
   artifacts、Apply payload、Klipper 不通での Z best-effort = z_position None）
@@ -61,7 +61,7 @@ from pathlib import Path
 
 import pytest
 
-from pcbasm.kicad import PcbFile
+from pcbasm.kicad import load_board
 from pcbasm.vision import CalibrationResult, Image
 from web.api.jobs.catalog import JobCatalog, default_catalog
 from web.api.jobs.manager import JobManager, JobStatus
@@ -188,7 +188,7 @@ class TestGenerateGridPcb:
         outputs = [a for a in record.result.artifacts if a.path.endswith(".kicad_pcb")]
         assert len(outputs) == 1
 
-        pcb = PcbFile(fake_camera_settings.webui_data_dir / outputs[0].path)
+        pcb = load_board(fake_camera_settings.webui_data_dir / outputs[0].path)
         assert len(pcb.pads) == 4
 
 

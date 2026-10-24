@@ -9,7 +9,7 @@ import numpy as np
 from matplotlib.axes import Axes
 from shapely.geometry import MultiPoint, Polygon
 
-from pcbasm.board import Copper, Layer
+from pcbasm.board import Board, Copper, Layer
 from pcbasm.config.probe import ProbeConfig
 from pcbasm.gcode import GCode
 from pcbasm.geometry import (
@@ -23,7 +23,6 @@ from pcbasm.geometry import (
     transform_polygon,
 )
 from pcbasm.hal import Klipper, Speed, XYZStage
-from pcbasm.kicad import PcbFile
 from pcbasm.pasting.probe import ProbeExecutor
 from pcbasm.plotting import outline_patch, polygon_with_holes_patch, save_png
 
@@ -181,7 +180,7 @@ class HeightPlaneMeasurer:
 
 def render_height_plane(
     height_plane: HeightPlane,
-    pcb: PcbFile,
+    pcb: Board,
     title: str,
     output_path: Path,
     pcb_to_plane: Transform = Identity(),
@@ -233,7 +232,7 @@ def render_height_plane(
 
 def render_planned_points(
     planned_points: Sequence[Point2d],
-    pcb: PcbFile,
+    pcb: Board,
     title: str,
     output_path: Path,
 ) -> None:
@@ -267,7 +266,7 @@ def render_planned_points(
 
 
 def _draw_pcb_background(
-    ax: Axes, pcb: PcbFile, pcb_to_plane: Transform = Identity()
+    ax: Axes, pcb: Board, pcb_to_plane: Transform = Identity()
 ) -> None:
     """銅箔 TOP 層・基板アウトライン・軸範囲/ラベルを ax に描画する."""
     for cu in pcb.copper:

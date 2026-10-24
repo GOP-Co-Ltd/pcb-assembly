@@ -16,7 +16,7 @@ from pcbasm.config import MachineConfig, load_machine
 from pcbasm.geometry import Identity, Point2d, Shift
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FakeCamera, FakeKlipper
-from pcbasm.kicad import PcbFile
+from pcbasm.kicad import load_board
 from pcbasm.pasting.capture import PointCapturer
 from pcbasm.pasting.session import PasteSession
 from pcbasm.posctrl import BoardCalibrationResult
@@ -65,7 +65,7 @@ def _session(
         ),
         offset_transform=Identity(),
         board_transform=Shift(BOARD_SHIFT.x, BOARD_SHIFT.y),
-        pcb=PcbFile(LED_BLINKER),
+        pcb=load_board(LED_BLINKER),
     )
     return PasteSession.from_calibration(result)
 

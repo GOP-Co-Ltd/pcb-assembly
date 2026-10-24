@@ -15,7 +15,7 @@ import attrs
 
 from pcbasm.config.dispenser import PasteDispenserConfig
 from pcbasm.pasting.fill_path import FillPlan
-from pcbasm.pasting.hierarchy import HierKey, PadHierarchy, PadRef
+from pcbasm.pasting.hierarchy import HierKey, PadHierarchy
 from pcbasm.pasting.params import PASTE_PARAM_FIELDS
 from pcbasm.pasting.settings import ResolvedSetting
 
@@ -45,7 +45,7 @@ class AppliedModeSummary:
 
 def applied_mode_summaries(
     hierarchy: PadHierarchy,
-    pad_settings: Mapping[PadRef, ResolvedSetting],
+    pad_settings: Mapping[str, ResolvedSetting],
     node_settings: Mapping[HierKey, ResolvedSetting],
     config: PasteDispenserConfig,
 ) -> dict[HierKey, AppliedModeSummary]:
@@ -66,7 +66,7 @@ def applied_mode_summaries(
     """
     counts: dict[HierKey, Counter[str]] = {}
     for pad in hierarchy.iter_pads():
-        setting = pad_settings[hierarchy.pad_ref_for_pad(pad)]
+        setting = pad_settings[pad.ref]
         if not setting.enabled:
             continue
         mode = FillPlan.mode_for_pad(pad.polygon, config=config, params=setting.params)

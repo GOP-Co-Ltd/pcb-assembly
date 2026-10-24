@@ -63,14 +63,14 @@ class BoardTransformMeasurer:
     4 つの reference point の実測位置から affine 変換を最小二乗推定する。
 
     Example:
-        from pcbasm.kicad import PcbFile
+        from pcbasm.kicad import load_board
 
-        pcb = PcbFile(pcb_file)
+        board = load_board(pcb_file)
         measurer = BoardTransformMeasurer(
             adjust_reference=adjust_reference,
             klipper=klipper,
             stage=stage,
-            outline=pcb.outline,
+            outline=board.outline,
             reference_point=machine.reference_point,
             settle_sec=machine.settle.move_sec,
         )

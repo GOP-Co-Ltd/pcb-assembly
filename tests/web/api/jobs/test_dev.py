@@ -1,12 +1,12 @@
 """`web.api.jobs.dev` の仕様テスト（integration-with-fakes）.
 
-計画書 webui-phase3.md「src/webui/jobs/dev.py」節が契約。実 PcbFile /
+計画書 webui-phase3.md「src/webui/jobs/dev.py」節が契約。実 load_board /
 実 pcbnew / 実 matplotlib を使い、default_catalog のジョブを manager 経由で
 実行して成果物を検証する:
 
 - extract_pcb: SUCCEEDED + artifacts 5 件（PNG 1 + データ 4）、PNG は cv2 で読める
 - extract_pcb を PCB 未選択で start → ValueError
-- make_fill_coverage_pcb: 出力が PcbFile で読める
+- make_fill_coverage_pcb: 出力が load_board で読める
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from pathlib import Path
 import cv2
 import pytest
 
-from pcbasm.kicad import PcbFile
+from pcbasm.kicad import load_board
 from web.api.jobs.catalog import default_catalog
 from web.api.jobs.manager import JobManager, JobStatus
 from web.api.settings import Settings
@@ -39,7 +39,7 @@ def _artifact_file(settings: Settings, path: str) -> Path:
 
 
 class TestExtractPcb:
-    """extract_pcb（実 PcbFile + render_pcb）."""
+    """extract_pcb（実 load_board + render_pcb）."""
 
     def test_extract_pcb_produces_five_artifacts(
         self,
@@ -96,5 +96,5 @@ class TestMakeFillCoveragePcb:
         outputs = [a for a in record.result.artifacts if a.path.endswith(".kicad_pcb")]
         assert len(outputs) == 1
 
-        pcb = PcbFile(_artifact_file(fake_camera_settings, outputs[0].path))
+        pcb = load_board(_artifact_file(fake_camera_settings, outputs[0].path))
         assert len(pcb.pads) > 0

@@ -35,7 +35,7 @@ from pcbasm.hal.fake import (
     FakeCamera,
     FakeKlipper,
 )
-from pcbasm.kicad import PcbFile
+from pcbasm.kicad import load_board
 from pcbasm.kicad.build import generate_rect_pcb, save_board
 from pcbasm.parking import park_or_present
 from pcbasm.pasting.alignment import PasteCorrection
@@ -175,7 +175,7 @@ def _result(
         ),
         offset_transform=Identity(),
         board_transform=BOARD_TRANSFORM,
-        pcb=PcbFile(pcb),
+        pcb=load_board(pcb),
     )
 
 

@@ -2,11 +2,12 @@
 
 仕様: docs plan `claude-webui-1-pad-extract-eager-pine.md` Phase 1。 実
 Pad/Component/shapely.Polygon を直接構築し、PadHierarchy.build の
-公開振る舞いを検証する（PcbFile/pcbnew は使わない）。
+公開振る舞いを検証する（pcbnew は使わない）。
 """
 
 from collections.abc import Sequence
 
+import attrs
 import pytest
 from shapely import Polygon
 from shapely.affinity import rotate
@@ -154,15 +155,15 @@ class TestPadHierarchyBuildKeys:
 
 
 class TestPadHierarchyBuildDuplicatePadNumbers:
-    """同じ pad number を持つ分割ペースト領域の L4 キー."""
+    """同じ pad number を持つ分割ペースト領域は、pad の ref（読込が ``#n`` を付ける）で L4 を分ける."""
 
-    def test_duplicate_pad_numbers_get_distinct_l4_nodes(self):
+    def test_split_pads_get_distinct_l4_nodes(self):
         components = [_component("U1", "LFCSP-24")]
         pads = [
-            _pad("U1", "", _rect(0.0, 0.0, 0.93, 0.93)),
-            _pad("U1", "", _rect(1.0, 0.0, 0.93, 0.93)),
-            _pad("U1", "", _rect(0.0, 1.0, 0.93, 0.93)),
-            _pad("U1", "", _rect(1.0, 1.0, 0.93, 0.93)),
+            attrs.evolve(_pad("U1", "", _rect(x, y, 0.93, 0.93)), ref=f"U1.#{i}")
+            for i, (x, y) in enumerate(
+                [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)], start=1
+            )
         ]
 
         hierarchy = PadHierarchy.build(components, pads)
@@ -177,23 +178,27 @@ class TestPadHierarchyBuildDuplicatePadNumbers:
             ("L4", "U1", "#3"),
             ("L4", "U1", "#4"),
         ]
-        assert [hierarchy.pad_id_for_pad(pad) for pad in pads] == [
+        assert [child.label for child in l3.children] == [
             "U1.#1",
             "U1.#2",
             "U1.#3",
             "U1.#4",
         ]
 
-    def test_duplicate_pad_number_node_keys_point_to_each_fragment(self):
+    def test_node_keys_point_to_each_fragment(self):
         components = [_component("U1", "LFCSP-24")]
         pads = [
-            _pad("U1", "EP", _rect(0.0, 0.0, 0.93, 0.93)),
-            _pad("U1", "EP", _rect(1.0, 0.0, 0.93, 0.93)),
+            attrs.evolve(_pad("U1", "EP", _rect(0.0, 0.0, 0.93, 0.93)), ref="U1.EP#1"),
+            attrs.evolve(_pad("U1", "EP", _rect(1.0, 0.0, 0.93, 0.93)), ref="U1.EP#2"),
         ]
         hierarchy = PadHierarchy.build(components, pads)
 
         assert hierarchy.node_keys_for_pad(pads[0])[-1] == ("L4", "U1", "EP#1")
         assert hierarchy.node_keys_for_pad(pads[1])[-1] == ("L4", "U1", "EP#2")
+        assert hierarchy.l4_keys_for_pad_ids(["U1.EP#2"]) == (
+            [("L4", "U1", "EP#2")],
+            [],
+        )
 
 
 class TestPadHierarchyBuildShapeGrouping:
@@ -232,26 +237,16 @@ class TestPadHierarchyBuildShapeGrouping:
 
 
 class TestPadHierarchyFindPad:
-    """階層の pad は参照キーと id に解決し、階層に無い pad は KeyError にする。"""
+    """階層に無い pad のキーは KeyError にする。"""
 
-    @pytest.fixture
-    def hierarchy_and_pads(self) -> tuple[PadHierarchy, Pad, Pad]:
+    def test_unknown_pad_is_rejected(self):
         components = [_component("R1", "0402")]
         known = _pad("R1", "1", _rect(0.0, 0.0, 0.5, 0.9))
         unknown = _pad("X9", "1", _rect(2.0, 0.0, 0.5, 0.9))
-        return PadHierarchy.build(components, [known]), known, unknown
+        hierarchy = PadHierarchy.build(components, [known])
 
-    def test_known_pad_resolves_to_ref_and_id(self, hierarchy_and_pads):
-        hierarchy, known, _ = hierarchy_and_pads
-        assert hierarchy.pad_ref_for_pad(known) == ("R1", "1")
-        assert hierarchy.pad_id_for_pad(known) == "R1.1"
-
-    def test_unknown_pad_is_rejected(self, hierarchy_and_pads):
-        hierarchy, _, unknown = hierarchy_and_pads
         with pytest.raises(KeyError):
-            hierarchy.pad_ref_for_pad(unknown)
-        with pytest.raises(KeyError):
-            hierarchy.pad_id_for_pad(unknown)
+            hierarchy.node_keys_for_pad(unknown)
 
 
 class TestPadHierarchyNodePads:

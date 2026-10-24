@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from pcbasm.kicad import PcbFile
+from pcbasm.kicad import load_board
 from tests.web.api.jobs.conftest import WaitUntil
 from web.api.jobs.manager import JobManager, JobStatus
 from web.api.settings import Settings
@@ -28,7 +28,7 @@ class TestGenerateRectPcb:
         outputs = [a for a in record.result.artifacts if a.path.endswith(".kicad_pcb")]
         assert len(outputs) == 1
 
-        pcb = PcbFile(fake_camera_settings.webui_data_dir / outputs[0].path)
+        pcb = load_board(fake_camera_settings.webui_data_dir / outputs[0].path)
         assert pcb.outline.width == pytest.approx(50.0, abs=0.1)
         assert pcb.outline.height == pytest.approx(20.0, abs=0.1)
         assert len(pcb.pads) == 0

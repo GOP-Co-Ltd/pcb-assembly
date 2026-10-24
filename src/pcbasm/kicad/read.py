@@ -12,240 +12,237 @@ Note:
 """
 
 import logging
-from functools import cached_property
+from collections import Counter
 from pathlib import Path
 
+import attrs
 import pcbnew
 from shapely import Point as ShapelyPoint, Polygon, get_parts
 from shapely.affinity import translate
 from shapely.ops import unary_union
 
-from pcbasm.board import Component, Copper, Layer, Outline, Pad
+from pcbasm.board import Board, Component, Copper, Layer, Outline, Pad
 from pcbasm.geometry.polygon import merge_islands
 from pcbasm.geometry.transform import Point2d
 
 logger = logging.getLogger(__name__)
 
 
-class PcbFile:
-    """KiCad PCB ファイル.
-
-    PCB ファイルから部品・パッド・アウトライン情報を抽出する.
-    各プロパティは遅延読み込みされ、結果はキャッシュされる.
-
-    Args:
-        pcb_path: KiCad PCB ファイル (.kicad_pcb) のパス
+def load_board(path: Path) -> Board:
+    """KiCad PCB ファイル (.kicad_pcb) を読み、左上原点の基板座標へ正規化した Board を返す.
 
     Example:
-        >>> pcb = PcbFile(Path("board.kicad_pcb"))
-        >>> print(pcb.outline.width, pcb.outline.height)
-        >>> for comp in pcb.components:
-        ...     print(comp.designator)
+        >>> board = load_board(Path("board.kicad_pcb"))
+        >>> print(board.outline.width, board.outline.height)
     """
+    kicad = pcbnew.LoadBoard(str(path))
+    outline = _outline_polygon(kicad)
+    if outline.is_empty:
+        origin_x, origin_y = 0.0, 0.0
+    else:
+        origin_x, origin_y, _, _ = outline.bounds
+    return Board(
+        outline=Outline(translate(outline, xoff=-origin_x, yoff=-origin_y)),
+        components=_components(kicad, origin_x, origin_y),
+        pads=_with_unique_refs(_pads(kicad, origin_x, origin_y)),
+        copper=_copper(kicad, origin_x, origin_y),
+    )
 
-    def __init__(self, pcb_path: Path) -> None:
-        self._board: pcbnew.BOARD = pcbnew.LoadBoard(str(pcb_path))
 
-    @cached_property
-    def _original_outline_polygon(self) -> Polygon:
-        """基板アウトラインのポリゴン（正規化前）."""
-        outline_poly_set = pcbnew.SHAPE_POLY_SET()
-        self._board.GetBoardPolygonOutlines(outline_poly_set)
-        polygons = _shape_poly_set_to_polygons(outline_poly_set, 0.0, 0.0)
-        return polygons[0] if polygons else Polygon()
+def _outline_polygon(kicad: pcbnew.BOARD) -> Polygon:
+    """基板アウトラインのポリゴン（正規化前）."""
+    outline_poly_set = pcbnew.SHAPE_POLY_SET()
+    kicad.GetBoardPolygonOutlines(outline_poly_set)
+    polygons = _shape_poly_set_to_polygons(outline_poly_set, 0.0, 0.0)
+    return polygons[0] if polygons else Polygon()
 
-    @cached_property
-    def _origin(self) -> tuple[float, float]:
-        """基板アウトラインの原点（左上座標）."""
-        if self._original_outline_polygon.is_empty:
-            return (0.0, 0.0)
-        origin_x, origin_y, _, _ = self._original_outline_polygon.bounds
-        return (origin_x, origin_y)
 
-    @cached_property
-    def outline(self) -> Outline:
-        """基板アウトライン（左上原点に正規化済み）."""
-        polygon = self._original_outline_polygon
-        if polygon.is_empty:
-            return Outline(Polygon())
+def _components(
+    kicad: pcbnew.BOARD, origin_x: float, origin_y: float
+) -> tuple[Component, ...]:
+    """部品情報（position は footprint 原点、rotation は KiCad の footprint 向き [度]）."""
+    components: list[Component] = []
 
-        origin_x, origin_y = self._origin
-        normalized_polygon = translate(polygon, xoff=-origin_x, yoff=-origin_y)
-        return Outline(normalized_polygon)
+    for footprint in kicad.GetFootprints():
+        if footprint.IsDNP():
+            continue
 
-    @cached_property
-    def components(self) -> list[Component]:
-        """部品情報のリスト（左上原点に正規化済み）.
+        if footprint.IsFlipped():
+            layer = Layer.BOTTOM
+        else:
+            layer = Layer.TOP
 
-        position は footprint 原点、rotation は KiCad の footprint 向き [度].
-        """
-        origin_x, origin_y = self._origin
-        components: list[Component] = []
+        pos = footprint.GetPosition()
+        x = _nm_to_mm(pos.x) - origin_x
+        y = _nm_to_mm(pos.y) - origin_y
 
-        for footprint in self._board.GetFootprints():
-            if footprint.IsDNP():
-                continue
+        orientation = footprint.GetOrientation()
+        rotation = orientation.AsDegrees()
 
-            if footprint.IsFlipped():
-                layer = Layer.BOTTOM
+        components.append(
+            Component(
+                designator=str(footprint.GetReference()),
+                value=str(footprint.GetValue()),
+                package=str(footprint.GetFPID().GetLibItemName()),
+                position=Point2d(x=x, y=y),
+                rotation=rotation,
+                layer=layer,
+            )
+        )
+
+    return tuple(components)
+
+
+def _pads(kicad: pcbnew.BOARD, origin_x: float, origin_y: float) -> list[Pad]:
+    """パッド情報.
+
+    F.Paste / B.Paste を持つ pad だけを含める（ペーストを塗らない pad は除く）.
+
+    ペースト形状が複数の輪郭に分かれる pad は、輪郭ごとに別の Pad になる.
+    """
+    pads: list[Pad] = []
+
+    for footprint in kicad.GetFootprints():
+        if footprint.IsDNP():
+            continue
+
+        for pad in footprint.Pads():
+            layer_set = pad.GetLayerSet()
+
+            if layer_set.Contains(pcbnew.F_Paste):
+                target_layer = pcbnew.F_Paste
+            elif layer_set.Contains(pcbnew.B_Paste):
+                target_layer = pcbnew.B_Paste
             else:
-                layer = Layer.TOP
+                continue
 
-            pos = footprint.GetPosition()
-            x = _nm_to_mm(pos.x) - origin_x
-            y = _nm_to_mm(pos.y) - origin_y
+            shape_poly_set = pad.GetEffectivePolygon(target_layer)
 
-            orientation = footprint.GetOrientation()
-            rotation = orientation.AsDegrees()
+            for outline_idx in range(shape_poly_set.OutlineCount()):
+                outline = shape_poly_set.Outline(outline_idx)
 
-            components.append(
-                Component(
-                    designator=str(footprint.GetReference()),
-                    value=str(footprint.GetValue()),
-                    package=str(footprint.GetFPID().GetLibItemName()),
-                    position=Point2d(x=x, y=y),
-                    rotation=rotation,
-                    layer=layer,
+                points = []
+                for point in outline.CPoints():
+                    x = _nm_to_mm(point.x) - origin_x
+                    y = _nm_to_mm(point.y) - origin_y
+                    points.append((x, y))
+
+                if points and points[0] != points[-1]:
+                    points.append(points[0])
+
+                pads.append(
+                    Pad(
+                        designator=str(footprint.GetReference()),
+                        pad_number=str(pad.GetNumber()),
+                        net_name=str(pad.GetNetname()),
+                        layer=Layer.TOP
+                        if target_layer == pcbnew.F_Paste
+                        else Layer.BOTTOM,
+                        polygon=Polygon(points),
+                        is_custom_shape=pad.GetShape() == pcbnew.PAD_SHAPE_CUSTOM,
+                    )
                 )
+
+    return pads
+
+
+def _with_unique_refs(pads: list[Pad]) -> tuple[Pad, ...]:
+    """同じ designator と pad_number の pad の ref に、読んだ順の ``#n`` を付ける.
+
+    露出パッドをペースト面だけ分割する KiCad データや、輪郭が分かれた pad がこれに当たる。
+    pad_number が空なら ``"<designator>.#n"`` になる。
+    """
+    counts = Counter((pad.designator, pad.pad_number) for pad in pads)
+    seen: Counter[tuple[str, str]] = Counter()
+    numbered: list[Pad] = []
+    for pad in pads:
+        key = (pad.designator, pad.pad_number)
+        if counts[key] > 1:
+            seen[key] += 1
+            pad = attrs.evolve(pad, ref=f"{pad.ref}#{seen[key]}")
+        numbered.append(pad)
+    return tuple(numbered)
+
+
+def _copper(
+    kicad: pcbnew.BOARD, origin_x: float, origin_y: float
+) -> tuple[Copper, ...]:
+    """電気的・物理的に接続された銅箔島.
+
+    各レイヤー（Top/Bottom）について、塗りつぶし済みゾーン・トラック・ビア （pcbnew では Track
+    扱い）・パッドのポリゴンを集約し、結合・closing 後の 連結成分からビアのドリル穴を除いたものを 1 つの Copper
+    として返す.
+    """
+    # ゾーンの fill キャッシュが stale な場合に備え、読み込み時に 1 回だけ再 fill する
+    try:
+        pcbnew.ZONE_FILLER(kicad).Fill(kicad.Zones())
+    except Exception:
+        logger.warning(
+            "zoneの再fillに失敗したため、ファイル内のfillキャッシュを使用する",
+            exc_info=True,
+        )
+
+    max_error = kicad.GetDesignSettings().m_MaxError
+    coppers: list[Copper] = []
+
+    def to_polys(sps: pcbnew.SHAPE_POLY_SET) -> list[Polygon]:
+        return _shape_poly_set_to_polygons(sps, origin_x, origin_y)
+
+    for kicad_layer, layer in (
+        (pcbnew.F_Cu, Layer.TOP),
+        (pcbnew.B_Cu, Layer.BOTTOM),
+    ):
+        polygons: list[Polygon] = []
+        via_drill_holes: list[Polygon] = []
+
+        has_zone = False
+        zone_polygon_count = 0
+        for zone in kicad.Zones():
+            if zone.IsOnLayer(kicad_layer):
+                has_zone = True
+                zone_polygons = to_polys(zone.GetFilledPolysList(kicad_layer))
+                zone_polygon_count += len(zone_polygons)
+                polygons.extend(zone_polygons)
+
+        if has_zone and zone_polygon_count == 0:
+            logger.warning(
+                "レイヤー %s にzoneがあるがfillポリゴンが空 "
+                "(zone fillが空 = PCBデータ不整合の可能性)",
+                layer.name,
             )
 
-        return components
+        for track in kicad.GetTracks():
+            if not track.GetLayerSet().Contains(kicad_layer):
+                continue
+            sps = pcbnew.SHAPE_POLY_SET()
+            track.TransformShapeToPolygon(
+                sps, kicad_layer, 0, max_error, pcbnew.ERROR_INSIDE
+            )
+            polygons.extend(to_polys(sps))
+            if isinstance(track, pcbnew.PCB_VIA) and track.HasDrilledHole():
+                via_drill_holes.append(
+                    _via_drill_polygon(track, origin_x, origin_y, max_error)
+                )
 
-    @cached_property
-    def pads(self) -> list[Pad]:
-        """パッド情報のリスト（左上原点に正規化済み）.
-
-        F.Paste / B.Paste を持つ pad だけを含める（ペーストを塗らない pad は除く）.
-
-        ペースト形状が複数の輪郭に分かれる pad は、輪郭ごとに別の Pad になる.
-
-        そのため同じ ``(designator, pad_number)`` の Pad が複数できることがある.
-        """
-        origin_x, origin_y = self._origin
-        pads: list[Pad] = []
-
-        for footprint in self._board.GetFootprints():
+        for footprint in kicad.GetFootprints():
             if footprint.IsDNP():
                 continue
-
             for pad in footprint.Pads():
-                layer_set = pad.GetLayerSet()
+                if pad.GetLayerSet().Contains(kicad_layer):
+                    polygons.extend(to_polys(pad.GetEffectivePolygon(kicad_layer)))
 
-                if layer_set.Contains(pcbnew.F_Paste):
-                    target_layer = pcbnew.F_Paste
-                elif layer_set.Contains(pcbnew.B_Paste):
-                    target_layer = pcbnew.B_Paste
-                else:
-                    continue
+        if not polygons:
+            continue
 
-                shape_poly_set = pad.GetEffectivePolygon(target_layer)
+        islands = merge_islands(polygons, snap_mm=2 * _nm_to_mm(max_error))
+        drill_area = unary_union(via_drill_holes)
+        for island in islands:
+            copper = island.difference(drill_area)
+            for part in get_parts(copper):
+                if isinstance(part, Polygon) and not part.is_empty:
+                    coppers.append(Copper(layer=layer, polygon=part))
 
-                for outline_idx in range(shape_poly_set.OutlineCount()):
-                    outline = shape_poly_set.Outline(outline_idx)
-
-                    points = []
-                    for point in outline.CPoints():
-                        x = _nm_to_mm(point.x) - origin_x
-                        y = _nm_to_mm(point.y) - origin_y
-                        points.append((x, y))
-
-                    if points and points[0] != points[-1]:
-                        points.append(points[0])
-
-                    pads.append(
-                        Pad(
-                            designator=str(footprint.GetReference()),
-                            pad_number=str(pad.GetNumber()),
-                            net_name=str(pad.GetNetname()),
-                            layer=Layer.TOP
-                            if target_layer == pcbnew.F_Paste
-                            else Layer.BOTTOM,
-                            polygon=Polygon(points),
-                            is_custom_shape=pad.GetShape() == pcbnew.PAD_SHAPE_CUSTOM,
-                        )
-                    )
-
-        return pads
-
-    @cached_property
-    def copper(self) -> list[Copper]:
-        """電気的・物理的に接続された銅箔島のリスト（左上原点に正規化済み）.
-
-        各レイヤー（Top/Bottom）について、塗りつぶし済みゾーン・トラック・ビア （pcbnew では Track
-        扱い）・パッドのポリゴンを集約し、結合・closing 後の 連結成分からビアのドリル穴を除いたものを 1 つの Copper
-        として返す.
-        """
-        # ゾーンの fill キャッシュが stale な場合に備え、読み込み時に 1 回だけ再 fill する
-        try:
-            pcbnew.ZONE_FILLER(self._board).Fill(self._board.Zones())
-        except Exception:
-            logger.warning(
-                "zoneの再fillに失敗したため、ファイル内のfillキャッシュを使用する",
-                exc_info=True,
-            )
-
-        origin_x, origin_y = self._origin
-        max_error = self._board.GetDesignSettings().m_MaxError
-        coppers: list[Copper] = []
-
-        def to_polys(sps: pcbnew.SHAPE_POLY_SET) -> list[Polygon]:
-            return _shape_poly_set_to_polygons(sps, origin_x, origin_y)
-
-        for kicad_layer, layer in (
-            (pcbnew.F_Cu, Layer.TOP),
-            (pcbnew.B_Cu, Layer.BOTTOM),
-        ):
-            polygons: list[Polygon] = []
-            via_drill_holes: list[Polygon] = []
-
-            has_zone = False
-            zone_polygon_count = 0
-            for zone in self._board.Zones():
-                if zone.IsOnLayer(kicad_layer):
-                    has_zone = True
-                    zone_polygons = to_polys(zone.GetFilledPolysList(kicad_layer))
-                    zone_polygon_count += len(zone_polygons)
-                    polygons.extend(zone_polygons)
-
-            if has_zone and zone_polygon_count == 0:
-                logger.warning(
-                    "レイヤー %s にzoneがあるがfillポリゴンが空 "
-                    "(zone fillが空 = PCBデータ不整合の可能性)",
-                    layer.name,
-                )
-
-            for track in self._board.GetTracks():
-                if not track.GetLayerSet().Contains(kicad_layer):
-                    continue
-                sps = pcbnew.SHAPE_POLY_SET()
-                track.TransformShapeToPolygon(
-                    sps, kicad_layer, 0, max_error, pcbnew.ERROR_INSIDE
-                )
-                polygons.extend(to_polys(sps))
-                if isinstance(track, pcbnew.PCB_VIA) and track.HasDrilledHole():
-                    via_drill_holes.append(
-                        _via_drill_polygon(track, origin_x, origin_y, max_error)
-                    )
-
-            for footprint in self._board.GetFootprints():
-                if footprint.IsDNP():
-                    continue
-                for pad in footprint.Pads():
-                    if pad.GetLayerSet().Contains(kicad_layer):
-                        polygons.extend(to_polys(pad.GetEffectivePolygon(kicad_layer)))
-
-            if not polygons:
-                continue
-
-            islands = merge_islands(polygons, snap_mm=2 * _nm_to_mm(max_error))
-            drill_area = unary_union(via_drill_holes)
-            for island in islands:
-                copper = island.difference(drill_area)
-                for part in get_parts(copper):
-                    if isinstance(part, Polygon) and not part.is_empty:
-                        coppers.append(Copper(layer=layer, polygon=part))
-
-        return coppers
+    return tuple(coppers)
 
 
 def _via_drill_polygon(

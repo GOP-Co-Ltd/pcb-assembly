@@ -16,7 +16,7 @@ from pcbasm.config import load_machine
 from pcbasm.geometry import Identity, Point2d, Shift
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FakeCamera, FakeKlipper
-from pcbasm.kicad import PcbFile
+from pcbasm.kicad import load_board
 from pcbasm.pasting.toolhead_offset import (
     MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT,
     ToolheadOffsetDiagnostics,
@@ -366,7 +366,7 @@ def _board_result(klipper: FakeKlipper, camera: FakeCamera) -> BoardCalibrationR
         ),
         offset_transform=Identity(),
         board_transform=Shift(BOARD_SHIFT.x, BOARD_SHIFT.y),
-        pcb=PcbFile(LED_BLINKER),
+        pcb=load_board(LED_BLINKER),
     )
 
 

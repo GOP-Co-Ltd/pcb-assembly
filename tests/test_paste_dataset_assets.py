@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from pcbasm.kicad import PcbFile
+from pcbasm.kicad import load_board
 from pcbasm.paths import PROJECT_ROOT
 
 
@@ -23,7 +23,7 @@ class TestPasteTestBoardAssets:
     ):
         path = PROJECT_ROOT / "data" / "paste-test-board" / filename
 
-        pcb = PcbFile(path)
+        pcb = load_board(path)
 
         assert len(pcb.pads) == expected_pad_count
         purge = [pad for pad in pcb.pads if pad.designator == "PURGE"]

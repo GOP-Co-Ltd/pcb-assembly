@@ -13,9 +13,7 @@
 
 L3 の形状分類は :class:`PadShapeKey` による。回転配置された同型 pad が
 同一キーになるよう、最小回転外接矩形の短辺/長辺で正規化する。
-同じ部品内で ``pad_number`` が重複する場合（露出パッドをペースト面だけ
-複数分割する KiCad データなど）は、L4 だけ ``#1`` / ``#2`` suffix を付けて
-分割片を区別する。
+L4 は pad の一意な ``ref`` から引く（同じ ``pad_number`` の分割片は ``#1`` / ``#2`` で区別される）。
 """
 
 import hashlib
@@ -30,10 +28,6 @@ from pcbasm.geometry import oriented_bbox
 
 # 階層ノードのキー（例 ("L3", "U1", "0.50x0.90mm")）
 HierKey = tuple[str, ...]
-
-# UI / 設定解決で使う pad 参照。通常は (designator, pad_number)。
-# 同じ pad_number が複数ある場合だけ第 2 要素に "#n" suffix を付ける。
-PadRef = tuple[str, str]
 
 # 形状量子化の既定単位（mm／mm²）
 DEFAULT_SHAPE_QUANTUM = 0.01
@@ -122,18 +116,9 @@ class PadHierarchy:
     """
 
     root: PadHierarchyNode
-    # pad_ref -> L0..L4 の 5 キー。build 時に構築する。
-    _keys_by_pad_ref: dict[PadRef, tuple[HierKey, ...]] = attrs.field(
+    # pad.ref -> L0..L4 の 5 キー。build 時に構築する。
+    _keys_by_pad_ref: dict[str, tuple[HierKey, ...]] = attrs.field(
         factory=dict, eq=False, alias="keys_by_pad_ref"
-    )
-    _refs_by_pad_object: dict[int, PadRef] = attrs.field(
-        factory=dict, eq=False, alias="refs_by_pad_object"
-    )
-    _pads_by_ref: dict[PadRef, Pad] = attrs.field(
-        factory=dict, eq=False, alias="pads_by_ref"
-    )
-    _refs_by_pad_id: dict[str, PadRef] = attrs.field(
-        factory=dict, eq=False, alias="refs_by_pad_id"
     )
 
     @classmethod
@@ -150,7 +135,7 @@ class PadHierarchy:
 
         Args:
             components: 対象部品列
-            pads: 対象 pad 列
+            pads: 対象 pad 列（``ref`` は一意）
             shape_quantum: 形状量子化単位（mm／mm²、既定 0.01）
 
         Returns:
@@ -158,28 +143,14 @@ class PadHierarchy:
         """
         package_by_designator = {c.designator: c.package for c in components}
 
-        keyed_pads: list[tuple[PadRef, Pad]] = []
-        refs_by_pad_object = _pad_refs_by_object(pads)
-        keys_by_pad_ref: dict[PadRef, tuple[HierKey, ...]] = {}
-        pads_by_ref: dict[PadRef, Pad] = {}
-        refs_by_pad_id: dict[str, PadRef] = {}
+        keys_by_pad_ref: dict[str, tuple[HierKey, ...]] = {}
         for pad in pads:
             package = package_by_designator[pad.designator]
-            ref = refs_by_pad_object[id(pad)]
             shape_label = PadShapeKey.of(pad, quantum=shape_quantum).label
-            keys_by_pad_ref[ref] = _hier_keys_for(pad, package, shape_label, ref[1])
-            pads_by_ref[ref] = pad
-            refs_by_pad_id[pad_id_from_ref(ref)] = ref
-            keyed_pads.append((ref, pad))
+            keys_by_pad_ref[pad.ref] = _hier_keys_for(pad, package, shape_label)
 
-        root = _build_node(0, ("L0",), keyed_pads, keys_by_pad_ref)
-        return cls(
-            root=root,
-            keys_by_pad_ref=keys_by_pad_ref,
-            refs_by_pad_object=refs_by_pad_object,
-            pads_by_ref=pads_by_ref,
-            refs_by_pad_id=refs_by_pad_id,
-        )
+        root = _build_node(0, ("L0",), list(pads), keys_by_pad_ref)
+        return cls(root=root, keys_by_pad_ref=keys_by_pad_ref)
 
     def iter_pads(self) -> Iterator[Pad]:
         """階層に含まれる全 pad を反復する（ルート配下の順）."""
@@ -189,7 +160,7 @@ class PadHierarchy:
         """Pad が属する L0–L4 の 5 キーを返す.
 
         Args:
-            pad: 対象 pad（``designator`` と ``pad_number`` で照合）
+            pad: 対象 pad（``ref`` で照合）
 
         Returns:
             ``[L0, L1, L2, L3, L4]`` の 5 要素
@@ -197,29 +168,7 @@ class PadHierarchy:
         Raises:
             KeyError: pad がこの階層に存在しない場合
         """
-        return list(self._keys_by_pad_ref[self.pad_ref_for_pad(pad)])
-
-    def pad_ref_for_pad(self, pad: Pad) -> PadRef:
-        """Pad が階層内で持つ一意な参照キーを返す（階層に無い pad は ``KeyError``）.
-
-        通常は ``(designator, pad_number)``。同じ ``pad_number`` の分割 pad は
-        ``(designator, "<pad_number>#n")`` で区別する。
-        """
-        ref = self._refs_by_pad_object.get(id(pad))
-        if ref is not None:
-            return ref
-        matches = [
-            candidate
-            for candidate, existing in self._pads_by_ref.items()
-            if existing == pad
-        ]
-        if len(matches) != 1:
-            raise KeyError((pad.designator, pad.pad_number))
-        return matches[0]
-
-    def pad_id_for_pad(self, pad: Pad) -> str:
-        """WebUI / API で使う一意な pad id を返す（階層に無い pad は ``KeyError``）."""
-        return pad_id_from_ref(self.pad_ref_for_pad(pad))
+        return list(self._keys_by_pad_ref[pad.ref])
 
     def all_keys(self) -> set[HierKey]:
         """階層に存在する全ノードキーの集合を返す."""
@@ -240,11 +189,11 @@ class PadHierarchy:
         resolved: list[HierKey] = []
         unknown: list[str] = []
         for pad_id in pad_ids:
-            ref = self._refs_by_pad_id.get(pad_id)
-            if ref is None:
+            keys = self._keys_by_pad_ref.get(pad_id)
+            if keys is None:
                 unknown.append(pad_id)
                 continue
-            resolved.append(self._keys_by_pad_ref[ref][-1])
+            resolved.append(keys[-1])
         return resolved, unknown
 
     def signature(self) -> str:
@@ -270,11 +219,6 @@ class PadHierarchy:
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def pad_id_from_ref(ref: PadRef) -> str:
-    """PadRef を WebUI/API 用の文字列 id に変換する."""
-    return f"{ref[0]}.{ref[1]}"
-
-
 def _signature_key(key: HierKey, pad: Pad) -> list[str]:
     """署名用に L4 の分割 suffix を pad_number に戻したキー表現を返す."""
     if key[0] == "L4":
@@ -282,50 +226,32 @@ def _signature_key(key: HierKey, pad: Pad) -> list[str]:
     return list(key)
 
 
-def _hier_keys_for(
-    pad: Pad, package: str, shape_label: str, pad_ref_tail: str
-) -> tuple[HierKey, ...]:
-    """1 pad に対する L0–L4 のキー列を構築する."""
+def _hier_keys_for(pad: Pad, package: str, shape_label: str) -> tuple[HierKey, ...]:
+    """1 pad に対する L0–L4 のキー列を構築する（L4 の末尾は ref から designator を除いた部分）."""
     return (
         ("L0",),
         ("L1", package),
         ("L2", pad.designator),
         ("L3", pad.designator, shape_label),
-        ("L4", pad.designator, pad_ref_tail),
+        ("L4", pad.designator, pad.ref.removeprefix(f"{pad.designator}.")),
     )
 
 
 # 各レベルのノードラベル（key とその pad から導出）。
-# L0 は固定文字列、L4 は ``designator.pad_ref``、それ以外は key の末尾。
+# L0 は固定文字列、L4 は pad の ref、それ以外は key の末尾。
 def _node_label(level: int, key: HierKey, pad: Pad) -> str:
     if level == 0:
         return "全部品"
     if level == 4:
-        return f"{pad.designator}.{key[-1]}"
+        return pad.ref
     return key[-1]
-
-
-def _pad_refs_by_object(pads: Sequence[Pad]) -> dict[int, PadRef]:
-    grouped: dict[tuple[str, str], list[Pad]] = {}
-    for pad in pads:
-        grouped.setdefault((pad.designator, pad.pad_number), []).append(pad)
-
-    refs: dict[int, PadRef] = {}
-    for (designator, pad_number), group in grouped.items():
-        if len(group) == 1:
-            refs[id(group[0])] = (designator, pad_number)
-            continue
-        for index, pad in enumerate(group, start=1):
-            suffix = f"{pad_number}#{index}" if pad_number else f"#{index}"
-            refs[id(pad)] = (designator, suffix)
-    return refs
 
 
 def _build_node(
     level: int,
     key: HierKey,
-    keyed_pads: list[tuple[PadRef, Pad]],
-    keys_by_pad_ref: dict[PadRef, tuple[HierKey, ...]],
+    pads: list[Pad],
+    keys_by_pad_ref: dict[str, tuple[HierKey, ...]],
 ) -> PadHierarchyNode:
     """``key`` のノードを構築し、配下を次レベルの key で再帰グループ化する.
 
@@ -333,15 +259,14 @@ def _build_node(
     """
     children: tuple[PadHierarchyNode, ...] = ()
     if level < 4:
-        groups: dict[HierKey, list[tuple[PadRef, Pad]]] = {}
-        for pad_ref, pad in keyed_pads:
-            child_key = keys_by_pad_ref[pad_ref][level + 1]
-            groups.setdefault(child_key, []).append((pad_ref, pad))
+        groups: dict[HierKey, list[Pad]] = {}
+        for pad in pads:
+            child_key = keys_by_pad_ref[pad.ref][level + 1]
+            groups.setdefault(child_key, []).append(pad)
         children = tuple(
             _build_node(level + 1, child_key, child_pads, keys_by_pad_ref)
             for child_key, child_pads in groups.items()
         )
-    pads = [pad for _, pad in keyed_pads]
     return PadHierarchyNode(
         level=level,
         key=key,

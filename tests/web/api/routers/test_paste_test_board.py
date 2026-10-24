@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from pcbasm.hal.fake import FakeAudioPlayer
-from pcbasm.kicad import PcbFile
+from pcbasm.kicad import load_board
 from web.api.app import create_app
 from web.api.settings import Settings
 
@@ -335,7 +335,7 @@ class TestPasteTestBoardGenerate:
         # 配信したバイト列が KiCad の基板として実際に開ける（中身は core が担保）
         output = tmp_path / "download.kicad_pcb"
         output.write_bytes(response.content)
-        assert PcbFile(output).pads
+        assert load_board(output).pads
 
     def test_layout_overflow_is_rejected(self, client: TestClient):
         config = _default_config(client)

@@ -21,7 +21,7 @@ from shapely import Polygon
 from pcbasm.geometry import Identity
 from pcbasm.hal import Camera, XYZStage
 from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper
-from pcbasm.kicad import PcbFile
+from pcbasm.kicad import load_board
 from pcbasm.kicad.build import generate_rect_pcb, save_board
 from pcbasm.pasting.paste_volume.calibration import CALIBRATION_SUFFIX
 from pcbasm.pasting.paste_volume.runtime import (
@@ -87,7 +87,7 @@ def plate_shapes(
     def shapes(width: float, height: float) -> list[Polygon]:
         path = tmp_path / f"plate_{width:g}x{height:g}.kicad_pcb"
         save_board(generate_rect_pcb(width, height), path)
-        return board_shapes(PcbFile(path), job_state.machine())
+        return board_shapes(load_board(path), job_state.machine())
 
     return shapes
 
@@ -215,7 +215,7 @@ class TestFlowCalibration:
         outcomes: list[FlowCalibrationOutcome | None] = []
 
         def run(ctx: JobContext) -> None:
-            pcb = PcbFile(LED_BLINKER)
+            pcb = load_board(LED_BLINKER)
             plan, error = plan_flow_calibration(
                 config=ctx.machine.paste_dispenser.volume_correction,
                 points=FLOW_POINTS,
