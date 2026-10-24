@@ -16,9 +16,9 @@
 from __future__ import annotations
 
 from pcbasm.geometry import Point2d, Transform
-from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.applicator import PasteApplicator
 from pcbasm.pasting.capture import PointCapturer
+from pcbasm.pasting.correction import PasteCorrection
 from pcbasm.pasting.initial_purge import ResolvedInitialPurge
 from pcbasm.pasting.nozzle_clean import NozzleCleanPlan, clean_nozzle
 from pcbasm.pasting.paste_volume.detect import measure_dot

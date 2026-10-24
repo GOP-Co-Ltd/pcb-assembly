@@ -12,7 +12,7 @@ import shapely
 
 from pcbasm.align import (
     AlignmentRegion,
-    BoardAlignment,
+    BoardCorrection,
     BoardFrame,
     EdgeMatch,
     RegionFit,
@@ -22,7 +22,7 @@ from pcbasm.geometry import Identity, Point2d, Shift
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FakeCamera, FakeKlipper
 from pcbasm.kicad import load_board
-from pcbasm.pasting.alignment import PasteCorrection
+from pcbasm.pasting.correction import PasteCorrection
 from pcbasm.pasting.session import PasteSession
 from pcbasm.vision import Image, Offset
 from tests.support.camera_model import make_camera_model
@@ -87,8 +87,8 @@ def full_board_correction() -> PasteCorrection:
     """基板全面を覆う成功領域 1 つ（変位なし）の補正."""
     area = shapely.box(-100.0, -100.0, 100.0, 100.0)
     return PasteCorrection(
-        alignment=BoardAlignment(
-            results=(
+        alignment=BoardCorrection(
+            fits=(
                 RegionFit(
                     region=AlignmentRegion(
                         index=0,
@@ -105,7 +105,8 @@ def full_board_correction() -> PasteCorrection:
                     increment=Point2d(0.0, 0.0),
                     passes=1,
                 ),
-            )
+            ),
+            region_count=1,
         ),
         height_plane=Identity(),
     )

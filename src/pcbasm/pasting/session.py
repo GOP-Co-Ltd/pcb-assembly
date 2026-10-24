@@ -19,8 +19,8 @@ from pcbasm.config import MachineConfig
 from pcbasm.config.dispenser import ToolheadConfig
 from pcbasm.geometry import Compose, HeightPlane, Identity, Point2d, Shift, Transform
 from pcbasm.hal import Camera, KlipperClient, XYZStage
-from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.applicator import PasteApplicator, build_applicator
+from pcbasm.pasting.correction import PasteCorrection
 from pcbasm.pasting.height import HeightPlaneMeasurer
 from pcbasm.pasting.probe import ProbeExecutor
 from pcbasm.vision import FrameSink
@@ -149,8 +149,7 @@ class PasteSession:
     def pad_transform(self, pad: Pad, correction: PasteCorrection) -> Transform:
         """1 pad 用の board → 補正 → toolhead → 高さ変換を返す."""
         return self._point_chain(
-            correction.alignment.correction_for(pad.center, designator=pad.designator),
-            correction.height_plane,
+            correction.alignment.correction_for(pad.center), correction.height_plane
         )
 
     def point_transform(self, point: Point2d, correction: PasteCorrection) -> Transform:

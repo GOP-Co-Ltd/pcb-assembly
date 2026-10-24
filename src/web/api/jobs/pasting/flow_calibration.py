@@ -21,9 +21,9 @@ import time
 
 import attrs
 
-from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.applicator import PasteApplicator
 from pcbasm.pasting.capture import PointCapturer
+from pcbasm.pasting.correction import PasteCorrection
 from pcbasm.pasting.paste_volume.estimator import (
     PasteVolumePrediction,
     load_diameter_estimator,

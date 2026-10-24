@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 from pcbasm.gcode import GCode
+from pcbasm.pasting.correction import measure_correction
 from pcbasm.pasting.nozzle_clean import resolve_nozzle_clean
 from pcbasm.pasting.overrides import BoardSession
 from pcbasm.pasting.workflow import plan_paste_targets
+from web.api.jobs.board_ops import align_events
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import JobContext, JobResult
 from web.api.jobs.pasting.common import (
     LOADING_DEFAULT_AMOUNT,
     LoadingTotals,
-    prepare_paste_workflow,
     run_loading_loop,
     setup_paste_session,
 )
@@ -87,10 +88,14 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
         if purge is not None:
             ctx.log(f"初回パージ: {purge.label} に {purge.amount_ul:.3f} uL")
 
-        prepared = prepare_paste_workflow(
-            ctx, session, alignment_pads=targets.routed_pads
+        ctx.progress("高さ計測")
+        correction = measure_correction(
+            session,
+            targets.routed_pads,
+            on_event=align_events(ctx),
+            frame_sink=ctx.frame,
         )
-        correction = prepared.correction
+        ctx.log(correction.alignment.summary())
 
         total = LoadingTotals()
         with session.make_applicator() as applicator:
@@ -140,7 +145,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
 
     return JobResult(
         summary=(
-            f"{prepared.summary()} / "
+            f"{correction.alignment.summary()} / "
             f"塗布 有効 {len(targets.routed_pads)} / 全 {len(targets.top_pads)} pads"
             f"（無効 {targets.disabled_count} 件スキップ・"
             f"初回パージ {purge.amount_ul if purge else 0.0:.3f} uL・"

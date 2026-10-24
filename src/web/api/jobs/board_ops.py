@@ -1,14 +1,13 @@
-"""ボード計測セットアップ・巡回プロンプト・銅箔照合ループの共有処理."""
+"""ボード計測セットアップ・巡回プロンプト・位置合わせの経過表示の共有処理."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 
 from pcbasm.align import (
-    AlignmentRegion,
+    AlignEvent,
+    AlignStep,
     BoardFrame,
-    RegionAlignmentSession,
-    RegionFit,
     measure_board_frame,
 )
 from pcbasm.board import Board
@@ -79,30 +78,18 @@ def confirm_next_point(
     )
 
 
-def align_regions(
-    ctx: JobContext,
-    session: RegionAlignmentSession,
-    regions: Sequence[AlignmentRegion],
-    *,
-    on_failure: Callable[[AlignmentRegion, int], None] | None = None,
-) -> list[RegionFit]:
-    """計画済み領域を巡回し、収束した照合結果だけを返す."""
-    aligned: list[RegionFit] = []
-    for index, region in enumerate(regions):
-        ctx.progress("銅箔照合", 100.0 * index / len(regions))
-        ctx.checkpoint()
-        alignment = session.align(region)
-        if alignment is None:
-            ctx.log(f"警告: 領域 {region.index} の照合に失敗")
-            if on_failure is not None:
-                on_failure(region, index)
-            continue
-        displacement = alignment.displacement
-        ctx.log(
-            f"領域 {region.index}: dx={displacement.x:+.4f} "
-            f"dy={displacement.y:+.4f} mm, "
-            f"rms_distance={alignment.match.rms_distance_px:.2f} px, "
-            f"passes={alignment.passes}"
-        )
-        aligned.append(alignment)
-    return aligned
+def align_events(ctx: JobContext) -> Callable[[AlignEvent], None]:
+    """位置合わせの経過を、進捗・中断の確認・照合ログへ流すコールバックを作る.
+
+    コールバックは、照合の 1 件に取りかかる前に abort されていれば ``JobAborted`` を送出する。
+    """
+
+    def on_event(event: AlignEvent) -> None:
+        match event:
+            case AlignStep(stage=stage, index=index, total=total):
+                ctx.progress(stage, 100.0 * index / total)
+                ctx.checkpoint()
+            case _:
+                ctx.log(event.message)
+
+    return on_event

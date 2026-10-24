@@ -6,24 +6,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from typing import Any
 
 import attrs
 
-from pcbasm.align import BoardAlignment, RegionAlignmentSession
-from pcbasm.board import Board, Pad
+from pcbasm.board import Board
 from pcbasm.hal import Camera, KlipperClient, XYZStage
-from pcbasm.pasting.alignment import (
-    PadRefinement,
-    PasteCorrection,
-    refine_pad,
-    refinement_targets,
-)
 from pcbasm.pasting.applicator import PasteApplicator
 from pcbasm.pasting.session import PasteSession
 from pcbasm.validators import is_finite_number
-from web.api.jobs.board_ops import align_regions, setup_board
+from web.api.jobs.board_ops import setup_board
 from web.api.jobs.context import JobContext, PromptSpec
 from web.api.jobs.machine_commands import handle_machine_command
 
@@ -307,25 +300,6 @@ def apply_to_machine_toml(ctx: JobContext, values: Mapping[str, float]) -> None:
     ctx.log(f"machine.toml へ反映しました: {pairs}")
 
 
-@attrs.frozen
-class PreparedPasteWorkflow:
-    """通常塗布と dataset 収集が共有する計測・位置合わせ結果とその要約."""
-
-    alignment_session: RegionAlignmentSession
-    correction: PasteCorrection
-    aligned_count: int
-    region_count: int
-    refinement_success_count: int
-    refinement_target_count: int
-
-    def summary(self) -> str:
-        return (
-            f"照合成功 {self.aligned_count}/{self.region_count} 領域 / "
-            f"pad中心照合 {self.refinement_success_count}/"
-            f"{self.refinement_target_count} pads"
-        )
-
-
 def setup_paste_session(
     ctx: JobContext,
     camera: Camera,
@@ -346,72 +320,3 @@ def setup_paste_session(
     return PasteSession.from_board_frame(
         board_frame, ctx.machine, klipper=klipper, stage=stage, camera=camera
     )
-
-
-def prepare_paste_workflow(
-    ctx: JobContext,
-    session: PasteSession,
-    *,
-    alignment_pads: Sequence[Pad],
-) -> PreparedPasteWorkflow:
-    """高さ計測 → 銅箔領域照合 → pad 中心精密照合を通し、pad 別変換の材料を揃える."""
-    ctx.progress("高さ計測")
-    height_plane = session.measure_height_plane()
-
-    alignment_session = session.alignment_session(frame_sink=ctx.frame)
-    regions = alignment_session.plan_regions([pad.center for pad in alignment_pads])
-    ctx.log(f"照合対象の領域数: {len(regions)}")
-    aligned = align_regions(ctx, alignment_session, regions)
-    alignment = BoardAlignment(results=tuple(aligned))
-    _check_all_pads_correctable(alignment, alignment_pads)
-    ctx.log(f"位置合わせ成功: {len(aligned)}/{len(regions)} 領域")
-
-    max_short_side = session.machine.alignment.refine_max_short_side
-    targets = refinement_targets(alignment_pads, max_short_side_mm=max_short_side)
-    ctx.log(
-        f"pad中心照合対象: {len(targets)}/{len(alignment_pads)} pads "
-        f"(最大短辺 {max_short_side:g} mm)"
-    )
-    refinements: list[PadRefinement] = []
-    for index, pad in enumerate(targets):
-        ctx.progress("pad照合", 100.0 * index / len(targets))
-        ctx.checkpoint()
-        refinement = refine_pad(
-            alignment_session,
-            board_transform=session.board_frame.board_transform,
-            alignment=alignment,
-            pad=pad,
-        )
-        if refinement.result is None or refinement.residual is None:
-            ctx.log(
-                f"警告: {pad.designator}.{pad.pad_number} のpad中心照合が"
-                "収束しないため領域補正を使用"
-            )
-            continue
-        ctx.log(
-            f"{pad.designator}.{pad.pad_number}: "
-            f"residual=({refinement.residual.x:+.4f}, {refinement.residual.y:+.4f}) mm, "
-            f"passes={refinement.result.passes}"
-        )
-        refinements.append(refinement)
-    alignment = BoardAlignment(
-        results=tuple(r.result for r in refinements if r.result is not None),
-        fallback_results=tuple(aligned),
-    )
-    ctx.log(f"pad中心照合成功: {len(refinements)}/{len(targets)} pads")
-    _check_all_pads_correctable(alignment, alignment_pads)
-
-    return PreparedPasteWorkflow(
-        alignment_session=alignment_session,
-        correction=PasteCorrection(alignment=alignment, height_plane=height_plane),
-        aligned_count=len(aligned),
-        region_count=len(regions),
-        refinement_success_count=len(refinements),
-        refinement_target_count=len(targets),
-    )
-
-
-def _check_all_pads_correctable(alignment: BoardAlignment, pads: Sequence[Pad]) -> None:
-    """塗布前に全 pad の補正が求まることを確かめる（求まらなければ ValueError）."""
-    for pad in pads:
-        alignment.correction_for(pad.center, designator=pad.designator)

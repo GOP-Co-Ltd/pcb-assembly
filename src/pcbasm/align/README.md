@@ -18,7 +18,7 @@ Board 巡回の実行・ユーザー入力・フレーム配信は `web/api/jobs
 | `correction.py`      | カメラ空間の照合結果を機械座標の補正 `Transform` へ変換 `to_machine_transform`                                                                                                                               |
 | `region.py`          | 銅箔照合領域の計画 `plan_alignment_regions`                                                                                                                                                                  |
 | `aligner.py`         | 1 領域の反復計測 `RegionAligner` → `RegionFit`                                                                                                                                                               |
-| `alignment.py`       | 全領域の計測 `RegionAlignmentSession` と pad ごとの補正選択 `BoardAlignment`                                                                                                                                 |
+| `board.py`           | 位置合わせの本筋。領域照合 `align_regions`、pad 中心の精密照合 `refine_pad`、点ごとの補正選択 `BoardCorrection`、それを合成した `align_board`。照合器 `RegionAlignmentSession` と経過のイベント              |
 | `render.py`          | 位置合わせ・巡回のプレビュー画像合成（cv2 GUI 非依存）                                                                                                                                                       |
 | `scene.py`           | シミュレーションのカメラに映す基板（4 隅の基準円と TOP 銅箔）`board_scene`                                                                                                                                   |
 
@@ -40,11 +40,11 @@ Board / オフセット調整用の観測は `observe() -> Transform`
 
 `RegionAligner` は各領域を反復計測し、既定 0.03 mm 以下の増分で収束した
 `RegionFit` だけを採用する。照合失敗・補正上限超過・非収束の領域は
-`RegionAlignmentSession` が棄却する。`BoardAlignment` は pad 中心を覆う成功領域のうち、
+`RegionAlignmentSession` が棄却する。`BoardCorrection` は pad 中心を覆う成功領域のうち、
 重なり合う成功領域群の補正量と最も整合するものを選ぶ。同点なら RMS が小さいもの、
 さらに同点なら領域中心が pad 中心に近いものを優先する。pad 中心を覆う成功領域が
-なければ、中心が最も近い成功領域の補正を使う。成功領域が 1 件もなければジョブ全体を
-中止する。
+なければ、中心が最も近い成功領域の補正を使う。成功領域が 1 件もなければ
+`BoardCorrection` を作れず、ジョブ全体を中止する。
 
 Board 巡回とペースト塗布では、`Pad.polygon` の最小回転外接矩形の短辺が machine
 設定 `alignment.refine_max_short_side` 以下の pad だけ、この領域補正を
@@ -52,3 +52,9 @@ Board 巡回とペースト塗布では、`Pad.polygon` の最小回転外接矩
 逐次位置合わせを無効化する。照合対象は従来どおり ROI 内の全銅箔輪郭であり、pad
 輪郭だけには限定しない。対象外または照合失敗・非収束の pad は元の領域補正へ
 フォールバックし、全 pad の巡回・塗布は維持する。
+
+ペースト塗布は `align_board` で領域照合と精密照合を続けて行う。Board 巡回は補正巡回の
+途中で pad ごとに精密照合するので、`align_regions` と `refine_pad` を組んで使う。
+経過は `AlignStep`（照合の 1 件に取りかかる）、`RegionsPlanned`、`RegionMeasured`、
+`RefinementPlanned`、`PadMeasured` のイベントで呼び出し側へ渡し、照合ログの文字列はイベントの
+`message` が持つ。

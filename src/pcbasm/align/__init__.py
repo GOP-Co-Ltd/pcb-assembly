@@ -22,10 +22,20 @@
 """
 
 from .aligner import RegionAligner, RegionFit
-from .alignment import (
-    BoardAlignment,
+from .board import (
+    AlignEvent,
+    AlignStep,
+    BoardCorrection,
+    PadMeasured,
+    PadRefinement,
+    RefinementPlanned,
     RegionAlignmentSession,
-    is_pad_refinement_target,
+    RegionMeasured,
+    RegionsPlanned,
+    align_board,
+    align_regions,
+    refine_pad,
+    refinement_targets,
 )
 from .board_frame import BoardFrame, BoardTransformMeasurer, measure_board_frame
 from .camera_rotation import CameraRotationMeasurer
@@ -48,8 +58,10 @@ from .region import AlignmentRegion, plan_alignment_regions
 from .render import PadResultRenderer, render_edge_match, render_label
 
 __all__ = [
+    "AlignEvent",
+    "AlignStep",
     "AlignmentRegion",
-    "BoardAlignment",
+    "BoardCorrection",
     "BoardFrame",
     "DETECTION_MAX_ATTEMPTS",
     "DETECTION_RETRY_SEC",
@@ -62,14 +74,22 @@ __all__ = [
     "OffsetObserver",
     "CameraRotationMeasurer",
     "OrthogonalityMetrics",
+    "PadMeasured",
+    "PadRefinement",
     "PadResultRenderer",
+    "RefinementPlanned",
     "RegionAligner",
     "RegionFit",
     "RegionAlignmentSession",
+    "RegionMeasured",
+    "RegionsPlanned",
     "XYPositionAdjustor",
-    "is_pad_refinement_target",
+    "align_board",
+    "align_regions",
     "measure_board_frame",
     "plan_alignment_regions",
+    "refine_pad",
+    "refinement_targets",
     "render_edge_match",
     "render_label",
     "to_machine_transform",

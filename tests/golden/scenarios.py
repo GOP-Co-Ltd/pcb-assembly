@@ -11,13 +11,14 @@ CAMERA_ROTATIONS = (0.0, 0.3, 5.0)
 # 塗布系ジョブは両端の 2 通りで採る
 PASTE_ROTATIONS = (0.0, 5.0)
 
-# paste_solder の分岐。初回パージの写り方・運転時補正・クリーニング位置の教示で分かれる
+# paste_solder の分岐。初回パージの写り方・運転時補正・クリーニング位置の教示・pad 中心の精密照合で分かれる
 PASTE_SOLDER_BRANCHES = (
     "purge_shows",
     "cleaned",
     "still_clogged",
     "flow_corrected",
     "no_nozzle_clean",
+    "pad_refined",
 )
 
 

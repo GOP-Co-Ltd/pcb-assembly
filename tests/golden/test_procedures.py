@@ -18,7 +18,7 @@ from shapely import Polygon
 from pcbasm import geometry, hal
 from pcbasm.align import (
     AlignmentRegion,
-    BoardAlignment,
+    BoardCorrection,
     BoardFrame,
     EdgeMatch,
     RegionFit,
@@ -45,8 +45,8 @@ from pcbasm.hal.fake import (
 from pcbasm.kicad import load_board
 from pcbasm.kicad.build import generate_rect_pcb, save_board
 from pcbasm.machine.park import PRESENT_TIMEOUT, park
-from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.applicator import build_applicator
+from pcbasm.pasting.correction import PasteCorrection
 from pcbasm.pasting.dataset.plan import (
     DEFAULT_PASTE_HEIGHT_MM,
     DotGridSpec,
@@ -120,11 +120,12 @@ def _region(index: int, area: Polygon, displacement: Point2d) -> RegionFit:
 # TestFillPathFallback が使う fill_coverage の pad はどちらの範囲にも入らない。
 # 位置合わせは最寄り領域の変位を使い、高さ面は外挿になる。
 CORRECTION = PasteCorrection(
-    alignment=BoardAlignment(
-        results=(
+    alignment=BoardCorrection(
+        fits=(
             _region(0, shapely.box(0.0, 0.0, 10.0, 25.0), Point2d(0.03, -0.02)),
             _region(1, shapely.box(10.0, 0.0, 20.0, 25.0), Point2d(-0.01, 0.04)),
-        )
+        ),
+        region_count=2,
     ),
     height_plane=HeightPlane(
         tuple(

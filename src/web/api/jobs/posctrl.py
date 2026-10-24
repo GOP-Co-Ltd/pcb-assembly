@@ -11,14 +11,20 @@ import attrs
 import cv2
 
 from pcbasm.align import (
-    AlignmentRegion,
-    BoardAlignment,
+    AlignEvent,
+    BoardCorrection,
     BoardFrame,
     CopperProjector,
     OrthogonalityMetrics,
+    PadMeasured,
+    PadRefinement,
     PadResultRenderer,
+    RefinementPlanned,
     RegionAlignmentSession,
-    is_pad_refinement_target,
+    RegionMeasured,
+    align_regions,
+    refine_pad,
+    refinement_targets,
     render_label,
 )
 from pcbasm.board import Layer, Outline, Pad
@@ -37,7 +43,7 @@ from pcbasm.vision import (
     draw_overlay,
     reference_marker_detector,
 )
-from web.api.jobs.board_ops import align_regions, confirm_next_point, setup_board
+from web.api.jobs.board_ops import align_events, confirm_next_point, setup_board
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import (
     ApplyFile,
@@ -460,92 +466,69 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
             frame_sink=ctx.frame,
         )
         regions = session.plan_regions([pad.center for pad in top_pads])
-        ctx.log(f"照合対象の領域数: {len(regions)}")
+        log_event = align_events(ctx)
 
-        def render_failed(region: AlignmentRegion, index: int) -> None:
-            pads = [pad for pad in top_pads if region.covers(pad.center)]
-            renderer = _pad_renderer(
-                session,
-                session.projector,
-                pads,
-                stage.get_position().to2d(),
-            )
-            lines = [
-                f"Region {region.index + 1}/{len(regions)}",
-                "FAILED",
-            ]
-            _stream_pad_result(ctx, camera, renderer, lines)
+        def on_event(event: AlignEvent) -> None:
+            log_event(event)
+            if isinstance(event, RegionMeasured) and event.fit is None:
+                region = event.region
+                pads = [pad for pad in top_pads if region.covers(pad.center)]
+                renderer = _pad_renderer(
+                    session,
+                    session.projector,
+                    pads,
+                    stage.get_position().to2d(),
+                )
+                lines = [f"Region {region.index + 1}/{len(regions)}", "FAILED"]
+                _stream_pad_result(ctx, camera, renderer, lines)
 
-        aligned = align_regions(ctx, session, regions, on_failure=render_failed)
-        alignment = BoardAlignment(results=tuple(aligned))
+        correction = align_regions(session, regions, on_event=on_event)
 
         # 補正適用済みの全 pad 巡回
         entries = _corrected_entries(
-            board_frame.board_transform, stage, session, alignment, top_pads
+            board_transform, stage, session, correction, top_pads
         )
         max_short_side = ctx.machine.alignment.refine_max_short_side
-        refinement_target_count = sum(
-            is_pad_refinement_target(pad, max_short_side_mm=max_short_side)
-            for pad in top_pads
-        )
-        refinement_success_count = 0
-        ctx.log(
-            f"pad中心照合対象: {refinement_target_count}/{len(top_pads)} pads "
-            f"(最大短辺 {max_short_side:g} mm)"
-        )
+        targets = {
+            pad.ref
+            for pad in refinement_targets(top_pads, max_short_side_mm=max_short_side)
+        }
+        on_event(RefinementPlanned(len(targets), len(top_pads), max_short_side))
+        refinements: list[PadRefinement] = []
         for index, (pad, renderer_projector, target) in enumerate(entries):
             ctx.progress("補正巡回", 100.0 * index / len(entries))
             ctx.checkpoint()
-            refined = None
-            if is_pad_refinement_target(pad, max_short_side_mm=max_short_side):
-                initial_correction = alignment.correction_for(
-                    pad.center, designator=pad.designator
-                )
-                refined = session.refine(pad.center, initial_correction, pad.polygon)
-            if refined is not None:
-                refinement_success_count += 1
-                board_target = board_transform.apply(pad.center)
-                residual = refined.displacement - (target - board_target)
-                ctx.log(
-                    f"{pad.designator}.{pad.pad_number}: "
-                    f"residual=({residual.x:+.4f}, {residual.y:+.4f}) mm, "
-                    f"passes={refined.passes}"
-                )
-                correction = Shift.from_point(refined.displacement)
-                renderer_projector = session.projector.with_correction(correction)
-                target = correction.apply(board_target)
+            if pad.ref in targets:
+                refinement = refine_pad(session, correction, pad)
+                on_event(PadMeasured(refinement))
+                refinements.append(refinement)
+                if refinement.result is not None:
+                    shift = Shift.from_point(refinement.result.displacement)
+                    renderer_projector = session.projector.with_correction(shift)
+                    target = shift.apply(board_transform.apply(pad.center))
             _move_to(klipper, stage, target, speed=Speed.rate(0.5))
             renderer = _pad_renderer(session, renderer_projector, [pad], target)
             lines = [f"{pad.designator}.{pad.pad_number} {index + 1}/{len(entries)}"]
             _stream_pad_result(ctx, camera, renderer, lines)
-        ctx.log(
-            f"pad中心照合成功: {refinement_success_count}/"
-            f"{refinement_target_count} pads"
-        )
+        correction = attrs.evolve(correction, refinements=tuple(refinements))
 
         # board 原点へ戻して終了
         _move_to(klipper, stage, board_transform.apply(Point2d(0.0, 0.0)))
 
-    return JobResult(
-        summary=(
-            f"照合成功 {len(aligned)}/{len(regions)} 領域 / "
-            f"pad中心照合 {refinement_success_count}/{refinement_target_count} pads / "
-            f"補正巡回 {len(entries)} pads"
-        )
-    )
+    return JobResult(summary=f"{correction.summary()} / 補正巡回 {len(entries)} pads")
 
 
 def _corrected_entries(
     board_transform: Transform,
     stage: XYZStage,
     session: RegionAlignmentSession,
-    alignment: BoardAlignment,
+    board_correction: BoardCorrection,
     pads: Sequence[Pad],
 ) -> list[tuple[Pad, CopperProjector, Point2d]]:
     """補正適用済みの pad 巡回先を nearest neighbor 順で構築する."""
     entries: list[tuple[Pad, CopperProjector, Point2d]] = []
     for pad in pads:
-        correction = alignment.correction_for(pad.center, designator=pad.designator)
+        correction = board_correction.correction_for(pad.center)
         corrected_projector = session.projector.with_correction(correction)
         target = correction.apply(board_transform.apply(pad.center))
         entries.append((pad, corrected_projector, target))

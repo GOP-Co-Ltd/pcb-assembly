@@ -172,6 +172,19 @@ class TestPasteSolder:
 
         run(scenario)
 
+    @pytest.mark.parametrize(
+        "scenario", scenarios_of("paste_solder", "pad_refined"), ids=lambda s: s.name
+    )
+    def test_pad_refined(
+        self, run: Callable[..., None], job_settings: Settings, scenario: Scenario
+    ):
+        """短辺 0.6 mm 以下の pad は、領域の補正を初期値に pad 中心で照合し直し、その結果で塗る."""
+        MachineConfigFile(job_settings.config_dir).write(
+            {"alignment.refine_max_short_side": 0.6}
+        )
+
+        run(scenario)
+
 
 class TestHeightPlane:
     @pytest.mark.parametrize(

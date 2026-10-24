@@ -7,14 +7,14 @@ import shapely
 
 from pcbasm.align import (
     AlignmentRegion,
-    BoardAlignment,
+    BoardCorrection,
     BoardFrame,
     EdgeMatch,
     RegionFit,
 )
 from pcbasm.board import Layer, Pad
 from pcbasm.geometry import HeightPlane, Point2d, Point3d, Rotation, Shift
-from pcbasm.pasting.alignment import PasteCorrection
+from pcbasm.pasting.correction import PasteCorrection
 from pcbasm.pasting.session import PasteSession
 from pcbasm.vision import Offset
 
@@ -94,8 +94,8 @@ class TestPasteSessionPadTransform:
     def test_applies_transforms_in_agreed_order(self):
         pad = _pad("U1", Point2d(1.0, 2.0))
         area = shapely.box(-5.0, -5.0, 5.0, 5.0)
-        alignment = BoardAlignment(
-            results=(_region_result(0, area, Point2d(0.3, 0.1)),)
+        alignment = BoardCorrection(
+            fits=(_region_result(0, area, Point2d(0.3, 0.1)),), region_count=1
         )
 
         moved = (
@@ -120,11 +120,12 @@ class TestPasteSessionPadTransforms:
         right_area = shapely.box(0.0, -2.0, 2.0, 2.0)
         left_shift = Point2d(0.1, -0.2)
         right_shift = Point2d(0.4, 0.3)
-        alignment = BoardAlignment(
-            results=(
+        alignment = BoardCorrection(
+            fits=(
                 _region_result(0, left_area, left_shift),
                 _region_result(1, right_area, right_shift),
-            )
+            ),
+            region_count=2,
         )
         pads = [
             _pad("PURGE", Point2d(1.0, 0.0)),
@@ -147,14 +148,9 @@ class TestPasteSessionPadTransforms:
 
     def test_uncovered_pad_uses_nearest_success_region(self):
         expected = Point2d(0.1, -0.2)
-        alignment = BoardAlignment(
-            results=(
-                _region_result(
-                    0,
-                    shapely.box(-2.0, -2.0, 0.0, 2.0),
-                    expected,
-                ),
-            )
+        alignment = BoardCorrection(
+            fits=(_region_result(0, shapely.box(-2.0, -2.0, 0.0, 2.0), expected),),
+            region_count=1,
         )
         pads = [
             _pad("R1", Point2d(-1.0, 0.0)),
@@ -173,25 +169,16 @@ class TestPasteSessionPadTransforms:
             assert moved.x - base.x == pytest.approx(expected.x, abs=1e-9)
             assert moved.y - base.y == pytest.approx(expected.y, abs=1e-9)
 
-    def test_no_success_region_aborts_with_designator(self):
-        pad = _pad("C17", Point2d(5.0, 0.0))
-
-        with pytest.raises(ValueError) as exc_info:
-            _session().pad_transform(
-                pad, PasteCorrection(BoardAlignment(results=()), _height_plane())
-            )
-
-        assert "C17" in str(exc_info.value)
-
 
 class TestPasteSessionCameraPointTarget:
     """Board 点をカメラ中心へ置くステージ XY（toolhead / height を含まない）."""
 
     def test_applies_board_transform_and_region_correction_only(self):
-        alignment = BoardAlignment(
-            results=(
+        alignment = BoardCorrection(
+            fits=(
                 _region_result(0, shapely.box(-5.0, -5.0, 5.0, 5.0), Point2d(0.3, 0.1)),
-            )
+            ),
+            region_count=1,
         )
         point = Point2d(1.0, 2.0)
 
