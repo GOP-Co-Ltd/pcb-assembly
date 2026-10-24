@@ -603,7 +603,7 @@ class TestConfigHistoryOverBrowser:
         path = live_server.settings.config_dir / "machine.toml"
         original = path.read_bytes()
         response = httpx.put(
-            f"{live_server.base_url}/api/settings/machine",
+            f"{live_server.base_url}/api/machine_config",
             json={"values": {"paste_dispenser.motion.max_fill_speed": 0.9}},
             timeout=_HTTP_TIMEOUT,
         )

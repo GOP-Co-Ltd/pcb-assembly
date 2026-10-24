@@ -1,12 +1,12 @@
 """`web.api.routers.machine_config` の仕様テスト.
 
-- GET /api/settings/machine が全設定項目を、表示の定義（見出し・カード・表示名・単位・選択肢）と値付きで表示する順に返す
+- GET /api/machine_config が全設定項目を、表示の定義（見出し・カード・表示名・単位・選択肢）と値付きで表示する順に返す
 - PUT は実ファイルへ反映しコメントを保持する
 - 未知キー → 400、busy → 409
 
 Phase 2 追記（計画書 webui-phase2.md「既存ルーターへの変更」節 + spec §8）:
 
-- PUT /api/settings/machine で camera.* キーを書いたら FrameHub を再構築する
+- PUT /api/machine_config で camera.* キーを書いたら FrameHub を再構築する
 
 計画書 memory/agents/implementation-planner/webui-camera-calib.md「設計判断 b」
 「公開インターフェース案 3」が追記契約:
@@ -14,11 +14,6 @@ Phase 2 追記（計画書 webui-phase2.md「既存ルーターへの変更」�
 - camera.crop.* は再構築条件から除外する（レンダラがフレーム毎に読むため
   デバイス再構築不要。crop 変更でストリームを切断しない）
 - camera.crop.* は 1 以上の int（要確認事項 2 採用。0 / 負値 → 400）
-
-設定履歴:
-
-- GET /api/settings/history が保存のたびに増える世代を新しい順に返す
-- POST /api/settings/history/{name}/restore がその世代へ戻し、カメラを再構築する。無い世代は 404、busy は 409
 """
 
 from pathlib import Path
@@ -55,7 +50,7 @@ class TestPasteSettingsValidation:
         original = path.read_bytes()
 
         response = client.put(
-            "/api/settings/machine",
+            "/api/machine_config",
             json={
                 "values": {
                     "camera.calibration_file": "must-not-be-saved.json",
@@ -79,14 +74,12 @@ class TestPasteSettingsValidation:
         path.write_text(tomlkit.dumps(document))
 
         # 他の不正値が残っていても画面を開けて、編集した値だけを直せる。
-        assert client.get("/api/settings/machine").status_code == 200
+        assert client.get("/api/machine_config").status_code == 200
         for key, value in (
             ("paste_dispenser.nozzle_diameter", 0.3),
             ("paste_dispenser.motion.max_fill_speed", 2.0),
         ):
-            response = client.put(
-                "/api/settings/machine", json={"values": {key: value}}
-            )
+            response = client.put("/api/machine_config", json={"values": {key: value}})
             assert response.status_code == 200, response.text
         dispenser = load_machine(path).paste_dispenser
         assert dispenser.nozzle_diameter == 0.3
@@ -94,11 +87,11 @@ class TestPasteSettingsValidation:
 
 
 class TestMachineSettingsApi:
-    """GET / PUT /api/settings/machine."""
+    """GET / PUT /api/machine_config."""
 
     def test_get_returns_every_setting_field_in_display_order(self, client: TestClient):
         """項目は setting_fields() の全項目で、その並び（設定ページに描く順）のまま返る."""
-        response = client.get("/api/settings/machine")
+        response = client.get("/api/machine_config")
 
         assert response.status_code == 200
         keys = [field["key"] for field in response.json()["fields"]]
@@ -170,7 +163,7 @@ class TestMachineSettingsApi:
         self, client: TestClient, key: str, value: object
     ):
         """value_type ごとに、PUT した値がそのまま応答の `value` に戻る."""
-        response = client.put("/api/settings/machine", json={"values": {key: value}})
+        response = client.put("/api/machine_config", json={"values": {key: value}})
 
         assert response.status_code == 200, response.text
         field = next(item for item in response.json()["fields"] if item["key"] == key)
@@ -232,7 +225,7 @@ class TestMachineSettingsApi:
         self, client: TestClient, key: str, value: object
     ):
         """値そのものの検証は machine_config が担う。ここは 400 写像と、原因キーを名指しすることを見る."""
-        response = client.put("/api/settings/machine", json={"values": {key: value}})
+        response = client.put("/api/machine_config", json={"values": {key: value}})
 
         assert response.status_code == 400
         assert key.rsplit(".", 1)[-1] in response.text
@@ -261,10 +254,10 @@ class TestMachineSettingsApi:
         """
         *accepted, rejected = steps
         for values in accepted:
-            response = client.put("/api/settings/machine", json={"values": values})
+            response = client.put("/api/machine_config", json={"values": values})
             assert response.status_code == 200
 
-        response = client.put("/api/settings/machine", json={"values": rejected})
+        response = client.put("/api/machine_config", json={"values": rejected})
 
         assert response.status_code == 400
         assert "nozzle_outer_diameter" in response.text
@@ -273,7 +266,7 @@ class TestMachineSettingsApi:
     def test_get_reports_none_for_missing_keys(self, client: TestClient):
         fields = {
             field["key"]: field
-            for field in client.get("/api/settings/machine").json()["fields"]
+            for field in client.get("/api/machine_config").json()["fields"]
         }
 
         assert fields["paste_dispenser.defaults.bead_width_factor"]["value"] is None
@@ -287,7 +280,7 @@ class TestMachineSettingsApi:
         """
         fields = {
             field["key"]: field
-            for field in client.get("/api/settings/machine").json()["fields"]
+            for field in client.get("/api/machine_config").json()["fields"]
         }
 
         assert fields["paste_dispenser.defaults.bead_width_factor"]["resolved"] == 1.0
@@ -303,7 +296,7 @@ class TestMachineSettingsApi:
         """設定エラーの間も記載値は返し、設定ページから直せるようにする.
 
         `[probe]` の `min_radius` は既定値を持たないので、消すと全体の検証に通らない。
-        部分的に解決した実効値は混ぜない（理由は `/api/state` の config_error に出る）。
+        部分的に解決した実効値は混ぜない（理由は `/api/session/state` の config_error に出る）。
         """
         path = config_dir / "machine.toml"
         path.write_text(
@@ -317,7 +310,7 @@ class TestMachineSettingsApi:
 
         fields = {
             field["key"]: field
-            for field in client.get("/api/settings/machine").json()["fields"]
+            for field in client.get("/api/machine_config").json()["fields"]
         }
 
         assert fields["probe.min_samples"]["resolved"] is None
@@ -332,7 +325,7 @@ class TestMachineSettingsApi:
         before = path.read_text(encoding="utf-8").splitlines()
 
         response = client.put(
-            "/api/settings/machine",
+            "/api/machine_config",
             json={
                 "values": {
                     "paste_dispenser.rotations_per_ul": 9.876543,
@@ -366,7 +359,7 @@ class TestMachineSettingsApi:
         """見出し・カード・選択肢・下限・空欄の扱いは backend が設定のスキーマから組んで返す."""
         fields = {
             field["key"]: field
-            for field in client.get("/api/settings/machine").json()["fields"]
+            for field in client.get("/api/machine_config").json()["fields"]
         }
 
         mode = fields["paste_dispenser.defaults.dispense_mode"]
@@ -386,7 +379,7 @@ class TestMachineSettingsApi:
     def test_get_returns_reference_point_offset_pairs(self, client: TestClient):
         fields = {
             field["key"]: field
-            for field in client.get("/api/settings/machine").json()["fields"]
+            for field in client.get("/api/machine_config").json()["fields"]
         }
 
         top_left = fields["reference_point.offsets.top_left"]
@@ -397,7 +390,7 @@ class TestMachineSettingsApi:
     def test_put_while_busy_returns_409(self, client: TestClient, backend: Backend):
         with backend.lock.hold("pytest-job"):
             response = client.put(
-                "/api/settings/machine",
+                "/api/machine_config",
                 json={"values": {"paste_dispenser.motion.max_fill_speed": 0.9}},
             )
 
@@ -412,7 +405,7 @@ class TestPadAlignRegionSettingsApi:
     ):
         fields = {
             field["key"]: field
-            for field in client.get("/api/settings/machine").json()["fields"]
+            for field in client.get("/api/machine_config").json()["fields"]
         }
 
         threshold = fields["alignment.refine_max_short_side"]
@@ -427,7 +420,7 @@ class TestPadAlignRegionSettingsApi:
     ):
         key = "alignment.refine_max_short_side"
 
-        response = client.put("/api/settings/machine", json={"values": {key: 0.0}})
+        response = client.put("/api/machine_config", json={"values": {key: 0.0}})
 
         assert response.status_code == 200, response.text
         field = next(
@@ -454,7 +447,7 @@ class TestCameraSettingsRebuild:
         hub = fake_camera_backend.devices.frame_hub()
 
         response = fake_camera_client.put(
-            "/api/settings/machine",
+            "/api/machine_config",
             json={"values": {"camera.fps": 20.0}},
         )
 
@@ -467,7 +460,7 @@ class TestCameraSettingsRebuild:
         hub = fake_camera_backend.devices.frame_hub()
 
         response = fake_camera_client.put(
-            "/api/settings/machine",
+            "/api/machine_config",
             json={"values": {"paste_dispenser.motion.max_fill_speed": 0.9}},
         )
 
@@ -481,7 +474,7 @@ class TestCameraSettingsRebuild:
         hub = fake_camera_backend.devices.frame_hub()
 
         response = fake_camera_client.put(
-            "/api/settings/machine",
+            "/api/machine_config",
             json={"values": {"camera.crop.width": 300, "camera.crop.height": 300}},
         )
 
@@ -496,66 +489,9 @@ class TestCameraSettingsRebuild:
         hub = fake_camera_backend.devices.frame_hub()
 
         response = fake_camera_client.put(
-            "/api/settings/machine",
+            "/api/machine_config",
             json={"values": {"camera.fps": 20.0, "camera.crop.width": 300}},
         )
 
         assert response.status_code == 200, response.text
         assert fake_camera_backend.devices.frame_hub() is not hub
-
-
-class TestConfigHistoryApi:
-    def test_restore_returns_to_the_content_before_a_save(
-        self, client: TestClient, config_dir: Path
-    ):
-        path = config_dir / "machine.toml"
-        original = path.read_bytes()
-        client.put(
-            "/api/settings/machine",
-            json={"values": {"paste_dispenser.motion.max_fill_speed": 0.9}},
-        )
-        [entry] = client.get("/api/settings/history").json()["entries"]
-        assert entry["changes"] == ["paste_dispenser.motion.max_fill_speed: 0.8 → 0.9"]
-
-        response = client.post(f"/api/settings/history/{entry['name']}/restore")
-
-        assert response.status_code == 200, response.text
-        assert path.read_bytes() == original
-        newest = response.json()["entries"][0]
-        assert newest["changes"] == ["paste_dispenser.motion.max_fill_speed: 0.9 → 0.8"]
-
-    def test_restore_rebuilds_frame_hub(
-        self,
-        fake_camera_client: TestClient,
-        fake_camera_backend: Backend,
-    ):
-        fake_camera_client.put(
-            "/api/settings/machine", json={"values": {"camera.fps": 20.0}}
-        )
-        [entry] = fake_camera_client.get("/api/settings/history").json()["entries"]
-        hub = fake_camera_backend.devices.frame_hub()
-
-        fake_camera_client.post(f"/api/settings/history/{entry['name']}/restore")
-
-        assert fake_camera_backend.devices.frame_hub() is not hub
-
-    def test_unknown_snapshot_returns_404(self, client: TestClient):
-        response = client.post("/api/settings/history/machine-missing.toml/restore")
-
-        assert response.status_code == 404
-
-    def test_restore_while_busy_returns_409(
-        self, client: TestClient, backend: Backend, config_dir: Path
-    ):
-        client.put(
-            "/api/settings/machine",
-            json={"values": {"paste_dispenser.motion.max_fill_speed": 0.9}},
-        )
-        [entry] = client.get("/api/settings/history").json()["entries"]
-        written = (config_dir / "machine.toml").read_bytes()
-
-        with backend.lock.hold("pytest-job"):
-            response = client.post(f"/api/settings/history/{entry['name']}/restore")
-
-        assert response.status_code == 409
-        assert (config_dir / "machine.toml").read_bytes() == written

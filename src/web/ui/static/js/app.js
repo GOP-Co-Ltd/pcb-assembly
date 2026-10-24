@@ -190,7 +190,7 @@ bindTopbarCommand(
 );
 bindTopbarCommand(
   "firmware-restart",
-  "/api/firmware-restart",
+  "/api/machine/firmware-restart",
   "ファームウェア再起動を送信しました",
   "ファームウェア再起動失敗"
 );

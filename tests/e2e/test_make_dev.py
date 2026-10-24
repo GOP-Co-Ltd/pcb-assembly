@@ -72,7 +72,7 @@ def _make_dev(
                 assert process.poll() is None, log_path.read_text()
                 try:
                     return (
-                        api.get("/api/state").status_code == 200
+                        api.get("/api/session/state").status_code == 200
                         and ui.get("/api/machines").status_code == 200
                     )
                 except httpx.TransportError:
@@ -98,9 +98,9 @@ class TestMakeDev:
             assert ui.get("/api/self-update").json()["enabled"] is False
             assert api.get("/api/update/status").json()["enabled"] is False
 
-            assert api.post("/api/control/acquire").status_code == 200
+            assert api.post("/api/session/control/acquire").status_code == 200
             selected = api.put(
-                "/api/pcb-file",
+                "/api/selection/pcb-file",
                 json={"path": str(COPPER_PCB_FIXTURE.relative_to("/"))},
             )
             assert selected.status_code == 200, selected.text
@@ -123,9 +123,9 @@ class TestMakeDev:
         before = _sim_config()
         with _make_dev(tmp_path / "make-dev.log", tmp_path) as (api, _):
             assert len(list(tmp_path.glob("pcbasm-dev-*"))) == 1
-            assert api.post("/api/control/acquire").status_code == 200
+            assert api.post("/api/session/control/acquire").status_code == 200
             saved = api.put(
-                "/api/settings/machine", json={"values": {"audio.volume": 0.4}}
+                "/api/machine_config", json={"values": {"audio.volume": 0.4}}
             )
             assert saved.status_code == 200, saved.text
 

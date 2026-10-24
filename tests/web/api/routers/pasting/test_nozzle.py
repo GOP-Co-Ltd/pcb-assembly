@@ -1,15 +1,15 @@
-"""`web.api.routers.nozzle_cap` の仕様テスト.
+"""`web.api.routers.pasting.nozzle` の仕様テスト.
 
 計画書 memory/agents/implementation-planner/nozzle-cap-parking.md
 「src/webui/routers/nozzle_cap.py」節 + 「API 契約」節が契約:
 
-- `POST /api/pasting/nozzle-cap/record`
+- `POST /api/pasting/nozzle/cap/record`
   - 200: 現在位置を 3 桁丸めで machine.toml に永続化し `{"x","y","z"}` を返す
   - 400: 全軸ホーミング済みでない（M84 後の stale 座標記録防止）
   - 409: machine_lock 取得失敗（detail に owner）
   - 502: Moonraker 不達（テスト用 config の port 7126 への実接続で検証、モック不使用）
 
-`POST /api/pasting/nozzle-clean/test` は記録ではなく装置を動かすので、上に加えて
+`POST /api/pasting/nozzle/clean/test` は記録ではなく装置を動かすので、上に加えて
 「位置が未記録なら Klipper に触れる前に 400」「可動域外ならプライムも含めて何も送らずに 400」を契約に持つ。
 
 実機系（記録の永続化・relax 後の 400・実クリーニング動作）は受け入れ試験（docs/acceptance.md の A2）で確かめる。
@@ -32,7 +32,7 @@ class TestRecordNozzleCap:
     @pytest.mark.usefixtures("unreachable_klipper")
     def test_unreachable_moonraker_returns_502(self, client: TestClient):
         """Klipper 不達（port 7126）では書き込み前に 502 で終わる."""
-        response = client.post("/api/pasting/nozzle-cap/record")
+        response = client.post("/api/pasting/nozzle/cap/record")
 
         assert response.status_code == 502
 
@@ -40,7 +40,7 @@ class TestRecordNozzleCap:
         self, client: TestClient, backend: Backend
     ):
         with backend.lock.hold("pytest-job"):
-            response = client.post("/api/pasting/nozzle-cap/record")
+            response = client.post("/api/pasting/nozzle/cap/record")
 
         assert response.status_code == 409
         assert "pytest-job" in response.text
@@ -54,7 +54,7 @@ class TestRecordNozzleClean:
 
     @pytest.mark.usefixtures("unreachable_klipper")
     def test_unreachable_moonraker_returns_502(self, client: TestClient):
-        response = client.post("/api/pasting/nozzle-clean/record")
+        response = client.post("/api/pasting/nozzle/clean/record")
 
         assert response.status_code == 502
 
@@ -62,7 +62,7 @@ class TestRecordNozzleClean:
         self, client: TestClient, backend: Backend
     ):
         with backend.lock.hold("pytest-job"):
-            response = client.post("/api/pasting/nozzle-clean/record")
+            response = client.post("/api/pasting/nozzle/clean/record")
 
         assert response.status_code == 409
         assert "pytest-job" in response.text
@@ -78,7 +78,7 @@ class TestNozzleCleanTestRun:
     """
 
     def test_unrecorded_clean_returns_400(self, client: TestClient):
-        response = client.post("/api/pasting/nozzle-clean/test")
+        response = client.post("/api/pasting/nozzle/clean/test")
 
         assert response.status_code == 400
         assert response.json()["detail"] == "ノズルクリーニング位置が未記録です"
@@ -87,7 +87,7 @@ class TestNozzleCleanTestRun:
         self, partial_nozzle_clean: Path, client: TestClient
     ):
         """動作値だけ保存された座標無しのテーブルは「未記録」として断る."""
-        response = client.post("/api/pasting/nozzle-clean/test")
+        response = client.post("/api/pasting/nozzle/clean/test")
 
         assert response.status_code == 400
         assert response.json()["detail"] == "ノズルクリーニング位置が未記録です"
@@ -103,7 +103,7 @@ class TestNozzleCleanTestRun:
                 "x = 10.0\ny = 20.0\nz = -30.0\npress_depth = 0.4\n"
             )
 
-        response = client.post("/api/pasting/nozzle-clean/test")
+        response = client.post("/api/pasting/nozzle/clean/test")
 
         assert response.status_code == 502
 
@@ -123,7 +123,7 @@ class TestNozzleCleanTestRun:
                 "\n[paste_dispenser.nozzle_clean]\nx = 299.0\ny = 20.0\nz = -3.0\n"
             )
 
-        response = client.post("/api/pasting/nozzle-clean/test")
+        response = client.post("/api/pasting/nozzle/clean/test")
 
         assert response.status_code == 400
         assert "可動域外" in response.json()["detail"]
@@ -160,7 +160,7 @@ class TestNozzleCleanTestRun:
                 "\n[paste_dispenser.nozzle_clean]\nx = 10.0\ny = 20.0\nz = 3.0\n" + cap
             )
 
-        response = client.post("/api/pasting/nozzle-clean/test")
+        response = client.post("/api/pasting/nozzle/clean/test")
 
         assert response.status_code == 200, response.text
         assert response.json()["message"].split(" / ")[-1] == last_message
@@ -184,7 +184,7 @@ class TestNozzleCleanTestRun:
                 "\n[paste_dispenser.nozzle_clean]\nx = 10.0\ny = 20.0\nz = 3.0\n"
             )
 
-        response = client.post("/api/pasting/nozzle-clean/test")
+        response = client.post("/api/pasting/nozzle/clean/test")
 
         assert response.status_code == 502
         assert "printer.cfgに[output_pin air_pump]" in response.json()["detail"]
@@ -194,7 +194,7 @@ class TestNozzleCleanTestRun:
     ):
         """ジョブ実行中は「未記録」より先に「使用中」を返す（装置排他が優先）."""
         with backend.lock.hold("pytest-job"):
-            response = client.post("/api/pasting/nozzle-clean/test")
+            response = client.post("/api/pasting/nozzle/clean/test")
 
         assert response.status_code == 409
         assert "pytest-job" in response.text

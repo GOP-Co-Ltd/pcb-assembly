@@ -8,7 +8,7 @@
 {% if auto_threshold_fields or pad_refinement_fields %}
 {# はんだ塗布で使う machine 全体設定。入力後は即保存する。 #}
 <form class="paste-auto-thresholds" data-testid="paste-auto-thresholds" data-requires-control
-      data-machine-settings data-endpoint="/api/settings/machine">
+      data-machine-settings data-endpoint="/api/machine_config">
   {% for field in auto_threshold_fields %}
   <label for="pat-{{ field.key }}">{{ field.label }}
     <input id="pat-{{ field.key }}" name="{{ field.key }}" type="number" step="any"

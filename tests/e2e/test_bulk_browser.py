@@ -63,7 +63,7 @@ class TestBulkRow:
 
         # 別のセッションが backend で直接取得する（WS の control_changed が行へ届く）
         response = httpx.post(
-            f"{live_server.base_url}/api/control/acquire",
+            f"{live_server.base_url}/api/session/control/acquire",
             headers={"X-Pcbasm-Session": "other-session"},
             timeout=10,
         )

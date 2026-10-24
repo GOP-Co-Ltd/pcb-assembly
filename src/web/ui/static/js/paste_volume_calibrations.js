@@ -4,7 +4,7 @@
 // 対象は次の 2 つ。
 //   - 収集ジョブの volume_calibration パラメータ（#param-volume_calibration）
 //   - はんだ塗布ページの流量キャリブレーション設定（[data-calibration-picker]）
-// 選択肢のラベルと詳細行は /api/pasting/paste-volume/calibrations が組み立て済みの
+// 選択肢のラベルと詳細行は /api/pasting/calibration/paste-volume が組み立て済みの
 // 文字列をそのまま表示する（ここで連結・整形しない）。
 //
 // 一覧が取れなかったときはテキスト入力のまま残す。差し替えてから失敗すると、
@@ -86,7 +86,7 @@
     if (found.length === 0) return;
     let data;
     try {
-      data = await api("GET", "/api/pasting/paste-volume/calibrations");
+      data = await api("GET", "/api/pasting/calibration/paste-volume");
     } catch (error) {
       for (const target of found) {
         const note = describeElement();

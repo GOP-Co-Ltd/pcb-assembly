@@ -27,6 +27,22 @@ class Position(BaseModel):
     z: float
 
 
+class Point2dInfo(BaseModel):
+    """平面座標 [mm]."""
+
+    x: float
+    y: float
+
+
+class RectInfo(BaseModel):
+    """軸平行矩形 [mm]（``(x, y)`` は左上の角）."""
+
+    x: float
+    y: float
+    width: float
+    height: float
+
+
 class NozzleCleanInfo(BaseModel):
     """記録されたノズルクリーニング面の位置と、その表示用文字列.
 
@@ -101,7 +117,7 @@ class MachineCommandRequest(
         ]
     ]
 ):
-    """マシン操作パネルの命令（REST の /api/machine-control と、対話ジョブの WS command が同じ形で送る）."""
+    """マシン操作パネルの命令（REST の /api/machine/command と、対話ジョブの WS command が同じ形で送る）."""
 
 
 class PromptInfo(BaseModel):
@@ -159,7 +175,7 @@ class JobSummary(BaseModel):
 
 
 class JobBrief(BaseModel):
-    """/api/state 用のジョブ要約."""
+    """/api/session/state 用のジョブ要約."""
 
     id: str
     name: str
@@ -187,14 +203,14 @@ class ClientInfo(BaseModel):
 
 
 class ControlStateResponse(BaseModel):
-    """/api/control/* の戻り（`StateResponse` の control / you と同じ形）."""
+    """/api/session/control/* の戻り（`StateResponse` の control / you と同じ形）."""
 
     control: ControlInfo
     you: ClientInfo
 
 
 class StateResponse(BaseModel):
-    """/api/state のアプリ状態レスポンス."""
+    """/api/session/state のアプリ状態レスポンス."""
 
     pcb_file: str | None
     busy: bool
@@ -250,7 +266,7 @@ class SettingsField(BaseModel):
 
 
 class MachineSettingsResponse(BaseModel):
-    """/api/settings/machine の machine.toml 設定項目一覧（表示する順）."""
+    """/api/machine_config の machine.toml 設定項目一覧（表示する順）."""
 
     fields: list[SettingsField]
 
@@ -267,7 +283,7 @@ class ConfigHistoryEntry(BaseModel):
 
 
 class ConfigHistoryResponse(BaseModel):
-    """/api/settings/history の世代一覧（新しい順）."""
+    """/api/backup/history の世代一覧（新しい順）."""
 
     entries: list[ConfigHistoryEntry]
 

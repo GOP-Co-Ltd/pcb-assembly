@@ -1,4 +1,4 @@
-"""`web.api.routers.jobs` の仕様テスト（REST + WS /api/ws）.
+"""`web.api.routers.jobs` の仕様テスト（REST + WS /api/jobs/ws）.
 
 計画書 webui-phase3.md「src/webui/routers/jobs.py」節 + spec §6 / §9 が契約:
 
@@ -7,13 +7,13 @@
 - POST /api/jobs/current/abort → 200 {"aborted": true} / 409
 - POST /api/jobs/last/apply → 200 {"applied": {...}}（machine.toml へ書込・
   コメント保持）/ 409、POST /api/jobs/last/discard → 200（冪等）
-- WS /api/ws: job_status / log / progress / prompt / prompt_resolved /
+- WS /api/jobs/ws: job_status / log / progress / prompt / prompt_resolved /
   state_changed / error、クライアント → respond_prompt
-  （クライアント → command / abort の配線は ``test_control_api.py`` が担保）
+  （クライアント → command / abort の配線は ``test_session.py`` が担保）
 - 排他の波及: ジョブ実行中は machine-control / マシン切替 / 設定保存 /
   PCB 切替が 409
 - /artifacts: 成果物 URL 配信 + traversal 拒否
-- /api/state に job ブリーフ
+- /api/session/state に job ブリーフ
 
 MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
 
@@ -639,17 +639,17 @@ class TestUpdateCurrentParams:
 
 
 class TestStateBrief:
-    """GET /api/state の job ブリーフ."""
+    """GET /api/session/state の job ブリーフ."""
 
     def test_state_job_is_null_initially(self, client: TestClient):
-        assert client.get("/api/state").json()["job"] is None
+        assert client.get("/api/session/state").json()["job"] is None
 
     def test_state_reports_running_job_brief(self, client: TestClient, app: FastAPI):
         gate = _register_gated(app)
         assert client.post("/api/jobs/gated_router", json={}).status_code == 201
         _wait_job_status(client, "running")
 
-        brief = client.get("/api/state").json()["job"]
+        brief = client.get("/api/session/state").json()["job"]
 
         assert brief is not None
         assert brief["id"]
@@ -672,19 +672,19 @@ class TestExclusionPropagation:
 
         try:
             assert (
-                client.post("/api/machine-control", json={"type": "relax"}).status_code
+                client.post("/api/machine/command", json={"type": "relax"}).status_code
                 == 409
             )
             assert (
                 client.put(
-                    "/api/settings/machine",
+                    "/api/machine_config",
                     json={"values": {"paste_dispenser.motion.max_fill_speed": 0.9}},
                 ).status_code
                 == 409
             )
             assert (
                 client.put(
-                    "/api/pcb-file", json={"path": "boards/sample.kicad_pcb"}
+                    "/api/selection/pcb-file", json={"path": "boards/sample.kicad_pcb"}
                 ).status_code
                 == 409
             )
@@ -761,7 +761,7 @@ class TestApplyDiscard:
         assert machine_file.read_bytes() == original
         assert _current_job(client) == current
 
-        with client.websocket_connect("/api/ws") as ws:
+        with client.websocket_connect("/api/jobs/ws") as ws:
             response = client.post(
                 f"/api/jobs/last/{action}", json={"expected_job_id": current["id"]}
             )
@@ -854,13 +854,13 @@ class TestApplyDiscard:
 
 
 class TestWebSocket:
-    """WS /api/ws のイベント往復（受信駆動）."""
+    """WS /api/jobs/ws のイベント往復（受信駆動）."""
 
     @pytest.mark.parametrize("message", [None, [], 42, "command"])
     def test_non_object_message_returns_error_and_keeps_the_connection(
         self, client: TestClient, message: object
     ):
-        with client.websocket_connect("/api/ws") as ws:
+        with client.websocket_connect("/api/jobs/ws") as ws:
             ws.send_json(message)
             error, _ = _receive_until(ws, lambda event: event["type"] == "error")
             assert "JSON オブジェクト" in error["detail"]
@@ -885,7 +885,7 @@ class TestWebSocket:
             name="scoped_commands",
             accepts_commands=True,
         )
-        with client.websocket_connect("/api/ws") as ws:
+        with client.websocket_connect("/api/jobs/ws") as ws:
             client.post("/api/jobs/scoped_commands", json={})
             current = _wait_job_status(client, "running")
             message: dict[str, object] = {"type": "command", "command": {"type": "a"}}
@@ -922,7 +922,7 @@ class TestWebSocket:
             name="scoped_commands",
             accepts_commands=True,
         )
-        with client.websocket_connect("/api/ws") as ws:
+        with client.websocket_connect("/api/jobs/ws") as ws:
             client.post("/api/jobs/scoped_commands", json={})
             previous = _wait_job_status(client, "running")
             client.post("/api/jobs/current/abort")
@@ -956,7 +956,7 @@ class TestWebSocket:
         )
 
     def test_job_demo_full_event_stream(self, client: TestClient):
-        with client.websocket_connect("/api/ws") as ws:
+        with client.websocket_connect("/api/jobs/ws") as ws:
             response = client.post(
                 "/api/jobs/job_demo",
                 json={"params": {"steps": 2, "interval": 0.01}},
@@ -1009,7 +1009,7 @@ class TestWebSocket:
             label="ラベル付きプロンプト",
         )
 
-        with client.websocket_connect("/api/ws") as ws:
+        with client.websocket_connect("/api/jobs/ws") as ws:
             response = client.post("/api/jobs/labeled_prompt_router", json={})
             assert response.status_code == 201
 
@@ -1039,7 +1039,7 @@ class TestWebSocket:
     def test_invalid_respond_prompt_yields_error_and_keeps_connection(
         self, client: TestClient
     ):
-        with client.websocket_connect("/api/ws") as ws:
+        with client.websocket_connect("/api/jobs/ws") as ws:
             response = client.post(
                 "/api/jobs/job_demo",
                 json={"params": {"steps": 1, "interval": 0.01}},
@@ -1074,10 +1074,10 @@ class TestWebSocket:
             assert final["job"]["status"] == "succeeded"
 
     def test_pcb_switch_broadcasts_state_changed(self, client: TestClient):
-        with client.websocket_connect("/api/ws") as ws:
+        with client.websocket_connect("/api/jobs/ws") as ws:
             assert (
                 client.put(
-                    "/api/pcb-file", json={"path": "boards/sample.kicad_pcb"}
+                    "/api/selection/pcb-file", json={"path": "boards/sample.kicad_pcb"}
                 ).status_code
                 == 200
             )
@@ -1108,7 +1108,7 @@ class TestCameraCalibrationApplyFlow:
         # （既定 600 は画像をはみ出す）
         machine_config.write({"camera.crop.width": 400, "camera.crop.height": 400})
         client = checkerboard_camera_client
-        with client.websocket_connect("/api/ws") as ws:
+        with client.websocket_connect("/api/jobs/ws") as ws:
             response = client.post(
                 "/api/jobs/camera_calibration",
                 json={"params": {"square_size": 10.0}},
@@ -1163,11 +1163,11 @@ class TestPastingJobsOverWs:
         """計画点 PNG はジョブ実行中（confirm 待ち）でも /artifacts から配信される."""
         assert (
             client.put(
-                "/api/pcb-file", json={"path": copper_pcb_path.as_posix()}
+                "/api/selection/pcb-file", json={"path": copper_pcb_path.as_posix()}
             ).status_code
             == 200
         )
-        with client.websocket_connect("/api/ws") as ws:
+        with client.websocket_connect("/api/jobs/ws") as ws:
             response = client.post("/api/jobs/height_plane", json={})
             assert response.status_code == 201
             job_id = response.json()["job"]["id"]

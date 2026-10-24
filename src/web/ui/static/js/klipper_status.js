@@ -1,7 +1,7 @@
 "use strict";
 
-// Klipper / Stage ステータスカード。/api/klipper/status の 2 秒ポーリング、
-// /api/stage/limits のページ表示時 1 回の取得、任意 G-code 送信を行う。
+// Klipper / Stage ステータスカード。/api/machine/status の 2 秒ポーリング、
+// /api/machine/limits のページ表示時 1 回の取得、任意 G-code 送信を行う。
 
 (() => {
   const { toast, api, formatPosition } = window.webui;
@@ -13,7 +13,7 @@
 
   async function pollStatus() {
     try {
-      const status = await api("GET", "/api/klipper/status");
+      const status = await api("GET", "/api/machine/status");
       if (!status.connected) {
         connectedEl.textContent = `接続: NG${status.error ? ` (${status.error})` : ""}`;
         positionEl.textContent = "位置: ---";
@@ -51,7 +51,7 @@
   // limits は静的なのでページ表示時に 1 回だけ取得する
   (async () => {
     try {
-      const limits = await api("GET", "/api/stage/limits");
+      const limits = await api("GET", "/api/machine/limits");
       for (const axis of ["x", "y", "z"]) {
         document.getElementById(`ks-limit-${axis}-min`).textContent = limits[axis].min;
         document.getElementById(`ks-limit-${axis}-max`).textContent = limits[axis].max;
@@ -67,7 +67,7 @@
     const text = input.value.trim();
     if (!text) return;
     try {
-      await api("POST", "/api/machine-control", { type: "gcode", gcode: text });
+      await api("POST", "/api/machine/command", { type: "gcode", gcode: text });
       toast("G-code 送信完了");
     } catch (err) {
       toast(err.message, false);

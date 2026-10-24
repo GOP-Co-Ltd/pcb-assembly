@@ -126,16 +126,16 @@ class MachineClient:
         self._gateway = gateway
 
     async def machine_info(self) -> MachineInfo:
-        """`GET /api/machine-info`（到達性プローブ兼用）."""
-        return await self._fetch(MachineInfo, "/api/machine-info")
+        """`GET /api/session/machine-info`（到達性プローブ兼用）."""
+        return await self._fetch(MachineInfo, "/api/session/machine-info")
 
     async def state(self) -> StateResponse:
-        """`GET /api/state`."""
-        return await self._fetch(StateResponse, "/api/state")
+        """`GET /api/session/state`."""
+        return await self._fetch(StateResponse, "/api/session/state")
 
     async def machine_settings(self) -> MachineSettingsResponse:
-        """`GET /api/settings/machine`."""
-        return await self._fetch(MachineSettingsResponse, "/api/settings/machine")
+        """`GET /api/machine_config`."""
+        return await self._fetch(MachineSettingsResponse, "/api/machine_config")
 
     async def update_status(self) -> UpdateStatusResponse:
         """`GET /api/update/status`（fetch を伴わないので毎分読んでよい）."""

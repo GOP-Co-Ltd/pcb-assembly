@@ -174,7 +174,7 @@
     try {
       result = await api(
         "GET",
-        "/api/pasting/loading/calibration?" + params.toString()
+        "/api/pasting/calibration/mass-flow?" + params.toString()
       );
     } catch (err) {
       if (version !== calibrationVersion) return;
@@ -229,7 +229,7 @@
     }
     setDisabled(buttonId, true);
     try {
-      await api("PUT", "/api/settings/machine", { values });
+      await api("PUT", "/api/machine_config", { values });
       const labels = [];
       for (const [key, value] of Object.entries(values)) {
         const output = document.getElementById(CURRENT_OUTPUT_FOR[key]);

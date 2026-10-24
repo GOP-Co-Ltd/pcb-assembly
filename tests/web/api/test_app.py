@@ -22,7 +22,7 @@ webui-audio-output 計画書「`src/webui/app.py`」節が追記契約（通知�
 
 設定エラー（degraded）の契約:
 
-- machine.toml が検証に通らなくてもプロセスは起動し、理由を `/api/state` の config_error に出す
+- machine.toml が検証に通らなくてもプロセスは起動し、理由を `/api/session/state` の config_error に出す
 - ジョブの開始は拒否する。設定・設定履歴・バックアップと、[klipper] が読めれば緊急停止は使える
 - 毎回ディスクから読むので、手編集は再起動なしで次のジョブと config_error に効く
 
@@ -32,7 +32,7 @@ webui-audio-output 計画書「`src/webui/app.py`」節が追記契約（通知�
 
 起動時の移行（pcbasm.migrate）の契約:
 
-- 設定を読む前に移行し、移行したことを `/api/state` の config_notice に出す
+- 設定を読む前に移行し、移行したことを `/api/session/state` の config_notice に出す
 - 移行できなければ元のファイルに触れずに degraded で起動し、理由を config_error に出す
 """
 
@@ -83,7 +83,7 @@ class TestCreateApp:
     """アプリケーションファクトリ."""
 
     def test_app_starts_and_serves_state(self, client: TestClient):
-        response = client.get("/api/state")
+        response = client.get("/api/session/state")
 
         assert response.status_code == 200
 
@@ -92,7 +92,7 @@ class TestCreateApp:
     ):
         with backend.lock.hold("pytest-job"):
             response = client.put(
-                "/api/pcb-file", json={"path": "boards/sample.kicad_pcb"}
+                "/api/selection/pcb-file", json={"path": "boards/sample.kicad_pcb"}
             )
 
         assert response.status_code == 409
@@ -112,7 +112,7 @@ class TestCreateApp:
         )
 
         with TestClient(app) as client:
-            assert client.get("/api/state").status_code == 200
+            assert client.get("/api/session/state").status_code == 200
 
         assert player.close_calls == 1
 
@@ -150,10 +150,10 @@ class TestDegraded:
     def test_starts_and_reports_the_reason(
         self, broken_config: Path, client: TestClient
     ):
-        state = client.get("/api/state").json()
+        state = client.get("/api/session/state").json()
 
         assert "lift_height" in state["config_error"]
-        assert client.get("/api/machine-info").status_code == 200
+        assert client.get("/api/session/machine-info").status_code == 200
 
     def test_refuses_to_start_a_job(
         self, broken_config: Path, app: FastAPI, client: TestClient
@@ -177,16 +177,16 @@ class TestDegraded:
     def test_settings_history_and_backup_stay_usable(
         self, broken_config: Path, client: TestClient
     ):
-        assert client.get("/api/settings/history").status_code == 200
+        assert client.get("/api/backup/history").status_code == 200
         assert client.get("/api/backup").status_code == 200
 
         response = client.put(
-            "/api/settings/machine",
+            "/api/machine_config",
             json={"values": {"paste_dispenser.motion.lift_height": 2.0}},
         )
 
         assert response.status_code == 200, response.text
-        assert client.get("/api/state").json()["config_error"] is None
+        assert client.get("/api/session/state").json()["config_error"] is None
 
     def test_emergency_stop_still_reaches_klipper(
         self,
@@ -210,10 +210,10 @@ class TestMoonrakerAtStartup:
         moonraker.up = False
         with TestClient(app) as client:
             assert moonraker.requests == []
-            assert client.get("/api/klipper/status").json()["connected"] is False
+            assert client.get("/api/machine/status").json()["connected"] is False
 
             moonraker.up = True
-            status = client.get("/api/klipper/status").json()
+            status = client.get("/api/machine/status").json()
 
         assert status["connected"] is True
 
@@ -228,7 +228,7 @@ class TestMigrationAtStartup:
         shutil.copy(MIGRATION_BEFORE, path)
 
         with TestClient(create_app(webui_settings)) as client:
-            state = client.get("/api/state").json()
+            state = client.get("/api/session/state").json()
 
         assert state["config_error"] is None
         assert "machine-pre-M.toml" in state["config_notice"]
@@ -236,7 +236,7 @@ class TestMigrationAtStartup:
         assert "[paste_dispenser.motion]" in path.read_text()
 
     def test_current_layout_starts_without_notice(self, client: TestClient):
-        assert client.get("/api/state").json()["config_notice"] is None
+        assert client.get("/api/session/state").json()["config_notice"] is None
 
     @pytest.mark.parametrize(
         ("header", "inserted", "reason"),
@@ -269,7 +269,7 @@ class TestMigrationAtStartup:
         original = path.read_text()
 
         with TestClient(create_app(webui_settings)) as client:
-            state = client.get("/api/state").json()
+            state = client.get("/api/session/state").json()
 
         assert "machine.toml を移行できませんでした" in state["config_error"]
         assert reason in state["config_error"]
@@ -282,13 +282,13 @@ class TestReadsFromDiskEveryTime:
     def test_config_error_appears_and_disappears_without_restart(
         self, config_dir: Path, client: TestClient
     ):
-        assert client.get("/api/state").json()["config_error"] is None
+        assert client.get("/api/session/state").json()["config_error"] is None
 
         _edit(config_dir, _LIFT_HEIGHT, "lift_height = 0.0")
-        assert "lift_height" in client.get("/api/state").json()["config_error"]
+        assert "lift_height" in client.get("/api/session/state").json()["config_error"]
 
         _edit(config_dir, "lift_height = 0.0", _LIFT_HEIGHT)
-        assert client.get("/api/state").json()["config_error"] is None
+        assert client.get("/api/session/state").json()["config_error"] is None
 
     def test_hand_edit_takes_effect_on_the_next_job(
         self, config_dir: Path, app: FastAPI, client: TestClient

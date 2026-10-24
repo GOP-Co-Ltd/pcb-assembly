@@ -1,6 +1,6 @@
 "use strict";
 
-// グローバル WS クライアント（/api/ws）+ ジョブコンソール UI。
+// グローバル WS クライアント（/api/jobs/ws）+ ジョブコンソール UI。
 // tab.html（全タブ）と settings.html から読み込まれ、window.webui.jobs を公開する。
 // ページに #job-console（data-job-names）があればコンソールを描画する。
 
@@ -142,7 +142,7 @@
 
   function connect() {
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    const connection = new WebSocket(`${proto}://${location.host}${withBase("/api/ws")}`);
+    const connection = new WebSocket(`${proto}://${location.host}${withBase("/api/jobs/ws")}`);
     socket = connection;
     connection.addEventListener("open", async () => {
       reconnectBackoff.reset();
@@ -210,7 +210,7 @@
 
   async function refreshHeader() {
     try {
-      const state = await api("GET", "/api/state");
+      const state = await api("GET", "/api/session/state");
       const chip = document.getElementById("pcb-chip");
       if (chip) chip.textContent = state.pcb_file || "PCB未選択";
     } catch {

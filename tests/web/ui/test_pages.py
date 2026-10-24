@@ -1,7 +1,7 @@
 """Frontend（`web.ui`）の SSR ページの仕様テスト.
 
-ページを描くのは frontend で、値は backend の `GET /api/machine-info` / `/api/state` /
-`/api/jobs` / `/api/settings/machine` から取る（計画書 docs/plans/web-api-ui-split.md の
+ページを描くのは frontend で、値は backend の `GET /api/session/machine-info` / `/api/session/state` /
+`/api/jobs` / `/api/machine_config` から取る（計画書 docs/plans/web-api-ui-split.md の
 「MR2」「MR4」節）。frontend は薄いラッパーなので、ここで押さえるのは次の 5 つに絞る:
 
 - **URL 空間**: `/` の 307、未 prefix URL の 307、`/m/{machine_id}` prefix、プロキシ経路が
@@ -61,7 +61,7 @@ ALL_PAGE_URLS = ["/settings"] + [
 
 # 設定フォームの現在値（ConfigStore / tomlkit）や paste_dispenser・alignment の
 # 現在値をコンテキストに載せるページ。machine.toml がパース不能だと backend の
-# `/api/settings/machine` が 500 になり、frontend は 503 ページを返す（直す経路は設定履歴）
+# `/api/machine_config` が 500 になり、frontend は 503 ページを返す（直す経路は設定履歴）
 _MACHINE_TOML_DEPENDENT_URLS = frozenset(
     {
         "/settings",
@@ -159,7 +159,7 @@ def machine_toml_without_defaulted_keys(config_dir: Path) -> Path:
 def machine_toml_without_required_paste_dispenser_key(config_dir: Path) -> Path:
     """`[paste_dispenser]` の必須キー（既定値なし）を 1 本落とす（そのパスを返す）.
 
-    TOML としては読めるので backend の `/api/settings/machine` は 200 を返すが、
+    TOML としては読めるので backend の `/api/machine_config` は 200 を返すが、
     全体の検証に通らない（設定エラー = degraded）ので実効値（`resolved`）は全て None になる。
     テンプレートから作った machine.toml に必須キーが無い実機で普通に起きる状態。
     """
@@ -242,7 +242,7 @@ class TestPages:
     ):
         """Pcb_browse_start の pcb_browse_root 相対パスが data-fb-start に出る.
 
-        MR4: 値は backend が `/api/machine-info` の `fb_start` で解決するので、
+        MR4: 値は backend が `/api/session/machine-info` の `fb_start` で解決するので、
         差し替えた backend Settings を上流に挿した frontend でページを取る。
         """
         evolved = attrs.evolve(
@@ -262,17 +262,19 @@ class TestPages:
         MR2 で `request.url.hostname` フォールバックは撤去した。frontend を分離すると
         ページ閲覧元は frontend 機になるため、リクエストのホスト名を使うと必ず誤った
         Mainsail を指す。裸のホスト名だと LAN の他端末（mDNS しか引けない）から開けない
-        ので `.local` を付ける。SSR も `/api/machine-info` と同じ解決結果を使う。
+        ので `.local` を付ける。SSR も `/api/session/machine-info` と同じ解決結果を使う。
 
         MR4: frontend は backend が解決した値をそのまま描く（frontend 側に解決規則を
-        持たない）。`/api/machine-info` はプロキシ経由で同じ値を返す。
+        持たない）。`/api/session/machine-info` はプロキシ経由で同じ値を返す。
         """
         settings = attrs.evolve(
             backend_settings, mainsail_url=None, hostname="paste-01"
         )
         with _frontend_over(ui_settings, settings) as client:
             text = client.get("/posctrl").text
-            info = client.get("/api/machine-info").json()
+            info = client.get(
+                f"/m/{BACKEND_MACHINE_ID}/api/session/machine-info"
+            ).json()
 
         assert 'href="http://paste-01.local"' in text
         assert info["mainsail_url"] == "http://paste-01.local"
@@ -495,7 +497,7 @@ class TestPastingJobPages:
         text = client.get("/pasting/paste_solder").text
 
         assert "data-machine-settings" in text
-        assert 'data-endpoint="/api/settings/machine"' in text
+        assert 'data-endpoint="/api/machine_config"' in text
         assert setting_key in text
 
     def test_loading_page_renders_optional_start_position(self, client: TestClient):
@@ -766,7 +768,7 @@ class TestMissingSelectionNotice:
         assert "boards/gone.kicad_pcb" in page
 
         response = client.put(
-            f"/m/{BACKEND_MACHINE_ID}/api/pcb-file",
+            f"/m/{BACKEND_MACHINE_ID}/api/selection/pcb-file",
             json={"path": "boards/sample.kicad_pcb"},
         )
         assert response.status_code == 200, response.text
@@ -777,7 +779,7 @@ class TestMissingSelectionNotice:
 class TestBrokenMachineTomlPages:
     """パース不能な machine.toml でも SSR が落ちない（設定エラー = degraded）.
 
-    全ページが読む `/api/state` と `/api/machine-info` は、設定エラーの間も 200 で理由を返す。
+    全ページが読む `/api/session/state` と `/api/session/machine-info` は、設定エラーの間も 200 で理由を返す。
     設定フォームの現在値をコンテキストに載せるページ（`_MACHINE_TOML_DEPENDENT_URLS`）は
     TOML を読めないと描けないので 503 になる（直す経路は設定履歴の復元）。
     """
@@ -811,7 +813,7 @@ class TestBrokenMachineTomlPages:
     ):
         """設定の現在値を要るページは 500 ではなく 503 を返す（MR4）.
 
-        frontend が全ページで `/api/settings/machine` を取ると、machine.toml が
+        frontend が全ページで `/api/machine_config` を取ると、machine.toml が
         壊れただけで案内も出せない 503 が全画面に出る。取得を必要なページに限って
         いることの裏返しとして、必要なページだけがここに落ちる。
         """
@@ -898,7 +900,7 @@ class TestUnsetMachineSettingsShowResolvedValues:
 class TestUnresolvableMachineSettingsAreNotFabricated:
     """実効値が解決できないときは 0 を捏造せず 503 を返す（MR4 / M1）.
 
-    backend が落ちているわけではない（`/api/settings/machine` は 200）ので、frontend が
+    backend が落ちているわけではない（`/api/machine_config` は 200）ので、frontend が
     `resolved: None` を 0.0 で埋めると copper_detection は canny 0 / blur_ksize
     0 を描き、 その 0 がスライダーの value として「設定に保存」で実機の machine.toml へ書き戻される。
     実効値の出所は backend だけに保ち、解決できないなら描かない。
@@ -918,7 +920,7 @@ class TestUnresolvableMachineSettingsAreNotFabricated:
         """
         machine_id = ui_settings.machines[0].machine_id
 
-        response = client.get(f"/m/{machine_id}/api/settings/machine")
+        response = client.get(f"/m/{machine_id}/api/machine_config")
 
         assert response.status_code == 200
         fields = {field["key"]: field for field in response.json()["fields"]}
@@ -1051,14 +1053,14 @@ class TestMachinePrefixedUrls:
     def test_api_path_is_proxied_and_not_eaten_by_the_pages_router(
         self, client: TestClient, ui_settings: UiSettings
     ):
-        """`/m/{id}/api/state` はプロキシに届く（登録順の回帰）.
+        """`/m/{id}/api/session/state` はプロキシに届く（登録順の回帰）.
 
         pages ルータを先に登録すると `/m/{machine_id}/{tab}/{feature}` が
-        `/m/x/api/state` を飲み込み、404 HTML が返って UI 全体が動かなくなる。
+        `/m/x/api/session/state` を飲み込み、404 HTML が返って UI 全体が動かなくなる。
         """
         machine_id = ui_settings.machines[0].machine_id
 
-        response = client.get(f"/m/{machine_id}/api/state")
+        response = client.get(f"/m/{machine_id}/api/session/state")
 
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("application/json")

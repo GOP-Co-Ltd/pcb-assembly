@@ -1,8 +1,7 @@
 """テスト塗布基板の生成 API.
 
-リクエスト/レスポンスの形は ``pcbasm.pasting.test_board`` の attrs 値オブジェクトを
-:func:`web.api.attrs_models.mirror_model` で写す（JSON のキー名・型は attrs 側が唯一の出典）。
-ここに残す明示モデルは、複数のドメイン値を束ねるレスポンスとリクエストの封筒だけ。
+リクエストは ``pcbasm.pasting.test_board`` の attrs 値オブジェクトへ cattrs で変換し、
+レスポンスは attrs 値オブジェクトから ``model_validate(obj, strict=False, from_attributes=True)`` で詰める（tuple は list になる）。
 """
 
 from __future__ import annotations
@@ -13,9 +12,6 @@ import cattrs
 from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from pcbasm.geometry.packing import Rect
-from pcbasm.kicad.footprint import FootprintInfo
-from pcbasm.pasting.test_board.catalog import PadPattern
 from pcbasm.pasting.test_board.config import (
     BOARD_KIND,
     BOARD_SCHEMA_VERSION,
@@ -23,72 +19,169 @@ from pcbasm.pasting.test_board.config import (
     BoardConfig,
     BoardKind,
     BoardSchemaVersion,
-    BoardSpec,
     CustomPadDraft,
-    CustomPadShape,
+    CustomPadShapeId,
+    PreviewLayer,
     parse_board_document,
 )
-from pcbasm.pasting.test_board.generator import (
-    BoardPreview,
-    PatternAddition,
-    ResolvedConfig,
-)
-from pcbasm.pasting.test_board.layout import (
-    LayerPolygon,
-    PadLayout,
-    PatternLayout,
-)
-from web.api.attrs_models import mirror_model
+from pcbasm.pasting.test_board.generator import BoardPreview
 from web.api.deps import BoardGeneratorDep
+from web.contract.models import Point2dInfo, RectInfo
 
-router = APIRouter(
-    prefix="/api/pasting/paste-test-board",
-    tags=["pasting"],
-)
+router = APIRouter(prefix="/api/pasting/test_board")
 
 CONFIG_FILENAME = "pcbasm-paste-test-board.json"
 BOARD_FILENAME = "pcbasm-paste-test-board.kicad_pcb"
 
 _converter = cattrs.Converter()
 
-# attrs → pydantic の機械写し（同じ attrs クラスは同じモデルに解決される）
-BoardConfigModel = mirror_model(BoardConfig)
-CustomPadDraftModel = mirror_model(CustomPadDraft)
-ResolvedConfigResponse = mirror_model(ResolvedConfig, name="ResolvedConfigResponse")
-PatternAdditionResponse = mirror_model(PatternAddition, name="PatternAdditionResponse")
-
 
 class _ApiModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True, from_attributes=True)
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+# --------------------------------------------------------------------------- #
+# 基板設定（リクエストとレスポンスで同じ形。JS は受け取った設定をそのまま送り返す）
+# --------------------------------------------------------------------------- #
+class BoardSpecModel(_ApiModel):
+    width_mm: float
+    height_mm: float
+    edge_margin_mm: float
+    pad_gap_mm: float
+
+
+class PurgePadSpecModel(_ApiModel):
+    width_mm: float
+    height_mm: float
+
+
+class CustomPadSpecModel(_ApiModel):
+    catalog_id: str
+    name: str
+    shape: CustomPadShapeId
+    width_mm: float
+    height_mm: float
+    corner_radius_mm: float
+
+
+class PatternSpecModel(_ApiModel):
+    catalog_id: str
+    rotation_span_deg: float
+    rotation_count: int
+    repeat_count: int
+
+
+class BoardConfigModel(_ApiModel):
+    board: BoardSpecModel
+    purge_pad: PurgePadSpecModel
+    custom_pads: list[CustomPadSpecModel]
+    patterns: list[PatternSpecModel]
+
+
+class CustomPadDraftModel(_ApiModel):
+    """任意寸法パッドの追加入力（省略した寸法と名前はドメインの既定値に従う）."""
+
+    shape: CustomPadShapeId
+    width_mm: float
+    height_mm: float | None = None
+    corner_radius_mm: float | None = None
+    name: str | None = None
+
+
+# --------------------------------------------------------------------------- #
+# レスポンス
+# --------------------------------------------------------------------------- #
+class PadPatternModel(_ApiModel):
+    catalog_id: str
+    footprint_id: str
+    footprint_label: str
+    label: str
+    family_id: str
+    family_label: str
+    library: str
+    footprint: str
+    source_pad_numbers: list[str]
+    source_pad_count: int
+    pad_width_mm: float
+    pad_height_mm: float
+    default_rotation_span_deg: float
+    default_rotation_count: int
+    default_repeat_count: int
+
+
+class CustomPadShapeModel(_ApiModel):
+    shape: CustomPadShapeId
+    label: str
+    uses_height: bool
+    uses_corner_radius: bool
+
+
+class FootprintInfoModel(_ApiModel):
+    footprint_id: str
+    label: str
+    library: str
+    footprint: str
+
+
+class LayerPolygonModel(_ApiModel):
+    layer: PreviewLayer
+    points: list[Point2dInfo]
+
+
+class PadLayoutModel(_ApiModel):
+    catalog_id: str
+    display_name: str
+    reference: str
+    bounds: RectInfo
+    x: float
+    y: float
+    rotation_deg: float
+    polygons: list[LayerPolygonModel]
+
+
+class PatternLayoutModel(_ApiModel):
+    catalog_id: str
+    angles_deg: list[float]
+
+
+class ResolvedConfigResponse(_ApiModel):
+    config: BoardConfigModel
+    catalog: list[PadPatternModel]
+
+
+class PatternAdditionResponse(_ApiModel):
+    config: BoardConfigModel
+    catalog: list[PadPatternModel]
+    added_count: int
 
 
 class FootprintSearchResponse(_ApiModel):
     query: str
     footprint_count: int
-    results: list[mirror_model(FootprintInfo)]  # type: ignore[valid-type]
+    results: list[FootprintInfoModel]
 
 
 class BoardOptionsResponse(_ApiModel):
     kind: BoardKind
     schema_version: BoardSchemaVersion
     footprint_count: int
-    custom_pad_shapes: list[mirror_model(CustomPadShape)]  # type: ignore[valid-type]
-    config: BoardConfigModel  # type: ignore[valid-type]
-    catalog: list[mirror_model(PadPattern)]  # type: ignore[valid-type]
+    custom_pad_shapes: list[CustomPadShapeModel]
+    config: BoardConfigModel
+    catalog: list[PadPatternModel]
 
 
 class BoardPreviewResponse(_ApiModel):
     """Preview の解決結果（設定・カタログ・layout を 1 階層に平坦化して返す）."""
 
-    config: BoardConfigModel  # type: ignore[valid-type]
-    catalog: list[mirror_model(PadPattern)]  # type: ignore[valid-type]
-    board: mirror_model(BoardSpec)  # type: ignore[valid-type]
-    placement_area: mirror_model(Rect)  # type: ignore[valid-type]
-    preview_bounds: mirror_model(Rect)  # type: ignore[valid-type]
-    purge_pad: mirror_model(Rect)  # type: ignore[valid-type]
-    purge_polygons: list[mirror_model(LayerPolygon)]  # type: ignore[valid-type]
-    patterns: list[mirror_model(PatternLayout)]  # type: ignore[valid-type]
-    pads: list[mirror_model(PadLayout)]  # type: ignore[valid-type]
+    config: BoardConfigModel
+    catalog: list[PadPatternModel]
+    board: BoardSpecModel
+    placement_area: RectInfo
+    preview_bounds: RectInfo
+    purge_pad: RectInfo
+    purge_polygons: list[LayerPolygonModel]
+    patterns: list[PatternLayoutModel]
+    pads: list[PadLayoutModel]
     pad_count: int
     overflow_message: str | None
 
@@ -110,29 +203,33 @@ class BoardPreviewResponse(_ApiModel):
                 "overflow_message": preview.overflow_message,
             },
             strict=False,
+            from_attributes=True,
         )
 
 
+# --------------------------------------------------------------------------- #
+# リクエストの封筒
+# --------------------------------------------------------------------------- #
 class BoardImportRequest(_ApiModel):
     document: dict[str, object]
 
 
 class PatternAdditionRequest(_ApiModel):
-    config: BoardConfigModel  # type: ignore[valid-type]
+    config: BoardConfigModel
     footprint_id: Annotated[str, Field(min_length=1, max_length=300)]
 
 
 class AddCustomPadRequest(_ApiModel):
-    config: BoardConfigModel  # type: ignore[valid-type]
-    custom_pad: CustomPadDraftModel  # type: ignore[valid-type]
+    config: BoardConfigModel
+    custom_pad: CustomPadDraftModel
 
 
-def _to_config(model: BaseModel) -> BoardConfig:
+def _to_config(model: BoardConfigModel) -> BoardConfig:
     return _converter.structure(model.model_dump(), BoardConfig)
 
 
-def _to_draft(model: BaseModel) -> CustomPadDraft:
-    return _converter.structure(model.model_dump(), CustomPadDraft)
+def _to_draft(model: CustomPadDraftModel) -> CustomPadDraft:
+    return _converter.structure(model.model_dump(exclude_none=True), CustomPadDraft)
 
 
 @router.get("/options")
@@ -152,6 +249,7 @@ def get_paste_test_board_options(
             "catalog": resolved.catalog,
         },
         strict=False,
+        from_attributes=True,
     )
 
 
@@ -159,13 +257,15 @@ def get_paste_test_board_options(
 def add_paste_test_board_custom_pad(
     body: AddCustomPadRequest,
     generator: BoardGeneratorDep,
-) -> ResolvedConfigResponse:  # type: ignore[valid-type]
+) -> ResolvedConfigResponse:
     """任意寸法の基本 SMD パッドを設定へ追加する."""
 
     resolved = generator.add_custom_pad(
         _to_config(body.config), _to_draft(body.custom_pad)
     )
-    return ResolvedConfigResponse.model_validate(resolved, strict=False)
+    return ResolvedConfigResponse.model_validate(
+        resolved, strict=False, from_attributes=True
+    )
 
 
 @router.get("/footprints")
@@ -183,6 +283,7 @@ def search_paste_test_board_footprints(
             "results": generator.search_footprints(query, limit),
         },
         strict=False,
+        from_attributes=True,
     )
 
 
@@ -190,18 +291,20 @@ def search_paste_test_board_footprints(
 def add_paste_test_board_footprint_patterns(
     body: PatternAdditionRequest,
     generator: BoardGeneratorDep,
-) -> PatternAdditionResponse:  # type: ignore[valid-type]
+) -> PatternAdditionResponse:
     """選択 footprint の未追加パッド種を設定へ追加する."""
 
     addition = generator.add_footprint_patterns(
         _to_config(body.config), body.footprint_id
     )
-    return PatternAdditionResponse.model_validate(addition, strict=False)
+    return PatternAdditionResponse.model_validate(
+        addition, strict=False, from_attributes=True
+    )
 
 
 @router.post("/preview")
 def preview_paste_test_board(
-    body: BoardConfigModel,  # type: ignore[valid-type]
+    body: BoardConfigModel,
     generator: BoardGeneratorDep,
 ) -> BoardPreviewResponse:
     """実パッド形状から配置と preview polygon を解決する."""
@@ -211,7 +314,7 @@ def preview_paste_test_board(
 
 @router.post("/export")
 def export_paste_test_board_config(
-    body: BoardConfigModel,  # type: ignore[valid-type]
+    body: BoardConfigModel,
     generator: BoardGeneratorDep,
 ) -> Response:
     """配置可否に依らず、解決可能な設定 JSON をダウンロードする."""
@@ -227,20 +330,20 @@ def export_paste_test_board_config(
 def import_paste_test_board_config(
     body: BoardImportRequest,
     generator: BoardGeneratorDep,
-) -> ResolvedConfigResponse:  # type: ignore[valid-type]
+) -> ResolvedConfigResponse:
     """自己識別情報を含む JSON を検証・正規化して返す（保存はしない）."""
 
     parsed, error = parse_board_document(body.document)
     if parsed is None:
         raise HTTPException(status_code=400, detail=error)
     return ResolvedConfigResponse.model_validate(
-        generator.resolve_config(parsed), strict=False
+        generator.resolve_config(parsed), strict=False, from_attributes=True
     )
 
 
 @router.post("/generate")
 def generate_paste_test_board(
-    body: BoardConfigModel,  # type: ignore[valid-type]
+    body: BoardConfigModel,
     generator: BoardGeneratorDep,
 ) -> Response:
     """配置可能な設定から KiCad 基板を直接ダウンロードする（収まらなければ 422）."""

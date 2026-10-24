@@ -33,7 +33,7 @@ class Settings:
     # 1 ページの SSR に必要な backend 取得へ許す時間（超えたら 503 ページ）
     ssr_timeout: float = 2.0
     backend_connect_timeout: float = 2.0
-    # プロキシが上流の応答を待つ上限。POST /api/machine-control は M400 待ちで
+    # プロキシが上流の応答を待つ上限。POST /api/machine/command は M400 待ちで
     # 最大 60s かかるので、それより長くする（MJPEG は無制限で別扱い）
     proxy_read_timeout: float = 120.0
     # machines.toml で port を省略したマシンに使う backend の port

@@ -12,7 +12,7 @@ from pcbasm.pasting.initial_purge import (
     ResolvedInitialPurge,
     resolve_initial_purge,
     resolve_initial_purge_for,
-    validate_initial_purge,
+    validate_initial_purge_point,
 )
 from pcbasm.pasting.labels import purge_point_label
 
@@ -158,29 +158,20 @@ class TestResolveInitialPurge:
         assert error is not None
 
 
-class TestValidateInitialPurge:
-    """Resolve と同一規則の None 返却バリデーション（無効化中も座標は検証する）."""
+class TestValidateInitialPurgePoint:
+    """保存する位置だけを、resolve と同一規則で検証する（None 返却バリデーション）."""
 
     @pytest.mark.parametrize("point", [Point2d(1.0, 1.0), None])
-    def test_valid_settings_return_none(self, point: Point2d | None):
-        assert (
-            validate_initial_purge(amount_ul=0.1, point=point, outline=_outline())
-            is None
-        )
+    def test_valid_point_returns_none(self, point: Point2d | None):
+        assert validate_initial_purge_point(point=point, outline=_outline()) is None
 
-    def test_amount_zero_still_validates_an_off_board_point(self):
-        error = validate_initial_purge(
-            amount_ul=0.0, point=Point2d(50.0, 0.0), outline=_outline()
+    def test_off_board_point_returns_error(self):
+        error = validate_initial_purge_point(
+            point=Point2d(50.0, 0.0), outline=_outline()
         )
 
         assert error is not None
         assert "基板外形" in error
-
-    def test_negative_amount_returns_error(self):
-        error = validate_initial_purge(amount_ul=-0.1, point=None, outline=_outline())
-
-        assert error is not None
-        assert "0以上" in error
 
     def test_error_text_matches_resolve_initial_purge(self):
         # エラー文言は resolve_initial_purge と同一ソース（文言の乖離防止）
@@ -188,9 +179,7 @@ class TestValidateInitialPurge:
         _, resolve_error = resolve_initial_purge(
             amount_ul=0.1, point=point, routed_pads=[], outline=_outline()
         )
-        validate_error = validate_initial_purge(
-            amount_ul=0.1, point=point, outline=_outline()
-        )
+        validate_error = validate_initial_purge_point(point=point, outline=_outline())
 
         assert validate_error == resolve_error
 

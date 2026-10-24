@@ -199,7 +199,10 @@ class TestEmergencyStop:
         klipper = FakeKlipper()
         mount_klipper(klipper)
         client = TestClient(backend_app)
-        assert client.post("/api/control/acquire", headers=ALICE).status_code == 200
+        assert (
+            client.post("/api/session/control/acquire", headers=ALICE).status_code
+            == 200
+        )
 
         with backend_app.state.backend.lock.hold("pytest-job"):
             response = client.post("/api/emergency-stop", headers=BOB)

@@ -7,7 +7,7 @@
 - 無効化手段は **`inert` 属性 1 種類**に統一する（`.disabled` はジョブ状態を見て
   4 モジュールが既に書いており、同じ属性を使うと「ジョブ終了時に閲覧者のボタンが
   復活する」二重管理バグになる）
-- 更新源は (a) ページロード後の `GET /api/state`、(b) WS の `control_changed`、
+- 更新源は (a) ページロード後の `GET /api/session/state`、(b) WS の `control_changed`、
   (c) `api()` の 423 の 3 つだけ
 - **`#estop` と `#jc-abort` は絶対にゲートしない**（安全操作）
 - prompt 本文は閲覧者にも見せ、案内（誰の応答待ちか / 操作権が空いている）を出す
@@ -241,7 +241,7 @@ class TestScriptWiring:
         """マシンが決まっていない案内ページに操作権の概念は無い.
 
         `message.html`（ピッカー / 503 / 未登録 404）は `base` が空なので、
-        `control.js` の `GET /api/state` と取得 POST がプロキシ外へ飛んで 404 になる。
+        `control.js` の `GET /api/session/state` と取得 POST がプロキシ外へ飛んで 404 になる。
         バーを描くと「押すと必ず失敗する取得ボタン」が出る。
         """
         response = frontend_client.get("/m/no-such-machine/posctrl")

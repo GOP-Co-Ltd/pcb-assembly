@@ -152,7 +152,7 @@ class CameraFeed:
 
     @property
     def client_count(self) -> int:
-        """現在のストリーム接続数（/api/state 用）."""
+        """現在のストリーム接続数（/api/session/state 用）."""
         with self._count_lock:
             return self._client_count
 

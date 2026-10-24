@@ -175,7 +175,7 @@ class TestAdvertiserWithUnbuildableServiceInfo:
 
 
 class TestMachineIdResolution:
-    """`resolve_machine_id` — 広告と `/api/machine-info` が同じ ID を使う（D7）."""
+    """`resolve_machine_id` — 広告と machine-info が同じ ID を使う（D7）."""
 
     def test_injected_hostname_wins(self, tmp_path: Path):
         settings = Env(tmp_path, tmp_path, hostname="injected")
@@ -185,8 +185,8 @@ class TestMachineIdResolution:
     def test_machine_info_and_advertisement_share_the_id(
         self, client: TestClient, webui_settings: Env
     ):
-        """`/api/machine-info` の machine_id と広告の instance 名が一致する."""
-        machine_id = client.get("/api/machine-info").json()["machine_id"]
+        """`/api/session/machine-info` の machine_id と広告の instance 名が一致する."""
+        machine_id = client.get("/api/session/machine-info").json()["machine_id"]
         info = build_service_info(
             machine_id=resolve_machine_id(webui_settings),
             port=webui_settings.port,

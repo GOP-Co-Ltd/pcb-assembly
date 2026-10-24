@@ -1,7 +1,7 @@
 "use strict";
 
 // データセット収集の配置プレビュー。
-// 総点数・撮影枚数・容量・配置は backend の /api/pasting/paste-dataset-layout が
+// 総点数・撮影枚数・容量・配置は backend の /api/pasting/calibration/dataset-layout が
 // 算出したものをそのまま描く（ここで再導出しない）。SVG 座標は銅板 mm をそのまま
 // viewBox に使うので、ここでの座標変換は描画のための計算だけになる。
 (() => {
@@ -173,7 +173,7 @@
     const issued = ++generation;
     let data;
     try {
-      data = await api("POST", "/api/pasting/paste-dataset-layout", body);
+      data = await api("POST", "/api/pasting/calibration/dataset-layout", body);
     } catch (error) {
       if (issued === generation) errorBox.textContent = error.message;
       return;

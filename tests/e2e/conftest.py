@@ -54,7 +54,7 @@ _STARTUP_TIMEOUT = 10.0
 _HTTP_TIMEOUT = 10.0
 _WS_TIMEOUT = 30.0
 
-# 操作権の状態がブラウザへ届くまでの上限（GET /api/state 1 往復 + 描画）
+# 操作権の状態がブラウザへ届くまでの上限（GET /api/session/state 1 往復 + 描画）
 _CONTROL_TIMEOUT_MS = 10_000
 
 TERMINAL = ("succeeded", "failed", "aborted")
@@ -237,7 +237,7 @@ def select_led_blinker(live_server: LiveServer) -> None:
     destination = live_server.settings.pcb_browse_root / "led_blinker"
     shutil.copytree(COPPER_PCB_FIXTURE.parent, destination)
     response = httpx.put(
-        f"{live_server.base_url}/api/pcb-file",
+        f"{live_server.base_url}/api/selection/pcb-file",
         json={"path": LED_BLINKER_PCB},
         timeout=_HTTP_TIMEOUT,
     )
@@ -299,9 +299,9 @@ def session_headers(page: Any) -> dict[str, str]:
 
 
 def get_pad_config(live_server: LiveServer) -> dict[str, Any]:
-    """GET /api/pasting/pad-config の現在値を返す."""
+    """GET /api/pasting/board の現在値を返す."""
     response = httpx.get(
-        f"{live_server.base_url}/api/pasting/pad-config",
+        f"{live_server.base_url}/api/pasting/board",
         timeout=_HTTP_TIMEOUT,
     )
     assert response.status_code == 200, response.text
@@ -332,7 +332,7 @@ def wait_machine_field(
     """Machine 設定の 1 フィールドが期待値になるまで REST 経由で待つ."""
     deadline = time.monotonic() + timeout
     while True:
-        response = httpx.get(f"{base_url}/api/settings/machine", timeout=_HTTP_TIMEOUT)
+        response = httpx.get(f"{base_url}/api/machine_config", timeout=_HTTP_TIMEOUT)
         fields = {field["key"]: field for field in response.json()["fields"]}
         if fields[key]["value"] == expected:
             return

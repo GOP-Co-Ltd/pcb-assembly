@@ -5,7 +5,7 @@
 ここには置かない。それらは backend が `GET /api/jobs` の `JobSpecInfo` で自己申告し、
 frontend はその値をテンプレートへ渡すだけにする。
 
-設定ページの項目・見出し・並び順も backend が `GET /api/settings/machine` で返す。
+設定ページの項目・見出し・並び順も backend が `GET /api/machine_config` で返す。
 `settings_sections` はそれを画面とカードへまとめるだけで、並べ替えない。
 """
 

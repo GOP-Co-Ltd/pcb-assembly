@@ -6,7 +6,7 @@
 // 宛先: このページはマシン非依存なので、app.js の機体 prefix（BASE）が空になる。
 // 行の base は data-row-base の値（"/m/<machine_id>"）。
 // - HTTP: api() に `${base}/api/...` をそのまま渡す（api() は空の BASE しか付けない）
-// - WS: api() を通らないので、withBase("/api/ws", base) で機体宛ての URL を組む
+// - WS: api() を通らないので、withBase("/api/jobs/ws", base) で機体宛ての URL を組む
 //
 // 行ごとに WS を張り続ける理由: 他の端末による取得・解放や PCB の選び直しを、
 // ポーリングせずに WS のイベントで知るため。操作権は WS が切れても失効しない
@@ -22,7 +22,7 @@
 //   unknown | 隠す     | 隠す   | 押せない
 // 送信中（pending）は、表で「押せる」のボタンも押せなくする。
 //
-// 状態（GET /api/state）を取り直す契機は次の 3 つ。ポーリングはしない。
+// 状態（GET /api/session/state）を取り直す契機は次の 3 つ。ポーリングはしない。
 // - WS の open と close
 // - WS の control_changed / state_changed
 // - 行のボタン操作が終わったとき（成功・失敗を問わない）
@@ -96,7 +96,7 @@
 
     async function refresh() {
       try {
-        applySnapshot(await api("GET", `${base}/api/state`));
+        applySnapshot(await api("GET", `${base}/api/session/state`));
       } catch {
         // 不通の機体は操作不可のまま表示だけ変える（再接続のたびにトーストを出さない）
         state = "unknown";
@@ -127,10 +127,10 @@
     }
 
     acquireButton.addEventListener("click", () =>
-      run(async () => applySnapshot(await api("POST", `${base}/api/control/acquire`)))
+      run(async () => applySnapshot(await api("POST", `${base}/api/session/control/acquire`)))
     );
     releaseButton.addEventListener("click", () =>
-      run(async () => applySnapshot(await api("POST", `${base}/api/control/release`)))
+      run(async () => applySnapshot(await api("POST", `${base}/api/session/control/release`)))
     );
 
     updateButton.addEventListener("click", () =>
@@ -168,7 +168,7 @@
 
     function connect() {
       const proto = location.protocol === "https:" ? "wss" : "ws";
-      const socket = new WebSocket(`${proto}://${location.host}${withBase("/api/ws", base)}`);
+      const socket = new WebSocket(`${proto}://${location.host}${withBase("/api/jobs/ws", base)}`);
       socket.addEventListener("open", () => {
         backoff.reset();
         // 切断中のイベントは届いていない。更新後の再起動から戻ったときもここを通る

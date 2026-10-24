@@ -123,7 +123,7 @@ class ProxyApp:
             target_prefix: 上流のパス prefix（``"/api"`` / ``"/artifacts"``）
             read_timeout: 上流の応答を待つ上限 [s]（``Settings.proxy_read_timeout``）。
                 gateway の既定は SSR 用の短い値なので中継では使えない
-                （`POST /api/machine-control` は M400 待ちで最大 60s かかる）
+                （`POST /api/machine/command` は M400 待ちで最大 60s かかる）
         """
         self._registry = registry
         self._gateway = gateway

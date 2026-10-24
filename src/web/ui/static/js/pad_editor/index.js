@@ -35,8 +35,8 @@ import {
   const saves = createPendingSaves((error) => toast(error.message, false));
   // 追加モード中にこの距離まで近づけてクリックしたら、その測定位置を消す [mm]
   const FLOW_CALIBRATION_HIT_MM = 0.5;
-  const configUrl = "/api/pasting/pad-config";
-  const copperUrl = "/api/pasting/pad-config/copper";
+  const configUrl = "/api/pasting/board";
+  const copperUrl = "/api/pasting/board/copper";
 
   const state = {
     config: null,
@@ -263,7 +263,7 @@ import {
     if (state.purgePointMode) {
       const point = svgPoint(svg, evt);
       setPurgePointMode(false);
-      patchInitialPurge({ point: [point.x, point.y] });
+      patchInitialPurgePoint([point.x, point.y]);
       return;
     }
     if (state.flowCalibrationPointMode) {
@@ -348,7 +348,7 @@ import {
     return saves.run("pad 更新失敗", async () => {
       const res = await api(
         "PATCH",
-        "/api/pasting/pad-config/pads",
+        "/api/pasting/board/pads",
         request
       );
       applyPadVisuals(res.affected_pads);
@@ -453,7 +453,7 @@ import {
   async function saveNode(body, options) {
     const res = await api(
       "PATCH",
-      "/api/pasting/pad-config/node",
+      "/api/pasting/board/node",
       body
     );
     applyPadVisuals(res.affected_pads);
@@ -479,26 +479,32 @@ import {
       toast("数値を入力してください", false);
       return;
     }
-    debounceInitialPurgePatch({ initial_purge_ul: value });
+    saves.schedule(
+      "initial-purge",
+      () =>
+        saveInitialPurge("PUT", "/api/machine_config", {
+          values: { "paste_dispenser.initial_purge_ul": value },
+        }),
+      DEBOUNCE_MS
+    );
   }
 
-  function debounceInitialPurgePatch(body) {
-    const request = withExpectedPcb(body);
-    saves.schedule("initial-purge", () => patchInitialPurge(request), DEBOUNCE_MS);
+  function patchInitialPurgePoint(point) {
+    saveInitialPurge(
+      "PATCH",
+      "/api/pasting/board/initial-purge",
+      withExpectedPcb({ point })
+    );
   }
 
-  function patchInitialPurge(body) {
+  // 量は machine.toml、位置は基板設定へ書く。どちらも保存後に解決結果を取り直す
+  function saveInitialPurge(method, url, body) {
     if (state.locked || state.initialPurgeSaving) return;
     state.initialPurgeSaving = true;
     applyToolbarLock();
-    const request = withExpectedPcb(body);
     return saves.run("初回パージ設定更新失敗", async () => {
       try {
-        await api(
-          "PATCH",
-          "/api/pasting/pad-config/initial-purge",
-          request
-        );
+        await api(method, url, body);
         await reloadConfig({});
       } finally {
         state.initialPurgeSaving = false;
@@ -531,7 +537,7 @@ import {
       try {
         await api(
           "PATCH",
-          "/api/pasting/pad-config/flow-calibration",
+          "/api/pasting/board/flow-calibration",
           request
         );
         await reloadConfig({});
@@ -642,7 +648,7 @@ import {
     state.routeLoading = true;
     applyToolbarLock();
     try {
-      const route = await api("POST", "/api/pasting/pad-config/route", {
+      const route = await api("POST", "/api/pasting/board/route", {
         layer: state.layer,
       });
       if (revision !== routeRevision) return;
@@ -666,7 +672,7 @@ import {
     state.fillPathLoading = true;
     applyToolbarLock();
     try {
-      const fillPath = await api("POST", "/api/pasting/pad-config/fill-path", {
+      const fillPath = await api("POST", "/api/pasting/board/fill-path", {
         layer: state.layer,
       });
       if (revision !== fillPathRevision) return;
@@ -710,7 +716,7 @@ import {
     initialPurgeClearButton.addEventListener("click", () => {
       if (state.locked) return;
       setPurgePointMode(false);
-      patchInitialPurge({ point: null });
+      patchInitialPurgePoint(null);
     });
   }
 
@@ -767,7 +773,7 @@ import {
         // 保存名はサーバーが Content-Disposition で決める（基板名 + 日時）
         const filename = await downloadApi(
           "GET",
-          "/api/pasting/pad-config/export",
+          "/api/pasting/board/export",
         );
         toast(`基板 override 設定を書き出しました: ${filename}`);
       } catch (err) {
@@ -784,7 +790,7 @@ import {
       saves.run("読み込み失敗", async () => {
         try {
           const document = JSON.parse(await file.text());
-          await api("POST", "/api/pasting/pad-config/import", {
+          await api("POST", "/api/pasting/board/import", {
             document,
           });
           clearRoute();

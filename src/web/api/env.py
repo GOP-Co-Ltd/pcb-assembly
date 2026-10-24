@@ -31,7 +31,7 @@ class Env:
     # アップロード保存先。pcb_browse_root 配下かつ pcb_browse_allowed 内であること
     # （保存後にそのまま選択・閲覧できるようにするため）
     pcb_upload_dir: Path = PROJECT_ROOT / "uploads"
-    # None の場合は machine_id（= hostname）ベースで解決する（routers/common.py）
+    # None の場合は machine_id（= hostname）ベースで解決する（routers/session.py）
     mainsail_url: str | None = None
     # backend の自己申告 ID。None なら socket.gethostname() を使う
     # （1 ホストに複数 backend を立てる E2E で区別するための注入口）
@@ -154,10 +154,10 @@ class Env:
 
 
 def resolve_machine_id(env: Env) -> str:
-    """Backend の自己申告 machine_id（``/api/machine-info`` と mDNS 広告で共有）.
+    """Backend の自己申告 machine_id（``/api/session/machine-info`` と mDNS 広告で共有）.
 
     ここ 1 箇所でだけ導出する。2 箇所で別々に導出すると ``hostname`` を注入した
-    E2E で広告 ID と ``/api/machine-info`` の ID がずれ、frontend の
+    E2E で広告 ID と ``/api/session/machine-info`` の ID がずれ、frontend の
     ``/m/{machine_id}`` が解決できなくなる。
     """
     return env.hostname or socket.gethostname()

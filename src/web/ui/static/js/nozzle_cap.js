@@ -26,7 +26,7 @@
   bindRecord(
     "nc-record",
     "nc-current",
-    "/api/pasting/nozzle-cap/record",
+    "/api/pasting/nozzle/cap/record",
     (p) => `X ${p.x.toFixed(3)} / Y ${p.y.toFixed(3)} / Z ${p.z.toFixed(3)}`,
     "ノズルキャップ位置を記録しました",
   );
@@ -35,7 +35,7 @@
   bindRecord(
     "ncl-record",
     "ncl-current",
-    "/api/pasting/nozzle-clean/record",
+    "/api/pasting/nozzle/clean/record",
     (recorded) => recorded.label,
     "ノズルクリーニング位置を記録しました",
   );
@@ -47,7 +47,7 @@
     testButton.addEventListener("click", async () => {
       testButton.disabled = true;
       try {
-        const result = await api("POST", "/api/pasting/nozzle-clean/test");
+        const result = await api("POST", "/api/pasting/nozzle/clean/test");
         toast(result.message);
       } catch (err) {
         toast(err.message, false);

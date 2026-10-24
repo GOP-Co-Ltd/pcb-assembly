@@ -25,7 +25,7 @@ def delayed_preview_ui(
         live_server,
         tmp_path,
         method="POST",
-        path_suffixes=(f"/api/pasting/pad-config/{kind}",),
+        path_suffixes=(f"/api/pasting/board/{kind}",),
         response=True,
     ) as (ui, transport):
         yield ui, transport, kind
@@ -48,7 +48,7 @@ class TestPadPreviews:
         calculate.click()
         assert transport.wait_received()
 
-        with page.expect_response("**/api/pasting/pad-config"):
+        with page.expect_response("**/api/pasting/board"):
             page.locator("#pad-disable-all").click()
         assert not any(
             pad["enabled"]
@@ -56,7 +56,7 @@ class TestPadPreviews:
             if pad["layer"] == "Top"
         )
 
-        with page.expect_response(f"**/api/pasting/pad-config/{kind}"):
+        with page.expect_response(f"**/api/pasting/board/{kind}"):
             transport.resume()
         page.evaluate(
             "() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))"
@@ -64,7 +64,7 @@ class TestPadPreviews:
         expect(overlay).to_have_count(0)
         expect(calculate).to_be_enabled()
 
-        with page.expect_response("**/api/pasting/pad-config"):
+        with page.expect_response("**/api/pasting/board"):
             page.locator("#pad-enable-all").click()
         expect(page.locator('.pad-disabled[data-layer="Top"]')).to_have_count(0)
         calculate.click()

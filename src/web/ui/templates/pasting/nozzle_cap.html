@@ -76,7 +76,7 @@
   <h4>動作設定</h4>
   {# 入力後は即保存する。押し込み量とこすり幅は結果を見ながら調整する値なので、記録と同じ画面に置く。 #}
   <form class="paste-auto-thresholds" data-testid="nozzle-clean-settings" data-requires-control
-        data-machine-settings data-endpoint="/api/settings/machine">
+        data-machine-settings data-endpoint="/api/machine_config">
     {% for field in nozzle_clean_fields %}
     <label for="ncl-{{ field.key }}">{{ field.label }}
       <input id="ncl-{{ field.key }}" name="{{ field.key }}" type="number"

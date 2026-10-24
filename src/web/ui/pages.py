@@ -66,8 +66,8 @@ from web.ui.machines import MachineEndpoint, MachineRegistry
 # machine を指定しない URL で開くタブ
 DEFAULT_TAB = "posctrl"
 
-# machine.toml の現在値（`GET /api/settings/machine`）が要るページの feature。
-# ここに無い feature では取得しない。backend の `/api/settings/machine` は
+# machine.toml の現在値（`GET /api/machine_config`）が要るページの feature。
+# ここに無い feature では取得しない。backend の `/api/machine_config` は
 # machine.toml をパースするので、壊れた machine.toml では 500 になる。全ページで
 # 取得すると、壊れた設定ファイル 1 つで全画面が 503 になり、設定を直す画面すら開けない
 # （MR2 で backend 側に入れた「壊れていても描けるページは描く」防御を保つ）
@@ -117,7 +117,7 @@ def _resolve(
 
 
 class _MachineSettings:
-    """ページが読む machine 設定（backend の `/api/settings/machine` の結果）.
+    """ページが読む machine 設定（backend の `/api/machine_config` の結果）.
 
     設定フォームは machine.toml に書かれている値（``fields`` の ``value``）を、
     現在値の表示は実効値（``resolved``）を使う。実効値の解決は backend にしかできない
@@ -131,7 +131,7 @@ class _MachineSettings:
 
         Args:
             endpoint: 取得元の backend（解決できない値を 503 にするため持つ）
-            fields: `/api/settings/machine` の項目（取得しないページでは空）
+            fields: `/api/machine_config` の項目（取得しないページでは空）
         """
         self._endpoint = endpoint
         self.fields = tuple(fields)

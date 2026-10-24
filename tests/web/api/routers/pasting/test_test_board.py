@@ -1,4 +1,4 @@
-"""テスト塗布基板APIの結合テスト."""
+"""`web.api.routers.pasting.test_board`（テスト塗布基板 API）の結合テスト."""
 
 from pathlib import Path
 from typing import Any
@@ -12,7 +12,7 @@ from tests.support.backend import devices_with_audio
 from web.api.app import create_app
 from web.api.env import Env
 
-_BASE = "/api/pasting/paste-test-board"
+_BASE = "/api/pasting/test_board"
 _R0402 = "Resistor_SMD.pretty/R_0402_1005Metric#pad-0"
 _R0603 = "Resistor_SMD.pretty/R_0603_1608Metric#pad-0"
 _QFN = "Package_DFN_QFN.pretty/QFN-16-1EP_3x3mm_P0.5mm_EP1.75x1.75mm"

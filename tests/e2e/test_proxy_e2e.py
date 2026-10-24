@@ -113,14 +113,16 @@ def _inspection_upstream() -> Starlette:
         routes=[
             Route("/api/slow", _slow_response),
             Route("/api/preview/stream", _slow_multipart_stream),
-            WebSocketRoute("/api/ws", _echo_request_over_websocket),
+            WebSocketRoute("/api/jobs/ws", _echo_request_over_websocket),
         ]
     )
 
 
 def _preview_clients(live_server: LiveServer) -> int:
     """Backend が数えている MJPEG 視聴者数（backend 直で読む）."""
-    response = httpx.get(f"{live_server.base_url}/api/state", timeout=_HTTP_TIMEOUT)
+    response = httpx.get(
+        f"{live_server.base_url}/api/session/state", timeout=_HTTP_TIMEOUT
+    )
     assert response.status_code == 200
     return response.json()["preview_clients"]
 
@@ -284,7 +286,9 @@ class TestJobOverProxiedWebSocket:
     def test_job_demo_completes_with_prompt_answers_through_proxy(
         self, live_ui: LiveUi
     ):
-        with connect(f"{live_ui.ws_url}/api/ws", open_timeout=_WS_OPEN_TIMEOUT) as ws:
+        with connect(
+            f"{live_ui.ws_url}/api/jobs/ws", open_timeout=_WS_OPEN_TIMEOUT
+        ) as ws:
             response = httpx.post(
                 f"{live_ui.base_url}/api/jobs/job_demo",
                 json={"params": {"steps": 2, "interval": 0.0}},
@@ -303,7 +307,9 @@ class TestJobOverProxiedWebSocket:
         )
 
     def test_abort_message_is_relayed_to_backend(self, live_ui: LiveUi):
-        with connect(f"{live_ui.ws_url}/api/ws", open_timeout=_WS_OPEN_TIMEOUT) as ws:
+        with connect(
+            f"{live_ui.ws_url}/api/jobs/ws", open_timeout=_WS_OPEN_TIMEOUT
+        ) as ws:
             response = httpx.post(
                 f"{live_ui.base_url}/api/jobs/job_demo",
                 json={"params": {"steps": 1, "interval": 0.0}},
@@ -330,7 +336,7 @@ class TestProxiedWebSocketRequest:
     def _open(ui: LiveUi, query: str = "") -> tuple[dict[str, Any], ConnectionClosed]:
         """検査用上流へ WS を張り、受信した JSON と close の情報を返す."""
         with connect(
-            f"{ui.ws_url}/api/ws{query}",
+            f"{ui.ws_url}/api/jobs/ws{query}",
             additional_headers={"Cookie": "session=frontend-only"},
             open_timeout=_WS_OPEN_TIMEOUT,
         ) as ws:
@@ -382,7 +388,7 @@ class TestProxyReadTimeout:
     """中継は SSR 用の短い既定ではなく `proxy_read_timeout` で待つ（契約書 6 番）.
 
     gateway の read timeout は SSR 用（`ssr_timeout`）に短くしてあるので、中継が
-    その既定をそのまま使うと `POST /api/machine-control`（M400 待ちで最大 60s）が
+    その既定をそのまま使うと `POST /api/machine/command`（M400 待ちで最大 60s）が
     数秒で 504 になる。**この 1 本を落とさないと、中継 timeout を gateway 既定へ
     戻す変更が全テスト素通りする**（実測）。
     """
@@ -452,7 +458,8 @@ class TestWebSocketHandshakeRejection:
     def test_unknown_machine_id_is_rejected_before_accept(self, live_ui: LiveUi):
         with pytest.raises(InvalidStatus) as rejected:
             with connect(
-                f"{live_ui.ws_origin}/m/nosuch/api/ws", open_timeout=_WS_OPEN_TIMEOUT
+                f"{live_ui.ws_origin}/m/nosuch/api/jobs/ws",
+                open_timeout=_WS_OPEN_TIMEOUT,
             ):
                 pass
 
@@ -471,7 +478,7 @@ class TestWebSocketHandshakeRejection:
         try:
             with pytest.raises(InvalidStatus) as rejected:
                 with connect(
-                    f"ws://127.0.0.1:{frontend.port}/m/dead/api/ws",
+                    f"ws://127.0.0.1:{frontend.port}/m/dead/api/jobs/ws",
                     open_timeout=_WS_OPEN_TIMEOUT,
                 ):
                     pass
@@ -506,7 +513,7 @@ class TestBackendShutdownClosesProxiedWebSocket:
             )
             try:
                 with connect(
-                    f"ws://127.0.0.1:{frontend.port}/m/dying/api/ws",
+                    f"ws://127.0.0.1:{frontend.port}/m/dying/api/jobs/ws",
                     open_timeout=_WS_OPEN_TIMEOUT,
                 ) as ws:
                     # 未知 type は error イベントで返る = 双方向に繋がっている証跡

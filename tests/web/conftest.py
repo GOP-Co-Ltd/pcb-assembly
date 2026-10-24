@@ -13,8 +13,8 @@ import pytest
 def partial_nozzle_cap(config_dir: Path) -> Path:
     """`[paste_dispenser.nozzle_cap]` に x だけを書いた machine.toml を用意する（そのパスを返す）.
 
-    ssh の手編集でこの配置になりうる。座標は 3 つそろうか、すべて無いかなので設定エラー
-    （degraded）になる。`/api/state` と全ページ SSR がこれで 500 しないことをピンするための素材。
+    ssh の手編集でこの配置になりうる。座標は 3 つそろうか、すべて無いかなので設定エラー （degraded）になる。状態の API
+    と全ページ SSR がこれで 500 しないことをピンするための素材。
     """
     path = config_dir / "machine.toml"
     with path.open("a", encoding="utf-8") as machine_toml:

@@ -1,6 +1,6 @@
 """マシン操作パネルの命令と、その G-code.
 
-REST の /api/machine-control と対話ジョブの command が共用する。
+REST の /api/machine/command と対話ジョブの command が共用する。
 """
 
 from __future__ import annotations

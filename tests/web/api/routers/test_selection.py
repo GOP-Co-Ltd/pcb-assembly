@@ -1,9 +1,9 @@
-"""`web.api.routers.files` の仕様テスト.
+"""`web.api.routers.selection` の仕様テスト.
 
 計画書「routers」節:
 
-- GET /api/files — dir 全部 + *.kicad_pcb のみ、名前順。traversal は 400、不存在は 404
-- PUT /api/pcb-file — StateResponse 返却。拡張子・root 外は 400、busy は 409
+- GET /api/selection/files — dir 全部 + *.kicad_pcb のみ、名前順。traversal は 400、不存在は 404
+- PUT /api/selection/pcb-file — StateResponse 返却。拡張子・root 外は 400、busy は 409
 
 MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節「ファイル公開範囲を絞る」）が
 追記契約:
@@ -35,7 +35,7 @@ def _rel_to_slash(path: Path) -> str:
 
 
 def _entries(client: TestClient, path: str) -> set[tuple[str, str]]:
-    response = client.get("/api/files", params={"path": path})
+    response = client.get("/api/selection/files", params={"path": path})
     assert response.status_code == 200
     return {(entry["name"], entry["type"]) for entry in response.json()["entries"]}
 
@@ -51,10 +51,10 @@ def slash_root_client(webui_settings: Env, pcb_root: Path):
 
 
 class TestFilesApi:
-    """GET /api/files."""
+    """GET /api/selection/files."""
 
     def test_root_listing_contains_dirs_and_kicad_pcb_only(self, client: TestClient):
-        response = client.get("/api/files", params={"path": ""})
+        response = client.get("/api/selection/files", params={"path": ""})
 
         assert response.status_code == 200
         data = response.json()
@@ -69,7 +69,7 @@ class TestFilesApi:
         assert names == sorted(names)
 
     def test_subdirectory_listing_excludes_other_extensions(self, client: TestClient):
-        response = client.get("/api/files", params={"path": "boards"})
+        response = client.get("/api/selection/files", params={"path": "boards"})
 
         assert response.status_code == 200
         data = response.json()
@@ -78,45 +78,56 @@ class TestFilesApi:
         assert entries == {("sample.kicad_pcb", "file")}
 
     def test_traversal_path_returns_400(self, client: TestClient):
-        response = client.get("/api/files", params={"path": "../.."})
+        response = client.get("/api/selection/files", params={"path": "../.."})
 
         assert response.status_code == 400
 
     def test_missing_path_returns_404(self, client: TestClient):
-        response = client.get("/api/files", params={"path": "no-such-dir"})
+        response = client.get("/api/selection/files", params={"path": "no-such-dir"})
 
         assert response.status_code == 404
 
 
 class TestPcbFileApi:
-    """PUT /api/pcb-file."""
+    """PUT /api/selection/pcb-file."""
 
     def test_put_pcb_file_updates_state(self, client: TestClient):
-        response = client.put("/api/pcb-file", json={"path": "boards/sample.kicad_pcb"})
+        response = client.put(
+            "/api/selection/pcb-file", json={"path": "boards/sample.kicad_pcb"}
+        )
 
         assert response.status_code == 200
         assert response.json()["pcb_file"] == "boards/sample.kicad_pcb"
-        assert client.get("/api/state").json()["pcb_file"] == "boards/sample.kicad_pcb"
+        assert (
+            client.get("/api/session/state").json()["pcb_file"]
+            == "boards/sample.kicad_pcb"
+        )
 
     def test_put_non_kicad_pcb_returns_400(self, client: TestClient):
-        response = client.put("/api/pcb-file", json={"path": "boards/notes.txt"})
+        response = client.put(
+            "/api/selection/pcb-file", json={"path": "boards/notes.txt"}
+        )
 
         assert response.status_code == 400
 
     def test_put_path_outside_root_returns_400(self, client: TestClient):
-        response = client.put("/api/pcb-file", json={"path": "../outside.kicad_pcb"})
+        response = client.put(
+            "/api/selection/pcb-file", json={"path": "../outside.kicad_pcb"}
+        )
 
         assert response.status_code == 400
 
     def test_put_missing_file_returns_404(self, client: TestClient):
-        response = client.put("/api/pcb-file", json={"path": "boards/ghost.kicad_pcb"})
+        response = client.put(
+            "/api/selection/pcb-file", json={"path": "boards/ghost.kicad_pcb"}
+        )
 
         assert response.status_code == 404
 
     def test_put_while_busy_returns_409(self, client: TestClient, backend: Backend):
         with backend.lock.hold("pytest-job"):
             response = client.put(
-                "/api/pcb-file", json={"path": "boards/sample.kicad_pcb"}
+                "/api/selection/pcb-file", json={"path": "boards/sample.kicad_pcb"}
             )
 
         assert response.status_code == 409
@@ -131,7 +142,7 @@ class TestPcbFileApi:
         """
         rel = _rel_to_slash(pcb_root / "top.kicad_pcb")
 
-        response = slash_root_client.put("/api/pcb-file", json={"path": rel})
+        response = slash_root_client.put("/api/selection/pcb-file", json={"path": rel})
 
         assert response.status_code == 200
         assert response.json()["pcb_file"] == rel
@@ -179,7 +190,7 @@ class TestPcbBrowseAllowed:
         self, slash_root_client: TestClient
     ):
         """許可サブツリー外の実ディレクトリ（root 配下）は列挙できない."""
-        response = slash_root_client.get("/api/files", params={"path": "etc"})
+        response = slash_root_client.get("/api/selection/files", params={"path": "etc"})
 
         assert response.status_code == 400
 
@@ -195,7 +206,7 @@ class TestPcbBrowseAllowed:
         assert (sibling / "secret.kicad_pcb").is_file()
 
         response = slash_root_client.get(
-            "/api/files", params={"path": _rel_to_slash(sibling)}
+            "/api/selection/files", params={"path": _rel_to_slash(sibling)}
         )
 
         assert response.status_code == 400
@@ -218,7 +229,7 @@ class TestPcbBrowseAllowed:
         )
 
         response = slash_root_client.put(
-            "/api/pcb-file", json={"path": _rel_to_slash(target)}
+            "/api/selection/pcb-file", json={"path": _rel_to_slash(target)}
         )
 
         assert response.status_code == 400
@@ -230,7 +241,7 @@ class TestPcbBrowseAllowed:
         settings = attrs.evolve(webui_settings, pcb_upload_dir=tmp_path / "elsewhere")
         with TestClient(create_app(settings)) as client:
             response = client.post(
-                "/api/pcb-file/upload",
+                "/api/selection/pcb-file/upload",
                 files={"file": ("board.kicad_pcb", b"(kicad_pcb)")},
             )
 
@@ -239,7 +250,7 @@ class TestPcbBrowseAllowed:
 
 
 class TestPcbUploadApi:
-    """POST /api/pcb-file/upload — uploads/ へ保存しそのまま選択する."""
+    """POST /api/selection/pcb-file/upload — uploads/ へ保存しそのまま選択する."""
 
     @pytest.mark.parametrize("existing", [False, True], ids=["new", "overwrite"])
     def test_upload_saves_and_selects(
@@ -250,7 +261,7 @@ class TestPcbUploadApi:
             saved.parent.mkdir()
             saved.write_bytes(b"original board")
         response = client.post(
-            "/api/pcb-file/upload",
+            "/api/selection/pcb-file/upload",
             files={"file": ("board.kicad_pcb", b"(kicad_pcb)")},
         )
 
@@ -258,14 +269,14 @@ class TestPcbUploadApi:
         assert response.json()["pcb_file"] == "uploads/board.kicad_pcb"
         assert saved.read_bytes() == b"(kicad_pcb)"
         # アップロード先はファイルブラウザからも見える
-        listing = client.get("/api/files", params={"path": "uploads"}).json()
+        listing = client.get("/api/selection/files", params={"path": "uploads"}).json()
         assert {(e["name"], e["type"]) for e in listing["entries"]} == {
             ("board.kicad_pcb", "file")
         }
 
     def test_upload_strips_directory_components(self, client: TestClient, pcb_root):
         response = client.post(
-            "/api/pcb-file/upload",
+            "/api/selection/pcb-file/upload",
             files={"file": ("../evil.kicad_pcb", b"(kicad_pcb)")},
         )
 
@@ -276,7 +287,8 @@ class TestPcbUploadApi:
 
     def test_upload_non_kicad_pcb_returns_400(self, client: TestClient):
         response = client.post(
-            "/api/pcb-file/upload", files={"file": ("notes.txt", b"not a pcb")}
+            "/api/selection/pcb-file/upload",
+            files={"file": ("notes.txt", b"not a pcb")},
         )
 
         assert response.status_code == 400
@@ -292,7 +304,7 @@ class TestPcbUploadApi:
         backend.selection.select(Path("boards/sample.kicad_pcb"))
         with backend.lock.hold("pytest-job"):
             response = client.post(
-                "/api/pcb-file/upload",
+                "/api/selection/pcb-file/upload",
                 files={"file": ("board.kicad_pcb", b"(kicad_pcb)")},
             )
 
@@ -313,11 +325,11 @@ class TestPcbUploadApi:
         destination.symlink_to(protected)
 
         response = slash_root_client.post(
-            "/api/pcb-file/upload",
+            "/api/selection/pcb-file/upload",
             files={"file": (destination.name, b"replacement board")},
         )
 
         assert response.status_code == 400
         assert protected.read_bytes() == before
         assert destination.is_symlink()
-        assert slash_root_client.get("/api/state").json()["pcb_file"] is None
+        assert slash_root_client.get("/api/session/state").json()["pcb_file"] is None

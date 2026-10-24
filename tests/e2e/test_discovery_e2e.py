@@ -223,14 +223,16 @@ class TestBackendAppAdvertises:
     def test_lifespan_advertises_with_the_machine_info_id(
         self, live_backend: LiveServer, service_type: str
     ):
-        """広告 ID は `/api/machine-info` と同じ導出（D7）."""
+        """広告 ID は `/api/session/machine-info` と同じ導出（D7）."""
 
         async def scenario() -> None:
             async with browsing(service_type) as collector:
                 await wait_for(lambda: collector.find("e2eadv") is not None)
 
                 async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
-                    info = await client.get(f"{live_backend.base_url}/api/machine-info")
+                    info = await client.get(
+                        f"{live_backend.base_url}/api/session/machine-info"
+                    )
 
                 assert info.status_code == 200, info.text
                 assert info.json()["machine_id"] == "e2eadv"

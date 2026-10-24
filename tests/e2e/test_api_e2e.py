@@ -33,7 +33,7 @@ from tests.e2e.conftest import (
 )
 from tests.support.polling import wait_until
 from tests.web.api.conftest import decode_jpeg, jpeg_payload
-from web.api.routers.pasting_view import ResolvedSettings
+from web.api.routers.pasting.board import ResolvedSettings
 
 _HTTP_TIMEOUT = 10.0
 
@@ -94,25 +94,25 @@ class TestPreviewOverRealHttp:
 
     def test_state_reports_streaming_client_count(self, live_server: LiveServer):
         with httpx.Client(base_url=live_server.base_url, timeout=10.0) as client:
-            assert client.get("/api/state").json()["preview_clients"] == 0
+            assert client.get("/api/session/state").json()["preview_clients"] == 0
 
             with client.stream("GET", "/api/preview/stream") as response:
                 next(response.iter_bytes())  # 配信開始を確実にする
-                assert client.get("/api/state").json()["preview_clients"] == 1
+                assert client.get("/api/session/state").json()["preview_clients"] == 1
 
             # 切断後のサーバー側クリーンアップは非同期に走るため短時間ポーリングする
             wait_until(
-                lambda: client.get("/api/state").json()["preview_clients"] == 0,
+                lambda: client.get("/api/session/state").json()["preview_clients"] == 0,
                 timeout=5.0,
                 interval=0.05,
             )
 
 
 class TestJobLifecycleOverWebSocket:
-    """WS /api/ws のイベント往復とジョブ → 設定反映の通し検証."""
+    """WS /api/jobs/ws のイベント往復とジョブ → 設定反映の通し検証."""
 
     def test_job_demo_completes_and_applies(self, live_server: LiveServer):
-        with connect(f"{live_server.ws_url}/api/ws") as ws:
+        with connect(f"{live_server.ws_url}/api/jobs/ws") as ws:
             response = httpx.post(
                 f"{live_server.base_url}/api/jobs/job_demo",
                 json={"params": {"steps": 2, "interval": 0.0}},
@@ -152,7 +152,7 @@ class TestRuntimeParamUpdateOverWebSocket:
     """
 
     def test_live_update_applies_while_waiting_prompt(self, live_server: LiveServer):
-        with connect(f"{live_server.ws_url}/api/ws") as ws:
+        with connect(f"{live_server.ws_url}/api/jobs/ws") as ws:
             response = httpx.post(
                 f"{live_server.base_url}/api/jobs/job_demo",
                 json={"params": {"steps": 1, "interval": 0.0}},
@@ -221,7 +221,7 @@ class TestCameraCropSettingsOverRealHttp:
                     data += next(chunks)
 
                 put = httpx.put(
-                    f"{live_server.base_url}/api/settings/machine",
+                    f"{live_server.base_url}/api/machine_config",
                     json={
                         "values": {
                             "camera.crop.width": 300,
@@ -238,7 +238,7 @@ class TestCameraCropSettingsOverRealHttp:
                     more += next(chunks)
 
         after = httpx.get(
-            f"{live_server.base_url}/api/settings/machine", timeout=_HTTP_TIMEOUT
+            f"{live_server.base_url}/api/machine_config", timeout=_HTTP_TIMEOUT
         ).json()
         fields = {field["key"]: field for field in after["fields"]}
         assert fields["camera.crop.width"]["value"] == 300
@@ -311,7 +311,7 @@ class TestPadTableHeaderOverRealHttp:
     ):
         _select_led_blinker(live_server)
         config = httpx.get(
-            f"{live_ui.base_url}/api/pasting/pad-config", timeout=_HTTP_TIMEOUT
+            f"{live_ui.base_url}/api/pasting/board", timeout=_HTTP_TIMEOUT
         )
         assert config.status_code == 200, config.text
 

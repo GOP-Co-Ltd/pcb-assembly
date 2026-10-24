@@ -74,7 +74,7 @@ class TestCameraCalibration:
 
 
 class TestLoadFocusZ:
-    """校正ファイルに記録した焦点 Z（/api/state の focus_z）."""
+    """校正ファイルに記録した焦点 Z（/api/session/state の focus_z）."""
 
     def _save(self, path: Path, z_position: float | None) -> None:
         CameraCalibration(

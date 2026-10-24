@@ -1,14 +1,14 @@
 "use strict";
 
 // テスト塗布基板生成ページ。パターン行の編集・プレビュー表示・入出力を扱う。
-// 基板の生成とプレビューの計算は backend（/api/pasting/paste-test-board/**）が行う。
+// 基板の生成とプレビューの計算は backend（/api/pasting/test_board/**）が行う。
 
 (() => {
   const root = document.getElementById("paste-test-board");
   if (!root) return;
 
   const { api, debounce, downloadApi, svgEl, toast } = window.webui;
-  const endpoint = "/api/pasting/paste-test-board";
+  const endpoint = "/api/pasting/test_board";
   const rows = document.getElementById("ptb-pattern-rows");
   const footprintSearch = document.getElementById("ptb-footprint-search");
   const footprintResults = document.getElementById("ptb-footprint-results");

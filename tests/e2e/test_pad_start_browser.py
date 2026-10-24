@@ -49,7 +49,7 @@ def live_server(e2e_settings: Env) -> Iterator[LiveServer]:
         )
         select_led_blinker(live)
         httpx.patch(
-            f"{live.base_url}/api/pasting/pad-config/node",
+            f"{live.base_url}/api/pasting/board/node",
             json={
                 "node": "L0",
                 "values": {"ul_per_mm2": 0.15},
@@ -91,7 +91,7 @@ class TestPadStart:
             live_server,
             tmp_path,
             method="PATCH",
-            path_suffixes=("/api/pasting/pad-config/node",),
+            path_suffixes=("/api/pasting/board/node",),
         ) as (ui, transport):
             page = browser_page
             field = _edit(ui, page, value)
@@ -124,16 +124,14 @@ class TestPadStart:
             live_server,
             tmp_path,
             method="PATCH" if edit == "selection" else "POST",
-            path_suffixes=(f"/api/pasting/pad-config/{suffix}",),
+            path_suffixes=(f"/api/pasting/board/{suffix}",),
         ) as (ui, transport):
             page = browser_page
             _edit(ui, page, "0.15")
             if edit == "selection":
                 page.locator("#pad-disable-all").click()
             else:
-                response = httpx.get(
-                    f"{live_server.base_url}/api/pasting/pad-config/export"
-                )
+                response = httpx.get(f"{live_server.base_url}/api/pasting/board/export")
                 response.raise_for_status()
                 document = response.json()
                 for level in document["settings"]["levels"]:
@@ -185,7 +183,7 @@ class TestPadStart:
     ):
         page = browser_page
         field = _edit(live_ui, page, "-0.23")
-        with page.expect_response("**/api/pasting/pad-config/node") as saved:
+        with page.expect_response("**/api/pasting/board/node") as saved:
             field.press(commit)
         assert saved.value.status == 400
         expect(page.locator("#toasts")).to_contain_text("設定更新失敗")

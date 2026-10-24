@@ -9,7 +9,7 @@
 //
 // SSR は backend へのサーバ間通信でブラウザの cookie を持たないため「自分が保持者か」を
 // 判定できない。したがって初期値は viewer（fail-closed）で、状態を更新する契機は次の 3 つだけ。
-// (a) ページロード後の GET /api/state、(b) WS の control_changed（job_console.js が
+// (a) ページロード後の GET /api/session/state、(b) WS の control_changed（job_console.js が
 // 中継）、(c) api() の 423（app.js が onDenied を呼ぶ）。
 
 (() => {
@@ -35,7 +35,7 @@
   let state = INITIAL_STATE;
   // LeaseInfo（{key, display_name, held, connections}）。誰も保持していなければ null
   let holder = null;
-  // GET /api/state の you.key（届くまでは null = 保持者と一致しない = 閲覧者）
+  // GET /api/session/state の you.key（届くまでは null = 保持者と一致しない = 閲覧者）
   let myKey = null;
 
   function stateOf(control) {
@@ -44,7 +44,7 @@
     return control.key === myKey ? "held" : "viewer";
   }
 
-  // {control, you} を反映する（GET /api/state と /api/control/* の戻りが同じ形）
+  // {control, you} を反映する（GET /api/session/state と /api/session/control/* の戻りが同じ形）
   function applySnapshot(data) {
     if (data.you?.key) myKey = data.you.key;
     const control = data.control ?? null;
@@ -106,7 +106,7 @@
 
   async function refresh() {
     try {
-      applySnapshot(await api("GET", "/api/state"));
+      applySnapshot(await api("GET", "/api/session/state"));
     } catch {
       // 状態が読めない間も操作不可のままにする（fail-closed）。トーストは出さない
       // （出すと backend 不通のページで毎回表示される）
@@ -151,22 +151,22 @@
       writeNameCookie(nameInput.value.trim());
       // 保持者の表示名は backend が持っているので更新を通知する。閲覧者の表示名は
       // 取得時にヘッダで届くので送らない
-      if (state === "held") post("/api/control/name", null);
+      if (state === "held") post("/api/session/control/name", null);
     });
   }
   if (acquireButton) {
     acquireButton.addEventListener("click", () =>
-      post("/api/control/acquire", "操作権を取得しました")
+      post("/api/session/control/acquire", "操作権を取得しました")
     );
   }
   if (releaseButton) {
     releaseButton.addEventListener("click", () =>
-      post("/api/control/release", "操作権を解放しました")
+      post("/api/session/control/release", "操作権を解放しました")
     );
   }
   if (takeoverButton) {
     takeoverButton.addEventListener("click", () =>
-      post("/api/control/takeover", "操作権を奪取しました")
+      post("/api/session/control/takeover", "操作権を奪取しました")
     );
   }
 

@@ -74,7 +74,7 @@ class _HttpOnlyTransport:
             # accept 前に拒否するので、ブラウザの open は発火しない。
             await send({"type": "websocket.close", "code": 1008})
             return
-        if scope["type"] == "http" and scope["path"].endswith("/api/state"):
+        if scope["type"] == "http" and scope["path"].endswith("/api/session/state"):
             self._state_received.set()
             await asyncio.to_thread(self._state_release.wait, 10)
         await self._app(scope, receive, send)
@@ -126,7 +126,7 @@ def _open_http_only(page: Any, live_ui: LiveUi) -> None:
 def _release_control(live_server: LiveServer) -> None:
     """下準備の backend 直叩き（セッションヘッダ無し = anonymous）が握った操作権を返す."""
     response = httpx.post(
-        f"{live_server.base_url}/api/control/release", timeout=_HTTP_TIMEOUT
+        f"{live_server.base_url}/api/session/control/release", timeout=_HTTP_TIMEOUT
     )
     assert response.status_code == 200, response.text
     assert response.json()["control"]["held"] is False
@@ -205,7 +205,7 @@ class TestTwoBrowsersOnOneMachine:
 
         SSR の `data-control="viewer"` だけでは `inert` は付かない（付けるのは
         control.js の初期描画）。初期値が `held` だと応答が届くまでの間は操作できて
-        しまい、既に他の端末が持っている操作へ割り込める。`GET /api/state` を
+        しまい、既に他の端末が持っている操作へ割り込める。`GET /api/session/state` を
         実 frontend の手前で保留し、その窓を固定して観測する。再開後は実 backend の
         空き状態が届くことも確認し、未完了リクエストを残さない。
         """
@@ -241,11 +241,11 @@ class TestTwoBrowsersOnOneMachine:
         # 「必ず飛ぶ」リクエストを 1 本入れて順序で「飛んでいない」を確かめる
         # （ハンドラが動いていれば fetch はこれより前に並ぶ）
         viewer.evaluate("() => window.webui.control.refresh()")
-        assert [url for url in urls if "/api/firmware-restart" in url] == []
+        assert [url for url in urls if "/api/machine/firmware-restart" in url] == []
 
         # UI を迂回されても backend が拒む（fail-closed の二重化）
         denied = httpx.post(
-            f"{live_server.base_url}/api/firmware-restart",
+            f"{live_server.base_url}/api/machine/firmware-restart",
             headers=_session_headers(viewer),
             timeout=_HTTP_TIMEOUT,
         )
@@ -293,7 +293,7 @@ class TestTwoBrowsersOnOneMachine:
     def test_load_fetches_the_lease_state_without_the_websocket(
         self, live_server: LiveServer, http_only_ui, browser_pages
     ):
-        """更新源 (a): ロード時の `GET /api/state` だけで状態がサーバ由来になる.
+        """更新源 (a): ロード時の `GET /api/session/state` だけで状態がサーバ由来になる.
 
         SSR の初期値は `viewer` なので、空きリースが `free` として届いたことが
         「ロード後にサーバへ問い合わせた」証跡になる（この 1 往復が無いと、空いて
@@ -330,7 +330,7 @@ class TestTwoBrowsersOnOneMachine:
         # WS が黙っているので control_changed が届かない = ページは held のまま残る
         assert (
             httpx.post(
-                f"{live_server.base_url}/api/control/takeover",
+                f"{live_server.base_url}/api/session/control/takeover",
                 headers={"X-Pcbasm-Session": "another-terminal"},
                 timeout=_HTTP_TIMEOUT,
             ).status_code
@@ -341,7 +341,7 @@ class TestTwoBrowsersOnOneMachine:
         status = page.evaluate(
             """async () => {
                 try {
-                    await window.webui.api("POST", "/api/firmware-restart");
+                    await window.webui.api("POST", "/api/machine/firmware-restart");
                     return 200;
                 } catch (err) {
                     return err.status;

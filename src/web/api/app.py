@@ -17,22 +17,15 @@ from web.api.errors import install_error_handlers
 from web.api.routers import (
     audio,
     backup,
-    control_api,
-    files,
     jobs,
+    machine,
     machine_config,
-    machine_control,
-    nozzle_cap,
-    paste_dataset,
-    paste_test_board,
-    paste_volume,
-    pasting,
-    pasting_loading,
     preview,
+    selection,
     session,
-    system,
     update,
 )
+from web.api.routers.pasting import board, calibration, nozzle, test_board
 from web.selfupdate.runner import UpdateRunner
 
 
@@ -92,21 +85,21 @@ def create_app(
     app.mount("/artifacts", StaticFiles(directory=artifacts_dir), name="artifacts")
 
     install_error_handlers(app, backend.control)
-    app.include_router(session.router)
-    app.include_router(control_api.router)
-    app.include_router(files.router)
-    app.include_router(machine_config.router)
-    app.include_router(audio.router)
-    app.include_router(machine_control.router)
-    app.include_router(system.router)
-    app.include_router(update.router)
-    app.include_router(backup.router)
-    app.include_router(preview.router)
-    app.include_router(jobs.router)
-    app.include_router(pasting.router)
-    app.include_router(paste_dataset.router)
-    app.include_router(paste_volume.router)
-    app.include_router(paste_test_board.router)
-    app.include_router(pasting_loading.router)
-    app.include_router(nozzle_cap.router)
+    for router in (
+        session.router,
+        selection.router,
+        machine.router,
+        machine.emergency_stop_router,
+        audio.router,
+        machine_config.router,
+        backup.router,
+        jobs.router,
+        preview.router,
+        update.router,
+        board.router,
+        nozzle.router,
+        calibration.router,
+        test_board.router,
+    ):
+        app.include_router(router)
     return app

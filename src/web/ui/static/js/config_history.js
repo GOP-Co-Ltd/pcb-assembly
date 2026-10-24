@@ -41,7 +41,7 @@
     try {
       const data = await api(
         "POST",
-        `/api/settings/history/${encodeURIComponent(entry.name)}/restore`
+        `/api/backup/history/${encodeURIComponent(entry.name)}/restore`
       );
       render(data.entries);
       toast(`${entry.time_label} の変更より前の内容に戻しました`);
@@ -53,7 +53,7 @@
 
   async function load() {
     try {
-      render((await api("GET", "/api/settings/history")).entries);
+      render((await api("GET", "/api/backup/history")).entries);
     } catch (err) {
       toast(err.message, false);
     }

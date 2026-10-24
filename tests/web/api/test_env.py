@@ -56,7 +56,7 @@ class TestSettingsFromEnv:
         )
         assert settings.pcb_browse_start == PROJECT_ROOT
         assert settings.pcb_upload_dir == PROJECT_ROOT / "uploads"
-        # None は「machine_id（= hostname）から解決」を意味する（routers/common.py）
+        # None は「machine_id（= hostname）から解決」を意味する（routers/session.py）
         assert settings.mainsail_url is None
         assert settings.hostname is None
         # 8080 は UI frontend の既定。backend は 8081（同居機で共存させる）
@@ -113,7 +113,7 @@ class TestPcbRootEnvIsBrowsable:
     """`PCBASM_API_PCB_ROOT` で差し替えた root が実アプリで閲覧・選択できる.
 
     `Env` を組むだけの assert では、`pcb_browse_allowed` が root に追従して
-    いなくても通ってしまう（実測: 追従前は `GET /api/files` と `PUT /api/pcb-file` が
+    いなくても通ってしまう（実測: 追従前は `GET /api/selection/files` と `PUT /api/selection/pcb-file` が
     全パス 400 でファイルブラウザが使えなかった）。公開範囲の判定は router 側に
     あるので、実 HTTP 経路で確認する。
     """
@@ -138,12 +138,14 @@ class TestPcbRootEnvIsBrowsable:
     def test_files_listing_under_the_env_root_returns_200(
         self, env_client: TestClient, path: str
     ):
-        response = env_client.get("/api/files", params={"path": path})
+        response = env_client.get("/api/selection/files", params={"path": path})
 
         assert response.status_code == 200
 
     def test_pcb_file_under_the_env_root_can_be_selected(self, env_client: TestClient):
-        response = env_client.put("/api/pcb-file", json={"path": "top.kicad_pcb"})
+        response = env_client.put(
+            "/api/selection/pcb-file", json={"path": "top.kicad_pcb"}
+        )
 
         assert response.status_code == 200
         assert response.json()["pcb_file"] == "top.kicad_pcb"

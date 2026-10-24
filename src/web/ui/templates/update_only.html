@@ -2,7 +2,7 @@
    proxy はこの機体へ更新と緊急停止だけを中継するので、その 2 つだけを出す
    （緊急停止はトップバー）。更新の要求は空いていれば backend が操作権を取るので、
    操作権バーは出さず、パネルにも data-requires-control を付けない。
-   /api/control/* は中継しないので、ほかの端末が操作権を持つときは案内だけを出す #}
+   /api/session/control/* は中継しないので、ほかの端末が操作権を持つときは案内だけを出す #}
 {% extends "base.html" %}
 {% block title %}{{ title }} — PCB Assembly WebUI{% endblock %}
 {% block layout_class %}single-pane{% endblock %}

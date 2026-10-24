@@ -1,4 +1,4 @@
-"""ジョブの REST API と WebSocket（/api/ws）."""
+"""ジョブの REST API と WebSocket（/api/jobs/ws）."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 from typing import Any, cast
 
+import attrs
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
@@ -20,9 +21,8 @@ from web.api.deps import (
     get_backend,
 )
 from web.api.identity import get_identity
-from web.api.jobs.catalog import JobCatalog, JobDefinition
+from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.manager import JobManager, JobRecord, prompt_payload
-from web.api.routers.common import param_specs_with_saved_defaults
 from web.api.selection import Selection
 from web.contract.models import (
     ApplyInfo,
@@ -36,7 +36,7 @@ from web.contract.models import (
     PromptInfo,
 )
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api/jobs")
 
 
 class JobStartRequest(BaseModel):
@@ -87,6 +87,24 @@ def job_summary(record: JobRecord, definition: JobDefinition) -> JobSummary:
     )
 
 
+def _param_specs_with_saved_defaults(
+    definition: JobDefinition, selection: Selection, catalog: JobCatalog
+) -> tuple[ParamSpec, ...]:
+    """保存済み既定値を ParamSpec の default に反映する.
+
+    型判定・coerce は :meth:`JobCatalog.filter_persisted_defaults` に一本化する
+    （persisted_params 外・型不一致はエラーにせず除外 = spec 既定値のまま）。
+    """
+    saved = selection.job_param_defaults(definition.name)
+    if not saved or not definition.persisted_params:
+        return definition.params
+    valid = catalog.filter_persisted_defaults(definition, saved)
+    return tuple(
+        attrs.evolve(spec, default=valid[spec.name]) if spec.name in valid else spec
+        for spec in definition.params
+    )
+
+
 def job_spec_info(
     definition: JobDefinition, selection: Selection, catalog: JobCatalog
 ) -> JobSpecInfo:
@@ -107,7 +125,7 @@ def job_spec_info(
                 minimum=spec.minimum,
                 optional=spec.optional,
             )
-            for spec in param_specs_with_saved_defaults(definition, selection, catalog)
+            for spec in _param_specs_with_saved_defaults(definition, selection, catalog)
         ],
         requires_pcb=definition.requires_pcb,
         uses_machine=definition.uses_machine,
@@ -121,7 +139,7 @@ def job_spec_info(
     )
 
 
-@router.get("/jobs")
+@router.get("")
 def get_jobs(selection: SelectionDep, catalog: CatalogDep) -> JobCatalogResponse:
     """登録済みジョブ定義を登録順で全件返す."""
     return JobCatalogResponse(
@@ -132,7 +150,7 @@ def get_jobs(selection: SelectionDep, catalog: CatalogDep) -> JobCatalogResponse
     )
 
 
-@router.post("/jobs/{name}", status_code=201)
+@router.post("/{name}", status_code=201)
 def post_job(
     name: str,
     jobs: JobsDep,
@@ -158,7 +176,7 @@ class JobParamDefaultsRequest(BaseModel):
     values: dict[str, Any] = {}
 
 
-@router.post("/jobs/{name}/param-defaults")
+@router.post("/{name}/param-defaults")
 def post_job_param_defaults(
     name: str,
     catalog: CatalogDep,
@@ -183,7 +201,7 @@ def post_job_param_defaults(
     return {"defaults": merged}
 
 
-@router.get("/jobs/current")
+@router.get("/current")
 def get_current_job(jobs: JobsDep, catalog: CatalogDep) -> dict[str, JobSummary | None]:
     """直近ジョブの全量サマリ（WS 再接続時の同期用。無ければ null）."""
     record = jobs.current()
@@ -192,7 +210,7 @@ def get_current_job(jobs: JobsDep, catalog: CatalogDep) -> dict[str, JobSummary 
     return {"job": job_summary(record, catalog.get(record.name))}
 
 
-@router.post("/jobs/current/abort")
+@router.post("/current/abort")
 def post_abort(jobs: JobsDep) -> dict[str, bool]:
     """実行中ジョブへ協調的中止を要求する（409: アクティブジョブ無し）.
 
@@ -211,7 +229,7 @@ class JobParamsUpdateRequest(BaseModel):
     expected_job_id: str
 
 
-@router.put("/jobs/current/params")
+@router.put("/current/params")
 def put_current_params(
     jobs: JobsDep, body: JobParamsUpdateRequest, _control: ControlDep
 ) -> dict[str, Any]:
@@ -233,7 +251,7 @@ class JobResultRequest(BaseModel):
     expected_job_id: str
 
 
-@router.post("/jobs/last/apply")
+@router.post("/last/apply")
 def post_apply(
     jobs: JobsDep,
     lock: LockDep,
@@ -259,7 +277,7 @@ def post_apply(
     return {"applied": dict(payload.values)}
 
 
-@router.post("/jobs/last/discard")
+@router.post("/last/discard")
 def post_discard(
     jobs: JobsDep,
     _control: ControlDep,

@@ -1,6 +1,6 @@
 "use strict";
 
-// マシン操作パネル（右サイドバー）。REST (/api/machine-control) への送信と、
+// マシン操作パネル（右サイドバー）。REST (/api/machine/command) への送信と、
 // 展開中だけのステータスポーリングを行う。
 // - XY は円形ジョグパッド（SVG）、Z は縦バー。距離はリングで切り替える
 // - 座標欄は常に現在のマシン座標を表示し、入力確定（change）で絶対移動する
@@ -37,7 +37,7 @@
       return;
     }
     try {
-      const status = await api("POST", "/api/machine-control", command);
+      const status = await api("POST", "/api/machine/command", command);
       renderStatus(status);
       toast("操作完了");
     } catch (err) {
@@ -79,7 +79,7 @@
 
   async function pollStatus() {
     try {
-      renderStatus(await api("GET", "/api/klipper/status"));
+      renderStatus(await api("GET", "/api/machine/status"));
     } catch (err) {
       positionEl.textContent = "位置: 取得失敗";
     }

@@ -20,7 +20,7 @@ from web.api.deps import ControlDep, DevicesDep, LockDep, MachineConfigDep
 from web.api.errors import hal_errors_to_502
 from web.api.lock import MachineLock
 from web.api.machine_config import MachineConfigFile
-from web.api.routers.common import nozzle_clean_payload
+from web.api.routers.session import nozzle_clean_payload
 from web.contract.models import NozzleCleanInfo
 
 STATUS_TIMEOUT = 10.0  # 位置・homed_axes の読み取りのみ（移動なし）
@@ -29,7 +29,7 @@ STATUS_TIMEOUT = 10.0  # 位置・homed_axes の読み取りのみ（移動な�
 # frontend の proxy_read_timeout（120 秒）より短くして、backend 側が先に打ち切るようにする
 CLEAN_TIMEOUT = 90.0
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api/pasting/nozzle")
 
 
 class NozzleCapPosition(BaseModel):
@@ -79,7 +79,7 @@ def _record_current_position(
     return saved
 
 
-@router.post("/pasting/nozzle-cap/record")
+@router.post("/cap/record")
 def record_nozzle_cap(
     lock: LockDep,
     devices: DevicesDep,
@@ -97,7 +97,7 @@ def record_nozzle_cap(
     return NozzleCapPosition(x=saved.x, y=saved.y, z=saved.z)
 
 
-@router.post("/pasting/nozzle-clean/record")
+@router.post("/clean/record")
 def record_nozzle_clean(
     lock: LockDep,
     devices: DevicesDep,
@@ -120,7 +120,7 @@ def record_nozzle_clean(
     return nozzle_clean_payload(saved)
 
 
-@router.post("/pasting/nozzle-clean/test")
+@router.post("/clean/test")
 def run_nozzle_clean_test(
     lock: LockDep,
     devices: DevicesDep,

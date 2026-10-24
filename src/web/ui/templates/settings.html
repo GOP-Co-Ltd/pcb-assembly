@@ -60,7 +60,7 @@
     </nav>
 
     <form id="machine-settings-form" data-machine-settings data-requires-control
-          data-endpoint="/api/settings/machine">
+          data-endpoint="/api/machine_config">
       {% for section in settings_sections %}
       <section class="settings-section" data-section="{{ section.slug }}" {% if not loop.first %}hidden{% endif %}>
         <h2 class="settings-section-title">{{ section.label }}</h2>

@@ -67,9 +67,9 @@ web/api/jobs/pasting/*  →  pasting.{plan,purge_check,dispense_calibration.proc
 
 - 矢印は `pasting` の中の import の向き。ジョブは `session` / `overrides` / `prepare` / `plate` などの下の段も直接使う
 - `dot_capture` は撮る view の型 `DatasetView` を `paste_volume.dataset.metadata` から借りる（dataset は撮った view をそのまま記録する）
-- `nozzle_clean` はジョブ以外に `web/api/routers/nozzle_cap.py`（テスト実行 API）からも呼ぶ。
+- `nozzle_clean` はジョブ以外に `web/api/routers/pasting/nozzle.py`（テスト実行 API）からも呼ぶ。
     `PasteSession` を介さず `Klipper` / `XYZStage` / `PasteApplicator` だけで完結させてあるため
-- `overrides` と `plan` / `pad_editor` はジョブ以外に pad 編集 API（`web/api/routers/pasting.py` / `pasting_view.py`）からも使う。
+- `overrides` と `plan` / `pad_editor` はジョブ以外に pad 編集 API（`web/api/routers/pasting/board.py`）からも使う。
     `BoardOverrides` は backend のプロセスで 1 つを共有する（pad PATCH をそのロックで直列化するため）
 - 汎用の計算幾何は `pcbasm.geometry`、KiCad 汎用処理は `pcbasm.kicad`（`units` / `footprint` / `build`）に置く
 - 永続 JSON（基板別 override / dataset metadata / 塗布量の校正 / テスト塗布基板 document）は `pcbasm.document` の strict な変換で読む

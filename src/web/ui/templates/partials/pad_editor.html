@@ -54,7 +54,7 @@
         {% if flow_calibration_fields %}
         {# machine 全体設定。入力後は即保存する #}
         <form class="pad-flow-calibration-settings" data-testid="paste-flow-calibration"
-              data-requires-control data-machine-settings data-endpoint="/api/settings/machine">
+              data-requires-control data-machine-settings data-endpoint="/api/machine_config">
           {% for field in flow_calibration_fields %}
           {# 文字列の項目は校正ファイル名だけで、保存済みの校正の一覧から選ぶ #}
           <label for="pfc-{{ field.key }}"

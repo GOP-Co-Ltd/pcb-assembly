@@ -33,7 +33,7 @@ class TestPasteTestBoardBrowser:
         """盤面をはみ出したときの SVG クリップ・色・生成ボタンの切替.
 
         パターン表の見出しや summary の文字列、パターンの追加/削除はサーバ値なので
-        tests/web/api/routers/test_paste_test_board.py と
+        tests/web/api/routers/pasting/test_test_board.py と
         tests/web/ui/test_paste_test_board.py が担当する。ここは `isPointInFill` の
         クリップ判定や `getComputedStyle` のように実ブラウザでしか見られない性質に絞る。
         """

@@ -1,4 +1,4 @@
-"""PCB ファイルブラウザの API.
+"""PCB の閲覧・選択・アップロードの API.
 
 `pcb_browse_root` は `board_id` の算出基準なので `/` 固定だが、実際に読める範囲は
 `Env.pcb_browse_allowed` のサブツリーに限る。許可サブツリーへ辿り着くための
@@ -15,10 +15,10 @@ from pydantic import BaseModel
 
 from web.api.deps import BackendDep, ControlDep, EnvDep, IdentityDep
 from web.api.env import Env
-from web.api.routers.common import build_state_response
+from web.api.routers.session import build_state_response
 from web.contract.models import StateResponse
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api/selection")
 
 PCB_SUFFIX = ".kicad_pcb"
 

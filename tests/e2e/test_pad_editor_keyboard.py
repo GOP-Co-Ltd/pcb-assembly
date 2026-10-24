@@ -26,7 +26,7 @@ def delayed_save_ui(
         live_server,
         tmp_path,
         method="PATCH",
-        path_suffixes=("/api/pasting/pad-config/node",),
+        path_suffixes=("/api/pasting/board/node",),
         response=True,
     ) as pair:
         yield pair
@@ -57,7 +57,7 @@ class TestPadEditorKeyboard:
         assert transport.wait_received()
 
         response = page.request.patch(
-            f"{ui.base_url}/api/pasting/pad-config/node",
+            f"{ui.base_url}/api/pasting/board/node",
             data={
                 "node": "L0",
                 "values": {"ul_per_mm2": 0.31},
@@ -65,7 +65,7 @@ class TestPadEditorKeyboard:
             },
         )
         assert response.status == 200
-        with page.expect_response("**/api/pasting/pad-config"):
+        with page.expect_response("**/api/pasting/board"):
             transport.resume()
         expect(field).to_have_value("0.31")
         expect(field).to_be_focused()
@@ -96,7 +96,7 @@ class TestPadEditorKeyboard:
         assert transport.wait_received()
         field.fill(draft)
 
-        with page.expect_response("**/api/pasting/pad-config"):
+        with page.expect_response("**/api/pasting/board"):
             transport.resume()
         expect(
             root.locator(

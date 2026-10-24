@@ -153,14 +153,16 @@ class TestRelayedRequest:
 
     @pytest.mark.parametrize("method", ["GET", "PUT", "PATCH", "POST", "DELETE"])
     def test_method_reaches_upstream(self, echo_client: TestClient, method: str):
-        response = echo_client.request(method, f"/m/{MACHINE_ID}/api/state")
+        response = echo_client.request(method, f"/m/{MACHINE_ID}/api/session/state")
 
         assert _echoed(response)["method"] == method
 
     @pytest.mark.parametrize("method", ["PUT", "PATCH", "POST"])
     def test_request_body_reaches_upstream(self, echo_client: TestClient, method: str):
         response = echo_client.request(
-            method, f"/m/{MACHINE_ID}/api/state", json={"path": "boards/a.kicad_pcb"}
+            method,
+            f"/m/{MACHINE_ID}/api/session/state",
+            json={"path": "boards/a.kicad_pcb"},
         )
 
         echoed = _echoed(response)
@@ -171,7 +173,7 @@ class TestRelayedRequest:
 
     def test_bodyless_request_is_not_chunked(self, echo_client: TestClient):
         """GET を chunked にすると上流が 400 を返すことがある."""
-        echoed = _echoed(echo_client.get(f"/m/{MACHINE_ID}/api/state"))
+        echoed = _echoed(echo_client.get(f"/m/{MACHINE_ID}/api/session/state"))
 
         assert "transfer-encoding" not in echoed["headers"]
         assert "content-length" not in echoed["headers"]
@@ -207,7 +209,7 @@ class TestRelayedRequestHeaders:
     def test_cookie_is_not_leaked_to_backend(self, echo_client: TestClient):
         """Frontend のセッション cookie は backend に渡さない."""
         response = echo_client.get(
-            f"/m/{MACHINE_ID}/api/state", headers={"cookie": "session=secret"}
+            f"/m/{MACHINE_ID}/api/session/state", headers={"cookie": "session=secret"}
         )
 
         assert "cookie" not in _echoed(response)["headers"]
@@ -224,25 +226,26 @@ class TestRelayedRequestHeaders:
         self, echo_client: TestClient, header: str, value: str
     ):
         response = echo_client.get(
-            f"/m/{MACHINE_ID}/api/state", headers={header: value}
+            f"/m/{MACHINE_ID}/api/session/state", headers={header: value}
         )
 
         assert header not in _echoed(response)["headers"]
 
     def test_host_becomes_the_backend_host(self, echo_client: TestClient):
         """クライアントの Host を渡すと上流の名前解決・ログが frontend 側になる."""
-        response = echo_client.get(f"/m/{MACHINE_ID}/api/state")
+        response = echo_client.get(f"/m/{MACHINE_ID}/api/session/state")
 
         assert _echoed(response)["headers"]["host"] == "127.0.0.1:8081"
 
     def test_x_forwarded_for_carries_the_client_address(self, echo_client: TestClient):
-        response = echo_client.get(f"/m/{MACHINE_ID}/api/state")
+        response = echo_client.get(f"/m/{MACHINE_ID}/api/session/state")
 
         assert _echoed(response)["headers"]["x-forwarded-for"] == "testclient"
 
     def test_existing_x_forwarded_for_is_appended_to(self, echo_client: TestClient):
         response = echo_client.get(
-            f"/m/{MACHINE_ID}/api/state", headers={"x-forwarded-for": "203.0.113.9"}
+            f"/m/{MACHINE_ID}/api/session/state",
+            headers={"x-forwarded-for": "203.0.113.9"},
         )
 
         forwarded = _echoed(response)["headers"]["x-forwarded-for"]
@@ -256,7 +259,7 @@ class TestRelayedResponseHeaders:
         self, echo_client: TestClient
     ):
         """Hop-by-hop ヘッダと、uvicorn が自前で付ける date / server を中継しない."""
-        response = echo_client.get(f"/m/{MACHINE_ID}/api/state")
+        response = echo_client.get(f"/m/{MACHINE_ID}/api/session/state")
 
         assert not {"date", "server", "connection", "transfer-encoding"}.intersection(
             response.headers
@@ -264,7 +267,7 @@ class TestRelayedResponseHeaders:
 
     def test_multi_valued_response_headers_survive(self, echo_client: TestClient):
         """Dict 化すると set-cookie が 1 本に潰れる."""
-        response = echo_client.get(f"/m/{MACHINE_ID}/api/state")
+        response = echo_client.get(f"/m/{MACHINE_ID}/api/session/state")
 
         assert response.headers.get_list("set-cookie") == [
             "first=1; Path=/",
@@ -272,7 +275,7 @@ class TestRelayedResponseHeaders:
         ]
 
     def test_other_response_headers_are_preserved(self, echo_client: TestClient):
-        response = echo_client.get(f"/m/{MACHINE_ID}/api/state")
+        response = echo_client.get(f"/m/{MACHINE_ID}/api/session/state")
 
         assert response.headers["x-upstream-note"] == "kept"
         assert response.headers["content-type"] == "application/json"
@@ -283,14 +286,15 @@ class TestRelayToRealBackend:
 
     def test_get_reaches_the_registered_backend(self, backend_client: TestClient):
         """自己申告 machine_id が URL の machine_id と一致する backend に届く."""
-        response = backend_client.get(f"/m/{MACHINE_ID}/api/machine-info")
+        response = backend_client.get(f"/m/{MACHINE_ID}/api/session/machine-info")
 
         assert response.status_code == 200, response.text
         assert response.json()["machine_id"] == MACHINE_ID
 
     def test_put_pcb_file_selects_on_backend(self, backend_client: TestClient):
         response = backend_client.put(
-            f"/m/{MACHINE_ID}/api/pcb-file", json={"path": "boards/sample.kicad_pcb"}
+            f"/m/{MACHINE_ID}/api/selection/pcb-file",
+            json={"path": "boards/sample.kicad_pcb"},
         )
 
         assert response.status_code == 200, response.text
@@ -302,7 +306,7 @@ class TestRelayToRealBackend:
         """実 .kicad_pcb をプロキシ経由で送り、bytes が一致することを確かめる."""
         with REAL_PCB.open("rb") as pcb:
             response = backend_client.post(
-                f"/m/{MACHINE_ID}/api/pcb-file/upload",
+                f"/m/{MACHINE_ID}/api/selection/pcb-file/upload",
                 files={"file": ("uploaded.kicad_pcb", pcb, "application/octet-stream")},
             )
 
@@ -316,7 +320,7 @@ class TestRelayToRealBackend:
         """409 の `{detail, owner}` が潰れると app.js のトーストが owner を出せない."""
         with backend_app.state.backend.lock.hold("pytest-job"):
             response = backend_client.put(
-                f"/m/{MACHINE_ID}/api/pcb-file",
+                f"/m/{MACHINE_ID}/api/selection/pcb-file",
                 json={"path": "boards/sample.kicad_pcb"},
             )
 
@@ -341,7 +345,7 @@ class TestUnknownMachine:
     """未登録の machine_id."""
 
     def test_unknown_machine_id_returns_404_json(self, echo_client: TestClient):
-        response = echo_client.get("/m/nosuchmachine/api/state")
+        response = echo_client.get("/m/nosuchmachine/api/session/state")
 
         assert response.status_code == 404
         assert "nosuchmachine" in response.json()["detail"]
@@ -353,7 +357,7 @@ class TestUnknownMachine:
             MachineEndpoint(machine_id="bravo", host="10.0.0.2", port=8081),
         )
         with _proxy_client(machines, httpx.ASGITransport(app=_echo_upstream)) as client:
-            response = client.get("/m/bravo/api/state")
+            response = client.get("/m/bravo/api/session/state")
 
         assert _echoed(response)["headers"]["host"] == "10.0.0.2:8081"
 
@@ -389,7 +393,11 @@ class TestUpdateOnlyMachine:
 
     @pytest.mark.parametrize(
         "path",
-        ["/api/state", "/api/control/acquire", "/artifacts/job-1/plot.png"],
+        [
+            "/api/session/state",
+            "/api/session/control/acquire",
+            "/artifacts/job-1/plot.png",
+        ],
     )
     def test_other_paths_are_refused_with_409(
         self, update_only_client: TestClient, path: str

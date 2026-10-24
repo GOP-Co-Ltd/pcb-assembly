@@ -73,7 +73,7 @@
   if (saveButton && cannyLow && cannyHigh) {
     saveButton.addEventListener("click", async () => {
       try {
-        await api("PUT", "/api/settings/machine", {
+        await api("PUT", "/api/machine_config", {
           values: {
             "alignment.canny_low": Number(cannyLow.value),
             "alignment.canny_high": Number(cannyHigh.value),

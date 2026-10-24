@@ -25,7 +25,7 @@ def _open_file_browser(live_ui: LiveUi, page):
 
 
 def _selected_pcb(live_server: LiveServer) -> str | None:
-    response = httpx.get(f"{live_server.base_url}/api/state", timeout=10.0)
+    response = httpx.get(f"{live_server.base_url}/api/session/state", timeout=10.0)
     assert response.status_code == 200, response.text
     return response.json()["pcb_file"]
 

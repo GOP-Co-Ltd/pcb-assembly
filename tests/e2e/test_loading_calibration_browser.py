@@ -44,7 +44,7 @@ class _DelayedCalibration:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if (
             scope["type"] == "http"
-            and scope["path"].endswith("/api/pasting/loading/calibration")
+            and scope["path"].endswith("/api/pasting/calibration/mass-flow")
             and parse_qs(scope["query_string"].decode()).get("mass_mg") == ["20"]
         ):
             self._received.set()
@@ -116,7 +116,7 @@ class TestCurrentLoadingCalibration:
         expect(output).to_have_text("0.472500")
 
         with browser_page.expect_request_finished(
-            lambda request: "/loading/calibration?" in request.url
+            lambda request: "/calibration/mass-flow?" in request.url
             and "mass_mg=20&" in request.url
         ):
             transport.resume(error=older_error)

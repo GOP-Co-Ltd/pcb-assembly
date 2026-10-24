@@ -69,20 +69,13 @@ def resolve_initial_purge(
     return _resolved(amount, default_point, "default"), None
 
 
-def validate_initial_purge(
-    *,
-    amount_ul: float,
-    point: Point2d | None,
-    outline: Polygon,
+def validate_initial_purge_point(
+    *, point: Point2d | None, outline: Polygon
 ) -> str | None:
-    """初回パージ設定を検証し、不正なら日本語エラー文、正常なら ``None``.
+    """保存する初回パージ位置を検証する（不正なら日本語エラー文、正常・自動なら ``None``）.
 
-    ``amount_ul == 0``（機能無効）でも明示された ``point`` は検証する
-    （無効化中でも基板外の座標を保存させないため）。
+    量は machine 設定なので見ない（量が 0 で無効化中でも、基板外の座標は保存させない）。
     """
-    amount, error = _validate_amount(amount_ul)
-    if amount is None:
-        return error
     if point is None:
         return None
     return _validate_point(point, outline)

@@ -66,8 +66,8 @@ UI のボタン無効化だけに依存しない。
 
 ### 機体の API を足す
 
-1. `src/web/api/routers/` に router を書く。パスは `/api/` で始める。
-2. `src/web/api/app.py` の `include_router` に router を登録する。
+1. `src/web/api/routers/` に router を書く。URL の prefix はファイルパスと同じにする（`routers/pasting/board.py` なら `/api/pasting/board`）。
+2. `src/web/api/app.py` で router を登録する。
 3. 装置や設定を変える endpoint には `ControlDep` を付ける。操作権のない要求は 423 になる。
 4. 応答は `src/web/contract/models.py` の pydantic モデルで返す。
 

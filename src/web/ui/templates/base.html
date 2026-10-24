@@ -8,7 +8,7 @@
 </head>
 {# data-control の初期値は viewer（fail-closed）。SSR は backend へのサーバ間通信で
    ブラウザの cookie を持たないため「自分が保持者か」を判定できない。実際の値は
-   control.js が GET /api/state / WS control_changed / 423 で入れ替える #}
+   control.js が GET /api/session/state / WS control_changed / 423 で入れ替える #}
 <body data-machine-base="{{ base }}" data-control="viewer">
 <header class="topbar" data-testid="topbar">
   <nav class="tabs" data-testid="top-tabs" aria-label="作業分野">

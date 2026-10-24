@@ -17,7 +17,7 @@ from pcbasm.machine.devices import Devices
 from web.api.camera import MJPEG_MEDIA_TYPE, OverlayKind
 from web.api.deps import CameraDep, DevicesDep
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api/preview")
 
 # ジェネレータ close の再試行上限。FrameSource.capture の timeout（5s）より
 # 長く取り、worker thread が next() 実行中でも close を完遂できるようにする
@@ -74,7 +74,7 @@ class _ClosingStreamingResponse(StreamingResponse):
                 await run_in_threadpool(_close_when_suspended, self._sync_content)
 
 
-@router.get("/preview/stream")
+@router.get("/stream")
 def preview_stream(
     devices: DevicesDep,
     camera: CameraDep,

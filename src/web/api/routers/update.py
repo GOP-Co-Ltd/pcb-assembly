@@ -20,7 +20,7 @@ from web.contract.update import UpdateRunResponse, UpdateStatusResponse
 from web.selfupdate.report import UpdatePlan, run_payload, status_payload
 from web.selfupdate.runner import UpdateRunner
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api/update")
 
 
 class UpdateRunRequest(BaseModel):
@@ -39,13 +39,13 @@ def _status(
     return status_payload(plan, update.status(), hostname=resolve_machine_id(env))
 
 
-@router.get("/update/status")
+@router.get("/status")
 def get_update_status(update: UpdateDep, env: EnvDep) -> UpdateStatusResponse:
     """更新の可否と直近の結果（fetch しないので毎秒ポーリングしてよい）."""
     return _status(update, update.plan(), env)
 
 
-@router.post("/update/check")
+@router.post("/check")
 def post_update_check(
     update: UpdateDep, env: EnvDep, _control: ControlDep
 ) -> UpdateStatusResponse:
@@ -53,7 +53,7 @@ def post_update_check(
     return _status(update, update.check(), env)
 
 
-@router.post("/update/run", status_code=202)
+@router.post("/run", status_code=202)
 def post_update_run(
     payload: UpdateRunRequest,
     update: UpdateDep,

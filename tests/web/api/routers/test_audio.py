@@ -47,7 +47,7 @@ class TestAudioSettingsApi:
     def test_get_reflects_saved_settings(self, client: TestClient):
         selected = FAKE_AUDIO_DEVICES[1].name
         put = client.put(
-            "/api/settings/machine",
+            "/api/machine_config",
             json={"values": {"audio.device": selected, "audio.volume": 0.4}},
         )
         assert put.status_code == 200, put.text
@@ -67,7 +67,7 @@ class TestAudioSettingsApi:
             )
         ) as client:
             client.put(
-                "/api/settings/machine",
+                "/api/machine_config",
                 json={"values": {"audio.device": "plughw:CARD=Unplugged,DEV=0"}},
             )
             data = client.get("/api/audio/settings").json()

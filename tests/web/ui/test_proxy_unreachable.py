@@ -98,7 +98,7 @@ class TestUnreachableBackend:
     def test_connection_refused_returns_502_json(self):
         endpoint = MachineEndpoint(machine_id="dead", host="127.0.0.1", port=1)
 
-        response = _get_before_deadline(_client(endpoint), "/m/dead/api/state")
+        response = _get_before_deadline(_client(endpoint), "/m/dead/api/session/state")
 
         assert response.status_code == 502
         assert response.headers["content-type"].startswith("application/json")
@@ -113,7 +113,7 @@ class TestUnresponsiveBackend:
             machine_id="mute", host="127.0.0.1", port=blackhole_port
         )
 
-        response = _get_before_deadline(_client(endpoint), "/m/mute/api/state")
+        response = _get_before_deadline(_client(endpoint), "/m/mute/api/session/state")
 
         assert response.status_code == 504
         assert response.headers["content-type"].startswith("application/json")

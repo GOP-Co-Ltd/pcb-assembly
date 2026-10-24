@@ -5,7 +5,7 @@ import re
 from fastapi.testclient import TestClient
 
 _PAGE = "/m/uitest/pasting/paste_test_board"
-_API = "/m/uitest/api/pasting/paste-test-board"
+_API = "/m/uitest/api/pasting/test_board"
 
 
 class TestPasteTestBoardPage:

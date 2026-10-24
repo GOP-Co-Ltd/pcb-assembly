@@ -22,7 +22,7 @@ from tests.e2e.network import DelayedHttp, delayed_ui
 def saved_pad(live_server: LiveServer) -> None:
     select_led_blinker(live_server)
     response = httpx.patch(
-        f"{live_server.base_url}/api/pasting/pad-config/node",
+        f"{live_server.base_url}/api/pasting/board/node",
         json={
             "node": "L0",
             "values": {"ul_per_mm2": 0.15},
@@ -41,7 +41,7 @@ def delayed_save_ui(
         live_server,
         tmp_path,
         method="PATCH",
-        path_suffixes=("/api/pasting/pad-config/node",),
+        path_suffixes=("/api/pasting/board/node",),
     ) as pair:
         yield pair
 
@@ -57,7 +57,7 @@ def _open_editor(ui: LiveUi, page):
 def _is_clear(request) -> bool:
     return (
         request.method == "PATCH"
-        and request.url.endswith("/api/pasting/pad-config/node")
+        and request.url.endswith("/api/pasting/board/node")
         and '"clear"' in (request.post_data or "")
     )
 

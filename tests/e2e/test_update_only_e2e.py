@@ -204,7 +204,7 @@ class TestAdvertisedOldVersion:
                 status = httpx.get(
                     f"{machine}/api/update/status", timeout=_HTTP_TIMEOUT
                 )
-                state = httpx.get(f"{machine}/api/state", timeout=_HTTP_TIMEOUT)
+                state = httpx.get(f"{machine}/api/session/state", timeout=_HTTP_TIMEOUT)
         finally:
             frontend.stop()
 
@@ -253,7 +253,8 @@ class TestRelayScope:
     ):
         def state(machine_id: str) -> int:
             return httpx.get(
-                f"{mixed_stack.origin}/m/{machine_id}/api/state", timeout=_HTTP_TIMEOUT
+                f"{mixed_stack.origin}/m/{machine_id}/api/session/state",
+                timeout=_HTTP_TIMEOUT,
             ).status_code
 
         assert state(OLD_MACHINE_ID) == 409
@@ -262,7 +263,7 @@ class TestRelayScope:
     def test_websocket_is_rejected_before_accept(self, mixed_stack: MixedStack):
         with pytest.raises(InvalidStatus) as rejected:
             with connect(
-                f"{mixed_stack.ws_origin}/m/{OLD_MACHINE_ID}/api/ws",
+                f"{mixed_stack.ws_origin}/m/{OLD_MACHINE_ID}/api/jobs/ws",
                 open_timeout=_HTTP_TIMEOUT,
             ):
                 pass

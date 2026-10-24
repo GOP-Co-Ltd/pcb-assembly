@@ -88,7 +88,7 @@ MACHINE_COMMANDS = [
 
 
 class TestMachineControl:
-    """マシン操作パネル（POST /api/machine-control と、対話ジョブ中の command）."""
+    """マシン操作パネル（POST /api/machine/command と、対話ジョブ中の command）."""
 
     @pytest.mark.parametrize(("name", "command"), MACHINE_COMMANDS)
     def test_rest(
@@ -98,7 +98,7 @@ class TestMachineControl:
         name: str,
         command: dict[str, Any],
     ):
-        response = client.post("/api/machine-control", json=command)
+        response = client.post("/api/machine/command", json=command)
 
         assert response.status_code == 200, response.text
         assert_transcript(homed_klipper.sent, ROUTES / f"machine_control_{name}.gcode")
@@ -132,8 +132,8 @@ class TestNozzleMaintenance:
     @pytest.mark.parametrize(
         ("path", "table"),
         [
-            ("/api/pasting/nozzle-cap/record", "nozzle_cap"),
-            ("/api/pasting/nozzle-clean/record", "nozzle_clean"),
+            ("/api/pasting/nozzle/cap/record", "nozzle_cap"),
+            ("/api/pasting/nozzle/clean/record", "nozzle_clean"),
         ],
     )
     def test_record_sends_nothing(
@@ -156,7 +156,7 @@ class TestNozzleMaintenance:
 
     def test_clean_test(self, client: TestClient, homed_klipper: FakeKlipper):
         """プライム → 接近 → パージ → 十字往復 → 退避 → リトラクト → キャップへ戻る."""
-        response = client.post("/api/pasting/nozzle-clean/test")
+        response = client.post("/api/pasting/nozzle/clean/test")
 
         assert response.status_code == 200, response.text
         assert_transcript(homed_klipper.sent, ROUTES / "nozzle_clean_test.gcode")
@@ -179,7 +179,7 @@ class TestFirmwareRestart:
         """FIRMWARE_RESTART を送ってから、WebUI のサービスを再起動する."""
         sandbox = make_update_sandbox(tmp_path / "sandbox")
         with TestClient(make_app(UpdateRunner(sandbox.settings))) as client:
-            response = client.post("/api/firmware-restart")
+            response = client.post("/api/machine/firmware-restart")
 
         assert response.status_code == 200, response.text
         polling.wait_until(lambda: sandbox.restarts() != [], timeout=10.0)

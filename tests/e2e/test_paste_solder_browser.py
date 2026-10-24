@@ -76,7 +76,7 @@ def _row_selector(node_id: str) -> str:
 
 def _calculate_route(live_server: LiveServer, layer: str = "Top") -> dict[str, Any]:
     response = httpx.post(
-        f"{live_server.base_url}/api/pasting/pad-config/route",
+        f"{live_server.base_url}/api/pasting/board/route",
         json={"layer": layer},
         timeout=_HTTP_TIMEOUT,
     )
@@ -86,7 +86,7 @@ def _calculate_route(live_server: LiveServer, layer: str = "Top") -> dict[str, A
 
 def _calculate_fill_path(live_server: LiveServer, layer: str = "Top") -> dict[str, Any]:
     response = httpx.post(
-        f"{live_server.base_url}/api/pasting/pad-config/fill-path",
+        f"{live_server.base_url}/api/pasting/board/fill-path",
         json={"layer": layer},
         timeout=_HTTP_TIMEOUT,
     )
@@ -98,7 +98,7 @@ def _patch_pad_config_node(
     live_server: LiveServer, node_id: str, values: dict[str, float | str]
 ):
     response = httpx.patch(
-        f"{live_server.base_url}/api/pasting/pad-config/node",
+        f"{live_server.base_url}/api/pasting/board/node",
         json={"node": node_id, "values": values, "expected_pcb": LED_BLINKER_PCB},
         timeout=_HTTP_TIMEOUT,
     )
@@ -436,7 +436,7 @@ class TestPasteSolderBrowserRendering:
 
         初期描画は操作権を持たない閲覧者にも出る（装置を動かさない読み取り専用計算）。
         セル数・legend・収まらない理由の文字列そのものはサーバ値なので
-        tests/web/api/routers/test_paste_dataset.py::TestPasteDatasetLayout が担当する。
+        tests/web/api/routers/pasting/test_calibration.py::TestPasteDatasetLayout が担当する。
         """
         browser_page.goto(
             f"{live_ui.base_url}/pasting/paste_volume_calibration",
@@ -509,7 +509,7 @@ class TestPasteSolderBrowserRendering:
         """クリックした座標が明示パージ点になり、clear で自動解決へ戻る.
 
         パージ量・パージ点の永続化そのものは
-        tests/web/api/routers/test_pasting.py::TestInitialPurgePadConfig /
+        tests/web/api/routers/pasting/test_board.py::TestInitialPurgePadConfig /
         TestInitialPurgePoint が担当する。
         """
         _select_led_blinker(live_server)
@@ -550,6 +550,20 @@ class TestPasteSolderBrowserRendering:
         _wait_for_initial_purge(live_server, resolved_source="default")
         # 自動へ戻してもマーカーは消えず、自動解決された位置を指す
         _wait_for_purge_marker_source(browser_page, "default")
+
+    def test_purge_amount_is_saved_as_a_machine_setting(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
+        """初回パージ量の入力は machine 設定へ保存され、基板の解決結果に反映される."""
+        _select_led_blinker(live_server)
+
+        _open_paste_solder(browser_page, live_ui)
+        amount = browser_page.locator(_testid("pad-initial-purge-amount"))
+        amount.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+        amount.fill("0.25")
+
+        purge = _wait_for_initial_purge(live_server, amount=0.25)
+        assert _approx(purge["initial_purge"]["resolved"]["amount"], 0.25)
 
     def test_flow_calibration_points_are_added_one_click_at_a_time(
         self, live_server: LiveServer, live_ui: LiveUi, browser_page
@@ -947,7 +961,7 @@ class TestPasteSolderBrowserPadInteraction:
     ):
         _select_led_blinker(live_server)
         patch = httpx.patch(
-            f"{live_server.base_url}/api/pasting/pad-config/node",
+            f"{live_server.base_url}/api/pasting/board/node",
             json={
                 "node": "L2:U1",
                 "values": {"prime_extra_delay": 0.33},
@@ -957,13 +971,13 @@ class TestPasteSolderBrowserPadInteraction:
         )
         assert patch.status_code == 200, patch.text
         exported = httpx.get(
-            f"{live_server.base_url}/api/pasting/pad-config/export",
+            f"{live_server.base_url}/api/pasting/board/export",
             timeout=_HTTP_TIMEOUT,
         )
         assert exported.status_code == 200, exported.text
         # export 後に override を公開 API で消し、import が復元することを見る
         cleared = httpx.patch(
-            f"{live_server.base_url}/api/pasting/pad-config/node",
+            f"{live_server.base_url}/api/pasting/board/node",
             json={
                 "node": "L2:U1",
                 "clear": ["prime_extra_delay"],
@@ -983,7 +997,7 @@ class TestPasteSolderBrowserPadInteraction:
         # クロスオリジンになり、無認証 = CORS 無しの backend では必ず失敗する
         browser_page.wait_for_function(
             """async (baseUrl) => {
-                const response = await fetch(`${baseUrl}/api/pasting/pad-config`);
+                const response = await fetch(`${baseUrl}/api/pasting/board`);
                 const config = await response.json();
                 return config.overrides["L2:U1"]?.values?.prime_extra_delay === 0.33;
             }""",

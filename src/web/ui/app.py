@@ -176,7 +176,7 @@ def create_app(
             status_code=404,
         )
 
-    # プロキシは pages ルータより先に登録する。逆にすると /m/x/api/state が
+    # プロキシは pages ルータより先に登録する。逆にすると /m/x/api/session/state が
     # /m/{machine_id}/{tab}/{feature} に先にマッチして 404 になる
     app.mount(
         "/m/{machine_id}/api",
