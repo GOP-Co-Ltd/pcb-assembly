@@ -12,7 +12,7 @@ import attrs
 
 from pcbasm.board import Board
 from pcbasm.config import MachineConfig
-from pcbasm.hal import Camera, FrameHub, KlipperClient
+from pcbasm.hal import AudioPlayer, Camera, FrameHub, KlipperClient
 from pcbasm.machine.devices import Devices
 from pcbasm.machine.journal import Journal
 from pcbasm.pasting.overrides import BoardOverrides
@@ -150,6 +150,7 @@ class JobContext:
         source_pcb: str | None,
         boards: BoardCache,
         overrides: BoardOverrides,
+        audio_player: AudioPlayer | None,
     ) -> None:
         # パラメータは保持しない（ブリッジの live_params() 経由で都度読む）
         self._bridge = bridge
@@ -164,6 +165,7 @@ class JobContext:
         self._source_pcb = source_pcb
         self._boards = boards
         self._overrides = overrides
+        self._audio_player = audio_player
 
     @property
     def params(self) -> Mapping[str, ParamValue]:
@@ -198,6 +200,11 @@ class JobContext:
     def journal(self) -> Journal:
         """このジョブの送信を書く G-code ジャーナル."""
         return self._journal
+
+    @property
+    def audio_player(self) -> AudioPlayer | None:
+        """機体の通知音プレイヤー（JobManager が持たなければ None）."""
+        return self._audio_player
 
     def klipper(self, timeout: float | None = None) -> KlipperClient:
         """装置の Klipper への接続（接続先はジョブ開始時の設定、送信はこのジョブのジャーナルへ書く）.

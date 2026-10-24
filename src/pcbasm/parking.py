@@ -19,6 +19,9 @@ from pcbasm.hal import KlipperClient, Speed, XYZStage
 
 logger = logging.getLogger(__name__)
 
+# printer.cfg で PRESENT マクロを定義する section
+PRESENT_SECTION = f"gcode_macro {PRESENT_MACRO}"
+
 PRESENT_TIMEOUT = 30.0
 
 # ノズルキャップ移動速度の上限 [mm/s]（PRESENT マクロの F1200 と同速）
@@ -103,7 +106,7 @@ def _present_or_relax(
 ) -> None:
     """PRESENT マクロがあれば実行し、無ければ警告して M84 にフォールバックする."""
     try:
-        has_present = f"gcode_macro {PRESENT_MACRO}" in klipper.get_config()
+        has_present = PRESENT_SECTION in klipper.get_config()
     except Exception as exc:
         warning(
             f"{PRESENT_MACRO} マクロ確認に失敗しました: {exc}。"

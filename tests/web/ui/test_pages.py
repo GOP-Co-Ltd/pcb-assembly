@@ -363,6 +363,7 @@ class TestStaticAssets:
 DEV_JOB_FEATURES = (
     "extract_pcb",
     "make_fill_coverage_pcb",
+    "machine_check",
 )
 
 

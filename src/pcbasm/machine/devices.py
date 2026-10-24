@@ -17,7 +17,12 @@ from pcbasm.config import load_klipper, load_machine
 from pcbasm.config.klipper import KlipperConfig
 from pcbasm.geometry import Point2d
 from pcbasm.hal import Camera, FrameHub, KlipperClient, MoonrakerKlipper
-from pcbasm.hal.fake import FakeCamera, FakeKlipper, SceneCamera
+from pcbasm.hal.fake import (
+    FAKE_MACHINE_PRINTER_CONFIG,
+    FakeCamera,
+    FakeKlipper,
+    SceneCamera,
+)
 from pcbasm.machine.journal import Journal
 from pcbasm.vision import CalibrationResult, Image
 
@@ -174,11 +179,11 @@ def open_devices(
     Args:
         config_path: machine.toml
         journal_dir: G-code ジャーナルの置き場所
-        fake: Klipper を FakeKlipper にし、カメラをその位置から scene を描く SceneCamera にする
+        fake: Klipper を実機と同じ printer.cfg の FakeKlipper にし、カメラをその位置から scene を描く SceneCamera にする
         scene: fake のカメラに映す図形（機械座標 [mm]）を返す関数（カメラを開くたびに呼ぶ）
         camera_image: 与えると、カメラをこの画像を返し続ける FakeCamera にする（fake より優先する）
     """
-    klipper = FakeKlipper() if fake else None
+    klipper = FakeKlipper(FAKE_MACHINE_PRINTER_CONFIG) if fake else None
     camera: Callable[[], Camera] | None = None
     if camera_image is not None:
         camera = functools.partial(_still, camera_image)
