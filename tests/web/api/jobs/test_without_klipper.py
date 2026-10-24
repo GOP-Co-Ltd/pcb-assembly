@@ -1,6 +1,7 @@
-"""装置ジョブの接続拒否時の終了・解放の契約。
+"""装置ジョブの接続拒否時の終了・解放の契約.
 
-実機での通しは docs/acceptance.md の受け入れ試験で確かめる。
+成功系のステージ移動・照合・押出は golden と pcbasm のテスト、実機での通しは docs/acceptance.md
+の受け入れ試験で確かめる。
 """
 
 from __future__ import annotations
@@ -11,7 +12,8 @@ import pytest
 
 from tests.web.api.jobs.conftest import WaitUntil
 from web.api.backend import Backend
-from web.api.jobs.manager import JobManager, JobStatus
+from web.api.jobs.runtime.manager import JobManager
+from web.api.jobs.runtime.record import JobStatus
 
 
 @pytest.mark.usefixtures("unreachable_klipper")
@@ -27,6 +29,10 @@ class TestMachineJobsWithoutKlipper:
             ("paste_solder", True),
             ("toolhead_offset", True),
             ("loading", False),
+            ("board_tour", True),
+            ("orthogonality_test", True),
+            # ホーミング（G28）で先に落ちる。PCB 選択は不要
+            ("reference_point_setup", False),
         ],
     )
     def test_job_fails_gracefully_and_releases_lock(
@@ -87,7 +93,14 @@ class TestMachineJobsWithoutKlipper:
             pass
 
     @pytest.mark.parametrize(
-        "name", ["paste_solder", "height_plane", "toolhead_offset"]
+        "name",
+        [
+            "paste_solder",
+            "height_plane",
+            "toolhead_offset",
+            "board_tour",
+            "orthogonality_test",
+        ],
     )
     def test_pcb_job_without_selection_raises_value_error(
         self, manager: JobManager, name: str

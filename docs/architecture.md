@@ -77,18 +77,23 @@ JS に `fetch()` を直接書かない。機体の prefix が付かず、テス�
 
 ### ジョブを足す
 
-ジョブ関数と登録の場所はタブで決まる。
+ジョブは 1 ファイル 1 ジョブで、ファイル名をジョブ名（feature slug）と同じにする。
+置き場所は、ジョブが呼ぶ `pcbasm` のドメインで決まる。
 
-| タブ        | ジョブ関数と登録の場所                                                                                                |
-| ----------- | --------------------------------------------------------------------------------------------------------------------- |
-| dev         | `src/web/api/jobs/dev.py` の `register_dev_jobs`                                                                      |
-| dev（装置） | `src/web/api/jobs/machine/` に新しいモジュールと `register` を作り、`catalog.py` の `default_catalog` から呼ぶ        |
-| posctrl     | `src/web/api/jobs/posctrl.py` の `register_posctrl_jobs`                                                              |
-| pasting     | `src/web/api/jobs/pasting/` に新しいモジュールと `register` を作り、`__init__.py` の `register_pasting_jobs` から呼ぶ |
+| 呼ぶドメイン     | 置き場所                    |
+| ---------------- | --------------------------- |
+| `pcbasm.align`   | `src/web/api/jobs/align/`   |
+| `pcbasm.pasting` | `src/web/api/jobs/pasting/` |
+| `pcbasm.kicad`   | `src/web/api/jobs/kicad/`   |
+| `pcbasm.machine` | `src/web/api/jobs/machine/` |
 
-1. ジョブ関数を書く。関数は `JobContext` を受け取り、`pcbasm` を呼ぶ。ログ・進捗・質問は `JobContext` の `log` / `progress` / `prompt` で出す。
-2. `JobDefinition` を登録する。`name` は feature slug と同じ文字列にする。装置を動かさないジョブは `uses_machine=False` にする。
-3. 次節「ページを足す」の手順で、ジョブのページを足す。ページに載っていないジョブがあるとテストが失敗する。
+1. ジョブのモジュールを作り、ジョブ関数と `register` を書く。関数は `JobContext` を受け取り、`pcbasm` を呼ぶ。ログ・進捗は `log` / `progress`、質問は `confirm` / `require` / `choose` / `ask_positive` で出す。
+2. `register` で `JobDefinition` を登録する。`name` はファイル名と同じ文字列にする。装置を動かさないジョブは `uses_machine=False` にする。塗布の永続データ（基板ごとの塗布設定、dataset、塗布量校正）を使うジョブは `register` で `PasteStores` を受け取る。
+3. `src/web/api/jobs/catalog.py` の `default_catalog` から `register` を呼ぶ。ここがジョブの一覧になる。
+4. 次節「ページを足す」の手順で、ジョブのページを足す。ページに載っていないジョブがあるとテストが失敗する。
+
+複数のジョブが使う台本の部品（基板の計測、マシン操作の command、ローディング、塗布量校正のフィットと報告）は `src/web/api/jobs/steps.py` に置く。ジョブのモジュールは別のジョブのモジュールを import しない。
+実行基盤（1 枠のジョブ、`JobContext`、カタログ、終了時の駐機と通知音）は `src/web/api/jobs/runtime/` にある。
 
 ジョブの開始・中止・結果の反映は `routers/jobs.py` の共通 API が扱う。ジョブごとの router は要らない。
 

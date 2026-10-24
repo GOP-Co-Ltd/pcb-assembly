@@ -5,11 +5,6 @@
 - create_app(settings) で注入 Env のアプリが起動する
 - BusyError → 409 JSON の exception handler が登録される
 
-MR1 追記（計画書 web-api-ui-split.md「MR1」節）:
-
-- JobManager と HTTP 経路は同一の BoardOverrides を共有する
-  （別インスタンスだと更新ロックが効かず、ジョブ実行中の pad 編集が消える）
-
 MR4 追記（同「MR4」節）: ``templates`` / ``static`` は frontend (`web.ui`) へ移設した
 ため、backend は静的資産を配信しない（ブラウザキャッシュを 1 本で共有するために
 ``/static`` は frontend が prefix なしで持つ）。
@@ -45,7 +40,6 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper
-from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.paths import PROJECT_ROOT
 from tests.support.backend import devices_with_audio
 from tests.support.moonraker import FakeMoonraker
@@ -53,8 +47,8 @@ from tests.support.polling import wait_until
 from web.api.app import create_app
 from web.api.backend import Backend
 from web.api.env import Env
-from web.api.jobs.catalog import JobDefinition
-from web.api.jobs.context import JobContext
+from web.api.jobs.runtime.catalog import JobDefinition
+from web.api.jobs.runtime.context import JobContext
 
 MIGRATION_BEFORE = (
     PROJECT_ROOT / "tests" / "pcbasm" / "migrate" / "machine-before-M.toml"
@@ -115,33 +109,6 @@ class TestCreateApp:
             assert client.get("/api/session/state").status_code == 200
 
         assert player.close_calls == 1
-
-
-class TestOverridesSharing:
-    """ジョブワーカーと HTTP 経路の BoardOverrides 同一性."""
-
-    def test_job_context_gets_the_app_overrides_instance(
-        self, app: FastAPI, client: TestClient
-    ):
-        captured: list[BoardOverrides] = []
-
-        def run(ctx: JobContext) -> None:
-            captured.append(ctx.overrides)
-
-        app.state.backend.catalog.register(
-            JobDefinition(
-                name="overrides-probe",
-                label="overrides 配線の確認",
-                run=run,
-                uses_machine=False,
-            )
-        )
-
-        response = client.post("/api/jobs/overrides-probe")
-
-        assert response.status_code == 201, response.text
-        wait_until(lambda: bool(captured))
-        assert captured[0] is app.state.backend.overrides
 
 
 class TestDegraded:

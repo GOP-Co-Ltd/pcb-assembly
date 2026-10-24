@@ -54,7 +54,6 @@ from web.ui.layout import (
     FEATURE_LABELS,
     FEATURE_TEMPLATES,
     JOB_TEMPLATES,
-    LOADING_ROTATION_PARAMS,
     PASTE_VOLUME_CALIBRATION_PARAM_GROUPS,
     TAB_LABELS,
     TABS,
@@ -455,18 +454,12 @@ async def settings_page(machine_id: str, request: Request) -> HTMLResponse:
 
 
 def _loading_context(job: JobSpecInfo, settings: _MachineSettings) -> dict[str, Any]:
-    """Loading ページ専用コンテキスト（開始位置・回転値・現在設定値）."""
-    rotation_defaults = {
-        spec.name: spec.default
-        for spec in job.params
-        if spec.name in LOADING_ROTATION_PARAMS
-    }
+    """Loading ページ専用コンテキスト（開始位置・現在設定値）."""
     return {
         "loading_control_specs": tuple(
             spec for spec in job.params if not spec.optional
         ),
         "loading_position_specs": tuple(spec for spec in job.params if spec.optional),
-        "loading_rotation_defaults": rotation_defaults,
         "solder_paste_density": settings.number("paste_dispenser.solder_paste_density"),
         "current_rotations_per_ul": settings.number("paste_dispenser.rotations_per_ul"),
         "current_max_dispense_rate": settings.number(
@@ -494,22 +487,13 @@ def _dispense_calibration_context(
 def _paste_volume_calibration_context(
     job: JobSpecInfo, settings: _MachineSettings
 ) -> dict[str, Any]:
-    """塗布量校正の生成ページ専用コンテキスト（セクション分けと回転ローディング）.
-
-    塗布パス先頭のローディングでは体積と回転の両方を使うので、``loading_controls``
-    partial の回転セクションを出すための既定値を渡す。ジョブ側の ParamSpec 名は
-    ``loading_`` prefix 付きなので、partial が読む素の名前へ対応付ける。
-    """
+    """塗布量校正の生成ページ専用コンテキスト（フォームのセクション分け）."""
     specs_by_name = {spec.name: spec for spec in job.params}
     return {
         "param_groups": [
             (legend, [specs_by_name[name] for name in names])
             for legend, names in PASTE_VOLUME_CALIBRATION_PARAM_GROUPS
-        ],
-        "loading_rotation_defaults": {
-            name: specs_by_name[f"loading_{name}"].default
-            for name in LOADING_ROTATION_PARAMS
-        },
+        ]
     }
 
 
@@ -622,19 +606,14 @@ async def feature_page(
     template = FEATURE_TEMPLATES[tab, feature]
     if template in JOB_TEMPLATES:
         job = _job_spec(endpoint, jobs, feature)
-        # preview ペインとローディング UI の有無は backend 側で決まる事実（フレーム
-        # 提供の有無・progress_stage 文字列）なので、backend の自己申告から導出する
+        # preview ペインとローディング欄の有無は backend 側で決まる事実（フレーム
+        # 提供の有無・ボタンを押せる段階）なので、backend の自己申告をそのまま渡す
         context.update(
             job_name=job.name,
             param_specs=job.params,
             show_preview=job.provides_preview,
-            show_loading_controls=job.loading_param is not None,
-            loading_stage=job.loading_stages,
+            loading=job.loading,
         )
-        if job.loading_param is not None:
-            context["loading_default"] = next(
-                spec.default for spec in job.params if spec.name == job.loading_param
-            )
         if (job_provider := _JOB_FEATURE_CONTEXT.get(feature)) is not None:
             context.update(job_provider(job, machine_settings))
     if (provider := _FEATURE_CONTEXT.get(feature)) is not None:

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from collections.abc import Mapping
 from typing import Any, cast
 
 import attrs
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
+from pcbasm.validators import is_finite_number
 from web.api.control import ClientIdentity, ControlDeniedError, ControlLease
 from web.api.deps import (
     CatalogDep,
@@ -21,8 +23,11 @@ from web.api.deps import (
     get_backend,
 )
 from web.api.identity import get_identity
-from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
-from web.api.jobs.manager import JobManager, JobRecord, prompt_payload
+from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition, ParamSpec
+from web.api.jobs.runtime.context import prompt_payload
+from web.api.jobs.runtime.manager import JobManager
+from web.api.jobs.runtime.record import JobRecord
+from web.api.jobs.steps import LoadingPanel
 from web.api.selection import Selection
 from web.contract.models import (
     ApplyInfo,
@@ -32,6 +37,9 @@ from web.contract.models import (
     JobSpecInfo,
     JobStatusName,
     JobSummary,
+    LoadingPanelInfo,
+    LoadingRotationInfo,
+    ParamGroupInfo,
     ParamSpecInfo,
     PromptInfo,
 )
@@ -105,10 +113,38 @@ def _param_specs_with_saved_defaults(
     )
 
 
+def _loading_panel_info(
+    panel: LoadingPanel, specs: Mapping[str, ParamSpec]
+) -> LoadingPanelInfo:
+    """ローディング欄の宣言を、入力欄の既定値を引いた公開表現にする."""
+
+    def default(name: str) -> float:
+        value = specs[name].default
+        assert is_finite_number(value)  # ローディング欄の既定値は数値の ParamSpec
+        return float(value)
+
+    rotation = panel.rotation
+    return LoadingPanelInfo(
+        amount=default(panel.amount),
+        rotation=(
+            None
+            if rotation is None
+            else LoadingRotationInfo(
+                rotations=default(rotation.rotations),
+                rate=default(rotation.rate),
+                accel=default(rotation.accel),
+                retract_rotations=default(rotation.retract_rotations),
+            )
+        ),
+        stages=list(panel.stages),
+    )
+
+
 def job_spec_info(
     definition: JobDefinition, selection: Selection, catalog: JobCatalog
 ) -> JobSpecInfo:
-    """JobDefinition を公開表現へ変換する（params は保存済み既定値を反映）."""
+    """JobDefinition を公開表現へ変換する（params とローディング欄は保存済み既定値を反映）."""
+    specs = _param_specs_with_saved_defaults(definition, selection, catalog)
     return JobSpecInfo(
         name=definition.name,
         label=definition.label,
@@ -124,8 +160,15 @@ def job_spec_info(
                 runtime_editable=spec.runtime_editable,
                 minimum=spec.minimum,
                 optional=spec.optional,
+                group=(
+                    None
+                    if spec.group is None
+                    else ParamGroupInfo(
+                        label=spec.group.label, advanced=spec.group.advanced
+                    )
+                ),
             )
-            for spec in _param_specs_with_saved_defaults(definition, selection, catalog)
+            for spec in specs
         ],
         requires_pcb=definition.requires_pcb,
         uses_machine=definition.uses_machine,
@@ -134,8 +177,13 @@ def job_spec_info(
         persisted_params=list(definition.persisted_params),
         runtime_params=list(definition.runtime_params),
         provides_preview=definition.provides_preview,
-        loading_param=definition.loading_param,
-        loading_stages=definition.loading_stages,
+        loading=(
+            None
+            if definition.loading is None
+            else _loading_panel_info(
+                definition.loading, {spec.name: spec for spec in specs}
+            )
+        ),
     )
 
 

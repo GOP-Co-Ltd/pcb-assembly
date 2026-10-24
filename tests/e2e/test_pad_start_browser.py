@@ -22,7 +22,7 @@ from tests.e2e.network import delayed_ui
 from tests.support.backend import devices_with_audio
 from web.api.app import create_app
 from web.api.env import Env
-from web.api.jobs.context import JobContext
+from web.api.jobs.runtime.context import JobContext
 
 
 @pytest.fixture
@@ -31,9 +31,11 @@ def live_server(e2e_settings: Env) -> Iterator[LiveServer]:
         e2e_settings, devices=devices_with_audio(e2e_settings, FakeAudioPlayer())
     )
 
+    overrides = app.state.backend.paste_stores.overrides
+
     def run(ctx: JobContext) -> None:
         assert ctx.source_pcb is not None
-        model = ctx.overrides.load_or_init(ctx.source_pcb, ctx.machine.paste_dispenser)
+        model = overrides.load_or_init(ctx.source_pcb, ctx.machine.paste_dispenser)
         ctx.log(f"started with:{model.levels[0].patch.to_dict()['ul_per_mm2']}")
         ctx.log(f"purge:{ctx.machine.paste_dispenser.initial_purge_ul}")
         ctx.log(f"disabled:{any(level.enabled is False for level in model.levels)}")

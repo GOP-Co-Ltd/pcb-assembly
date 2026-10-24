@@ -41,10 +41,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from pcbasm.pasting.paste_volume.calibration import CALIBRATION_SUFFIX
+from tests.support.backend import standalone_catalog
 from tests.support.paths import PROJECT_ROOT, TESTING_DATA_DIR
 from web.api.env import Env
-from web.api.jobs.catalog import JobCatalog
-from web.api.jobs.pasting import register_pasting_jobs
 from web.api.routers.pasting.calibration import DatasetLayoutRequest
 
 
@@ -370,19 +369,15 @@ class TestLayoutFieldNamesStayInSync:
     無視する（サーバは既定値で計算し、画面は正しそうに見えてしまう）。
     """
 
-    def _job_layout_params(self) -> set[str]:
-        catalog = JobCatalog()
-        register_pasting_jobs(catalog)
-        definition = catalog.get("paste_volume_calibration")
-        assert definition is not None
-        return {
+    def test_request_model_covers_every_layout_job_param(self, tmp_path: Path):
+        definition = standalone_catalog(tmp_path).get("paste_volume_calibration")
+        layout_params = {
             spec.name
             for spec in definition.params
             if spec.name not in _NON_LAYOUT_PARAMS
         }
 
-    def test_request_model_covers_every_layout_job_param(self):
-        assert set(DatasetLayoutRequest.model_fields) == self._job_layout_params()
+        assert set(DatasetLayoutRequest.model_fields) == layout_params
 
     def test_frontend_sends_every_layout_field(self):
         source = (

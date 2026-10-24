@@ -25,10 +25,10 @@ from tests.web.update_support import make_update_sandbox
 from web.api.app import create_app
 from web.api.backend import Backend
 from web.api.env import Env
-from web.api.jobs.catalog import JobCatalog
-from web.api.jobs.context import JobContext
-from web.api.jobs.machine_commands import handle_machine_command
-from web.api.jobs.manager import JobManager
+from web.api.jobs.runtime.catalog import JobCatalog
+from web.api.jobs.runtime.context import JobContext
+from web.api.jobs.runtime.manager import JobManager
+from web.api.jobs.steps import handle_machine_command
 from web.selfupdate.runner import UpdateRunner
 
 ROUTES = GOLDEN_DIR / "routes"

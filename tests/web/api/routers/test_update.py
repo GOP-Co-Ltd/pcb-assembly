@@ -29,7 +29,8 @@ from fastapi.testclient import TestClient
 
 from pcbasm.hal.fake import FakeAudioPlayer
 from tests.support.backend import devices_with_audio
-from tests.support.polling import before_deadline
+from tests.support.polling import before_deadline, wait_until
+from tests.web.api.jobs.conftest import register_gated
 from tests.web.update_support import UpdateSandbox, make_update_sandbox
 from web.api.app import create_app
 from web.api.backend import Backend
@@ -221,6 +222,28 @@ class TestRun:
             )
 
         assert response.status_code == 409
+        assert sandbox.head() == before
+        assert sandbox.restarts() == []
+
+    def test_refused_while_a_job_without_the_machine_runs(
+        self, update_client: TestClient, update_app: FastAPI, sandbox: UpdateSandbox
+    ):
+        """装置を使わないジョブ（PCB 生成など）も装置ロックを取るので、実行中は更新しない."""
+        backend: Backend = update_app.state.backend
+        gate = register_gated(backend.catalog, name="generating", uses_machine=False)
+        record = backend.jobs.start("generating", {})
+        before = sandbox.head()
+
+        try:
+            response = update_client.post(
+                "/api/update/run", headers=ALICE, json={"expected_head": before}
+            )
+        finally:
+            gate.set()
+        wait_until(lambda: record.status.terminal)
+
+        assert response.status_code == 409
+        assert "generating" in response.json()["detail"]
         assert sandbox.head() == before
         assert sandbox.restarts() == []
 

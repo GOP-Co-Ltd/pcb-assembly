@@ -44,8 +44,9 @@ from tests.web.api.conftest import COPPER_PCB_FIXTURE
 from web.api.app import create_app
 from web.api.backend import Backend
 from web.api.env import Env
-from web.api.jobs.catalog import JobCatalog, JobDefinition
-from web.api.jobs.context import JobContext, JobResult
+from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition
+from web.api.jobs.runtime.context import JobContext
+from web.api.jobs.runtime.record import JobResult
 from web.contract.identity import SESSION_COOKIE
 from web.ui.app import create_app as create_ui_app
 from web.ui.machines import MachineEndpoint

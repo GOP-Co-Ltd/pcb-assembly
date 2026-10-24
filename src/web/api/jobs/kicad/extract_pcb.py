@@ -1,30 +1,21 @@
-"""開発用のジョブ定義（PCB 抽出 / 塗布カバレッジ PCB 生成）."""
+"""PCB 情報抽出ジョブ（選択 PCB の outline / 部品 / パッド / 銅箔を書き出して描く）."""
 
 from __future__ import annotations
 
 from pcbasm.board.export import save_copper, save_outline, save_pads, save_pnp_csv
 from pcbasm.board.plot import render_pcb
-from pcbasm.kicad.build import build_fill_coverage_board, save_board
-from web.api.jobs.catalog import JobCatalog, JobDefinition
-from web.api.jobs.context import JobContext, JobResult
+from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition
+from web.api.jobs.runtime.context import JobContext
+from web.api.jobs.runtime.record import JobResult
 
 
-def register_dev_jobs(catalog: JobCatalog) -> None:
-    """開発用の 2 ジョブを登録する."""
+def register(catalog: JobCatalog) -> None:
     catalog.register(
         JobDefinition(
             name="extract_pcb",
             label="PCB 情報抽出",
             run=_run_extract_pcb,
             requires_pcb=True,
-            uses_machine=False,
-        )
-    )
-    catalog.register(
-        JobDefinition(
-            name="make_fill_coverage_pcb",
-            label="塗布カバレッジ PCB 生成",
-            run=_run_make_fill_coverage_pcb,
             uses_machine=False,
         )
     )
@@ -75,18 +66,4 @@ def _run_extract_pcb(ctx: JobContext) -> JobResult:
             ctx.artifact("パッド", "pads.json", "file"),
             ctx.artifact("銅箔", "copper.json", "file"),
         ),
-    )
-
-
-def _run_make_fill_coverage_pcb(ctx: JobContext) -> JobResult:
-    """Fill 要件網羅フィクスチャ PCB を生成する."""
-    ctx.progress("生成")
-    filename = "fill_coverage.kicad_pcb"
-    save_board(build_fill_coverage_board(), ctx.artifacts_dir / filename)
-    ctx.log(f"生成: {filename}")
-    ctx.progress("完了", 100.0)
-
-    return JobResult(
-        summary="fill 要件網羅フィクスチャを生成しました",
-        artifacts=(ctx.artifact("Fill Coverage PCB", filename, "file"),),
     )

@@ -23,7 +23,7 @@ from web.api.deps import (
     UpdateDep,
 )
 from web.api.errors import hal_errors_to_502
-from web.api.jobs.manager import JobManager
+from web.api.jobs.runtime.manager import JobManager
 from web.api.machine_commands import to_command
 from web.contract.models import (
     FirmwareRestartResponse,

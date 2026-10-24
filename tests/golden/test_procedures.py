@@ -71,7 +71,7 @@ from pcbasm.vision import Image, Offset
 from tests.support.camera_model import make_camera_model
 from tests.support.golden import assert_transcript
 from tests.support.paths import TESTING_DATA_DIR
-from web.api.jobs.pasting.common import (
+from web.api.jobs.steps import (
     LOADING_DEFAULT_AMOUNT,
     LOADING_DEFAULT_ROTATION_ACCEL,
     LOADING_DEFAULT_ROTATION_RATE,

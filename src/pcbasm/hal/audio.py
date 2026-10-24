@@ -7,7 +7,7 @@
 
 ``prompt`` はジョブがオペレータ待ちに入ったことを知らせる音で、装置の前を離れた
 作業者を呼び戻すのに使う。``success`` / ``failure`` はジョブの終了通知。どの場面で
-どれを鳴らすかは :mod:`web.api.jobs.manager` が決める。
+どれを鳴らすかは :mod:`web.api.jobs.runtime.hooks` が決める。
 """
 
 from __future__ import annotations

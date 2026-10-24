@@ -58,7 +58,8 @@ from web.api.app import create_app
 from web.api.backend import Backend
 from web.api.control import ClientIdentity
 from web.api.env import Env
-from web.api.jobs.context import JobContext, PromptSpec
+from web.api.jobs.runtime.context import JobContext
+from web.api.jobs.runtime.record import PromptSpec
 from web.api.machine_config import MachineConfigFile
 
 
@@ -155,7 +156,7 @@ class TestMachineInfoApi:
             # frontend / discovery の互換判定に使う値なので、`web.contract.discovery.API_VERSION`
             # を import せずリテラルで固定する（import すると同語反復になり、うっかりの
             # バンプが無音で通る）。バンプは意図的な契約変更なのでここも同時に更新する
-            "api_version": 12,
+            "api_version": 13,
         }
 
     def test_mainsail_url_resolves_from_machine_id_not_request_host(

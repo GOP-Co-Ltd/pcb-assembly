@@ -24,8 +24,10 @@ from web.api.discovery import (
 )
 from web.api.env import Env, resolve_machine_id
 from web.api.events import EventBus
-from web.api.jobs.catalog import JobCatalog, default_catalog
-from web.api.jobs.manager import JobManager
+from web.api.jobs.catalog import default_catalog
+from web.api.jobs.pasting import PasteStores
+from web.api.jobs.runtime.catalog import JobCatalog
+from web.api.jobs.runtime.manager import JobManager
 from web.api.lock import MachineLock
 from web.api.machine_config import MachineConfigFile
 from web.api.selection import Selection
@@ -48,7 +50,7 @@ class Backend:
         camera: FrameHub の貸し出しと MJPEG 配信
         events: WS 購読者へのイベント配信
         catalog: ジョブ定義カタログ
-        overrides: 基板ごとの塗布設定（ジョブと HTTP 経路で同じインスタンス）
+        paste_stores: 塗布の永続データ（catalog の塗布ジョブと HTTP 経路が同じものを使う）
         jobs: ジョブの起動と直近 1 件の状態
         control: 操作権リース（自動解放しない。プロセス再起動で空きに戻る）
         board_generator: テスト塗布基板の生成
@@ -64,7 +66,7 @@ class Backend:
     camera: CameraFeed
     events: EventBus
     catalog: JobCatalog
-    overrides: BoardOverrides
+    paste_stores: PasteStores
     jobs: JobManager
     control: ControlLease
     board_generator: BoardGenerator
@@ -128,8 +130,12 @@ def open_backend(
         env, lock, on_select=devices.rebuild_camera if env.fake else lambda: None
     )
     camera = CameraFeed(devices, machine_config)
-    catalog = default_catalog()
-    overrides = BoardOverrides(env.webui_data_dir)
+    paste_stores = PasteStores(
+        overrides=BoardOverrides(env.webui_data_dir),
+        paste_dataset_dir=env.paste_dataset_dir,
+        paste_volume_calibration_dir=env.paste_volume_calibration_dir,
+    )
+    catalog = default_catalog(paste_stores)
     control = ControlLease(
         on_change=lambda: events.publish(control_changed_event(control.snapshot()))
     )
@@ -142,7 +148,7 @@ def open_backend(
         camera=camera,
         events=events,
         catalog=catalog,
-        overrides=overrides,
+        paste_stores=paste_stores,
         jobs=JobManager(
             catalog,
             env=env,
@@ -152,7 +158,6 @@ def open_backend(
             selection=selection,
             camera=camera,
             events=events,
-            overrides=overrides,
         ),
         control=control,
         board_generator=BoardGenerator(paste_test_board_footprint_root),

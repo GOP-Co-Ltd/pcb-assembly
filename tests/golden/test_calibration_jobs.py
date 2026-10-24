@@ -54,11 +54,12 @@ from tests.support.paths import TESTING_DATA_DIR
 from tests.web.api.jobs.conftest import answer_next_prompt, register_synthetic
 from web.api.backend import Backend
 from web.api.env import Env
-from web.api.jobs.catalog import JobCatalog
-from web.api.jobs.context import JobContext
-from web.api.jobs.manager import JobManager, JobRecord
-from web.api.jobs.pasting.common import LOADING_STAGE
 from web.api.jobs.pasting.dispense_calibration import CALIBRATION_MENU_STAGE
+from web.api.jobs.runtime.catalog import JobCatalog
+from web.api.jobs.runtime.context import JobContext
+from web.api.jobs.runtime.manager import JobManager
+from web.api.jobs.runtime.record import JobRecord
+from web.api.jobs.steps import LOADING_STAGE
 
 ARTIFACTS = GOLDEN_DIR / "artifacts"
 PENDING_PIN = TESTING_DATA_DIR / "schemas" / "paste_dataset_pending_v1.json"
@@ -251,7 +252,7 @@ class TestFlowCalibration:
                             full_board_correction(),
                             applicator,
                             plan,
-                            calibration_dir=ctx.paste_volume_calibration_dir,
+                            calibration_dir=job_settings.paste_volume_calibration_dir,
                         )
                     )
 

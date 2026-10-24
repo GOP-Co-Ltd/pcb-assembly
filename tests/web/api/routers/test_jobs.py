@@ -19,8 +19,8 @@ MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
 
 - GET /api/jobs → {"jobs": [JobSpecInfo]}。登録順の全件で、
   `params` は保存済み既定値を `default` に反映した状態
-- preview ペイン / ローディング UI の有無は JobDefinition の provides_preview /
-  loading_param / loading_stages が正（pages.py のハードコード辞書は撤去済み）
+- preview ペイン / ローディング欄の有無は JobDefinition の provides_preview /
+  loading（LoadingPanel）が正。ローディング欄の既定値は保存済み既定値を反映して返す
 
 同期待ちは threading.Event ゲート付き合成ジョブ + ポーリング / WS 受信駆動で
 決定的に行う（sleep 固定値のアサート禁止）。
@@ -46,16 +46,16 @@ from tests.support import polling
 from tests.support.job_demo import register_job_demo
 from tests.web.api.jobs.conftest import register_gated, register_synthetic
 from web.api.backend import Backend
-from web.api.jobs.catalog import ParamSpec
-from web.api.jobs.context import (
+from web.api.jobs.runtime.catalog import ParamSpec
+from web.api.jobs.runtime.context import JobContext
+from web.api.jobs.runtime.manager import JobManager
+from web.api.jobs.runtime.record import (
     ApplyFile,
     ApplyPayload,
     Artifact,
-    JobContext,
     JobResult,
     PromptSpec,
 )
-from web.api.jobs.manager import JobManager
 from web.api.machine_config import MachineConfigFile
 
 _TERMINAL = ("succeeded", "failed", "aborted")
@@ -236,17 +236,39 @@ class TestJobCatalogApi:
 
         paste_solder = jobs["paste_solder"]
         assert paste_solder["provides_preview"] is True
-        assert paste_solder["loading_param"] == "amount"
-        assert paste_solder["loading_stages"] == "ローディング"
+        assert paste_solder["loading"] == {
+            "amount": 0.1,
+            "rotation": None,
+            "stages": ["ローディング"],
+        }
 
-        # メニュー段階のプライムでもボタンを有効化する（カンマ区切り）
-        assert jobs["dispense_calibration"]["loading_stages"] == (
-            "キャリブレーションメニュー,ローディング"
-        )
+        # メニュー段階のプライムでもボタンを有効化する
+        assert jobs["dispense_calibration"]["loading"]["stages"] == [
+            "キャリブレーションメニュー",
+            "ローディング",
+        ]
 
         # カメラもローディングも使わない生成ジョブ
         assert jobs["generate_rect_pcb"]["provides_preview"] is False
-        assert jobs["generate_rect_pcb"]["loading_param"] is None
+        assert jobs["generate_rect_pcb"]["loading"] is None
+
+    def test_loading_panel_defaults_reflect_saved_defaults(
+        self, client: TestClient, backend: Backend
+    ):
+        """ローディング欄の既定値は、フォームと同じく保存済み既定値を反映して返る."""
+        backend.selection.merge_job_param_defaults(
+            "loading", {"amount": 0.2, "rate": 1.5}
+        )
+
+        loading = _jobs_by_name(client)["loading"]["loading"]
+
+        assert loading["amount"] == 0.2
+        assert loading["rotation"] == {
+            "rotations": 5.0,
+            "rate": 1.5,
+            "accel": 0.5,
+            "retract_rotations": 0.0,
+        }
 
     def test_param_specs_expose_every_declared_field(
         self, client: TestClient, app: FastAPI
@@ -271,7 +293,21 @@ class TestJobCatalogApi:
                 "runtime_editable": spec.runtime_editable,
                 "minimum": spec.minimum,
                 "optional": spec.optional,
+                "group": None,
             }
+
+    def test_param_groups_are_exposed(self, client: TestClient):
+        """フォーム内のまとまりと、普段は畳むまとまりかが公開される."""
+        params = {
+            p["name"]: p
+            for p in _jobs_by_name(client)["paste_volume_calibration"]["params"]
+        }
+
+        assert params["plate_width"]["group"] == {"label": "銅板", "advanced": False}
+        assert params["min_contrast"]["group"] == {
+            "label": "円検出のハイパラ",
+            "advanced": True,
+        }
 
     def test_params_reflect_saved_defaults(self, client: TestClient, backend: Backend):
         """保存済み既定値が ParamSpec.default に反映された状態で返る（SSR と同じ）."""
@@ -368,14 +404,21 @@ class TestStartJob:
 
         assert response.status_code == 400
 
-    def test_double_start_returns_409(self, client: TestClient, app: FastAPI):
+    def test_double_start_returns_409(
+        self, client: TestClient, app: FastAPI, backend: Backend
+    ):
+        """装置を使わないジョブの実行中も別のジョブは始めず、走っているジョブの成果物を残す."""
         gate = _register_gated(app)
-        assert client.post("/api/jobs/gated_router", json={}).status_code == 201
+        running = client.post("/api/jobs/gated_router", json={}).json()["job"]
         _wait_job_status(client, "running")
 
         response = client.post("/api/jobs/job_demo", json={"params": {"steps": 1}})
 
         assert response.status_code == 409
+        current = _current_job(client)
+        assert current is not None
+        assert current["id"] == running["id"]
+        assert (backend.env.webui_data_dir / running["id"]).is_dir()
 
         gate.set()
         _wait_job_status(client, "succeeded")

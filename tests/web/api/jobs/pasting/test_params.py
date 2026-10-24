@@ -1,65 +1,22 @@
-"""塗布ジョブの登録内容と、パラメータの受理・保存契約。"""
+"""塗布ジョブのパラメータの受理・保存契約."""
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from web.api.jobs.catalog import JobCatalog, default_catalog
-from web.api.jobs.pasting import register_pasting_jobs
-
-PASTING_JOBS = (
-    "paste_solder",
-    "height_plane",
-    "loading",
-    "dispense_calibration",
-    "paste_volume_calibration",
-    "paste_dataset_finalize",
-    "paste_volume_refit",
-    "generate_rect_pcb",
-    "toolhead_offset",
-)
+from tests.support.backend import standalone_catalog
+from web.api.jobs.runtime.catalog import JobCatalog
 
 
-class TestCatalog:
-    """default_catalog への pasting ジョブ登録（計画書「ジョブ定義表」のピン）."""
+@pytest.fixture
+def default(tmp_path: Path) -> JobCatalog:
+    return standalone_catalog(tmp_path)
 
-    @pytest.fixture
-    def default(self) -> JobCatalog:
-        return default_catalog()
 
-    def test_registers_exactly_the_pasting_jobs(self):
-        catalog = JobCatalog()
-        register_pasting_jobs(catalog)
-
-        assert {definition.name for definition in catalog.list()} == set(PASTING_JOBS)
-
-    @pytest.mark.parametrize(
-        ("name", "requires_pcb", "uses_machine", "accepts_commands"),
-        [
-            ("paste_solder", True, True, True),
-            ("height_plane", True, True, False),
-            ("loading", False, True, True),
-            ("dispense_calibration", False, True, True),
-            ("paste_volume_calibration", False, True, True),
-            ("paste_dataset_finalize", False, False, False),
-            ("paste_volume_refit", False, False, False),
-            ("generate_rect_pcb", False, False, False),
-            ("toolhead_offset", True, True, True),
-        ],
-    )
-    def test_job_flags(
-        self,
-        default: JobCatalog,
-        name: str,
-        requires_pcb: bool,
-        uses_machine: bool,
-        accepts_commands: bool,
-    ):
-        definition = default.get(name)
-
-        assert definition.requires_pcb is requires_pcb
-        assert definition.uses_machine is uses_machine
-        assert definition.accepts_commands is accepts_commands
+class TestPastingParams:
+    """塗布ジョブのパラメータ宣言（計画書「ジョブ定義表」のピン）."""
 
     def test_paste_volume_calibration_requires_a_paste_id(self, default: JobCatalog):
         """ペースト製品 ID はデータセットの素性なので既定値を持たず必須."""
@@ -73,13 +30,13 @@ class TestCatalog:
     ):
         """塗布パス先頭のローディングは体積・回転とも既定値をフォームから受ける.
 
-        `loading_param` が無いとページがローディング操作 UI 自体を出さず、
-        `run_loading_loop` の待ち受けへ運転者が応答できなくなる。
+        ローディング欄が無いと、`loading_loop` の待ち受けへ運転者が応答できなくなる。
         """
         definition = default.get("paste_volume_calibration")
         params = {spec.name: spec for spec in definition.params}
 
-        assert definition.loading_param == "loading_amount"
+        assert definition.loading is not None
+        assert definition.loading.amount == "loading_amount"
         assert definition.accepts_commands is True
         for name, unit in (
             ("loading_amount", "uL"),

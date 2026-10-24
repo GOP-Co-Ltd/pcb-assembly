@@ -16,8 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from web.api.jobs.catalog import JobCatalog
-from web.api.jobs.pasting import register_pasting_jobs
+from tests.support.backend import standalone_catalog
 from web.contract.models import SettingsField
 from web.ui import layout
 from web.ui.layout import (
@@ -249,6 +248,8 @@ class TestParamGroupCoverage:
     書き忘れた項目はフォームから消える（既定値で走るので気付きにくい）。
 
     存在しない項目名を書くとページ描画が KeyError で 500 になる。
+
+    セクションの見出しと中身は、ジョブが宣言する ParamSpec.group と同じにする。
     """
 
     @pytest.mark.parametrize(
@@ -259,13 +260,34 @@ class TestParamGroupCoverage:
         ],
     )
     def test_groups_cover_every_job_param_exactly_once(
-        self, job_name: str, groups: tuple[tuple[str, tuple[str, ...]], ...]
+        self,
+        tmp_path: Path,
+        job_name: str,
+        groups: tuple[tuple[str, tuple[str, ...]], ...],
     ):
-        catalog = JobCatalog()
-        register_pasting_jobs(catalog)
-        definition = catalog.get(job_name)
-        assert definition is not None
+        definition = standalone_catalog(tmp_path).get(job_name)
         grouped = [name for _, names in groups for name in names]
 
         assert sorted(grouped) == sorted(spec.name for spec in definition.params)
         assert len(grouped) == len(set(grouped))
+
+    @pytest.mark.parametrize(
+        ("job_name", "groups"),
+        [
+            ("paste_volume_calibration", PASTE_VOLUME_CALIBRATION_PARAM_GROUPS),
+            ("dispense_calibration", DISPENSE_CALIBRATION_PARAM_GROUPS),
+        ],
+    )
+    def test_groups_match_the_jobs_param_groups(
+        self,
+        tmp_path: Path,
+        job_name: str,
+        groups: tuple[tuple[str, tuple[str, ...]], ...],
+    ):
+        definition = standalone_catalog(tmp_path).get(job_name)
+        declared: dict[str, set[str]] = {}
+        for spec in definition.params:
+            assert spec.group is not None, spec.name
+            declared.setdefault(spec.group.label, set()).add(spec.name)
+
+        assert declared == {legend: set(names) for legend, names in groups}

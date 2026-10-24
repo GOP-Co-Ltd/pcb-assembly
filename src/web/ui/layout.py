@@ -162,8 +162,6 @@ JOB_TEMPLATES = frozenset(
     }
 )
 
-LOADING_ROTATION_PARAMS = ("rotations", "rate", "accel", "retract_rotations")
-
 # dispense_calibration フォームのセクション分け（表示のみ）。
 # ①②③ の依存順に沿ってパラメータを視覚的にグルーピングする。
 DISPENSE_CALIBRATION_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (

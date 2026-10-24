@@ -1,18 +1,20 @@
 """ジョブの golden の網羅性（装置を動かすジョブはどれも、送信列が golden で固定されている）."""
 
+from pathlib import Path
+
 import pytest
 
 from tests.golden.conftest import JOBS
 from tests.golden.scenarios import SCENARIOS, scenarios_of
-from web.api.jobs.catalog import default_catalog
+from tests.support.backend import standalone_catalog
 
 
 class TestCoverage:
-    def test_every_machine_job_has_scenario(self):
+    def test_every_machine_job_has_scenario(self, tmp_path: Path):
         """装置を動かすジョブを catalog に足したら、そのシナリオも表に足す."""
         jobs = {
             definition.name
-            for definition in default_catalog().list()
+            for definition in standalone_catalog(tmp_path).list()
             if definition.uses_machine
         }
 

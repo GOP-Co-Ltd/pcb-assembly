@@ -35,8 +35,9 @@ from tests.support.backend import job_manager
 from tests.support.paths import TESTING_DATA_DIR
 from web.api.backend import Backend, open_backend
 from web.api.env import Env
-from web.api.jobs.catalog import JobCatalog, default_catalog
-from web.api.jobs.manager import JobManager, JobRecord, JobStatus
+from web.api.jobs.runtime.catalog import JobCatalog
+from web.api.jobs.runtime.manager import JobManager
+from web.api.jobs.runtime.record import JobRecord, JobStatus
 from web.api.machine_config import MachineConfigFile
 
 GOLDEN_DIR = Path(__file__).parent
@@ -236,8 +237,8 @@ def led_blinker_shapes(place_board: Callable[[Path], list[Polygon]]) -> list[Pol
 
 
 @pytest.fixture
-def catalog() -> JobCatalog:
-    return default_catalog()
+def catalog(job_backend: Backend) -> JobCatalog:
+    return job_backend.catalog
 
 
 @pytest.fixture

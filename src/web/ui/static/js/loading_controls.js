@@ -3,21 +3,15 @@
 // ローディング操作パネル。ローディング段階の対話ジョブへ
 // extrude / suck / finish コマンドを WS で送る。
 // 実行中ジョブが accepts_commands で、かつ progress_stage が
-// data-loading-stage（カンマ区切りの複数可）のいずれかと一致するときに有効にする。
+// data-loading-stages（JSON の配列）のいずれかと一致するときに有効にする。
 
 (() => {
   const { toast, api, debounce, jobs } = window.webui;
   const panel = document.getElementById("loading-controls");
   if (!panel || !jobs) return;
 
-  // data-loading-stage はカンマ区切りで複数 stage を許す（吐出量キャリブはメニュー段階の
-  // プライムと ① 専用ローディング段階の両方でボタンを有効化する）。
-  const loadingStages = new Set(
-    (panel.dataset.loadingStage || "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)
-  );
+  // 吐出量キャリブはメニュー段階のプライムと ① 専用ローディング段階の両方でボタンを有効化する
+  const loadingStages = new Set(JSON.parse(panel.dataset.loadingStages));
   const amountInput = document.getElementById("lc-amount");
   const rotationsInput = document.getElementById("lc-rotations");
   const rateInput = document.getElementById("lc-rate");

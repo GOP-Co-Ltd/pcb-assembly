@@ -16,15 +16,13 @@ from pcbasm.pasting.toolhead_offset import (
     plan_toolhead_offset_points,
 )
 from pcbasm.vision import validate_paste_diameters
-from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
-from web.api.jobs.context import (
-    ApplyPayload,
-    JobContext,
-    JobResult,
-)
-from web.api.jobs.pasting.common import (
+from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition, ParamSpec
+from web.api.jobs.runtime.context import JobContext
+from web.api.jobs.runtime.record import ApplyPayload, JobResult
+from web.api.jobs.steps import (
     LOADING_DEFAULT_AMOUNT,
-    run_loading_loop,
+    LoadingPanel,
+    loading_loop,
     setup_paste_session,
 )
 
@@ -113,7 +111,7 @@ def register(catalog: JobCatalog) -> None:
                 "edge_margin",
             ),
             provides_preview=True,
-            loading_param="loading_amount",
+            loading=LoadingPanel(amount="loading_amount"),
         )
     )
 
@@ -182,7 +180,7 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
             session.klipper.send_gcode(
                 session.stage.move(z=0.0) + GCode.wait_for_done()
             )
-            run_loading_loop(ctx, session.klipper, session.stage, applicator)
+            loading_loop(ctx, session.klipper, session.stage, applicator)
             applicator.retract()
 
             dispense_amount = float(ctx.params["dispense_amount"])

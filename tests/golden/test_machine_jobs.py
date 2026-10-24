@@ -16,7 +16,8 @@ from tests.golden.conftest import JOBS, finish, scene_camera
 from tests.golden.scenarios import Scenario, scenarios_of
 from tests.support.golden import assert_transcript
 from web.api.backend import Backend
-from web.api.jobs.manager import JobManager, JobStatus
+from web.api.jobs.runtime.manager import JobManager
+from web.api.jobs.runtime.record import JobStatus
 
 
 class TestMachineCheck:

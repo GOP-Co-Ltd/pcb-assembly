@@ -1,4 +1,4 @@
-"""`web.api.jobs.manager` の仕様テスト.
+"""`web.api.jobs.runtime.manager` の仕様テスト.
 
 計画書 webui-phase3.md「src/webui/jobs/manager.py」節 + spec §6 が契約:
 
@@ -17,7 +17,7 @@
 - command: submit_command → next_command、"type" キー必須、
   accepts_commands でないジョブへの submit は ValueError
 - ログはリングバッファ（log_capacity）
-- 排他: 実行中は装置ロックを保持、終端後に解放
+- 排他: 装置を使わないジョブも含め、実行中は装置ロックを保持、終端後に解放。実行中の開始は BusyError で、走っているジョブの成果物は消さない
 - 直近 1 件のみ保持: 新 start で旧 record 置換 + 旧成果物ディレクトリ削除
 - Apply: SUCCEEDED + payload のみ取得可。mark_applied / discard / 新ジョブ開始で
   LookupError
@@ -37,34 +37,20 @@ import tomlkit
 from pcbasm.config.audio import AudioConfig
 from pcbasm.hal import AudioPlaybackError
 from pcbasm.hal.fake import FakeAudioPlayer
-from web.api.backend import Backend
-from web.api.env import Env
-from web.api.jobs.catalog import JobCatalog, ParamSpec
-from web.api.jobs.context import ApplyPayload, JobContext, JobResult, PromptSpec
-from web.api.jobs.manager import (
-    JobManager,
-    JobStatus,
-    prompt_payload,
-)
-from web.api.lock import BusyError
-
-from .conftest import (
+from tests.web.api.jobs.conftest import (
     ManagerFactory,
     WaitUntil,
     answer_next_prompt,
     register_gated as _register_gated,
     register_synthetic as _register,
 )
-
-
-def _configure_audio(config_dir: Path) -> AudioConfig:
-    """machine.toml へ `[audio]` を書き、書いた設定を返す."""
-    config = AudioConfig(device="test-speaker", volume=0.3)
-    path = config_dir / "machine.toml"
-    document = tomlkit.parse(path.read_text(encoding="utf-8"))
-    document["audio"] = {"device": config.device, "volume": config.volume}
-    path.write_text(tomlkit.dumps(document), encoding="utf-8")
-    return config
+from web.api.backend import Backend
+from web.api.env import Env
+from web.api.jobs.runtime.catalog import JobCatalog, ParamSpec
+from web.api.jobs.runtime.context import JobContext, prompt_payload
+from web.api.jobs.runtime.manager import JobManager
+from web.api.jobs.runtime.record import ApplyPayload, JobResult, JobStatus, PromptSpec
+from web.api.lock import BusyError
 
 
 def _register_prompting(
@@ -624,6 +610,40 @@ class TestExclusion:
             gate.set()
         wait_until(lambda: record.status.terminal)
 
+    def test_second_start_keeps_the_running_jobs_artifacts(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        wait_until: WaitUntil,
+    ):
+        """装置を使わないジョブの実行中でも、別のジョブの開始は断り、走っている方の成果物を残す."""
+        gate = threading.Event()
+        written: list[Path] = []
+
+        def run(ctx: JobContext) -> None:
+            path = ctx.artifacts_dir / "out.txt"
+            path.write_text("成果物", encoding="utf-8")
+            written.append(path)
+            while not gate.wait(timeout=0.02):
+                ctx.checkpoint()
+
+        _register(catalog, run, name="writer", uses_machine=False)
+        _register(catalog, lambda ctx: None, name="second")
+        record = manager.start("writer", {})
+        wait_until(lambda: written != [])
+
+        try:
+            with pytest.raises(BusyError):
+                manager.start("second", {})
+            assert manager.current() is record
+            assert written[0].is_file()
+        finally:
+            gate.set()
+        wait_until(lambda: record.status.terminal)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert written[0].is_file()
+
     def test_machine_operations_blocked_while_running(
         self,
         manager: JobManager,
@@ -834,98 +854,6 @@ class TestApplyMachineSettingsFromWorker:
         assert record.status == JobStatus.FAILED
         assert record.error is not None
         assert "bogus.key" in record.error
-
-
-@pytest.mark.usefixtures("unreachable_klipper")
-class TestPresentOnTermination:
-    """ジョブ終了時の PRESENT / M84（relax）ベストエフォート送信."""
-
-    def test_present_failure_is_logged_and_succeeded_status_kept(
-        self,
-        manager: JobManager,
-        catalog: JobCatalog,
-        camera_backend: Backend,
-        wait_until: WaitUntil,
-    ):
-        _register(catalog, lambda ctx: None, uses_machine=True)
-        record = manager.start("synthetic", {})
-        wait_until(lambda: record.status.terminal)
-        wait_until(lambda: camera_backend.lock.owner is None)
-
-        assert record.status == JobStatus.SUCCEEDED
-        log_text = "\n".join(record.log_lines)
-        assert "PRESENT" in log_text
-        assert "M84" in log_text
-
-    def test_present_failure_does_not_change_failed_status(
-        self,
-        manager: JobManager,
-        catalog: JobCatalog,
-        camera_backend: Backend,
-        wait_until: WaitUntil,
-    ):
-        def run(ctx: JobContext) -> None:
-            raise RuntimeError("意図的な失敗")
-
-        _register(catalog, run, uses_machine=True)
-        record = manager.start("synthetic", {})
-        wait_until(lambda: record.status.terminal)
-        wait_until(lambda: camera_backend.lock.owner is None)
-
-        assert record.status == JobStatus.FAILED
-        assert record.error is not None
-        assert "意図的な失敗" in record.error
-        log_text = "\n".join(record.log_lines)
-        assert "PRESENT" in log_text
-        assert "M84" in log_text
-
-    def test_recorded_cap_failure_logs_park_message_without_present(
-        self,
-        manager: JobManager,
-        catalog: JobCatalog,
-        camera_backend: Backend,
-        wait_until: WaitUntil,
-        config_dir: Path,
-    ):
-        """キャップ記録済み（paste）はキャップ駐機経路になり、失敗ログは退避文言のみ.
-
-        nozzle-cap-parking 計画書「呼び出し 3 箇所の差し替え」節: catch-all 文言は
-        「タスク終了時の退避に失敗: {exc}」で "PRESENT" / "M84" の語を含めない
-        （フォールバック経路のログ断言との一意性を保つ）。
-        """
-        path = config_dir / "machine.toml"
-        path.write_text(
-            path.read_text(encoding="utf-8")
-            + "\n[paste_dispenser.nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n",
-            encoding="utf-8",
-        )
-        _register(catalog, lambda ctx: None, uses_machine=True)
-        record = manager.start("synthetic", {})
-        wait_until(lambda: record.status.terminal)
-        wait_until(lambda: camera_backend.lock.owner is None)
-
-        assert record.status == JobStatus.SUCCEEDED
-        log_text = "\n".join(record.log_lines)
-        assert "退避に失敗" in log_text
-        assert "PRESENT" not in log_text
-        assert "M84" not in log_text
-
-    def test_no_present_attempt_for_non_machine_job(
-        self,
-        manager: JobManager,
-        catalog: JobCatalog,
-        camera_backend: Backend,
-        wait_until: WaitUntil,
-    ):
-        """uses_machine=False（dev ジョブ相当）では終了処理を試行しない."""
-        _register(catalog, lambda ctx: None, uses_machine=False)
-        record = manager.start("synthetic", {})
-        wait_until(lambda: record.status.terminal)
-        wait_until(lambda: camera_backend.lock.owner is None)
-
-        assert record.status == JobStatus.SUCCEEDED
-        assert "PRESENT" not in "\n".join(record.log_lines)
-        assert "M84" not in "\n".join(record.log_lines)
 
 
 @pytest.mark.usefixtures("unreachable_klipper")
@@ -1188,256 +1116,6 @@ class TestUpdateCurrentParams:
         assert (
             camera_backend.selection.job_param_defaults("reader")["line_length"] == 10.0
         )
-
-
-@pytest.mark.usefixtures("unreachable_klipper")
-class TestAudioCompletionNotification:
-    """装置を動かすジョブ（`uses_machine=True`）の完了を機体スピーカーで知らせる.
-
-    装置の前を離れた作業者が終了に気付けるようにするための契約:
-
-    - 成功 → success / 失敗 → failure を 1 回だけ鳴らす
-    - 手動中止（ABORTED）は鳴らさない
-    - `uses_machine=False` の即終了ジョブは成功・失敗とも鳴らさない。ブラウザ完了
-      通知の `notify_on_completion` とは独立で、フラグを立てても鳴らない
-    - `[audio]` 未設定でも既定値（MachineConfig.audio）で鳴る
-    - 再生失敗は warning のみでジョブ status に影響しない
-    """
-
-    def test_success_plays_success_sound_once(
-        self,
-        make_manager: ManagerFactory,
-        catalog: JobCatalog,
-        config_dir: Path,
-        wait_until: WaitUntil,
-        audio_player: FakeAudioPlayer,
-    ):
-        config = _configure_audio(config_dir)
-        manager = make_manager(catalog)
-        _register(catalog, lambda ctx: None, uses_machine=True)
-
-        record = manager.start("synthetic", {})
-        wait_until(lambda: record.status.terminal)
-        wait_until(lambda: len(audio_player.played) == 1)
-
-        assert record.status == JobStatus.SUCCEEDED
-        assert audio_player.played == (("success", config.device, config.volume),)
-
-    def test_failure_plays_failure_sound_once(
-        self,
-        make_manager: ManagerFactory,
-        catalog: JobCatalog,
-        config_dir: Path,
-        wait_until: WaitUntil,
-        audio_player: FakeAudioPlayer,
-    ):
-        config = _configure_audio(config_dir)
-        manager = make_manager(catalog)
-
-        def fail(ctx: JobContext) -> None:
-            raise RuntimeError("意図的な失敗")
-
-        _register(catalog, fail, uses_machine=True)
-        record = manager.start("synthetic", {})
-        wait_until(lambda: record.status.terminal)
-        wait_until(lambda: len(audio_player.played) == 1)
-
-        assert record.status == JobStatus.FAILED
-        assert audio_player.played == (("failure", config.device, config.volume),)
-
-    def test_aborted_job_does_not_play(
-        self,
-        make_manager: ManagerFactory,
-        catalog: JobCatalog,
-        config_dir: Path,
-        wait_until: WaitUntil,
-        audio_player: FakeAudioPlayer,
-    ):
-        _configure_audio(config_dir)
-        manager = make_manager(catalog)
-        _register_gated(catalog, uses_machine=True)
-        record = manager.start("gated", {})
-        wait_until(lambda: record.status == JobStatus.RUNNING)
-
-        assert manager.request_abort() is True
-        wait_until(lambda: record.status.terminal)
-
-        assert record.status == JobStatus.ABORTED
-        assert audio_player.played == ()
-
-    def test_non_machine_job_stays_silent(
-        self,
-        make_manager: ManagerFactory,
-        catalog: JobCatalog,
-        config_dir: Path,
-        wait_until: WaitUntil,
-        audio_player: FakeAudioPlayer,
-    ):
-        """`notify_on_completion` はブラウザ通知専用で、完了音を左右しない."""
-        _configure_audio(config_dir)
-        manager = make_manager(catalog)
-
-        _register(
-            catalog, lambda ctx: None, uses_machine=False, notify_on_completion=True
-        )
-        record = manager.start("synthetic", {})
-        wait_until(lambda: record.status.terminal)
-
-        assert record.status == JobStatus.SUCCEEDED
-        assert audio_player.played == ()
-
-    def test_missing_audio_section_plays_with_defaults(
-        self,
-        make_manager: ManagerFactory,
-        catalog: JobCatalog,
-        wait_until: WaitUntil,
-        audio_player: FakeAudioPlayer,
-    ):
-        """`[audio]` を書かない fixture でも既定デバイス・既定音量で鳴る."""
-        manager = make_manager(catalog)
-        _register(catalog, lambda ctx: None, uses_machine=True)
-
-        record = manager.start("synthetic", {})
-        wait_until(lambda: record.status.terminal)
-        wait_until(lambda: len(audio_player.played) == 1)
-
-        assert record.status == JobStatus.SUCCEEDED
-        assert audio_player.played == (("success", "default", 0.75),)
-
-    @pytest.mark.parametrize(
-        "audio_player",
-        [FakeAudioPlayer(playback_error=AudioPlaybackError("speaker disconnected"))],
-    )
-    def test_playback_failure_warns_without_changing_job_status(
-        self,
-        make_manager: ManagerFactory,
-        catalog: JobCatalog,
-        config_dir: Path,
-        wait_until: WaitUntil,
-        caplog: pytest.LogCaptureFixture,
-        audio_player: FakeAudioPlayer,
-    ):
-        _configure_audio(config_dir)
-        manager = make_manager(catalog)
-
-        def run(ctx: JobContext) -> None:
-            raise RuntimeError("job failure")
-
-        _register(catalog, run, uses_machine=True)
-        with caplog.at_level(logging.WARNING):
-            record = manager.start("synthetic", {})
-            wait_until(lambda: record.status.terminal)
-            wait_until(
-                lambda: any(
-                    item.levelno >= logging.WARNING
-                    and "speaker disconnected" in item.getMessage()
-                    for item in caplog.records
-                )
-            )
-
-        assert record.status == JobStatus.FAILED
-        assert len(audio_player.played) == 1
-
-
-class TestAudioOperatorNotification:
-    """オペレータ待ちに入るたび、機体スピーカーが作業者を呼び戻す.
-
-    装置の前を離れた作業者が応答待ちに気付けるようにするための契約:
-
-    - 応答待ちに入った時点で `prompt` を鳴らす（応答を待たない）。ジョブ側の
-      オプトインは無く、**すべての** prompt が毎回鳴らす
-    - `notify_operator()` はコマンド待ちなど prompt 以外のオペレータ待ちで
-      同じ音を鳴らす。abort 済みなら鳴らさない
-
-    再生失敗の握り潰しは `TestAudioCompletionNotification` が同じ `_play_sound`
-    を通して固定する。
-    """
-
-    def test_every_prompt_plays_the_input_sound(
-        self,
-        make_manager: ManagerFactory,
-        catalog: JobCatalog,
-        config_dir: Path,
-        wait_until: WaitUntil,
-        audio_player: FakeAudioPlayer,
-    ):
-        config = _configure_audio(config_dir)
-        manager = make_manager(catalog)
-        answers: list[object] = []
-
-        def run(ctx: JobContext) -> None:
-            answers.append(ctx.prompt(PromptSpec(kind="confirm", message="続行?")))
-            answers.append(ctx.prompt(PromptSpec(kind="number", message="質量 [mg]")))
-
-        _register(catalog, run)
-
-        record = manager.start("synthetic", {})
-        answered: set[str] = set()
-        answer_next_prompt(record, manager, True, answered)
-        answer_next_prompt(record, manager, 110.5, answered)
-        wait_until(lambda: record.status.terminal)
-
-        assert record.status == JobStatus.SUCCEEDED, record.error
-        assert answers == [True, 110.5]
-        assert audio_player.played == (
-            ("prompt", config.device, config.volume),
-            ("prompt", config.device, config.volume),
-        )
-
-    def test_notify_operator_plays_the_input_sound(
-        self,
-        make_manager: ManagerFactory,
-        catalog: JobCatalog,
-        config_dir: Path,
-        wait_until: WaitUntil,
-        audio_player: FakeAudioPlayer,
-    ):
-        """コマンド待ち（prompt を出さないオペレータ待ち）用の明示通知."""
-        config = _configure_audio(config_dir)
-        manager = make_manager(catalog)
-
-        def run(ctx: JobContext) -> None:
-            ctx.notify_operator()
-
-        _register(catalog, run)
-
-        record = manager.start("synthetic", {})
-        wait_until(lambda: record.status.terminal)
-        wait_until(lambda: len(audio_player.played) == 1)
-
-        assert record.status == JobStatus.SUCCEEDED, record.error
-        assert audio_player.played == (("prompt", config.device, config.volume),)
-
-    def test_notify_operator_stays_silent_after_abort(
-        self,
-        make_manager: ManagerFactory,
-        catalog: JobCatalog,
-        config_dir: Path,
-        wait_until: WaitUntil,
-        audio_player: FakeAudioPlayer,
-    ):
-        """Abort 済みなら鳴らさない（死んだジョブの前へ呼び戻さないため）."""
-        _configure_audio(config_dir)
-        manager = make_manager(catalog)
-        started = threading.Event()
-        abort_requested = threading.Event()
-
-        def run(ctx: JobContext) -> None:
-            started.set()
-            abort_requested.wait(timeout=10.0)
-            ctx.notify_operator()
-            ctx.checkpoint()
-
-        _register(catalog, run)
-
-        record = manager.start("synthetic", {})
-        started.wait(timeout=10.0)
-        assert manager.request_abort() is True
-        abort_requested.set()
-        wait_until(lambda: record.status.terminal)
-
-        assert record.status == JobStatus.ABORTED
-        assert audio_player.played == ()
 
 
 class TestShutdown:

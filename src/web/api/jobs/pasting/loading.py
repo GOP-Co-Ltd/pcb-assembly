@@ -6,15 +6,18 @@ from pcbasm.gcode import GCode
 from pcbasm.hal import XYZStage
 from pcbasm.machine.commands import COMMAND_TIMEOUT
 from pcbasm.pasting.applicator import build_applicator
-from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
-from web.api.jobs.context import JobContext, JobResult
-from web.api.jobs.pasting.common import (
+from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition, ParamSpec
+from web.api.jobs.runtime.context import JobContext
+from web.api.jobs.runtime.record import JobResult
+from web.api.jobs.steps import (
     LOADING_DEFAULT_AMOUNT,
     LOADING_DEFAULT_RETRACT_ROTATIONS,
     LOADING_DEFAULT_ROTATION_ACCEL,
     LOADING_DEFAULT_ROTATION_RATE,
     LOADING_DEFAULT_ROTATIONS,
-    run_loading_loop,
+    LoadingPanel,
+    LoadingRotation,
+    loading_loop,
 )
 
 _POSITION_PARAMS = (
@@ -79,7 +82,15 @@ def register(catalog: JobCatalog) -> None:
                 "accel",
                 "retract_rotations",
             ),
-            loading_param="amount",
+            loading=LoadingPanel(
+                amount="amount",
+                rotation=LoadingRotation(
+                    rotations="rotations",
+                    rate="rate",
+                    accel="accel",
+                    retract_rotations="retract_rotations",
+                ),
+            ),
         )
     )
 
@@ -111,7 +122,7 @@ def _run_loading(ctx: JobContext) -> JobResult:
         )
 
     with build_applicator(klipper, stage, ctx.machine.paste_dispenser) as applicator:
-        total = run_loading_loop(ctx, klipper, stage, applicator)
+        total = loading_loop(ctx, klipper, stage, applicator)
     return JobResult(
         summary=(
             f"押出合計 {total.amount_ul:+.3f} uL / 回転合計 {total.rotations:+.3f} rev"

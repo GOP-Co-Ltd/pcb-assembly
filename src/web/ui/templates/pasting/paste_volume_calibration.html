@@ -38,7 +38,7 @@
 {# ジョブ提供フレームのみ表示（オーバーレイ切替なし・既定の none） #}
 {% include "partials/preview_pane.html" %}
 {% endif %}
-{% if show_loading_controls %}
+{% if loading %}
 {% include "partials/loading_controls.html" %}
 {% endif %}
 {% include "partials/job_console.html" %}
@@ -47,7 +47,7 @@
 {{ super() }}
 <script src="{{ static_asset('js/paste_dataset_layout.js') }}"></script>
 <script src="{{ static_asset('js/paste_volume_calibrations.js') }}"></script>
-{% if show_loading_controls %}
+{% if loading %}
 <script src="{{ static_asset('js/loading_controls.js') }}"></script>
 {% endif %}
 {% if show_preview %}

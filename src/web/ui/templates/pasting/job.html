@@ -7,7 +7,7 @@
 {% include "partials/preview_pane.html" %}
 {% endif %}
 {% include "partials/job_form.html" %}
-{% if show_loading_controls %}
+{% if loading %}
 {% include "partials/loading_controls.html" %}
 {% endif %}
 {% include "partials/job_console.html" %}
@@ -17,7 +17,7 @@
 {% if show_preview %}
 <script src="{{ static_asset('js/preview.js') }}"></script>
 {% endif %}
-{% if show_loading_controls %}
+{% if loading %}
 <script src="{{ static_asset('js/loading_controls.js') }}"></script>
 {% endif %}
 {% endblock %}

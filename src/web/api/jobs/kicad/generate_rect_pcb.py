@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from pcbasm.pasting.plate import write_rect_board
-from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
-from web.api.jobs.context import JobContext, JobResult
+from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition, ParamSpec
+from web.api.jobs.runtime.context import JobContext
+from web.api.jobs.runtime.record import JobResult
 
 
 def register(catalog: JobCatalog) -> None:

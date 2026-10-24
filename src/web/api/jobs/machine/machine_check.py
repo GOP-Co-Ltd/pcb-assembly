@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from pcbasm.machine.diagnostics import check_audio, check_camera, check_klipper
-from web.api.jobs.catalog import JobCatalog, JobDefinition
-from web.api.jobs.context import JobContext, JobResult
+from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition
+from web.api.jobs.runtime.context import JobContext
+from web.api.jobs.runtime.record import JobResult
 
 STATUS_TIMEOUT = 10.0
 

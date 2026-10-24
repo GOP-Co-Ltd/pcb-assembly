@@ -10,7 +10,8 @@ from pcbasm.pasting.paste_volume.calibration import list_calibrations, load_cali
 from tests.helpers import build_paste_volume_session
 from tests.web.api.jobs.conftest import WaitUntil, answer_next_prompt
 from web.api.env import Env
-from web.api.jobs.manager import JobManager, JobRecord, JobStatus
+from web.api.jobs.runtime.manager import JobManager
+from web.api.jobs.runtime.record import JobRecord, JobStatus
 
 
 class TestPasteVolumeRefit:

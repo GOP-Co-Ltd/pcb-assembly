@@ -34,8 +34,9 @@ from tests.support.golden import assert_transcript
 from tests.web.api.jobs.conftest import answer_next_prompt
 from web.api.backend import Backend
 from web.api.env import Env
-from web.api.jobs.manager import JobManager, JobStatus
-from web.api.jobs.pasting.common import LOADING_STAGE
+from web.api.jobs.runtime.manager import JobManager
+from web.api.jobs.runtime.record import JobStatus
+from web.api.jobs.steps import LOADING_STAGE
 from web.api.machine_config import MachineConfigFile
 
 

@@ -11,8 +11,9 @@ import cv2
 import numpy as np
 
 from pcbasm.vision import Image
-from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
-from web.api.jobs.context import ApplyPayload, JobContext, JobResult, PromptSpec
+from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition, ParamSpec
+from web.api.jobs.runtime.context import JobContext
+from web.api.jobs.runtime.record import ApplyPayload, JobResult, PromptSpec
 
 
 def register_job_demo(catalog: JobCatalog) -> None:

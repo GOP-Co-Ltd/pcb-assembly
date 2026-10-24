@@ -7,7 +7,7 @@
 import attrs
 import pytest
 
-from web.api.jobs.catalog import JobDefinition
+from web.api.jobs.runtime.catalog import JobDefinition
 from web.contract.models import JobSpecInfo
 
 # JobSpecInfo と JobDefinition で共有する名前のうち、既定値の一致を要求しないもの

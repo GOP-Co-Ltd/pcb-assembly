@@ -18,9 +18,10 @@ import pytest
 from tests.support import polling
 from tests.support.backend import job_manager
 from web.api.backend import Backend
-from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
-from web.api.jobs.context import JobContext, JobResult
-from web.api.jobs.manager import JobManager, JobRecord
+from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition, ParamSpec
+from web.api.jobs.runtime.context import JobContext
+from web.api.jobs.runtime.manager import JobManager
+from web.api.jobs.runtime.record import JobRecord, JobResult, PromptSpec
 
 type WaitUntil = Callable[..., None]
 type ManagerFactory = Callable[..., JobManager]
@@ -33,8 +34,8 @@ def answer_next_prompt(
     answered: set[str],
     *,
     timeout: float = 60.0,
-) -> None:
-    """未応答の prompt を待って answer を返す（応答済み id は answered で管理）."""
+) -> PromptSpec:
+    """未応答の prompt を待って answer を返し、その prompt を返す（応答済み id は answered で管理）."""
     polling.wait_until(
         lambda: (pending := record.pending_prompt) is not None
         and pending[0] not in answered,
@@ -44,6 +45,7 @@ def answer_next_prompt(
     assert pending is not None
     manager.respond_prompt(pending[0], answer)
     answered.add(pending[0])
+    return pending[1]
 
 
 def register_synthetic(
@@ -102,9 +104,9 @@ def register_gated(
 
 
 @pytest.fixture
-def catalog() -> JobCatalog:
-    """合成ジョブ登録用の空 catalog."""
-    return JobCatalog()
+def catalog(camera_backend: Backend) -> JobCatalog:
+    """``camera_backend`` の全ジョブの catalog（合成ジョブもここへ登録する）."""
+    return camera_backend.catalog
 
 
 @pytest.fixture

@@ -302,6 +302,13 @@ class MachineInfo(BaseModel):
     api_version: int
 
 
+class ParamGroupInfo(BaseModel):
+    """ジョブフォーム内のまとまり（``advanced`` は普段は触らない項目のまとまり）."""
+
+    label: str
+    advanced: bool = False
+
+
 class ParamSpecInfo(BaseModel):
     """ジョブパラメータ定義の公開表現（``default`` は保存済み既定値を反映済み）."""
 
@@ -315,6 +322,27 @@ class ParamSpecInfo(BaseModel):
     runtime_editable: bool = False
     minimum: float | None = None
     optional: bool = False
+    group: ParamGroupInfo | None = None
+
+
+class LoadingRotationInfo(BaseModel):
+    """ローディング欄の回転押出の既定値（保存済み既定値を反映済み）."""
+
+    rotations: float
+    rate: float
+    accel: float
+    retract_rotations: float
+
+
+class LoadingPanelInfo(BaseModel):
+    """ジョブ画面のローディング欄.
+
+    ``amount`` と ``rotation`` は入力欄の既定値（保存済み既定値を反映済み）、``stages`` はボタンを押せる progress の段階名。
+    """
+
+    amount: float
+    rotation: LoadingRotationInfo | None = None
+    stages: list[str]
 
 
 class JobSpecInfo(BaseModel):
@@ -330,8 +358,7 @@ class JobSpecInfo(BaseModel):
     persisted_params: list[str] = []
     runtime_params: list[str] = []
     provides_preview: bool = False
-    loading_param: str | None = None
-    loading_stages: str = "ローディング"
+    loading: LoadingPanelInfo | None = None
 
 
 class JobCatalogResponse(BaseModel):

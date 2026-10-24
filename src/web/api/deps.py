@@ -15,8 +15,8 @@ from web.api.camera import CameraFeed
 from web.api.control import ClientIdentity, ControlLease, LeaseInfo
 from web.api.env import Env
 from web.api.identity import get_identity
-from web.api.jobs.catalog import JobCatalog
-from web.api.jobs.manager import JobManager
+from web.api.jobs.runtime.catalog import JobCatalog
+from web.api.jobs.runtime.manager import JobManager
 from web.api.lock import MachineLock
 from web.api.machine_config import MachineConfigFile
 from web.api.selection import Selection
@@ -61,7 +61,7 @@ def _catalog(request: Request) -> JobCatalog:
 
 
 def _overrides(request: Request) -> BoardOverrides:
-    return get_backend(request).overrides
+    return get_backend(request).paste_stores.overrides
 
 
 def _board_generator(request: Request) -> BoardGenerator:

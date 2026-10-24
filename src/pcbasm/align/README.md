@@ -2,7 +2,7 @@
 
 Board / オフセットの位置合わせを行う共通制御モジュール。ペースト塗布（`pcbasm.pasting`）と Pick and Place の双方から利用する。
 
-Board 巡回の実行・ユーザー入力・フレーム配信は `web/api/jobs/posctrl.py` で行う。
+Board 巡回の実行・ユーザー入力・フレーム配信は `web/api/jobs/align/` のジョブで行う。
 このパッケージでは OpenCV のウィンドウ表示やキーボード入力待ちは行わない。
 
 ## 構成

@@ -14,8 +14,9 @@ from tests.web.api.jobs.conftest import WaitUntil, answer_next_prompt
 from web.api.backend import Backend
 from web.api.camera import CameraFeed
 from web.api.env import Env
-from web.api.jobs.catalog import JobCatalog
-from web.api.jobs.manager import JobManager, JobStatus
+from web.api.jobs.runtime.catalog import JobCatalog
+from web.api.jobs.runtime.manager import JobManager
+from web.api.jobs.runtime.record import JobStatus
 
 
 def _preview_frame(camera: CameraFeed):

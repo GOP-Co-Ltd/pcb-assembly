@@ -21,6 +21,7 @@
 Settings を差し替える検証は、その backend を上流に挿した frontend を組む（`_frontend_over`）。
 """
 
+import html
 import json
 import re
 from collections.abc import Iterator
@@ -34,17 +35,17 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from pcbasm.config.fields import setting_fields
+from tests.support.backend import standalone_catalog
 from tests.web.ui.conftest import BACKEND_MACHINE_ID
 from web.api.app import create_app as create_backend_app
 from web.api.backend import Backend
 from web.api.env import Env as ApiEnv
-from web.api.jobs.catalog import JobCatalog, default_catalog
+from web.api.jobs.runtime.catalog import JobCatalog
 from web.ui.app import create_app as create_frontend_app
 from web.ui.layout import (
     BULK_PATH,
     FEATURE_TEMPLATES,
     JOB_TEMPLATES,
-    LOADING_ROTATION_PARAMS,
     TABS as PAGE_TABS,
 )
 from web.ui.machines import MachineEndpoint
@@ -91,7 +92,7 @@ def _loading_amount_input(default: object) -> str:
     """ローディング量入力（`#lc-amount`）の value を含む HTML 断片.
 
     同じ既定値の別 input が同一ページに 2〜4 箇所あるため、`value="..."` 単体では
-    `loading_default` の注入が消えても通ってしまう（実測）。
+    ローディング欄の既定値の注入が消えても通ってしまう（実測）。
     """
     return f'id="lc-amount" step="any" min="0" value="{default}"'
 
@@ -656,22 +657,23 @@ class TestJobDefinitionDrivenContext:
         """Loading UI の段階と既定値が定義側の値と一致する.
 
         `loading.html` / `dispense_calibration.html` は loading_controls を
-        `show_loading_controls` で gate せず無条件 include するため、この 2 feature では
-        `"loading-controls" in text` が定数 True になる（検出力ゼロ）。段階文字列と
+        ローディング欄の有無で gate せず無条件 include するため、この 2 feature では
+        `"loading-controls" in text` が定数 True になる（検出力ゼロ）。段階と
         `#lc-amount` の value を見て、全 feature で定義との一致を確かめる。
         """
         definition = backend_app.state.backend.catalog.get(feature)
 
         text = client.get(f"/pasting/{feature}").text
 
-        if definition.loading_param is None:
+        panel = definition.loading
+        if panel is None:
             assert "loading-controls" not in text
             return
-        assert f'data-loading-stage="{definition.loading_stages}"' in text
+        stages = re.search(r'data-loading-stages="([^"]*)"', text)
+        assert stages is not None
+        assert json.loads(html.unescape(stages.group(1))) == list(panel.stages)
         default = next(
-            spec.default
-            for spec in definition.params
-            if spec.name == definition.loading_param
+            spec.default for spec in definition.params if spec.name == panel.amount
         )
         assert _loading_amount_input(default) in text
 
@@ -959,31 +961,35 @@ class TestPasteVolumeCalibrationLoading:
     def test_volume_and_rotation_loading_derive_from_the_job_definition(
         self, client: TestClient, backend_app: FastAPI
     ):
-        """塗布パス先頭のローディングで体積・回転の両方を操作できる.
-
-        回転セクションは `loading_rotation_defaults`（ジョブの `loading_*` ParamSpec から
-        組む）が渡ったときだけ描かれるので、ParamSpec の名前を変えるとフォーム欄だけが
-        増えて操作が効かない状態になる。
-        """
+        """塗布パス先頭のローディングで体積・回転の両方を操作でき、既定値はフォームの値になる."""
         definition = backend_app.state.backend.catalog.get("paste_volume_calibration")
-        param_names = {spec.name for spec in definition.params}
+        defaults = {spec.name: spec.default for spec in definition.params}
+        assert definition.loading is not None
+        rotation = definition.loading.rotation
+        assert rotation is not None
 
         text = client.get("/pasting/paste_volume_calibration").text
 
         assert 'id="lc-amount"' in text
-        for name in LOADING_ROTATION_PARAMS:
-            assert f"loading_{name}" in param_names, name
-            assert f'id="lc-{name.replace("_", "-")}"' in text, name
+        for element, name in (
+            ("lc-rotations", rotation.rotations),
+            ("lc-rate", rotation.rate),
+            ("lc-accel", rotation.accel),
+            ("lc-retract-rotations", rotation.retract_rotations),
+        ):
+            assert re.search(
+                rf'id="{element}"[^>]*value="{defaults[name]}"', text
+            ), element
 
 
 class TestTabsCatalogConsistency:
     """FEATURE_GROUPS（サイドバー掲載）と catalog（ジョブ登録）の整合."""
 
-    def test_every_job_is_listed_in_feature_groups(self):
+    def test_every_job_is_listed_in_feature_groups(self, tmp_path: Path):
         """Backend が公開する全ジョブに、どこかのタブのページがある."""
         listed = {slug for slugs in PAGE_TABS.values() for slug in slugs}
 
-        jobs = {definition.name for definition in default_catalog().list()}
+        jobs = {definition.name for definition in standalone_catalog(tmp_path).list()}
 
         assert jobs - listed == set()
 

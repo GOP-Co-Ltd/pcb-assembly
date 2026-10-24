@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from functools import partial
 from pathlib import Path
 
 from pcbasm.pasting.paste_volume.dataset.pending import (
@@ -22,16 +23,18 @@ from pcbasm.pasting.paste_volume.dataset.store import (
     finalize_incomplete,
     rescuable_sessions,
 )
-from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
-from web.api.jobs.context import JobContext, JobResult, PromptSpec
+from web.api.jobs.pasting import PasteStores
+from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition, ParamSpec
+from web.api.jobs.runtime.context import JobContext
+from web.api.jobs.runtime.record import JobResult
 
 
-def register(catalog: JobCatalog) -> None:
+def register(catalog: JobCatalog, stores: PasteStores) -> None:
     catalog.register(
         JobDefinition(
             name="paste_dataset_finalize",
             label="未完了ペーストdatasetの確定",
-            run=_run_paste_dataset_finalize,
+            run=partial(_run_paste_dataset_finalize, stores=stores),
             params=(
                 ParamSpec(
                     "measured_mass",
@@ -50,7 +53,7 @@ def register(catalog: JobCatalog) -> None:
     )
 
 
-def _run_paste_dataset_finalize(ctx: JobContext) -> JobResult:
+def _run_paste_dataset_finalize(ctx: JobContext, *, stores: PasteStores) -> JobResult:
     """撮影済みの未完了 session へ metadata.json を書き、完成名へ確定する.
 
     画像は書き直さない（未確定 directory を rename するだけ）ので、収集本経路が書いたものがそのまま残る。
@@ -58,22 +61,20 @@ def _run_paste_dataset_finalize(ctx: JobContext) -> JobResult:
     measured_mass_mg = float(ctx.params["measured_mass"])
     if measured_mass_mg <= 0:
         raise ValueError(f"計量質量は正の値が必要です: {measured_mass_mg!r}")
-    sessions = rescuable_sessions(ctx.paste_dataset_dir)
+    dataset_dir = stores.paste_dataset_dir
+    sessions = rescuable_sessions(dataset_dir)
     if not sessions:
         raise ValueError(
             f"確定できる未完了datasetがありません（{PENDING_FILENAME} を持つ "
-            f"*.incomplete / .*.tmp が対象です）: {ctx.paste_dataset_dir}"
+            f"*.incomplete / .*.tmp が対象です）: {dataset_dir}"
         )
 
-    answer = ctx.prompt(
-        PromptSpec(
-            kind="choice",
-            message="確定する未完了datasetを選んでください。",
-            default=sessions[-1].name,
-            choices=tuple(session.name for session in sessions),
-        )
+    answer = ctx.choose(
+        "確定する未完了datasetを選んでください。",
+        tuple(session.name for session in sessions),
+        default=sessions[-1].name,
     )
-    incomplete = ctx.paste_dataset_dir / str(answer)
+    incomplete = dataset_dir / answer
     pending = _load_pending(incomplete)
     ctx.log(
         f"塗布 {len(pending.samples)} 点 + blank {len(pending.blanks)} 点 / "

@@ -19,15 +19,15 @@ from pcbasm.pasting.paste_volume.fit import fit_session
 from tests.helpers import build_paste_volume_session
 from tests.web.api.jobs.conftest import ManagerFactory, WaitUntil, register_synthetic
 from web.api.env import Env
-from web.api.jobs.catalog import JobCatalog, ParamSpec
-from web.api.jobs.context import JobContext, JobResult
-from web.api.jobs.manager import JobManager, JobRecord, JobStatus
 from web.api.jobs.pasting.paste_volume_calibration import (
     fit_calibration,
     verify_with_calibration,
 )
-from web.api.jobs.pasting.paste_volume_common import (
-    COLLECTED_SAVE_NAME_PARAM,
+from web.api.jobs.runtime.catalog import JobCatalog, ParamSpec
+from web.api.jobs.runtime.context import JobContext
+from web.api.jobs.runtime.manager import JobManager
+from web.api.jobs.runtime.record import JobRecord, JobResult, JobStatus
+from web.api.jobs.steps import (
     DETECTION_PARAMS,
     REQUIRE_BLANK_ZERO_PARAM,
 )
@@ -142,9 +142,13 @@ class TestPasteVolumeCalibrationFitStep:
 
     @pytest.fixture
     def fit_manager(
-        self, make_manager: ManagerFactory, catalog: JobCatalog
+        self,
+        make_manager: ManagerFactory,
+        catalog: JobCatalog,
+        fake_camera_settings: Env,
     ) -> JobManager:
         """`fit_calibration` だけを呼ぶ合成ジョブを積んだ manager."""
+        calibration_dir = fake_camera_settings.paste_volume_calibration_dir
 
         def run(ctx: JobContext) -> JobResult:
             if bool(ctx.params["block_scatter"]):
@@ -153,7 +157,7 @@ class TestPasteVolumeCalibrationFitStep:
                     parents=True, exist_ok=True
                 )
             summary, artifacts = fit_calibration(
-                ctx, Path(str(ctx.params["session_path"]))
+                ctx, Path(str(ctx.params["session_path"])), calibration_dir
             )
             return JobResult(summary=summary, artifacts=artifacts)
 
@@ -166,7 +170,7 @@ class TestPasteVolumeCalibrationFitStep:
                 ParamSpec("block_scatter", "図を壊す", "bool", default=False),
                 *DETECTION_PARAMS,
                 REQUIRE_BLANK_ZERO_PARAM,
-                COLLECTED_SAVE_NAME_PARAM,
+                ParamSpec("save_name", "保存名", "str", default="", optional=True),
             ),
         )
         return make_manager(catalog)
@@ -327,13 +331,17 @@ class TestPasteDatasetVolumeVerification:
 
     @pytest.fixture
     def verify_manager(
-        self, make_manager: ManagerFactory, catalog: JobCatalog
+        self,
+        make_manager: ManagerFactory,
+        catalog: JobCatalog,
+        fake_camera_settings: Env,
     ) -> JobManager:
         """`verify_with_calibration` だけを呼ぶ合成ジョブを積んだ manager."""
+        calibration_dir = fake_camera_settings.paste_volume_calibration_dir
 
         def run(ctx: JobContext) -> JobResult:
             summary, artifacts = verify_with_calibration(
-                ctx, Path(str(ctx.params["session_path"]))
+                ctx, Path(str(ctx.params["session_path"])), calibration_dir
             )
             return JobResult(summary=summary, artifacts=artifacts)
 

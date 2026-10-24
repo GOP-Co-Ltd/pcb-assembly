@@ -12,9 +12,10 @@ from pcbasm.pasting.height import (
     render_planned_points,
 )
 from pcbasm.vision import Image
-from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
-from web.api.jobs.context import JobAborted, JobContext, JobResult, PromptSpec
-from web.api.jobs.pasting.common import setup_paste_session
+from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition, ParamSpec
+from web.api.jobs.runtime.context import JobContext
+from web.api.jobs.runtime.record import JobResult
+from web.api.jobs.steps import setup_paste_session
 
 
 def register(catalog: JobCatalog) -> None:
@@ -66,20 +67,10 @@ def _run_height_plane(ctx: JobContext) -> JobResult:
     )
 
     try:
-        proceed = ctx.prompt(
-            PromptSpec(
-                kind="confirm",
-                message=f"{len(planned_points)} 点を計測します。続行しますか?",
-                default=True,
-                true_label="続行",
-                false_label="中止",
-            )
-        )
+        ctx.require(f"{len(planned_points)} 点を計測します。続行しますか?")
     finally:
         if preview is not None:
             ctx.clear_frame()
-    if not proceed:
-        raise JobAborted()
 
     with ctx.open_camera() as camera:
         session = setup_paste_session(ctx, camera)

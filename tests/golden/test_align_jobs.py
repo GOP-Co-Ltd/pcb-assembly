@@ -22,7 +22,8 @@ from tests.support.golden import assert_transcript
 from tests.web.api.jobs.conftest import answer_next_prompt
 from web.api.backend import Backend
 from web.api.env import Env
-from web.api.jobs.manager import JobManager, JobStatus
+from web.api.jobs.runtime.manager import JobManager
+from web.api.jobs.runtime.record import JobStatus
 from web.api.machine_config import MachineConfigFile
 
 FOCUS_Z = CAMERA_MODEL.focus_z
@@ -207,15 +208,31 @@ class TestOrthogonalityTest:
         grid_shapes: list[Polygon],
         scenario: Scenario,
     ):
-        """基板計測のあと四隅と 4 pad を 1 周し、2 周目の最初の点で終える."""
+        """基板計測のあと四隅と 4 pad を 1 周し、2 周目の最初の点で終える.
+
+        巡回先ごとに、その点のラベルを添えて「次へ」（既定）か「終了」かを問う。
+        """
         mount_camera(
             scene_camera(machine_klipper, scenario.rotation, shapes=grid_shapes)
         )
 
         record = manager.start("orthogonality_test", {"tolerance": 0.1})
         answered: set[str] = set()
-        for answer in [True] * 8 + [False]:
+        prompts = [
             answer_next_prompt(record, manager, answer, answered)
+            for answer in [True] * 8 + [False]
+        ]
         finish(job_backend, record)
 
         assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")
+        assert {
+            (prompt.kind, prompt.default, prompt.true_label, prompt.false_label)
+            for prompt in prompts
+        } == {("confirm", True, "次へ", "終了")}
+        corners = ["Top-Left", "Top-Right", "Bottom-Right", "Bottom-Left"]
+        pads = [f"Grid {index}/4" for index in range(1, 5)]
+        assert [prompt.message.split(":")[0] for prompt in prompts] == [
+            *corners,
+            *pads,
+            corners[0],
+        ]

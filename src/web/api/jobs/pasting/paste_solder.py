@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from functools import partial
+
 from pcbasm.gcode import GCode
 from pcbasm.pasting.nozzle_clean import resolve_nozzle_clean
 from pcbasm.pasting.overrides import BoardSession
@@ -9,23 +11,26 @@ from pcbasm.pasting.paste_volume.runtime_correction import run_flow_calibration
 from pcbasm.pasting.plan import plan_paste
 from pcbasm.pasting.prepare import prepare_paste
 from pcbasm.pasting.purge_check import purge_with_cleaning
-from web.api.jobs.board_ops import align_events
-from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
-from web.api.jobs.context import JobContext, JobResult
-from web.api.jobs.pasting.common import (
+from web.api.jobs.pasting import PasteStores
+from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition, ParamSpec
+from web.api.jobs.runtime.context import JobContext
+from web.api.jobs.runtime.record import JobResult
+from web.api.jobs.steps import (
     LOADING_DEFAULT_AMOUNT,
+    LoadingPanel,
     LoadingTotals,
-    run_loading_loop,
+    align_events,
+    loading_loop,
     setup_paste_session,
 )
 
 
-def register(catalog: JobCatalog) -> None:
+def register(catalog: JobCatalog, stores: PasteStores) -> None:
     catalog.register(
         JobDefinition(
             name="paste_solder",
             label="はんだ塗布",
-            run=_run_paste_solder,
+            run=partial(_run_paste_solder, stores=stores),
             params=(
                 ParamSpec("tolerance", "位置合わせ許容誤差", "float", 0.1, unit="mm"),
                 ParamSpec(
@@ -44,12 +49,12 @@ def register(catalog: JobCatalog) -> None:
             notify_on_completion=True,
             accepts_commands=True,
             provides_preview=True,
-            loading_param="amount",
+            loading=LoadingPanel(amount="amount"),
         )
     )
 
 
-def _run_paste_solder(ctx: JobContext) -> JobResult:
+def _run_paste_solder(ctx: JobContext, *, stores: PasteStores) -> JobResult:
     """ボード計測 → 高さ計測 → 銅箔照合 → 補正適用 → ペースト塗布を通しで実行する.
 
     塗布対象は基板ごとの pad 有効/無効 + 階層 override 設定で絞り込み、各 pad に
@@ -67,7 +72,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
         assert ctx.source_pcb is not None  # requires_pcb=True
         plan = plan_paste(
             BoardSession.load(
-                ctx.overrides,
+                stores.overrides,
                 ctx.source_pcb,
                 session.board_frame.board,
                 ctx.machine.paste_dispenser,
@@ -97,7 +102,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             if ctx.params["interactive_loading"]:
                 pos = stage.get_position()
                 session.klipper.send_gcode(stage.move(x=0, y=0, z=0))
-                total = run_loading_loop(ctx, session.klipper, stage, applicator)
+                total = loading_loop(ctx, session.klipper, stage, applicator)
                 session.klipper.send_gcode(
                     stage.move(x=pos.x, y=pos.y, z=pos.z) + GCode.wait_for_done()
                 )
@@ -128,7 +133,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                     correction,
                     applicator,
                     flow,
-                    calibration_dir=ctx.paste_volume_calibration_dir,
+                    calibration_dir=stores.paste_volume_calibration_dir,
                 )
             )
             if outcome is not None:
