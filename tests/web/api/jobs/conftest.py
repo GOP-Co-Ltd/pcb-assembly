@@ -1,11 +1,11 @@
 """`web.api.jobs` テスト共有フィクスチャ・共有ヘルパ.
 
 計画書 webui-phase3.md「公開インターフェース案」が契約。JobManager は
-実 AppState / 実 PreviewService / 実 ConfigStore と結合する（モックなし）。
+実 AppState / 実 PreviewService / 実 MachineConfigFile と結合する（モックなし）。
 
 worker スレッドとの同期は threading.Event ゲート付きの合成ジョブと
 `wait_until` のポーリングで決定的に行う（sleep 固定値依存のアサート禁止）。
-store / state（fake camera 付き）fixture は tests/web/api/conftest.py にある。
+machine_config / state（fake camera 付き）fixture は tests/web/api/conftest.py にある。
 """
 
 from __future__ import annotations

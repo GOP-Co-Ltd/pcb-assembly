@@ -45,7 +45,6 @@ from pcbasm.vision import CalibrationResult
 from tests.support import polling
 from tests.support.job_demo import register_job_demo
 from tests.web.api.jobs.conftest import register_gated, register_synthetic
-from web.api.config_store import ConfigStore
 from web.api.jobs.catalog import ParamSpec
 from web.api.jobs.context import (
     ApplyFile,
@@ -56,6 +55,7 @@ from web.api.jobs.context import (
     PromptSpec,
 )
 from web.api.jobs.manager import JobManager
+from web.api.machine_config import MachineConfigFile
 from web.api.state import AppState
 
 _TERMINAL = ("succeeded", "failed", "aborted")
@@ -730,9 +730,7 @@ class TestApplyDiscard:
             assert response.status_code == 200, response.text
             assert destination.read_bytes() == content
             assert (
-                ConfigStore(config_dir).read_machine_settings()[
-                    "camera.calibration_file"
-                ]
+                MachineConfigFile(config_dir).values()["camera.calibration_file"]
                 == filename
             )
             assert not _wait_job_status(client, "succeeded")["apply_available"]
@@ -1087,21 +1085,19 @@ class TestCameraCalibrationApplyFlow:
 
     計画書 webui-camera-calib.md「設計判断 a」追記: crop は job param から
     削除され machine.toml `[camera.crop]` 由来になったため、開始前に
-    ConfigStore で crop を checkerboard.png（400x400）へ合わせる。
+    MachineConfigFile で crop を checkerboard.png（400x400）へ合わせる。
     """
 
     @pytest.mark.usefixtures("unreachable_klipper")
     def test_ws_full_run_then_apply_writes_calibration_files(
         self,
         checkerboard_camera_client: TestClient,
-        store: ConfigStore,
+        machine_config: MachineConfigFile,
         config_dir: Path,
     ):
         # checkerboard.png（400x400・1 マス約 66.7px）に合わせて crop を書く
         # （既定 600 は画像をはみ出す）
-        store.write_machine_settings(
-            {"camera.crop.width": 400, "camera.crop.height": 400}
-        )
+        machine_config.write({"camera.crop.width": 400, "camera.crop.height": 400})
         client = checkerboard_camera_client
         with client.websocket_connect("/api/ws") as ws:
             response = client.post(

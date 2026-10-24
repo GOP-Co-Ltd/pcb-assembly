@@ -4,40 +4,44 @@ from math import isfinite
 
 import attrs
 
+from pcbasm.config.fields import setting
+
 DEFAULT_AUDIO_DEVICE = "default"  # ALSA のシステム既定 PCM
 DEFAULT_AUDIO_VOLUME = 0.75
 
 
-def validate_audio_device(device: str) -> str | None:
-    """通知音の出力デバイス名を検証する."""
-    if not device.strip():
-        return "audio.deviceは空でない文字列である必要があります"
-    return None
+def _device(_: object, __: attrs.Attribute, value: str) -> None:
+    if not value.strip():
+        raise ValueError("audio.deviceは空でない文字列である必要があります")
 
 
-def validate_audio_volume(volume: float) -> str | None:
-    """通知音の音量を検証する."""
-    if not isfinite(volume) or not 0.0 <= volume <= 1.0:
-        return f"audio.volumeは0以上1以下の有限値である必要があります: {volume!r}"
-    return None
+def _volume(_: object, __: attrs.Attribute, value: float) -> None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not isfinite(value)
+        or not 0.0 <= value <= 1.0
+    ):
+        raise ValueError(
+            f"audio.volumeは0以上1以下の有限値である必要があります: {value!r}"
+        )
 
 
 @attrs.frozen
 class AudioConfig:
     """通知音の出力設定."""
 
-    device: str = DEFAULT_AUDIO_DEVICE
-    volume: float = DEFAULT_AUDIO_VOLUME
+    device: str = attrs.field(
+        default=DEFAULT_AUDIO_DEVICE,
+        validator=_device,
+        metadata=setting(label="出力デバイス", group="通知音", order=1),
+    )
+    volume: float = attrs.field(
+        default=DEFAULT_AUDIO_VOLUME,
+        validator=_volume,
+        metadata=setting(label="音量", group="通知音", order=2, minimum=0.0),
+    )
 
     def __attrs_post_init__(self) -> None:
-        if error := validate_audio_device(self.device):
-            raise ValueError(error)
-        if isinstance(self.volume, bool) or not isinstance(self.volume, (int, float)):
-            raise ValueError(
-                f"audio.volumeは0以上1以下の有限値である必要があります: {self.volume!r}"
-            )
-        volume = float(self.volume)
-        if error := validate_audio_volume(volume):
-            raise ValueError(error)
         object.__setattr__(self, "device", self.device.strip())
-        object.__setattr__(self, "volume", volume)
+        object.__setattr__(self, "volume", float(self.volume))

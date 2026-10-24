@@ -117,7 +117,7 @@ class JobCatalog:
     ) -> dict[str, ParamValue]:
         """パラメータを検証し、default 充填済みの dict を返す.
 
-        型変換規則は config_store._coerce と同様（bool は value_type="bool"
+        型変換規則は machine.toml の設定項目と同様（bool は value_type="bool"
         のみ受理、int→float 許容、float→int は整数値のみ）。
 
         Raises:

@@ -2,7 +2,10 @@
 
 import attrs
 
-from pcbasm.validators import validate_positive_int
+from pcbasm.config.fields import setting
+from pcbasm.validators import as_validator, validate_positive_int
+
+_positive_int = as_validator(validate_positive_int)
 
 
 @attrs.frozen
@@ -26,13 +29,22 @@ class DetectionConfig:
         minimum_sample_count: 1 観測に必要な有効検出数（``sample_count`` 以下）
     """
 
-    sample_count: int = 10
-    minimum_sample_count: int = 5
+    sample_count: int = attrs.field(
+        default=10,
+        validator=_positive_int,
+        metadata=setting(
+            label="1観測のフレーム数", group="統計検出", order=1, minimum=1
+        ),
+    )
+    minimum_sample_count: int = attrs.field(
+        default=5,
+        validator=_positive_int,
+        metadata=setting(
+            label="1観測に必要な検出数", group="統計検出", order=2, minimum=1
+        ),
+    )
 
     def __attrs_post_init__(self) -> None:
-        for name in ("sample_count", "minimum_sample_count"):
-            if error := validate_positive_int(name, getattr(self, name)):
-                raise ValueError(error)
         if self.minimum_sample_count > self.sample_count:
             raise ValueError(
                 "minimum_sample_countはsample_count以下である必要があります: "

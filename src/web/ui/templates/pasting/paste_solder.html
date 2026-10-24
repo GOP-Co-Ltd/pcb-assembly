@@ -11,8 +11,8 @@
       data-machine-settings data-endpoint="/api/settings/machine">
   {% for field in auto_threshold_fields %}
   <label for="pat-{{ field.key }}">{{ field.label }}
-    <input id="pat-{{ field.key }}" name="{{ field.key }}"
-           data-type="{{ field.value_type }}" type="number" step="any"
+    <input id="pat-{{ field.key }}" name="{{ field.key }}" type="number" step="any"
+           {% if field.minimum is not none %}min="{{ field.minimum }}"{% endif %}
            aria-label="{{ field.label }}"
            value="{{ field.value if field.value is not none else '' }}"
            placeholder="未設定"
@@ -22,8 +22,8 @@
   {% endfor %}
   {% for field in pad_refinement_fields %}
   <label for="prf-{{ field.key }}">{{ field.label }}
-    <input id="prf-{{ field.key }}" name="{{ field.key }}"
-           data-type="{{ field.value_type }}" type="number" step="any" min="0"
+    <input id="prf-{{ field.key }}" name="{{ field.key }}" type="number" step="any"
+           {% if field.minimum is not none %}min="{{ field.minimum }}"{% endif %}
            aria-label="{{ field.label }}"
            value="{{ field.value if field.value is not none else field.resolved if field.resolved is not none else '' }}"
            placeholder="未設定"

@@ -56,20 +56,20 @@
         <form class="pad-flow-calibration-settings" data-testid="paste-flow-calibration"
               data-requires-control data-machine-settings data-endpoint="/api/settings/machine">
           {% for field in flow_calibration_fields %}
+          {# 文字列の項目は校正ファイル名だけで、保存済みの校正の一覧から選ぶ #}
           <label for="pfc-{{ field.key }}"
-                 {% if field.key == flow_calibration_file_key %}class="pad-flow-calibration-file"{% endif %}>{{ field.label }}{% if field.unit %} <span class="unit">[{{ field.unit }}]</span>{% endif %}
-            {% if field.key == flow_calibration_file_key %}
-            <input id="pfc-{{ field.key }}" name="{{ field.key }}"
-                   data-type="{{ field.value_type }}" type="text"
+                 {% if field.value_type == 'str' %}class="pad-flow-calibration-file"{% endif %}>{{ field.label }}{% if field.unit %} <span class="unit">[{{ field.unit }}]</span>{% endif %}
+            {% if field.value_type == 'str' %}
+            <input id="pfc-{{ field.key }}" name="{{ field.key }}" type="text"
                    aria-label="{{ field.label }}"
                    value="{{ field.value if field.value is not none else '' }}"
                    placeholder="未設定（補正しません）"
                    data-calibration-picker data-calibration-empty="補正しない"
-                   data-allow-empty="true"
+                   {% if field.clearable %}data-allow-empty="true"{% endif %}
                    data-testid="flow-calibration-{{ field.key }}">
             {% else %}
-            <input id="pfc-{{ field.key }}" name="{{ field.key }}"
-                   data-type="{{ field.value_type }}" type="number" step="any" min="0"
+            <input id="pfc-{{ field.key }}" name="{{ field.key }}" type="number" step="any"
+                   {% if field.minimum is not none %}min="{{ field.minimum }}"{% endif %}
                    aria-label="{{ field.label }}"
                    value="{{ field.value if field.value is not none else field.resolved if field.resolved is not none else '' }}"
                    placeholder="未設定"

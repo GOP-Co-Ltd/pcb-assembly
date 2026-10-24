@@ -4,6 +4,7 @@ import attrs
 import pytest
 
 from pcbasm.pasting.params import (
+    DISPENSE_MODES,
     PASTE_PARAM_FIELDS,
     PASTE_PARAM_NAMES,
     DispenseMotion,
@@ -55,6 +56,14 @@ class TestPasteParamFields:
         by_name = {field.name: field for field in PASTE_PARAM_FIELDS}
         assert by_name["paste_height"].kind == "height"
         assert by_name["ul_per_mm2"].kind == "number"
+
+    def test_labels_are_shared_with_the_settings_page(self):
+        """表示名・単位・選択肢は attrs の metadata 1 か所から引き、設定ページと pad 編集表で同じになる."""
+        by_name = {field.name: field for field in PASTE_PARAM_FIELDS}
+        assert by_name["paste_height"].label == "塗布高さ"
+        assert [choice.value for choice in by_name["dispense_mode"].choices] == list(
+            DISPENSE_MODES
+        )
 
     def test_micro_line_heights_are_drawn_in_paste_height_column(self):
         # 始点高・終点高は独立した列にせず、塗布高さの列に描く

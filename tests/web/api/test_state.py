@@ -36,18 +36,18 @@ from pathlib import Path
 import pytest
 
 from pcbasm.hal import FrameHub
-from web.api.config_store import ConfigStore
+from web.api.machine_config import MachineConfigFile
 from web.api.settings import Settings
 from web.api.state import AppState, BusyError
 
 
 @pytest.fixture
-def state(webui_settings: Settings, store: ConfigStore) -> AppState:
+def state(webui_settings: Settings, machine_config: MachineConfigFile) -> AppState:
     """実カメラ設定なしの素の AppState（共有 fixture の fake camera 版を意図的に override）.
 
     本モジュールは選択・永続化・ロックの検証が主目的で、camera / FrameHub を 構築しないため close も不要。
     """
-    return AppState(webui_settings, store)
+    return AppState(webui_settings, machine_config)
 
 
 class TestPcbSelection:
@@ -60,7 +60,7 @@ class TestPcbSelection:
         self,
         state: AppState,
         webui_settings: Settings,
-        store: ConfigStore,
+        machine_config: MachineConfigFile,
         content: bytes | None,
     ):
         path = Path(
@@ -73,11 +73,11 @@ class TestPcbSelection:
             assert (webui_settings.pcb_browse_root / path).read_bytes() == content
         assert (webui_settings.webui_data_dir / "webui_state.json").exists()
         assert not (webui_settings.data_dir / "webui_state.json").exists()
-        restored = AppState(webui_settings, store)
+        restored = AppState(webui_settings, machine_config)
         assert restored.selected_pcb == path
 
     def test_corrupted_state_file_falls_back_to_default(
-        self, webui_settings: Settings, store: ConfigStore
+        self, webui_settings: Settings, machine_config: MachineConfigFile
     ):
         (webui_settings.webui_data_dir / "webui_state.json").parent.mkdir(
             parents=True, exist_ok=True
@@ -86,7 +86,7 @@ class TestPcbSelection:
             "{ this is not json", encoding="utf-8"
         )
 
-        state = AppState(webui_settings, store)
+        state = AppState(webui_settings, machine_config)
 
         assert state.selected_pcb is None
 
@@ -132,14 +132,17 @@ class TestJobParamDefaults:
     """ジョブフォーム既定値の永続化."""
 
     def test_merge_job_param_defaults_persists_across_instances(
-        self, state: AppState, webui_settings: Settings, store: ConfigStore
+        self,
+        state: AppState,
+        webui_settings: Settings,
+        machine_config: MachineConfigFile,
     ):
         state.merge_job_param_defaults(
             "flow_calibration",
             {"rotations": 60.0, "rate": 1.5, "accel": 20.0, "count": 4},
         )
 
-        restored = AppState(webui_settings, store)
+        restored = AppState(webui_settings, machine_config)
 
         assert restored.job_param_defaults("flow_calibration") == {
             "rotations": 60.0,
@@ -152,7 +155,7 @@ class TestJobParamDefaults:
         assert state.job_param_defaults("no-such-job") == {}
 
     def test_state_file_with_invalid_job_param_defaults_ignores_bad_values(
-        self, webui_settings: Settings, store: ConfigStore
+        self, webui_settings: Settings, machine_config: MachineConfigFile
     ):
         (webui_settings.webui_data_dir / "webui_state.json").parent.mkdir(
             parents=True, exist_ok=True
@@ -173,7 +176,7 @@ class TestJobParamDefaults:
             encoding="utf-8",
         )
 
-        state = AppState(webui_settings, store)
+        state = AppState(webui_settings, machine_config)
 
         assert state.job_param_defaults("flow_calibration") == {
             "rotations": 50.0,
@@ -299,7 +302,7 @@ class TestPersistenceFailure:
         self,
         state: AppState,
         webui_settings: Settings,
-        store: ConfigStore,
+        machine_config: MachineConfigFile,
         operation: str,
     ):
         original_pcb = Path("boards/sample.kicad_pcb")
@@ -325,7 +328,7 @@ class TestPersistenceFailure:
 
         path.rmdir()
         path.write_bytes(saved)
-        restored = AppState(webui_settings, store)
+        restored = AppState(webui_settings, machine_config)
         assert restored.selected_pcb == state.selected_pcb
         assert restored.job_param_defaults(
             "flow_calibration"
@@ -339,7 +342,7 @@ class TestPersistenceFailure:
         expected_defaults = {"rotations": 60.0}
         if operation == "merge-defaults":
             expected_defaults["rate"] = 1.5
-        restored = AppState(webui_settings, store)
+        restored = AppState(webui_settings, machine_config)
         for current in (state, restored):
             assert current.selected_pcb == expected_pcb
             assert current.job_param_defaults("flow_calibration") == expected_defaults
@@ -434,9 +437,9 @@ class TestCameraLifecycle:
 
     @pytest.fixture
     def camera_state(
-        self, fake_camera_settings: Settings, store: ConfigStore
+        self, fake_camera_settings: Settings, machine_config: MachineConfigFile
     ) -> AppState:
-        return AppState(fake_camera_settings, store)
+        return AppState(fake_camera_settings, machine_config)
 
     def test_frame_hub_is_constructed_lazily_and_cached(self, camera_state: AppState):
         hub = camera_state.frame_hub()

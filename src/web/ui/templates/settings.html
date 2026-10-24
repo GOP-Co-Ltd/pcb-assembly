@@ -17,30 +17,21 @@
          placeholder="{{ axis }}">
   {% endfor %}
 </div>
-{% elif field.value_type == 'dispense_mode' %}
+{% elif field.value_type == 'choice' %}
 <select id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
-        data-type="{{ field.value_type }}"
         aria-label="{{ field.label }}">
-  {% for option, label in [('auto', 'Auto'), ('dot', '点'), ('line', '線'), ('area', '面'), ('micro_line', '微小線')] %}
-  <option value="{{ option }}" {% if field.value == option %}selected{% endif %}>{{ label }}</option>
-  {% endfor %}
-</select>
-{% elif field.value_type == 'line_direction' %}
-<select id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
-        data-type="{{ field.value_type }}"
-        aria-label="{{ field.label }}">
-  {% for option, label in [('unconstrained', '指定なし'), ('outward', '部品中心 → 外側'), ('inward', '外側 → 部品中心')] %}
-  <option value="{{ option }}" {% if field.value == option %}selected{% endif %}>{{ label }}</option>
+  {% for choice in field.choices %}
+  <option value="{{ choice.value }}" {% if field.value == choice.value %}selected{% endif %}>{{ choice.label }}</option>
   {% endfor %}
 </select>
 {% else %}
 <input id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
-       data-type="{{ field.value_type }}"
        type="{% if field.value_type in ('str', 'float_or_auto') %}text{% else %}number{% endif %}"
        aria-label="{{ field.label }}"
        {% if field.value_type not in ('str', 'float_or_auto') %}step="any"{% endif %}
+       {% if field.minimum is not none %}min="{{ field.minimum }}"{% endif %}
        value="{{ field.value if field.value is not none else '' }}"
-       {% if field.key in clearable_keys %}data-allow-empty="true"{% endif %}
+       {% if field.clearable %}data-allow-empty="true"{% endif %}
        placeholder="未設定">
 {% endif %}
 {% if field.unit %}<span class="unit">{{ field.unit }}</span>{% endif %}

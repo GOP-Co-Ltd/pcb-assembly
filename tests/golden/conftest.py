@@ -30,9 +30,9 @@ from tests.support import polling
 from tests.support.paths import TESTING_DATA_DIR
 from web.api import state as state_module
 from web.api.board_settings import BoardSettingsStore
-from web.api.config_store import ConfigStore
 from web.api.jobs.catalog import JobCatalog, default_catalog
 from web.api.jobs.manager import JobManager, JobRecord, JobStatus
+from web.api.machine_config import MachineConfigFile
 from web.api.preview import PreviewService
 from web.api.settings import Settings
 from web.api.state import AppState
@@ -130,7 +130,7 @@ def enable_flow_calibration(settings: Settings, state: AppState, pcb: Path) -> N
     assert calibration is not None, error
     name = f"golden{CALIBRATION_SUFFIX}"
     write_calibration(settings.paste_volume_calibration_dir / name, calibration)
-    ConfigStore(settings.config_dir).write_machine_settings(
+    MachineConfigFile(settings.config_dir).write(
         {
             "paste_dispenser.volume_correction.calibration_file": name,
             "paste_dispenser.volume_correction.settle_seconds": 0.0,
@@ -181,7 +181,7 @@ def job_settings(tmp_path: Path) -> Settings:
 
 @pytest.fixture
 def job_state(job_settings: Settings) -> Iterator[AppState]:
-    state = AppState(job_settings, ConfigStore(job_settings.config_dir))
+    state = AppState(job_settings, MachineConfigFile(job_settings.config_dir))
     yield state
     state.close()
 

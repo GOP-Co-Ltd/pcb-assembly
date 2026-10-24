@@ -28,7 +28,7 @@ import pytest
 
 from pcbasm.vision import Image, ImageArray
 from tests.support.paths import TESTING_DATA_DIR
-from web.api.config_store import ConfigStore
+from web.api.machine_config import MachineConfigFile
 from web.api.preview import PreviewService
 from web.api.settings import Settings
 from web.api.state import AppState
@@ -46,13 +46,15 @@ def service(state: AppState) -> PreviewService:
 
 
 @pytest.fixture
-def reflective_board_service(fake_camera_settings: Settings, store: ConfigStore):
+def reflective_board_service(
+    fake_camera_settings: Settings, machine_config: MachineConfigFile
+):
     """実撮像 PNG を FakeCamera で配信する PreviewService."""
     settings = attrs.evolve(
         fake_camera_settings,
         fake_camera_image=REFLECTIVE_BOARD_IMAGE,
     )
-    state = AppState(settings, store)
+    state = AppState(settings, machine_config)
     try:
         yield PreviewService(state)
     finally:
@@ -151,7 +153,7 @@ class TestMjpegStream:
         settings = attrs.evolve(
             fake_camera_settings, fake_camera_image=tmp_path / "missing.png"
         )
-        state = AppState(settings, ConfigStore(config_dir))
+        state = AppState(settings, MachineConfigFile(config_dir))
         service = PreviewService(state)
 
         stream = service.mjpeg_stream("none")
@@ -173,7 +175,7 @@ class TestOverlays:
         assert _count_dominant(frame, channel=1) > 100
 
     def test_crosshair_crop_change_reflects_in_next_frame_without_reconnect(
-        self, service: PreviewService, store: ConfigStore
+        self, service: PreviewService, machine_config: MachineConfigFile
     ):
         """ストリーム継続中の crop 変更が、再接続なしで次フレームの ROI 枠へ反映される.
 
@@ -186,9 +188,7 @@ class TestOverlays:
             before = _decoded_frame(next(stream))
             assert _green_dominant_count_near_column(before, x=340) > 50
 
-            store.write_machine_settings(
-                {"camera.crop.width": 200, "camera.crop.height": 200}
-            )
+            machine_config.write({"camera.crop.width": 200, "camera.crop.height": 200})
 
             after = _decoded_frame(next(stream))
             assert _green_dominant_count_near_column(after, x=540) > 50

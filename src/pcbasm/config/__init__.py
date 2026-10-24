@@ -3,6 +3,7 @@
 TOML の 1 節を 1 モジュールに置く（``[paste_dispenser]`` は :mod:`.dispenser`、``[alignment]`` は :mod:`.alignment`）。
 TOML のパスと属性のパスは一致する（``paste_dispenser.defaults.ul_per_mm2`` は ``MachineConfig.paste_dispenser.defaults.ul_per_mm2``）。
 ここは全体の :class:`MachineConfig` と、読み込み・一括検証だけを持つ。
+設定ページの項目は各節の metadata から :func:`pcbasm.config.fields.setting_fields` が作る。
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from pcbasm.config.dispenser import (
     NozzleCleanConfig,
     PasteDispenserConfig,
 )
+from pcbasm.config.fields import section
 from pcbasm.config.klipper import KlipperConfig
 from pcbasm.config.probe import ProbeConfig
 from pcbasm.config.reference_point import ReferencePointConfig
@@ -140,17 +142,30 @@ class MachineConfig:
     """machine.toml 全体の設定（:func:`load_machine` が一括で検証して作る）.
 
     未知のキーは設定エラーにする（書き間違えたキーが黙って既定値で動くのを防ぐ）。
+    ``section`` の付いた節が設定ページの 1 画面になる（``order`` は画面の並び順）。
     """
 
     klipper: KlipperConfig
-    paste_dispenser: PasteDispenserConfig
-    camera: CameraConfig
-    reference_point: ReferencePointConfig
-    probe: ProbeConfig
-    alignment: AlignmentConfig = attrs.field(factory=AlignmentConfig)
-    audio: AudioConfig = attrs.field(factory=AudioConfig)
-    settle: SettleConfig = attrs.field(factory=SettleConfig)
-    detection: DetectionConfig = attrs.field(factory=DetectionConfig)
+    paste_dispenser: PasteDispenserConfig = attrs.field(
+        metadata=section(label="ペーストディスペンサー", order=1)
+    )
+    camera: CameraConfig = attrs.field(metadata=section(label="カメラ", order=5))
+    reference_point: ReferencePointConfig = attrs.field(
+        metadata=section(label="基準点", order=4)
+    )
+    probe: ProbeConfig = attrs.field(metadata=section(label="プローブ", order=3))
+    alignment: AlignmentConfig = attrs.field(
+        factory=AlignmentConfig, metadata=section(label="パッド位置合わせ", order=2)
+    )
+    audio: AudioConfig = attrs.field(
+        factory=AudioConfig, metadata=section(label="通知音", order=8)
+    )
+    settle: SettleConfig = attrs.field(
+        factory=SettleConfig, metadata=section(label="静定待ち", order=6)
+    )
+    detection: DetectionConfig = attrs.field(
+        factory=DetectionConfig, metadata=section(label="統計検出", order=7)
+    )
     # PR #34（タクトタイム見積り）のための予約節。#34 が merge されるまで中身は読まずに受け入れる
     tact: dict[str, Any] | None = None
 

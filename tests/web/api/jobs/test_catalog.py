@@ -6,7 +6,7 @@
 - list は登録順の全件
 - validate_params は default 充填済み dict を返す。未知キー・型不一致・
   必須欠落・choice 範囲外は ValueError。optional は省略時にキーを含めない。
-  型変換は config_store._coerce と同様
+  型変換は machine.toml の設定項目と同様
   （bool は value_type="bool" のみ受理、int→float 許容、float→int は整数値のみ）
 - register_dev_jobs は dev の 2 ジョブを登録する
 """

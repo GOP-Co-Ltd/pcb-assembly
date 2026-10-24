@@ -728,16 +728,15 @@ class JobManager:
         self.publish({"type": "state_changed"})
 
     def _apply_machine_settings(self, values: Mapping[str, ParamValue]) -> None:
-        """実行中ジョブの確定値を machine.toml へ即時書き込み、変更を通知する.
+        """実行中ジョブの確定値を machine.toml へ即時書き込む（変更の通知は書き込みが行う）.
 
         呼び出し元のジョブワーカーが装置排他ロックを保持しているため、
         Apply エンドポイントと同様の直列化が成立している。
 
         Raises:
-            UnknownFieldError: ホワイトリスト外キー・型不一致の場合
+            InvalidSettingError: 未知のキー・不正な値の場合
         """
-        self._state.write_machine_settings(values)
-        self.publish_state_changed()
+        self._state.machine_config.write(values)
 
     # --- 内部 ---
 

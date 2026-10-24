@@ -2,68 +2,102 @@
 
 import attrs
 
+from pcbasm.config.fields import setting
 from pcbasm.validators import (
+    as_validator,
     is_finite_number,
     validate_non_negative_number,
+    validate_positive_int,
     validate_positive_number,
     validate_positive_odd_integer,
 )
 
+_MATCH = "銅箔照合"
 
-def validate_region_overlap(value: float) -> str | None:
-    """照合領域の重なり率を検証する."""
+_positive = as_validator(validate_positive_number)
+_positive_int = as_validator(validate_positive_int)
+
+
+def _region_overlap(_: object, __: attrs.Attribute, value: float) -> None:
     if not is_finite_number(value) or not 0.0 <= value < 1.0:
-        return f"region_overlapは0以上1未満の有限値である必要があります: {value!r}"
-    return None
+        raise ValueError(
+            f"region_overlapは0以上1未満の有限値である必要があります: {value!r}"
+        )
 
 
 @attrs.frozen
 class AlignmentConfig:
     """重複領域の銅箔照合による位置合わせの設定."""
 
-    region_size_px: int = 100  # 照合領域の一辺 [px]
-    region_overlap: float = 0.5  # 隣接する照合領域の重なり [0, 1)
-    board_edge_margin: float = 0.5  # 基板外形から照合領域までの余白 [mm]
-    max_passes: int = 5  # 1 領域あたりの再計測上限
-    converge_tolerance: float = 0.03  # 収束とみなす増分 [mm]
-    max_correction: float = 1.0  # 1 領域で許容する累積ずれ [mm]
-    search_window: float = 2.0  # 照合の探索窓 片側幅 [mm]
-    refine_max_short_side: float = 0.4  # pad 別逐次位置合わせの最大短辺 [mm]
-    canny_low: float = 100.0  # Canny エッジ検出の下側閾値
-    canny_high: float = 200.0  # Canny エッジ検出の上側閾値
-    blur_ksize: int = 5  # GaussianBlur カーネルサイズ (奇数)
-
-    def __attrs_post_init__(self) -> None:
-        if (
-            isinstance(self.region_size_px, bool)
-            or not isinstance(self.region_size_px, int)
-            or self.region_size_px < 1
-        ):
-            raise ValueError(
-                f"region_size_pxは1以上の整数である必要があります: "
-                f"{self.region_size_px}"
-            )
-        if error := validate_region_overlap(self.region_overlap):
-            raise ValueError(error)
-        if (
-            isinstance(self.max_passes, bool)
-            or not isinstance(self.max_passes, int)
-            or self.max_passes < 1
-        ):
-            raise ValueError(
-                f"max_passesは1以上の整数である必要があります: {self.max_passes}"
-            )
-        for name in (
-            "board_edge_margin",
-            "converge_tolerance",
-            "max_correction",
-            "search_window",
-        ):
-            if error := validate_positive_number(name, getattr(self, name)):
-                raise ValueError(error)
-        if error := validate_non_negative_number(
-            "refine_max_short_side", self.refine_max_short_side
-        ):
-            raise ValueError(error)
-        if error := validate_positive_odd_integer("blur_ksize", self.blur_ksize):
-            raise ValueError(error)
+    # 照合領域の一辺 [px]
+    region_size_px: int = attrs.field(
+        default=100,
+        validator=_positive_int,
+        metadata=setting(
+            label="照合領域の一辺", unit="px", group=_MATCH, order=1, minimum=1
+        ),
+    )
+    # 隣接する照合領域の重なり [0, 1)
+    region_overlap: float = attrs.field(
+        default=0.5,
+        validator=_region_overlap,
+        metadata=setting(label="照合領域の重なり", group=_MATCH, order=2, minimum=0.0),
+    )
+    # 基板外形から照合領域までの余白 [mm]
+    board_edge_margin: float = attrs.field(
+        default=0.5,
+        validator=_positive,
+        metadata=setting(label="基板外形からの余白", unit="mm", group=_MATCH, order=3),
+    )
+    # 1 領域あたりの再計測上限
+    max_passes: int = attrs.field(
+        default=5,
+        validator=_positive_int,
+        metadata=setting(label="再計測の上限回数", group=_MATCH, order=6, minimum=1),
+    )
+    # 収束とみなす増分 [mm]
+    converge_tolerance: float = attrs.field(
+        default=0.03,
+        validator=_positive,
+        metadata=setting(label="収束判定の増分", unit="mm", group=_MATCH, order=7),
+    )
+    # 1 領域で許容する累積ずれ [mm]
+    max_correction: float = attrs.field(
+        default=1.0,
+        validator=_positive,
+        metadata=setting(label="最大補正量", unit="mm", group=_MATCH, order=5),
+    )
+    # 照合の探索窓 片側幅 [mm]
+    search_window: float = attrs.field(
+        default=2.0,
+        validator=_positive,
+        metadata=setting(label="探索窓 片側幅", unit="mm", group=_MATCH, order=4),
+    )
+    # pad 別逐次位置合わせの最大短辺 [mm]
+    refine_max_short_side: float = attrs.field(
+        default=0.4,
+        validator=as_validator(validate_non_negative_number),
+        metadata=setting(
+            label="逐次位置合わせ対象の最大短辺",
+            unit="mm",
+            group="pad ごとの逐次位置合わせ",
+            order=11,
+            minimum=0.0,
+        ),
+    )
+    # Canny エッジ検出の下側閾値
+    canny_low: float = attrs.field(
+        default=100.0, metadata=setting(label="Canny下側閾値", group=_MATCH, order=8)
+    )
+    # Canny エッジ検出の上側閾値
+    canny_high: float = attrs.field(
+        default=200.0, metadata=setting(label="Canny上側閾値", group=_MATCH, order=9)
+    )
+    # GaussianBlur カーネルサイズ (奇数)
+    blur_ksize: int = attrs.field(
+        default=5,
+        validator=as_validator(validate_positive_odd_integer),
+        metadata=setting(
+            label="ブラーカーネルサイズ", group=_MATCH, order=10, minimum=1
+        ),
+    )

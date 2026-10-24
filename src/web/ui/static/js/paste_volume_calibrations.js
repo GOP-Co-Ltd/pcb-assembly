@@ -44,7 +44,6 @@
       select.dataset.paramType = "str";
       select.dataset.paramOptional = "true";
     } else {
-      select.dataset.type = input.dataset.type || "str";
       // 空の選択肢は「補正しない」を意味するので、空文字として保存させる
       select.dataset.allowEmpty = "true";
     }

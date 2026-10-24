@@ -18,7 +18,6 @@ from pcbasm.pasting.testboard.config import BoardConfigError
 from pcbasm.pasting.testboard.generator import BoardGenerator
 from pcbasm.pcb.units import KicadError
 from web.api.board_settings import BoardSettingsStore
-from web.api.config_store import ConfigStore, UnknownFieldError
 from web.api.control import ControlDeniedError, ControlLease, LeaseInfo
 from web.api.discovery import (
     ServiceAdvertiser,
@@ -27,6 +26,7 @@ from web.api.discovery import (
 )
 from web.api.jobs.catalog import default_catalog
 from web.api.jobs.manager import JobManager
+from web.api.machine_config import InvalidSettingError, MachineConfigFile
 from web.api.preview import PreviewService
 from web.api.routers import (
     app_state,
@@ -114,6 +114,19 @@ def _build_update_runner(settings: Settings) -> UpdateRunner:
     )
 
 
+def _state_change_notifier(app: FastAPI) -> Callable[[], None]:
+    """machine.toml を書いたことを全 WS 購読者へ配る `on_change` を作る.
+
+    ジョブマネージャは machine.toml の読み書きより後に組むので、呼び出し時に `app.state` から読む。
+    """
+
+    def notify() -> None:
+        jobs: JobManager = app.state.jobs
+        jobs.publish_state_changed()
+
+    return notify
+
+
 def _control_change_notifier(app: FastAPI) -> Callable[[], None]:
     """保持者が変わったことを全 WS 購読者へ配る `on_change` を作る.
 
@@ -151,13 +164,16 @@ def create_app(
     if settings is None:
         settings = Settings.from_env()
 
-    store = ConfigStore(settings.config_dir)
-    if not store.machine_toml_path().is_file():
+    app = FastAPI(title="pcb-assembly WebUI", lifespan=_lifespan)
+    machine_config = MachineConfigFile(
+        settings.config_dir, on_change=_state_change_notifier(app)
+    )
+    if not machine_config.path.is_file():
         raise RuntimeError(
-            f"machine.toml がありません: {store.machine_toml_path()} "
+            f"machine.toml がありません: {machine_config.path} "
             f"（./scripts/setup-machine-config.sh を実行してください）"
         )
-    state = AppState(settings, store)
+    state = AppState(settings, machine_config)
     state.migrate_config()
     # 設定エラーでもプロセスは落とさず degraded で上げる（落とすと WebUI から直せない）
     _, config_error = state.machine_or_error()
@@ -168,9 +184,8 @@ def create_app(
     if audio_player is None:
         audio_player = AlsaAudioPlayer()
 
-    app = FastAPI(title="pcb-assembly WebUI", lifespan=_lifespan)
     app.state.settings = settings
-    app.state.store = store
+    app.state.machine_config = machine_config
     app.state.appstate = state
     app.state.preview = preview
     app.state.catalog = catalog
@@ -233,9 +248,9 @@ def create_app(
             status_code=503, content={"detail": f"設定エラーのため使えません: {exc}"}
         )
 
-    @app.exception_handler(UnknownFieldError)
-    async def unknown_field_handler(
-        request: Request, exc: UnknownFieldError
+    @app.exception_handler(InvalidSettingError)
+    async def invalid_setting_handler(
+        request: Request, exc: InvalidSettingError
     ) -> JSONResponse:
         return JSONResponse(status_code=400, content={"detail": str(exc)})
 

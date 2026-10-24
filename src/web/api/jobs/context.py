@@ -78,7 +78,7 @@ class ApplyPayload:
 
     Attributes:
         label: コンソール表示用（例「canny_low = 60.0 を設定に反映」）
-        values: machine.toml ホワイトリストキー → 値
+        values: machine.toml の設定キー → 値
         files: config/ へ書き込む追加ファイル
     """
 
@@ -221,14 +221,14 @@ class JobContext:
         )
 
     def apply_machine_settings(self, values: Mapping[str, ParamValue]) -> None:
-        """選択マシンの machine.toml へホワイトリスト項目を即時書き込む.
+        """選択マシンの machine.toml へ設定項目を即時書き込む.
 
         キャリブレーション値の確定時など、ジョブ完了（と Apply 操作）を
         待たずに計測結果を永続化する用途。書き込み後は "state_changed" が
         発行され、設定画面等が追従する。
 
         Raises:
-            UnknownFieldError: ホワイトリスト外キー・型不一致の場合
+            InvalidSettingError: 未知のキー・不正な値の場合
         """
         self._bridge.apply_machine_settings(values)
 

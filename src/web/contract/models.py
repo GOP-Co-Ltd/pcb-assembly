@@ -11,18 +11,11 @@ type JobStatusName = Literal[
 ]
 
 type SettingValueType = Literal[
-    "float",
-    "int",
-    "str",
-    "float_pair",
-    "float_triple",
-    "float_or_auto",
-    "dispense_mode",
-    "line_direction",
+    "float", "int", "str", "float_or_auto", "float_pair", "float_triple", "choice"
 ]
 
 # bool を受け付けるフィールドは無いが、JSON の true/false が数値へ暗黙変換されず
-# _coerce の「bool は受け付けません」で 400 になるよう bool を union に残す。
+# 型の合わない値として 400 になるよう bool を union に残す。
 type MachineSettingValue = float | int | str | bool | list[float]
 
 
@@ -165,8 +158,18 @@ class StateResponse(BaseModel):
     config_notice: str | None
 
 
+class SettingChoice(BaseModel):
+    """選択式の設定項目の 1 選択肢."""
+
+    value: str
+    label: str
+
+
 class SettingsField(BaseModel):
-    """machine.toml のホワイトリスト項目 1 件（現在値 + 実効値）.
+    """machine.toml の設定項目 1 件（表示の定義 + 現在値 + 実効値）.
+
+    表示の定義（見出し・表示名・単位・選択肢・下限・空欄の扱い）は backend が設定のスキーマから組む。
+    ``section`` が設定ページの 1 画面、``group`` がその中のカードで、項目は表示する順に並ぶ。
 
     ``value`` は machine.toml に書かれている値（未記載なら None）で、設定フォームの
     入力値になる。``resolved`` は既定値まで解決した実効値（装置が実際に使う値）で、
@@ -176,15 +179,21 @@ class SettingsField(BaseModel):
     """
 
     key: str
+    section: str
+    section_label: str
+    group: str
     label: str
     value_type: SettingValueType
     unit: str | None
+    choices: list[SettingChoice]
+    minimum: float | None
+    clearable: bool
     value: MachineSettingValue | None
     resolved: MachineSettingValue | None
 
 
 class MachineSettingsResponse(BaseModel):
-    """/api/settings/machine の machine.toml ホワイトリスト項目一覧."""
+    """/api/settings/machine の machine.toml 設定項目一覧（表示する順）."""
 
     fields: list[SettingsField]
 
