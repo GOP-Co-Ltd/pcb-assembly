@@ -61,7 +61,7 @@ GATED_REQUESTS: list[tuple[str, str, dict[str, Any] | None]] = [
     # 機体のスピーカーを実際に鳴らす（`client` fixture は FakeAudioPlayer なので
     # ゲートが外れても実 aplay は起動しない）
     ("post", "/api/audio/test", {"sound": "success"}),
-    ("post", "/api/machine-control", {"action": "relax"}),
+    ("post", "/api/machine-control", {"type": "relax"}),
     ("post", "/api/firmware-restart", None),
     ("put", "/api/pcb-file", {"path": "boards/sample.kicad_pcb"}),
     ("post", "/api/pcb-file/upload", None),
@@ -370,7 +370,7 @@ class TestGateCoverage:
     def test_free_lease_is_claimed_by_the_first_writer(self, client: TestClient):
         """誰も保持していなければ変更系の呼び出し自体が操作権を取る."""
         assert (
-            client.post("/api/machine-control", json={"action": "relax"}).status_code
+            client.post("/api/machine-control", json={"type": "relax"}).status_code
             == 502
         )
 
@@ -382,7 +382,7 @@ class TestGateCoverage:
         assert client.post("/api/control/acquire", headers=ALICE).status_code == 200
 
         response = client.post(
-            "/api/machine-control", json={"action": "relax"}, headers=BOB
+            "/api/machine-control", json={"type": "relax"}, headers=BOB
         )
 
         assert response.status_code == 423

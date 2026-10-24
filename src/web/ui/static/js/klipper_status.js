@@ -67,7 +67,7 @@
     const text = input.value.trim();
     if (!text) return;
     try {
-      await api("POST", "/api/machine-control", { action: "gcode", gcode: text });
+      await api("POST", "/api/machine-control", { type: "gcode", gcode: text });
       toast("G-code 送信完了");
     } catch (err) {
       toast(err.message, false);

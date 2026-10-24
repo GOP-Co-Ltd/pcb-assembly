@@ -1,98 +1,35 @@
-"""マシン操作パネル（homing / ジョグ / 絶対移動 / relax / フォーカス Z / キャップ移動）の API."""
+"""マシン操作パネルの API（命令は対話ジョブの command と同じ契約）."""
 
 from __future__ import annotations
 
-from typing import Literal
-
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
 
-from pcbasm.gcode import GCode
 from pcbasm.hal import XYZStage
-from pcbasm.parking import move_to_cap
-from pcbasm.vision import load_focus_z
+from pcbasm.machine.commands import COMMAND_TIMEOUT, to_gcode
 from web.api.dependencies import ControlDep, StateDep
 from web.api.errors import hal_errors_to_502
+from web.api.machine_commands import to_command
 from web.api.routers.common import fetch_status
-from web.api.state import AppState
-from web.contract.models import KlipperStatus
-
-MOVE_TIMEOUT = 60.0  # wait_for_done (M400) を含むため長め
+from web.contract.models import KlipperStatus, MachineCommandRequest
 
 router = APIRouter(prefix="/api")
 
 
-class MachineControlRequest(BaseModel):
-    action: Literal["home", "jog", "move", "relax", "focus_z", "gcode", "move_to_cap"]
-    axes: list[Literal["x", "y", "z"]] | None = None
-    axis: Literal["x", "y", "z"] | None = None
-    distance: float | None = None
-    x: float | None = None
-    y: float | None = None
-    z: float | None = None
-    gcode: str | None = None
-
-
 @router.post("/machine-control")
 def post_machine_control(
-    body: MachineControlRequest, state: StateDep, _control: ControlDep
+    body: MachineCommandRequest, state: StateDep, _control: ControlDep
 ) -> KlipperStatus:
-    """``action`` に応じた G-code を Klipper へ送り、完了後の位置と homed_axes を返す.
+    """命令の G-code を Klipper へ送り、完了後の位置と homed_axes を返す.
 
-    400: パラメータ不足・可動域外など / 409: 装置が使用中 / 502: Klipper 通信エラー・printer.cfg の不備。
+    400: 可動域外・フォーカス Z 未設定・キャップ位置未記録 / 409: 装置が使用中 / 422: 命令の形の誤り /
+    502: Klipper 通信エラー・printer.cfg の不備。
     """
     with state.machine_lock("machine-control"):
         try:
             with hal_errors_to_502():
-                klipper = state.devices.klipper(MOVE_TIMEOUT)
-                stage = XYZStage(klipper)
-                commands = _build_gcode(body, state, stage)
+                klipper = state.devices.klipper(COMMAND_TIMEOUT)
+                commands = to_gcode(to_command(body), XYZStage(klipper), state.machine)
                 klipper.send_gcode(commands)
                 return fetch_status(klipper)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-def _build_gcode(
-    body: MachineControlRequest, state: AppState, stage: XYZStage
-) -> GCode:
-    """操作リクエストから送信する G-code を構築する.
-
-    Raises:
-        ValueError: パラメータ不足・limits 超過・フォーカス Z 未設定・
-            キャップ位置未記録の場合
-    """
-    match body.action:
-        case "home":
-            axes = body.axes or []
-            commands = GCode.homing(x="x" in axes, y="y" in axes, z="z" in axes)
-        case "jog":
-            if body.axis is None or body.distance is None:
-                raise ValueError("jog には axis と distance が必要です")
-            commands = stage.move(
-                x=body.distance if body.axis == "x" else None,
-                y=body.distance if body.axis == "y" else None,
-                z=body.distance if body.axis == "z" else None,
-                relative=True,
-            )
-        case "move":
-            commands = stage.move(x=body.x, y=body.y, z=body.z)
-        case "relax":
-            return GCode.relax()
-        case "gcode":
-            if body.gcode is None or not body.gcode.strip():
-                raise ValueError("gcode が空です")
-            commands = GCode(body.gcode)
-        case "focus_z":
-            z = load_focus_z(state.machine().camera.calibration_file)
-            if z is None:
-                raise ValueError(
-                    "フォーカスZが取得できません（カメラキャリブレーション未設定）"
-                )
-            commands = stage.move(z=z)
-        case "move_to_cap":
-            cap = state.machine().paste_dispenser.nozzle_cap.position
-            if cap is None:
-                raise ValueError("ノズルキャップ位置が未記録です")
-            commands = move_to_cap(stage, cap)
-    return commands + GCode.wait_for_done()

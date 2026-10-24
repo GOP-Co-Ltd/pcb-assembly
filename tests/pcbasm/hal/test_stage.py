@@ -3,7 +3,13 @@ import pytest
 from pcbasm.geometry import Path, Point3d
 from pcbasm.hal import Speed
 from pcbasm.hal.fake import FakeKlipper
-from pcbasm.hal.stage import Limits, ScalarLimits, XYZStage
+from pcbasm.hal.stage import (
+    TRAVEL_VELOCITY,
+    TRAVEL_Z,
+    Limits,
+    ScalarLimits,
+    XYZStage,
+)
 
 _CONFIG = {
     "stepper_x": {"position_min": "0", "position_max": "100"},
@@ -132,6 +138,60 @@ class TestXYZStage:
             stage.move(x=x, y=y, z=z, speed=Speed.absolute(100))
 
 
+class TestMoveSettled:
+    """撮影やプローブの前の移動: 移動 → 静定待ち（G4）→ 到達待ち（M400）."""
+
+    def test_waits_for_settle_then_for_motion_done(self):
+        stage = XYZStage(FakeKlipper(_CONFIG))
+
+        result = stage.move_settled(
+            x=50, y=100, speed=Speed.absolute(100), settle_sec=0.25
+        )
+
+        assert result.to_list() == ["G1 X50.0 Y100.0 F6000.0", "G4 P250", "M400"]
+
+    def test_zero_settle_only_waits_for_motion_done(self):
+        stage = XYZStage(FakeKlipper(_CONFIG))
+
+        result = stage.move_settled(z=25, speed=Speed.absolute(100), settle_sec=0.0)
+
+        assert result.to_list() == ["G1 Z25.0 F6000.0", "M400"]
+
+
+class TestTravelTo:
+    """ノズルキャップやクリーニング位置への退避移動.
+
+    Z を退避高さへ上げてから XY へ移り、最後に目的の Z へ下ろす。
+
+    XY の段に Z を含めず（先に上げる意味を壊さない）、M400 も含めない。
+    """
+
+    @pytest.mark.parametrize(
+        ("max_velocity", "feed"),
+        [("10", 600.0), ("300", TRAVEL_VELOCITY * 60)],
+    )
+    def test_lifts_z_before_xy_at_capped_travel_speed(
+        self, max_velocity: str, feed: float
+    ):
+        config = {**_CONFIG, "printer": {"max_velocity": max_velocity}}
+        stage = XYZStage(FakeKlipper(config))
+
+        result = stage.travel_to(Point3d(10.0, 20.0, 3.5))
+
+        assert result.to_list() == [
+            "G90",
+            f"G1 Z{TRAVEL_Z} F{feed}",
+            f"G1 X10.0 Y20.0 F{feed}",
+            f"G1 Z3.5 F{feed}",
+        ]
+
+    def test_out_of_limits_target_raises(self):
+        stage = XYZStage(FakeKlipper(_CONFIG))
+
+        with pytest.raises(ValueError, match="制限外.*x=999.0"):
+            stage.travel_to(Point3d(999.0, 20.0, 3.5))
+
+
 class TestScalarLimits:
     """ScalarLimitsクラスのテスト."""
 
@@ -178,7 +238,19 @@ class TestLimits:
     def test_contains_point_feed(
         self, limits: Limits, point: Point3d, feed: float, expected: bool
     ):
-        assert limits.contains(point, feed) == expected
+        assert limits.contains(x=point.x, y=point.y, z=point.z, feed=feed) == expected
+
+    def test_contains_ignores_unspecified_values(self, limits: Limits):
+        # z と feed を渡さなければ、XY だけで判定する
+        assert limits.contains(x=50.0, y=100.0)
+        assert not limits.contains(x=50.0, y=201.0)
+
+    def test_outside_names_each_violating_value(self, limits: Limits):
+        assert limits.outside(x=-1.0, y=100.0, z=51.0, feed=301.0) == [
+            "x=-1.0",
+            "z=51.0",
+            "feed=301.0",
+        ]
 
 
 class TestSpeed:

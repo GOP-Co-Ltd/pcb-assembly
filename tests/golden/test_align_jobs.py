@@ -44,8 +44,8 @@ class TestReferencePointSetup:
 
         record = manager.start("reference_point_setup", {})
         for command in (
-            {"type": "jog", "axis": "x", "dist": 8.0},
-            {"type": "jog", "axis": "y", "dist": 6.0},
+            {"type": "jog", "axis": "x", "distance": 8.0},
+            {"type": "jog", "axis": "y", "distance": 6.0},
             {"type": "record"},
         ):
             manager.submit_command(command)

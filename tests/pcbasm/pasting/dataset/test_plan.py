@@ -21,6 +21,7 @@ import pytest
 
 from pcbasm.geometry import Shift
 from pcbasm.geometry.packing import Rect
+from pcbasm.hal import Limits, ScalarLimits
 from pcbasm.pasting.dataset.plan import (
     DotGridPlan,
     DotGridSpec,
@@ -496,6 +497,16 @@ class TestValidateCropInFrame:
         assert "pixel_per_mm" in error
 
 
+def _limits(x_max: float, y_max: float) -> Limits:
+    """原点から (x_max, y_max) までのステージ可動域（Z と速度は見ない）."""
+    return Limits(
+        x=ScalarLimits(0.0, x_max),
+        y=ScalarLimits(0.0, y_max),
+        z=ScalarLimits(-5.0, 50.0),
+        v=ScalarLimits(0.0, 100.0),
+    )
+
+
 class TestValidateCaptureReach:
     """全（セル × view）の撮影目標がステージ可動域に入るかを装置前に見る."""
 
@@ -507,8 +518,7 @@ class TestValidateCaptureReach:
                 plan,
                 _views(4, 1.0),
                 board_to_stage=Shift(100.0, 50.0),
-                x_limits=(0.0, 300.0),
-                y_limits=(0.0, 300.0),
+                limits=_limits(300.0, 300.0),
             )
             is None
         )
@@ -520,8 +530,7 @@ class TestValidateCaptureReach:
             plan,
             _views(4, 1.0),
             board_to_stage=Shift(100.0, 50.0),
-            x_limits=(0.0, 100.5),
-            y_limits=(0.0, 300.0),
+            limits=_limits(100.5, 300.0),
         )
 
         assert error is not None
@@ -538,8 +547,7 @@ class TestValidateCaptureReach:
                 plan,
                 _views(0, 1.0),
                 board_to_stage=Shift(0.0, 0.0),
-                x_limits=(0.0, 20.0),
-                y_limits=(0.0, 20.0),
+                limits=_limits(20.0, 20.0),
             )
             is None
         )
@@ -548,8 +556,7 @@ class TestValidateCaptureReach:
                 plan,
                 _views(0, 1.0),
                 board_to_stage=Shift(0.0, 0.0),
-                x_limits=(0.0, 5.0),
-                y_limits=(0.0, 20.0),
+                limits=_limits(5.0, 20.0),
             )
             is not None
         )
@@ -565,8 +572,7 @@ class TestValidateDispenseReach:
             validate_dispense_reach(
                 plan,
                 board_to_machine=Shift(100.0, 50.0),
-                x_limits=(0.0, 300.0),
-                y_limits=(0.0, 300.0),
+                limits=_limits(300.0, 300.0),
             )
             is None
         )
@@ -579,16 +585,16 @@ class TestValidateDispenseReach:
         board_to_machine = Shift(0.0, 22.8349)
         # 板の上側の塗布セルは toolhead offset を足しても収まり、下側の
         # 塗布セル（board y = 15）だけが外れる上限にする。
-        limits = {"x_limits": (0.0, 20.0), "y_limits": (0.0, 26.0)}
+        limits = _limits(20.0, 26.0)
 
         assert (
             validate_capture_reach(
-                plan, _views(0, 1.0), board_to_stage=board_to_stage, **limits
+                plan, _views(0, 1.0), board_to_stage=board_to_stage, limits=limits
             )
             is None
         )
         error = validate_dispense_reach(
-            plan, board_to_machine=board_to_machine, **limits
+            plan, board_to_machine=board_to_machine, limits=limits
         )
 
         assert error is not None
@@ -602,17 +608,19 @@ class TestValidateDispenseReach:
         plan = _planned(
             volume_divisions=1, samples_per_volume=1, blank_count=1, shuffle_seed=10
         )
-        limits = {"x_limits": (0.0, 6.5), "y_limits": (0.0, 20.0)}
+        limits = _limits(6.5, 20.0)
 
         assert plan.cells[0].center.x == pytest.approx(6.0)
         assert plan.blanks[0].center.x == pytest.approx(12.0)
         assert (
-            validate_dispense_reach(plan, board_to_machine=Shift(0.0, 0.0), **limits)
+            validate_dispense_reach(
+                plan, board_to_machine=Shift(0.0, 0.0), limits=limits
+            )
             is None
         )
         assert (
             validate_capture_reach(
-                plan, _views(0, 1.0), board_to_stage=Shift(0.0, 0.0), **limits
+                plan, _views(0, 1.0), board_to_stage=Shift(0.0, 0.0), limits=limits
             )
             is not None
         )

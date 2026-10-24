@@ -522,11 +522,11 @@ class TestCommands:
         assert started.wait(timeout=10.0)
         wait_until(lambda: record.status == JobStatus.RUNNING)
 
-        manager.submit_command({"type": "jog", "axis": "x", "dist": 0.1})
+        manager.submit_command({"type": "jog", "axis": "x", "distance": 0.1})
         wait_until(lambda: record.status.terminal)
 
         assert record.status == JobStatus.SUCCEEDED
-        assert received == [{"type": "jog", "axis": "x", "dist": 0.1}]
+        assert received == [{"type": "jog", "axis": "x", "distance": 0.1}]
 
     def test_submit_command_without_type_key_raises_value_error(
         self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil

@@ -16,6 +16,7 @@ from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d, Point3d, Shift, sort_by_nearest
 from pcbasm.hal import Camera, KlipperClient, Speed, XYZStage
 from pcbasm.kicad.build import generate_grid_pcb
+from pcbasm.machine.commands import COMMAND_TIMEOUT
 from pcbasm.posctrl import (
     AlignmentRegion,
     BoardAlignment,
@@ -45,7 +46,7 @@ from web.api.jobs.context import (
     JobResult,
     PromptSpec,
 )
-from web.api.jobs.machine_commands import COMMAND_TIMEOUT, handle_machine_command
+from web.api.jobs.machine_commands import handle_machine_command
 
 # camera_calibration の Z 取得（best-effort）のタイムアウト [sec]
 Z_QUERY_TIMEOUT = 5.0

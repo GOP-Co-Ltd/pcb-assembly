@@ -514,21 +514,12 @@ def _check_reach(
     塗布は toolhead offset ぶん撮影位置からずれるので、両方を検査する。
     """
     limits = session.stage.limits
-    x_limits = (limits.x.min, limits.x.max)
-    y_limits = (limits.y.min, limits.y.max)
     for error in (
         validate_capture_reach(
-            plan,
-            views,
-            board_to_stage=session.board_transform,
-            x_limits=x_limits,
-            y_limits=y_limits,
+            plan, views, board_to_stage=session.board_transform, limits=limits
         ),
         validate_dispense_reach(
-            plan,
-            board_to_machine=session.board_to_machine,
-            x_limits=x_limits,
-            y_limits=y_limits,
+            plan, board_to_machine=session.board_to_machine, limits=limits
         ),
     ):
         if error is not None:
@@ -542,10 +533,7 @@ def _move_clear_of_plate(ctx: JobContext, session: PasteSession) -> None:
     ペーストが板へ落ちて計量値を汚す。可動域へ入らない場合は移動を諦め、運転者へ jog での退避を促す（装置を止めるほどのことではない）。
     """
     target = session.board_to_machine.apply(Point2d(0.0, -LOADING_CLEARANCE_MM))
-    limits = session.stage.limits
-    inside_x = limits.x.min <= target.x <= limits.x.max
-    inside_y = limits.y.min <= target.y <= limits.y.max
-    if not (inside_x and inside_y):
+    if not session.stage.limits.contains(x=target.x, y=target.y):
         ctx.log(
             f"退避位置 ({target.x:.3f}, {target.y:.3f}) が可動域外のため移動しません。"
             "押し出す前に、ノズルを銅板の外へ jog してください"

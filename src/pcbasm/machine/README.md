@@ -5,11 +5,13 @@ HAL はこのパッケージを import しない。
 
 ## 構成
 
-| モジュール       | 役割                                                                                                                                                              |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `devices.py`     | 機体 1 台の装置 `Devices`（Klipper とカメラ）と、それを組む `open_devices`。fake への切替もここで行う                                                             |
-| `journal.py`     | G-code ジャーナル `Journal`。実機へ送ったブロックを実効 timeout の見出し付きで `data/webui/journal/` に追記する                                                   |
-| `diagnostics.py` | 装置診断（ジョブ `machine_check`）。Klipper の接続と状態、printer.cfg にジョブの部品が要求する section、カメラの解像度と校正の一致、ALSA の再生デバイスを確かめる |
+| モジュール       | 役割                                                                                                                                                                                                    |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `devices.py`     | 機体 1 台の装置 `Devices`（Klipper とカメラ）と、それを組む `open_devices`。fake への切替もここで行う                                                                                                   |
+| `journal.py`     | G-code ジャーナル `Journal`。実機へ送ったブロックを実効 timeout の見出し付きで `data/webui/journal/` に追記する                                                                                         |
+| `diagnostics.py` | 装置診断（ジョブ `machine_check`）。Klipper の接続と状態、printer.cfg にジョブの部品が要求する section、カメラの解像度と校正の一致、ALSA の再生デバイスを確かめる                                       |
+| `commands.py`    | マシン操作パネルの命令 `MachineCommand`（home / jog / move / relax / focus_z / move_to_cap / gcode）と、その G-code を組む `to_gcode`。REST の `/api/machine-control` と対話ジョブの command が共用する |
+| `park.py`        | ノズルキャップへの駐機 `park`（キャップ → PRESENT → M84）。ジョブの終了時とノズルクリーニングのテストが使う                                                                                             |
 
 ## 装置（Devices）
 

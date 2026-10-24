@@ -1,15 +1,11 @@
-"""`web.api.jobs.machine_commands` の仕様テスト.
+"""`web.api.jobs.machine_commands`（対話ジョブ中のマシン操作）の仕様テスト.
 
-計画書 memory/agents/implementation-planner/webui-phase5.md
-「src/webui/jobs/machine_commands.py」節が契約:
-
-- handle_machine_command は jog / home / move / relax / focus_z を処理したら
-  True を返す
-  - 引数不正の ValueError は ctx.log して True（ジョブは継続）
+- マシン操作の命令（`web.contract.models.MachineCommandRequest`）を処理したら True を返す
+  - 形の誤り（値の型の誤りなど）と実行できない命令（軸の無い move など）は理由を ctx.log して True（ジョブは継続）
   - 校正ファイルに焦点 Z が無いとき focus_z コマンドは移動せず log のみで True
   - 送信失敗（Klipper 不通）の例外は握りつぶさない（ジョブを FAILED に
     するため伝播する）
-- 未知 type は False を返す（log は呼び出し側の責務）
+- type がマシン操作でない command（ジョブ固有の type、type の欠落）は False を返す（log は呼び出し側の責務）
 
 jog / move / home の実送信は Moonraker 必須のため受け入れ試験（docs/acceptance.md の
 A1、A3）でカバーする。ここではテスト用 config
@@ -25,9 +21,10 @@ from typing import Any
 import pytest
 
 from pcbasm.hal import XYZStage
+from pcbasm.machine.commands import COMMAND_TIMEOUT
 from web.api.jobs.catalog import JobCatalog, JobDefinition
 from web.api.jobs.context import JobContext
-from web.api.jobs.machine_commands import COMMAND_TIMEOUT, handle_machine_command
+from web.api.jobs.machine_commands import handle_machine_command
 from web.api.jobs.manager import JobManager, JobRecord, JobStatus
 
 from .conftest import WaitUntil
@@ -65,16 +62,39 @@ def _run_handler_job(
 class TestHandleMachineCommand:
     """handle_machine_command の戻り値契約と例外伝播."""
 
-    def test_unknown_type_returns_false_without_failing(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+    @pytest.mark.parametrize(
+        "command",
+        [{"type": "record"}, {"axis": "x"}],
+        ids=["job-command", "missing-type"],
+    )
+    def test_non_machine_command_returns_false_without_failing(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        wait_until: WaitUntil,
+        command: dict[str, Any],
     ):
-        """未知 type は False（ジョブ固有コマンドの後段判定に委ねる）."""
-        record, results = _run_handler_job(
-            manager, catalog, wait_until, [{"type": "record"}]
-        )
+        """マシン操作でない type の command は False（ジョブ固有コマンドの後段判定に委ねる）."""
+        record, results = _run_handler_job(manager, catalog, wait_until, [command])
 
         assert record.status == JobStatus.SUCCEEDED
         assert results == [False]
+        assert record.log_lines == ()
+
+    def test_malformed_machine_command_logs_the_field_and_returns_true(
+        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+    ):
+        """マシン操作の type で形が誤っていれば、誤ったフィールドを log して True（継続）."""
+        record, results = _run_handler_job(
+            manager,
+            catalog,
+            wait_until,
+            [{"type": "jog", "axis": "x", "distance": "abc"}],
+        )
+
+        assert record.status == JobStatus.SUCCEEDED  # 送信しないので不通でも成功
+        assert results == [True]
+        assert "jog.distance" in "\n".join(record.log_lines)
 
     def test_focus_z_without_calibration_logs_and_returns_true(
         self,
@@ -94,22 +114,13 @@ class TestHandleMachineCommand:
         assert results == [True]
         assert "フォーカス" in "\n".join(record.log_lines)
 
-    @pytest.mark.parametrize(
-        "command",
-        [
-            {"type": "jog", "axis": "x", "dist": "abc"},
-            {"type": "move"},
-        ],
-    )
-    def test_invalid_argument_value_error_is_logged_and_returns_true(
-        self,
-        manager: JobManager,
-        catalog: JobCatalog,
-        wait_until: WaitUntil,
-        command: dict[str, Any],
+    def test_move_without_axes_is_logged_and_returns_true(
+        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
     ):
-        """引数不正（jog の非数値 dist / move の軸なし）は ValueError を log して True（継続）."""
-        record, results = _run_handler_job(manager, catalog, wait_until, [command])
+        """実行できない命令（move の軸なし）は ValueError を log して True（継続）."""
+        record, results = _run_handler_job(
+            manager, catalog, wait_until, [{"type": "move"}]
+        )
 
         assert record.status == JobStatus.SUCCEEDED  # 送信しないので不通でも成功
         assert results == [True]
@@ -118,11 +129,12 @@ class TestHandleMachineCommand:
     @pytest.mark.parametrize(
         "command",
         [
-            {"type": "jog", "axis": "x", "dist": 0.1},
+            {"type": "jog", "axis": "x", "distance": 0.1},
             {"type": "home", "axes": ["x", "y", "z"]},
             {"type": "move", "x": 1.0, "y": 2.0},
             {"type": "relax"},
             {"type": "focus_z"},
+            {"type": "gcode", "gcode": "M400"},
         ],
     )
     def test_recognized_command_send_failure_propagates_to_job_failed(

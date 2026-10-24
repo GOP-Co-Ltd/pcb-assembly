@@ -667,9 +667,7 @@ class TestExclusionPropagation:
 
         try:
             assert (
-                client.post(
-                    "/api/machine-control", json={"action": "relax"}
-                ).status_code
+                client.post("/api/machine-control", json={"type": "relax"}).status_code
                 == 409
             )
             assert (

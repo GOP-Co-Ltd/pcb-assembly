@@ -24,15 +24,8 @@
     return window.webui.jobs && window.webui.jobs.isActive(job) ? job : null;
   }
 
-  function toCommand(payload) {
-    if (payload.action === "jog") {
-      return { type: "jog", axis: payload.axis, dist: payload.distance };
-    }
-    const { action, ...rest } = payload;
-    return { type: action, ...rest };
-  }
-
-  async function sendControl(payload) {
+  // 命令は REST と WS command で同じ形（web.contract の MachineCommandRequest）
+  async function sendControl(command) {
     const job = activeJob();
     if (job) {
       // ジョブモード: 対話ジョブの command キューへ送る
@@ -40,11 +33,11 @@
         toast("ジョブ実行中はマシン操作できません", false);
         return;
       }
-      window.webui.jobs.sendCommandOrToast(toCommand(payload));
+      window.webui.jobs.sendCommandOrToast(command);
       return;
     }
     try {
-      const status = await api("POST", "/api/machine-control", payload);
+      const status = await api("POST", "/api/machine-control", command);
       renderStatus(status);
       toast("操作完了");
     } catch (err) {
@@ -148,7 +141,7 @@
         title.textContent = `${sector.axis.toUpperCase()} ${distance > 0 ? "+" : ""}${distance} mm`;
         group.appendChild(title);
         group.addEventListener("click", () => {
-          sendControl({ action: "jog", axis: sector.axis, distance });
+          sendControl({ type: "jog", axis: sector.axis, distance });
         });
         svg.appendChild(group);
       }
@@ -162,7 +155,7 @@
     const homeTitle = svgEl("title", {});
     homeTitle.textContent = "全軸ホーミング";
     home.appendChild(homeTitle);
-    home.addEventListener("click", () => sendControl({ action: "home", axes: [] }));
+    home.addEventListener("click", () => sendControl({ type: "home", axes: [] }));
     svg.appendChild(home);
     container.replaceChildren(svg);
   }
@@ -175,7 +168,7 @@
   for (const button of panel.querySelectorAll("[data-mc-home]")) {
     button.addEventListener("click", () => {
       const axis = button.dataset.mcHome;
-      sendControl({ action: "home", axes: axis ? [axis] : [] });
+      sendControl({ type: "home", axes: axis ? [axis] : [] });
     });
   }
 
@@ -183,7 +176,7 @@
   for (const button of panel.querySelectorAll("[data-mc-jog]")) {
     button.addEventListener("click", () => {
       sendControl({
-        action: "jog",
+        type: "jog",
         axis: button.dataset.mcJog,
         distance: Number(button.dataset.mcDist),
       });
@@ -195,24 +188,24 @@
     input.addEventListener("change", () => {
       const text = input.value.trim();
       if (text === "") return;
-      sendControl({ action: "move", [input.dataset.mcAbs]: Number(text) });
+      sendControl({ type: "move", [input.dataset.mcAbs]: Number(text) });
       input.blur();
     });
   }
 
   document.getElementById("mc-relax").addEventListener("click", () => {
-    sendControl({ action: "relax" });
+    sendControl({ type: "relax" });
   });
 
   document.getElementById("mc-focus-z").addEventListener("click", () => {
-    sendControl({ action: "focus_z" });
+    sendControl({ type: "focus_z" });
   });
 
   // paste マシン以外ではテンプレート側でボタンを出さない（null ガード）
   const moveToCapButton = document.getElementById("mc-move-to-cap");
   if (moveToCapButton) {
     moveToCapButton.addEventListener("click", () => {
-      sendControl({ action: "move_to_cap" });
+      sendControl({ type: "move_to_cap" });
     });
   }
 

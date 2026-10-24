@@ -7,14 +7,12 @@
 
 G-code を返す関数の契約:
 
-- `approach_gcode`: 「Z を退避高さへ → クリーニング XY へ → 面 Z へ」の 3 段。
-  中間セグメントに Z ワードを含めない（Z 先行退避の意味を壊さない）
-- `wipe_gcode`: 面 Z から押し込み Z への単独 Z 下降（travel 速度）に続けて十字往復
+- `wipe_gcode`: 面 Z から押し込み Z への単独 Z 下降（退避移動の速度）に続けて十字往復
   （wipe 速度）。押し込み下降を wipe 速度で行わない
 - `depart_gcode`: 退避 Z へ戻すだけで XY を動かさない
 - いずれも M400 / M84 を含めない（`clean_nozzle` が後置で合成する）
 
-`plan_nozzle_clean` は送信前に 3 つを組み、可動域外を例外にする。パージ後にこすりで
+`plan_nozzle_clean` は送信前に接近（`XYZStage.travel_to`）とこの 2 つを組み、可動域外を例外にする。パージ後にこすりで
 落ちるとシリコン上に塊が残るので、ジョブの開始時に `resolve_nozzle_clean` が組んでおく。
 
 `clean_nozzle` の手順契約:
@@ -45,12 +43,10 @@ from pcbasm.config.dispenser import (
 from pcbasm.geometry import Point3d
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeKlipper
+from pcbasm.hal.stage import TRAVEL_VELOCITY, TRAVEL_Z
 from pcbasm.pasting.applicator import PasteApplicator, build_applicator
 from pcbasm.pasting.nozzle_clean import (
-    CLEAN_TRAVEL_VELOCITY,
-    TRAVEL_Z,
     NozzleCleanPlan,
-    approach_gcode,
     clean_nozzle,
     clean_position_label,
     depart_gcode,
@@ -68,7 +64,7 @@ CENTER_Y = 53.0
 SURFACE_Z = -3.0
 POSITION = Point3d(CENTER_X, CENTER_Y, SURFACE_Z)
 
-TRAVEL_FEED = CLEAN_TRAVEL_VELOCITY * 60
+TRAVEL_FEED = TRAVEL_VELOCITY * 60
 ROTATION_DISTANCE = float(
     FAKE_PRINTER_CONFIG["manual_stepper paste_dispenser"]["rotation_distance"]
 )
@@ -192,38 +188,6 @@ class TestWipePoints:
         assert points[0] == Point3d(CENTER_X, CENTER_Y, SURFACE_Z - 0.5)
 
 
-class TestApproachGcode:
-    """クリーニング位置への接近シーケンスの契約."""
-
-    def test_retracts_z_before_moving_xy(self, stage: XYZStage):
-        lines = approach_gcode(stage, POSITION).to_list()
-
-        assert lines == [
-            "G90",
-            f"G1 Z{TRAVEL_Z} F{TRAVEL_FEED}",
-            f"G1 X68.0 Y53.0 F{TRAVEL_FEED}",
-            f"G1 Z-3.0 F{TRAVEL_FEED}",
-        ]
-
-    def test_caps_travel_speed_at_stage_max_velocity(self, stage: XYZStage):
-        slow = FakeKlipper(
-            config={**FAKE_PRINTER_CONFIG, "printer": {"max_velocity": "5"}}
-        )
-        lines = approach_gcode(XYZStage(slow), POSITION).to_list()
-
-        assert lines[1] == f"G1 Z{TRAVEL_Z} F{5 * 60.0}"
-
-    def test_contains_no_m400_or_m84(self, stage: XYZStage):
-        lines = approach_gcode(stage, POSITION).to_list()
-
-        assert "M400" not in lines
-        assert "M84" not in lines
-
-    def test_out_of_limits_position_raises(self, stage: XYZStage):
-        with pytest.raises(ValueError, match="制限外"):
-            approach_gcode(stage, _position(x=999.0))
-
-
 class TestWipeGcode:
     """押し込みと十字往復の契約."""
 
@@ -284,7 +248,7 @@ class TestPlanNozzleClean:
 
         plan = plan_nozzle_clean(stage, POSITION, clean)
 
-        assert plan.approach == approach_gcode(stage, POSITION)
+        assert plan.approach == stage.travel_to(POSITION)
         assert plan.wipe == wipe_gcode(stage, POSITION, clean) + depart_gcode(stage)
 
     def test_reports_the_violating_axis_and_value(self, stage: XYZStage):

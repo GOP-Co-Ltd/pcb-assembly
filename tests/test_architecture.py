@@ -20,7 +20,6 @@ SRC = PROJECT_ROOT / "src"
 # まだ改名していない単位 → 移行先（移行先と同じ規則で検査する）
 _RENAMED = {
     "pcbasm.posctrl": "pcbasm.align",
-    "pcbasm.parking": "pcbasm.machine",
 }
 
 # 単位の中にあり、下の層から import されるので独立した単位として検査するモジュール

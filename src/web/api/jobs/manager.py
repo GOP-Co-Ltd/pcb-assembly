@@ -21,10 +21,10 @@ import attrs
 
 from pcbasm.config import MachineConfig
 from pcbasm.config.audio import AudioConfig
-from pcbasm.hal import AudioPlayer, FrameHub
+from pcbasm.hal import AudioPlayer, FrameHub, XYZStage
 from pcbasm.hal.audio import Sound
 from pcbasm.machine.journal import Journal
-from pcbasm.parking import PRESENT_TIMEOUT, park_or_present
+from pcbasm.machine.park import PRESENT_TIMEOUT, park
 from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.validators import is_finite_number
 from pcbasm.vision import Image
@@ -767,11 +767,13 @@ class JobManager:
             # 装置を動かすジョブは終了時に best-effort で退避する
             if definition.uses_machine:
                 try:
-                    park_or_present(
-                        context.klipper(PRESENT_TIMEOUT),
-                        context.machine,
+                    klipper = context.klipper(PRESENT_TIMEOUT)
+                    park(
+                        klipper,
+                        XYZStage(klipper),
+                        context.machine.paste_dispenser.nozzle_cap.position,
+                        relax=True,
                         warn=runtime.log,
-                        timeout=PRESENT_TIMEOUT,
                     )
                 except Exception as exc:
                     runtime.log(f"タスク終了時の退避に失敗: {exc}")

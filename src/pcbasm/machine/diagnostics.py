@@ -15,7 +15,7 @@ import httpx
 
 from pcbasm.config import MachineConfig
 from pcbasm.hal import AudioDevice, Camera, KlipperClient, PasteDispenser, XYZStage
-from pcbasm.parking import PRESENT_SECTION
+from pcbasm.machine.park import PRESENT_SECTION
 from pcbasm.vision import CalibrationResult
 
 # ProbeExecutor（pcbasm.pasting.probe）が要求する section

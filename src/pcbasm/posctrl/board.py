@@ -8,7 +8,6 @@ import numpy as np
 
 from pcbasm.board import Outline
 from pcbasm.config.reference_point import CornerOffsetsConfig, ReferencePointConfig
-from pcbasm.gcode import GCode
 from pcbasm.geometry import (
     Compose,
     Matrix2d,
@@ -189,9 +188,12 @@ class BoardTransformMeasurer:
 
         logger.info(f"=== {corner.name} Reference Pointへ移動 ===")
         logger.info(f"目標位置: ({ref_pos.x:.3f}, {ref_pos.y:.3f})")
-        self._move_to(
-            self._stage.move(
-                x=ref_pos.x, y=ref_pos.y, speed=Speed.absolute(move_velocity)
+        self._klipper.send_gcode(
+            self._stage.move_settled(
+                x=ref_pos.x,
+                y=ref_pos.y,
+                speed=Speed.absolute(move_velocity),
+                settle_sec=self._settle_sec,
             ),
         )
 
@@ -215,10 +217,4 @@ class BoardTransformMeasurer:
             board_origin
             + _board_corner(self._outline, corner)
             + corner_offset(ref.offsets, corner)
-        )
-
-    def _move_to(self, move_gcode: GCode) -> None:
-        """指定座標に移動し、安定を待つ."""
-        self._klipper.send_gcode(
-            move_gcode + GCode.wait(self._settle_sec) + GCode.wait_for_done()
         )

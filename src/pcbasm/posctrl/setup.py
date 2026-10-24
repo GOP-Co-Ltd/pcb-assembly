@@ -265,9 +265,12 @@ def setup_board_calibration(
         logger.info("キャリブレーションZ位置: %.3f mm", calibration.z_position)
     settle = machine.settle
     klipper.send_gcode(
-        stage.move(x=ref_config.x, y=ref_config.y, z=calibration.z_position)
-        + GCode.wait(settle.move_sec)
-        + GCode.wait_for_done()
+        stage.move_settled(
+            x=ref_config.x,
+            y=ref_config.y,
+            z=calibration.z_position,
+            settle_sec=settle.move_sec,
+        )
     )
     logger.info("移動完了")
 
