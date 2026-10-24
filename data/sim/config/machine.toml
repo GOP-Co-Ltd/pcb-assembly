@@ -1,0 +1,82 @@
+# make dev（シミュレーション起動）の機体設定。起動のたびに一時ディレクトリへ複製して使う
+# Klipper もカメラも fake なので、[klipper] の接続先には接続しない
+# このファイルと camera_calibration.json は tests/golden の同名ファイルの複製から始めた。golden は凍結し、
+# こちらは練習しやすいように変えてよいので、両者を同期しない
+
+[klipper]
+host = "127.0.0.1"
+port = 7126
+
+[paste_dispenser]
+rotations_per_ul = 45.783133
+solder_paste_density = 3.78
+nozzle_diameter = 0.34
+auto_line_aspect_ratio = 1.618
+
+[paste_dispenser.toolhead]
+x = -1.772
+y = 23.0375
+
+[paste_dispenser.nozzle_cap]
+x = 150.0
+y = 10.0
+z = -2.0
+
+[paste_dispenser.nozzle_clean]
+x = 120.0
+y = 10.0
+z = -3.0
+
+[paste_dispenser.defaults]
+dispense_mode = "auto"
+ul_per_mm2 = 0.10
+paste_height = "auto"
+prime_extra_delay = 0.0
+overlap = 0.2
+
+[paste_dispenser.motion]
+max_fill_speed = 0.8
+max_dispense_rate = 0.1
+dispense_accel = 0.2
+retract_amount = 0.1
+retract_rate = 0.1
+retract_accel_factor = 2.0
+lift_height = 2.0
+
+[probe]
+min_radius = 0.7
+board_edge_margin = 2.5
+min_samples = 6
+max_samples = 15
+
+[camera]
+width = 1280
+height = 800
+fps = 30.0
+calibration_file = "camera_calibration.json"
+
+[camera.crop]
+width = 600
+height = 600
+
+[reference_point]
+x = 8.5
+y = 5.7
+target_diameter = 3.0
+
+[reference_point.offsets]
+top_left = [2.5, -5.0]
+top_right = [-2.5, -5.0]
+bottom_left = [2.5, 5.0]
+bottom_right = [-2.5, 5.0]
+
+[alignment]
+max_correction = 0.5
+search_window = 1.0
+canny_low = 104.0
+canny_high = 235.0
+blur_ksize = 1
+region_size_px = 200
+board_edge_margin = 1.0
+converge_tolerance = 0.015
+region_overlap = 0.2

@@ -4,14 +4,19 @@ from collections.abc import Callable, Iterable
 
 import numpy as np
 import pytest
-from shapely import Polygon
+from shapely import Polygon, box
 
 from pcbasm.board import Outline
 from pcbasm.config.reference_point import CornerOffsetsConfig, ReferencePointConfig
 from pcbasm.geometry import Compose, Matrix2d, Point2d, Shift
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FakeKlipper
-from pcbasm.posctrl.board import BoardTransformMeasurer, Corner, corner_offset
+from pcbasm.posctrl.board import (
+    BoardTransformMeasurer,
+    Corner,
+    corner_offset,
+    marker_position,
+)
 
 
 def _sequence(
@@ -50,6 +55,31 @@ class TestCornerOffset:
         )
 
         assert corner_offset(offsets, corner) == expected
+
+
+class TestMarkerPosition:
+    """基準点マーカーは基板の角からオフセットだけ離れた board 座標にある."""
+
+    @pytest.mark.parametrize(
+        ("corner", "expected"),
+        [
+            (Corner.TOP_LEFT, Point2d(2.0, 3.0)),
+            (Corner.TOP_RIGHT, Point2d(38.0, 3.0)),
+            (Corner.BOTTOM_LEFT, Point2d(2.0, 27.0)),
+            (Corner.BOTTOM_RIGHT, Point2d(38.0, 27.0)),
+        ],
+    )
+    def test_offsets_each_board_corner(self, corner: Corner, expected: Point2d):
+        offsets = CornerOffsetsConfig(
+            top_left=(2.0, 3.0),
+            top_right=(-2.0, 3.0),
+            bottom_left=(2.0, -3.0),
+            bottom_right=(-2.0, -3.0),
+        )
+
+        assert marker_position(Outline(box(0.0, 0.0, 40.0, 30.0)), offsets, corner) == (
+            expected
+        )
 
 
 class TestBoardTransformMeasurer:

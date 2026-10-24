@@ -11,11 +11,11 @@ from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 
 import pytest
-from shapely import Point, Polygon
+from shapely import Polygon
 
-from pcbasm.board import Board, Layer
+from pcbasm.board import Board
 from pcbasm.config import MachineConfig, load_machine
-from pcbasm.geometry import Compose, Point2d, Rotation, Shift, transform_polygon
+from pcbasm.geometry import Compose, Point2d, Rotation, Shift
 from pcbasm.hal import Camera
 from pcbasm.hal.fake import Checkerboard, FakeAudioPlayer, FakeKlipper, SceneCamera
 from pcbasm.kicad import load_board
@@ -28,7 +28,7 @@ from pcbasm.pasting.paste_volume.calibration import (
     parse_calibration,
     write_calibration,
 )
-from pcbasm.posctrl.board import Corner, corner_offset
+from pcbasm.posctrl.scene import board_scene
 from pcbasm.vision import CalibrationResult
 from tests.support import polling
 from tests.support.paths import TESTING_DATA_DIR
@@ -57,30 +57,12 @@ COPPER_OFFSET = Shift(0.04, -0.03)
 
 def board_shapes(pcb: Board, machine: MachineConfig) -> list[Polygon]:
     """基板を BOARD_PLACEMENT に置いたときの、4 隅の基準円と TOP 銅箔を機械座標で返す."""
-    reference = machine.reference_point
-    width, height = pcb.outline.width, pcb.outline.height
-    corners = {
-        Corner.TOP_LEFT: Point2d(0.0, 0.0),
-        Corner.TOP_RIGHT: Point2d(width, 0.0),
-        Corner.BOTTOM_RIGHT: Point2d(width, height),
-        Corner.BOTTOM_LEFT: Point2d(0.0, height),
-    }
-    markers = [
-        BOARD_PLACEMENT.apply(corner + corner_offset(reference.offsets, name))
-        for name, corner in corners.items()
-    ]
-    copper = Compose([BOARD_PLACEMENT, COPPER_OFFSET])
-    return [
-        *(
-            Point(marker.x, marker.y).buffer(reference.target_diameter / 2, 32)
-            for marker in markers
-        ),
-        *(
-            transform_polygon(island.polygon, copper)
-            for island in pcb.copper
-            if island.layer == Layer.TOP
-        ),
-    ]
+    return board_scene(
+        pcb,
+        machine.reference_point,
+        BOARD_PLACEMENT,
+        Compose([BOARD_PLACEMENT, COPPER_OFFSET]),
+    )
 
 
 def scene_camera(

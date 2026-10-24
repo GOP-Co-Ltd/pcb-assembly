@@ -3,7 +3,7 @@
 単位は ``pcbasm.<名前>`` と ``web.<名前>``、それに下の層から import される ``_SUBUNITS``。単位の中の import と標準ライブラリはいつでもよい。
 pcbasm の単位は L0 の単位を常に import してよく、それより上は ``_RULES`` に挙げた単位だけを import してよい。
 L0 の葉（atomic、paths、validators）は標準ライブラリだけに依存する。
-web.ui と web.selfupdate が import してよい pcbasm は、葉のうち atomic と paths に限る。
+web.ui、web.selfupdate、web.dev が import してよい pcbasm は、葉のうち atomic と paths に限る。
 pcbnew を import してよいのは kicad だけ。web.contract と web.process は使う 3rd-party を限る。
 
 ``_ALLOWED_VIOLATIONS`` は、まだ残っている違反の一覧。後続の変更で 1 行ずつ消す。直した違反を一覧に残すとテストが落ちる。
@@ -41,7 +41,7 @@ _L0 = frozenset(
 )
 # 標準ライブラリだけに依存する L0 の葉
 _LEAVES = frozenset({"pcbasm.atomic", "pcbasm.paths", "pcbasm.validators"})
-# web.ui と web.selfupdate が import してよい pcbasm
+# web.ui、web.selfupdate、web.dev が import してよい pcbasm
 _WEB_LEAVES = frozenset({"pcbasm.atomic", "pcbasm.paths"})
 _ALIGN = frozenset(
     {"pcbasm.machine", "pcbasm.hal", "pcbasm.vision", "pcbasm.board", "pcbasm.config"}
@@ -65,6 +65,8 @@ _RULES: dict[str, frozenset[str]] = {
     "pcbasm.commissioning": frozenset({"pcbasm"}),
     "web.process": frozenset(),
     "web.contract": frozenset(),
+    # api と ui を子プロセスで起動するだけ
+    "web.dev": _WEB_LEAVES,
     "web.selfupdate": frozenset({"web.contract", "web.process"}) | _WEB_LEAVES,
     "web.api": frozenset({"pcbasm", "web.contract", "web.selfupdate", "web.process"}),
     "web.ui": frozenset({"web.contract", "web.selfupdate", "web.process"})

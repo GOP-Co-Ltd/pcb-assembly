@@ -5,17 +5,17 @@ Hardware Abstraction Layer: カメラ・Klipper（Moonraker 経由）・音声�
 
 ## 構成
 
-| モジュール           | 役割                                                                                                                                                                                    |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `klipper.py`         | Klipper の差し替え口 `KlipperClient`（Protocol）と Moonraker 実装 `MoonrakerKlipper`、生成口 `open_klipper`、Klipper が断ったときの `KlipperError`（`RuntimeError` 派生）               |
-| `stage.py`           | XYZ ステージ `XYZStage`（現在位置・可動域の取得、移動 G-code の生成と可動域検証）、`Speed` / `Limits`                                                                                   |
-| `manual_stepper.py`  | Klipper `manual_stepper` の G-code 生成 `ManualStepper`                                                                                                                                 |
-| `air_pump.py`        | エアポンプの ON/OFF G-code 生成 `AirPump`                                                                                                                                               |
-| `paste_dispenser.py` | オーガースクリュー式ディスペンサー `PasteDispenser`。μL を `rotations_per_ul` で回転数に換算し、`ManualStepper` と `AirPump` を束ねる                                                   |
-| `camera.py`          | カメラの抽象基底 `Camera` と生成関数 `create_camera`（backend `"usb"` = V4L2、`"csi"` = picamera2）                                                                                     |
-| `framehub.py`        | 専有スレッド 1 本で capture し、最新フレームを複数の消費者へ配る `FrameHub`                                                                                                             |
-| `audio.py`           | ALSA の通知音再生 `AlsaAudioPlayer`。音源は `sounds/` の WAV                                                                                                                            |
-| `fake.py`            | 実機の代わりの `FakeKlipper` / `FakeCamera` / `SceneCamera` / `FakeAudioPlayer`。テストと `make api-fake` が共用する。`SceneCamera` は `FakeKlipper` の位置から見える図形と塗布痕を描く |
+| モジュール           | 役割                                                                                                                                                                               |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `klipper.py`         | Klipper の差し替え口 `KlipperClient`（Protocol）と Moonraker 実装 `MoonrakerKlipper`、生成口 `open_klipper`、Klipper が断ったときの `KlipperError`（`RuntimeError` 派生）          |
+| `stage.py`           | XYZ ステージ `XYZStage`（現在位置・可動域の取得、移動 G-code の生成と可動域検証）、`Speed` / `Limits`                                                                              |
+| `manual_stepper.py`  | Klipper `manual_stepper` の G-code 生成 `ManualStepper`                                                                                                                            |
+| `air_pump.py`        | エアポンプの ON/OFF G-code 生成 `AirPump`                                                                                                                                          |
+| `paste_dispenser.py` | オーガースクリュー式ディスペンサー `PasteDispenser`。μL を `rotations_per_ul` で回転数に換算し、`ManualStepper` と `AirPump` を束ねる                                              |
+| `camera.py`          | カメラの抽象基底 `Camera` と生成関数 `create_camera`（backend `"usb"` = V4L2、`"csi"` = picamera2）                                                                                |
+| `framehub.py`        | 専有スレッド 1 本で capture し、最新フレームを複数の消費者へ配る `FrameHub`                                                                                                        |
+| `audio.py`           | ALSA の通知音再生 `AlsaAudioPlayer`。音源は `sounds/` の WAV                                                                                                                       |
+| `fake.py`            | 実機の代わりの `FakeKlipper` / `FakeCamera` / `SceneCamera` / `FakeAudioPlayer`。テストと `make dev` が共用する。`SceneCamera` は `FakeKlipper` の位置から見える図形と塗布痕を描く |
 
 公開名は `pcbasm.hal` から re-export している（`from pcbasm.hal import KlipperClient, XYZStage`）。
 

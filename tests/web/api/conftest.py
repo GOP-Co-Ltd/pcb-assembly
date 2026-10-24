@@ -59,7 +59,7 @@ def decode_jpeg(data: bytes) -> ImageArray | None:
 
 def _camera_settings(webui_settings: Settings, image: Path) -> Settings:
     """固定画像カメラ（FakeCamera）を有効化した Settings を作る."""
-    return attrs.evolve(webui_settings, fake_camera=True, fake_camera_image=image)
+    return attrs.evolve(webui_settings, fake_camera_image=image)
 
 
 def _lifespan_client(app: FastAPI) -> Iterator[TestClient]:

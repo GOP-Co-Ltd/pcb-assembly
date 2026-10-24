@@ -177,8 +177,10 @@ class TestAdvertiserWithUnbuildableServiceInfo:
 class TestMachineIdResolution:
     """`resolve_machine_id` — 広告と `/api/machine-info` が同じ ID を使う（D7）."""
 
-    def test_injected_hostname_wins(self):
-        assert resolve_machine_id(Settings(hostname="injected")) == "injected"
+    def test_injected_hostname_wins(self, tmp_path: Path):
+        settings = Settings(tmp_path, tmp_path, hostname="injected")
+
+        assert resolve_machine_id(settings) == "injected"
 
     def test_machine_info_and_advertisement_share_the_id(
         self, client: TestClient, webui_settings: Settings

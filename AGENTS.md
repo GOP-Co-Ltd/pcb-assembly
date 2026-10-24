@@ -77,9 +77,8 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 - `make test-e2e`: WebUI E2E
 - `make run`: format → test → type（test は実機テストを含む）
 - `make api` / `make api-dev`: backend WebAPI 起動（port 8081、dev は auto-reload）
-- `make api-fake`: fake カメラで backend 起動（隔離 data_dir/port、手動・ブラウザ E2E 用）
 - `make ui` / `make ui-dev`: UI frontend 起動（port 8080、dev は auto-reload）
-- `make ui-fake`: `api-fake`（8099）を上流にした frontend 起動（隔離ポート 8098）
+- `make dev`: Klipper もカメラも fake にした backend と frontend を同時に起動（隔離ポート 8099 / 8098 と一時ディレクトリ、手動・ブラウザ確認用）
 - `make migrate-codex`: Claude Bash 権限から Codex rules を再生成
 - `make migrate-codex-check`: Codex rules の同期確認
 

@@ -152,9 +152,15 @@ def build_machine_info(settings: Settings) -> MachineInfo:
     （プロキシ配下で必ず誤るため）。
     """
     machine_id = resolve_machine_id(settings)
+    # fake の機体は実機と同じ machine_id を名乗るので、実機の Mainsail へ導かない（空ならリンクを出さない）
+    mainsail_url = (
+        ""
+        if settings.fake
+        else settings.mainsail_url or _default_mainsail_url(machine_id)
+    )
     return MachineInfo(
         machine_id=machine_id,
-        mainsail_url=settings.mainsail_url or _default_mainsail_url(machine_id),
+        mainsail_url=mainsail_url,
         fb_start=_fb_start(settings),
         api_version=API_VERSION,
     )

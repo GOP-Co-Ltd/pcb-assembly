@@ -18,6 +18,7 @@ HAL はこのパッケージを import しない。
 - REST は `[klipper]` の接続先を呼ぶたびに読み、ジョブは開始時に読んだ接続先を渡す。接続先が変わればクライアントを作り直す（古いクライアントは実行中のジョブが使っていることがあるので閉じない）
 - printer.cfg は接続ごとに最初の 1 回だけ読む。ジョブの本体は 1 つの接続を使い回すので、途中で Mainsail から変えても同じ版で走り、次のジョブから新しい可動域が効く
 - 緊急停止は使い回すクライアントとは別のクライアントで送り、実行中の長い送信の後ろで待たない。送ったら閉じる
+- `open_devices(..., fake=True)` は Klipper を `FakeKlipper` に、カメラをその位置から `scene` の図形と塗布痕を描く `SceneCamera` にする（`PCBASM_FAKE=1` と `make dev`）。画素の大きさと解像度は校正ファイルから、ノズルの位置は machine.toml から取る
 - golden は `Devices(..., klipper=FakeKlipper(), camera=...)` を注入する。`open_klipper` は root conftest が塞いでいる。backend を組み立て経路ごと確かめるテストは、root conftest の `mount_klipper` / `moonraker` / `unreachable_klipper` で `open_klipper` の返り値を差し替える
 
 ## G-code ジャーナル
