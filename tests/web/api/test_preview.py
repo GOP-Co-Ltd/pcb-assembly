@@ -236,6 +236,29 @@ class TestOverlays:
 
         assert _count_dominant(frame, channel=2) > 100
 
+    @pytest.mark.parametrize(("tolerance_mm", "drawn"), [(0.5, False), (1.0, True)])
+    def test_circle_overlay_uses_the_job_tolerance(
+        self,
+        service: PreviewService,
+        machine_config: MachineConfigFile,
+        tolerance_mm: float,
+        drawn: bool,
+    ):
+        # 固定画像の円は直径 3.0 mm。マーカーを 3.8 mm とし、ジョブと同じ許容幅で判定させる
+        machine_config.write(
+            {
+                "reference_point.target_diameter": 3.8,
+                "reference_point.diameter_tolerance_mm": tolerance_mm,
+            }
+        )
+        stream = service.mjpeg_stream("circle")
+        try:
+            frame = _decoded_frame(next(stream))
+        finally:
+            stream.close()
+
+        assert (_count_dominant(frame, channel=2) > 100) is drawn
+
 
 class _ManualClock:
     """テストが明示的に進める単調クロック（実時間 sleep への依存を排除する）."""

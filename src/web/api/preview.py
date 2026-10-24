@@ -21,6 +21,7 @@ from pcbasm.vision import (
     ImageArray,
     draw_detected_circle,
     draw_overlay,
+    reference_marker_detector,
 )
 from web.api.state import AppState
 
@@ -304,10 +305,12 @@ class PreviewService:
             camera_model = CameraModel.load(machine.camera.calibration_file)
         except Exception:
             return lambda image: _uncalibrated(image, crop_size)
-        detector = CircleDetector(
-            pixel_per_mm=camera_model.pixel_per_mm,
-            target_diameter_mm=machine.reference_point.target_diameter,
-            crop_size=crop_size,
+        ref_config = machine.reference_point
+        detector = reference_marker_detector(
+            camera_model,
+            crop_size,
+            target_diameter_mm=ref_config.target_diameter,
+            diameter_tolerance_mm=ref_config.diameter_tolerance_mm,
         )
         return _CircleRenderer(detector, camera_model, crop_size, detect_interval)
 

@@ -35,6 +35,7 @@ from pcbasm.vision import (
     Image,
     draw_detected_circle,
     draw_overlay,
+    reference_marker_detector,
 )
 from web.api.jobs.board_ops import align_regions, confirm_next_point, setup_board
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
@@ -157,11 +158,12 @@ def _run_reference_point_setup(ctx: JobContext) -> JobResult:
         camera_model = CameraModel.load(cam_config.calibration_file)
     except Exception as exc:
         raise RuntimeError(f"カメラキャリブレーションが読み込めません: {exc}") from exc
-    detector = CircleDetector(
-        pixel_per_mm=camera_model.pixel_per_mm,
-        target_diameter_mm=machine.reference_point.target_diameter,
-        crop_size=cam_config.crop.size,
-        diameter_tolerance_mm=0.5,
+    ref_config = machine.reference_point
+    detector = reference_marker_detector(
+        camera_model,
+        cam_config.crop.size,
+        target_diameter_mm=ref_config.target_diameter,
+        diameter_tolerance_mm=ref_config.diameter_tolerance_mm,
     )
 
     ctx.progress("ホーミング")

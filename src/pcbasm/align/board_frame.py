@@ -28,8 +28,8 @@ from pcbasm.geometry import (
 from pcbasm.hal import Camera, KlipperClient, Speed, XYZStage
 from pcbasm.vision import (
     CameraModel,
-    CircleDetector,
     FrameSink,
+    reference_marker_detector,
     safe_move_distance,
 )
 
@@ -297,11 +297,11 @@ def measure_board_frame(
 
     # 円検出器初期化
     ref_config = machine.reference_point
-    detector = CircleDetector(
-        pixel_per_mm=camera_model.pixel_per_mm,
+    detector = reference_marker_detector(
+        camera_model,
+        cam_config.crop.size,
         target_diameter_mm=ref_config.target_diameter,
-        crop_size=cam_config.crop.size,
-        diameter_tolerance_mm=0.5,
+        diameter_tolerance_mm=ref_config.diameter_tolerance_mm,
     )
 
     # ホーミング

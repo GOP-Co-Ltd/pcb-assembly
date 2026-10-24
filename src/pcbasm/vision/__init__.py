@@ -11,6 +11,7 @@ from .detection import (
 )
 from .dot import DotDetectionSpec
 from .image import FrameSink, Image, ImageArray, PixelRect, safe_move_distance
+from .marker import reference_marker_detector
 from .overlay import draw_crosshair, draw_detected_circle, draw_overlay
 
 __all__ = [
@@ -33,6 +34,7 @@ __all__ = [
     "draw_detected_circle",
     "draw_overlay",
     "load_focus_z",
+    "reference_marker_detector",
     "safe_move_distance",
     "validate_paste_diameters",
 ]

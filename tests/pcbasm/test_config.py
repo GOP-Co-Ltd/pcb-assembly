@@ -43,6 +43,14 @@ def _write_with(tmp_path: Path, extra: str = "", **replace: str) -> Path:
     return path
 
 
+def _with_marker_tolerance(tmp_path: Path, tolerance: float) -> Path:
+    """検証用 machine.toml の [reference_point] に diameter_tolerance_mm を足して書く."""
+    target = "target_diameter = 3.0\n"
+    return _write_with(
+        tmp_path, **{target: f"{target}diameter_tolerance_mm = {tolerance}\n"}
+    )
+
+
 def _machine_with(tmp_path: Path, extra: str) -> MachineConfig:
     """検証用 machine.toml の末尾に ``extra`` を足した MachineConfig を作る."""
     return load_machine(_write_with(tmp_path, extra))
@@ -140,6 +148,23 @@ class TestMachine:
         path = _write_with(tmp_path, **{"bottom_right = [5.0, 5.0]\n": ""})
 
         with pytest.raises(ConfigError, match="reference_point.offsets"):
+            load_machine(path)
+
+    def test_reference_marker_tolerance_defaults_to_half_a_millimetre(self):
+        machine = load_machine(TESTING_DATA_DIR / "machine.toml")
+
+        assert machine.reference_point.diameter_tolerance_mm == pytest.approx(0.5)
+
+    def test_reads_reference_marker_tolerance(self, tmp_path):
+        path = _with_marker_tolerance(tmp_path, 0.8)
+
+        assert load_machine(path).reference_point.diameter_tolerance_mm == 0.8
+
+    @pytest.mark.parametrize("tolerance", [0.0, -0.5])
+    def test_rejects_non_positive_reference_marker_tolerance(self, tmp_path, tolerance):
+        path = _with_marker_tolerance(tmp_path, tolerance)
+
+        with pytest.raises(ConfigError, match="diameter_tolerance_mm"):
             load_machine(path)
 
     def test_alignment_defaults_when_section_absent(self):
