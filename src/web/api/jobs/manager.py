@@ -24,9 +24,8 @@ from pcbasm.config import MachineConfig
 from pcbasm.config.audio import AudioConfig
 from pcbasm.hal import AudioPlayer, FrameHub
 from pcbasm.hal.audio import Sound
-from pcbasm.hal.klipper import PRESENT_TIMEOUT
 from pcbasm.machine.journal import Journal
-from pcbasm.parking import park_or_present
+from pcbasm.parking import PRESENT_TIMEOUT, park_or_present
 from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.validators import is_finite_number
 from pcbasm.vision import Image
@@ -780,7 +779,8 @@ class JobManager:
         """ジョブ終了時にノズルキャップ駐機（フォールバックは PRESENT / M84）を行う（失敗は log のみ）。"""
         try:
             klipper = hal.open_klipper(
-                context.machine.klipper,
+                context.machine.klipper.host,
+                context.machine.klipper.port,
                 timeout=PRESENT_TIMEOUT,
                 journal=context.journal,
             )

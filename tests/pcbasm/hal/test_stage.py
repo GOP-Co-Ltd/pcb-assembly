@@ -3,7 +3,7 @@ from pytest_mock import MockerFixture
 
 from pcbasm.geometry import Path, Point3d
 from pcbasm.hal import Speed
-from pcbasm.hal.klipper import Klipper
+from pcbasm.hal.klipper import MoonrakerKlipper as Klipper
 from pcbasm.hal.stage import Limits, ScalarLimits, XYZStage
 
 
@@ -14,7 +14,7 @@ class TestXYZStage:
     def mock_stage(self, mocker: MockerFixture) -> XYZStage:
         klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(
-            klipper.readonly,
+            klipper,
             "get_config",
             return_value={
                 "stepper_x": {"position_min": "0", "position_max": "100"},
@@ -23,7 +23,7 @@ class TestXYZStage:
                 "printer": {"max_velocity": "300"},
             },
         )
-        return XYZStage(klipper.readonly)
+        return XYZStage(klipper)
 
     def test_max_velocity(self, mock_stage: XYZStage):
         assert mock_stage.max_velocity == 300.0
@@ -31,11 +31,11 @@ class TestXYZStage:
     def test_limits_missing_stepper_section(self, mocker: MockerFixture):
         klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(
-            klipper.readonly,
+            klipper,
             "get_config",
             return_value={"printer": {"max_velocity": "300"}},
         )
-        stage = XYZStage(klipper.readonly)
+        stage = XYZStage(klipper)
 
         with pytest.raises(KeyError, match=r"printer\.cfgに\[stepper_x\]セクション"):
             _ = stage.limits
@@ -43,7 +43,7 @@ class TestXYZStage:
     def test_limits_missing_position_keys(self, mocker: MockerFixture):
         klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(
-            klipper.readonly,
+            klipper,
             "get_config",
             return_value={
                 "stepper_x": {"step_pin": "PC0"},
@@ -53,14 +53,14 @@ class TestXYZStage:
             },
         )
 
-        stage = XYZStage(klipper.readonly)
+        stage = XYZStage(klipper)
         with pytest.raises(KeyError, match=r"position_minとposition_max"):
             _ = stage.limits
 
     def test_limits_missing_printer_section(self, mocker: MockerFixture):
         klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(
-            klipper.readonly,
+            klipper,
             "get_config",
             return_value={
                 "stepper_x": {"position_min": "0", "position_max": "100"},
@@ -69,14 +69,14 @@ class TestXYZStage:
             },
         )
 
-        stage = XYZStage(klipper.readonly)
+        stage = XYZStage(klipper)
         with pytest.raises(KeyError, match=r"printer\.cfgに\[printer\]セクション"):
             _ = stage.limits
 
     def test_limits_missing_max_velocity(self, mocker: MockerFixture):
         klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(
-            klipper.readonly,
+            klipper,
             "get_config",
             return_value={
                 "stepper_x": {"position_min": "0", "position_max": "100"},
@@ -86,7 +86,7 @@ class TestXYZStage:
             },
         )
 
-        stage = XYZStage(klipper.readonly)
+        stage = XYZStage(klipper)
         with pytest.raises(KeyError, match=r"max_velocity"):
             _ = stage.limits
 
@@ -116,7 +116,7 @@ class TestXYZStage:
         # get_status("gcode_move","gcode_position") の [0:3] を読むため列を返す。
         klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(
-            klipper.readonly,
+            klipper,
             "get_config",
             return_value={
                 "stepper_x": {"position_min": "0", "position_max": "100"},
@@ -126,11 +126,11 @@ class TestXYZStage:
             },
         )
         mocker.patch.object(
-            klipper.readonly,
+            klipper,
             "get_status",
             return_value=[10.0, 10.0, 10.0, 0.0],
         )
-        return XYZStage(klipper.readonly)
+        return XYZStage(klipper)
 
     def test_move_emits_single_g1_for_absolute_point(self, mock_stage: XYZStage):
         # 全座標指定なので現在位置の解決は不要。

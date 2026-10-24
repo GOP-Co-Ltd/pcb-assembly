@@ -25,7 +25,7 @@ from pcbasm.config import MachineConfig
 from pcbasm.config.dispenser import NozzleCleanConfig
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Path, Point3d
-from pcbasm.hal import Klipper, Speed, XYZStage
+from pcbasm.hal import KlipperClient, Speed, XYZStage
 from pcbasm.pasting.applicator import PasteApplicator
 
 logger = logging.getLogger(__name__)
@@ -185,7 +185,7 @@ def clean_position_label(position: Point3d) -> str:
 
 
 def clean_nozzle(
-    klipper: Klipper,
+    klipper: KlipperClient,
     applicator: PasteApplicator,
     plan: NozzleCleanPlan,
     *,

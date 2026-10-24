@@ -55,12 +55,12 @@ def unreachable_klipper(monkeypatch: pytest.MonkeyPatch) -> None:
 
     設定の接続先は使わないので、設定が実機を指していても届かない。
     """
-    from pcbasm.hal import Klipper
+    from pcbasm.hal import MoonrakerKlipper
 
     # localhost でなく 127.0.0.1 なのは、IPv6 を試す分だけ失敗が遅れるため
     monkeypatch.setattr(
         "pcbasm.hal.open_klipper",
-        lambda config, *, timeout=None, journal=None: Klipper(
+        lambda host, port, *, timeout=None, journal=None: MoonrakerKlipper(
             "127.0.0.1", 7126, timeout=timeout, journal=journal
         ),
     )
@@ -73,7 +73,7 @@ def mount_klipper(monkeypatch: pytest.MonkeyPatch) -> Callable[[FakeKlipper], No
     def mount(klipper: FakeKlipper) -> None:
         monkeypatch.setattr(
             "pcbasm.hal.open_klipper",
-            lambda config, *, timeout=None, journal=None: klipper.connection(
+            lambda host, port, *, timeout=None, journal=None: klipper.connection(
                 timeout=timeout
             ),
         )

@@ -1,7 +1,7 @@
 """PROBE コマンドを実行するクラス."""
 
 from pcbasm.gcode import GCode
-from pcbasm.hal import Klipper, XYZStage
+from pcbasm.hal import KlipperClient, XYZStage
 
 
 class ProbeExecutor:
@@ -13,7 +13,7 @@ class ProbeExecutor:
 
     def __init__(
         self,
-        klipper: Klipper,
+        klipper: KlipperClient,
         stage: XYZStage,
         *,
         lift_height: float = 1.0,
@@ -30,7 +30,7 @@ class ProbeExecutor:
         Raises:
             RuntimeError: printer.cfg に [load_cell_probe] セクションがない場合
         """
-        config = klipper.readonly.get_config()
+        config = klipper.get_config()
         if "load_cell_probe" not in config:
             raise RuntimeError(
                 "printer.cfgに[load_cell_probe]セクションを追加してください"
@@ -51,7 +51,7 @@ class ProbeExecutor:
         self._klipper.send_gcode(
             GCode("PROBE") + GCode.wait(self._settle_sec) + GCode.wait_for_done()
         )
-        z = float(self._klipper.readonly.get_status("probe", "last_z_result"))
+        z = float(self._klipper.get_status("probe", "last_z_result"))
         self._klipper.send_gcode(
             self._stage.move(z=z + self._lift_height) + GCode.wait_for_done()
         )

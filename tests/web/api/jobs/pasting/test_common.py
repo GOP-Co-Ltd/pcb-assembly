@@ -211,7 +211,7 @@ class TestLoadingLoopNotification:
         player = FakeAudioPlayer()
         manager = make_manager(catalog, audio_player=player)
         klipper = FakeKlipper()
-        stage = XYZStage(klipper.readonly)
+        stage = XYZStage(klipper)
         totals: list[LoadingTotals] = []
 
         def run(ctx: JobContext) -> None:

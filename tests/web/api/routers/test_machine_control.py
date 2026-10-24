@@ -25,6 +25,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from pcbasm.hal.fake import FakeKlipper
 from web.api.settings import Settings
 from web.api.state import AppState
 
@@ -59,6 +60,20 @@ class TestMachineControlValidation:
         response = client.post("/api/machine-control", json={"action": "focus_z"})
 
         assert response.status_code == 400
+
+
+class TestKlipperErrors:
+    """Klipper へ届かない・断られた操作は 502 で理由を返す."""
+
+    def test_refused_send_returns_502_with_moonraker_reason(
+        self, client: TestClient, machine_klipper: FakeKlipper
+    ):
+        machine_klipper.fail_on(lambda gcode: True)
+
+        response = client.post("/api/machine-control", json={"action": "relax"})
+
+        assert response.status_code == 502
+        assert response.json() == {"detail": "Bad Request"}
 
 
 @pytest.mark.usefixtures("unreachable_klipper")

@@ -1,33 +1,24 @@
-"""Moonraker 経由で Klipper と通信するクライアント.
+"""Klipper との通信口.
 
 HAL の他のクラス（``XYZStage`` / ``ManualStepper`` / ``AirPump`` /
 ``PasteDispenser``）は G-code を生成するだけで送信しない。
-生成した G-code を装置へ送るのは :meth:`Klipper.send_gcode` だけである。
+生成した G-code を装置へ送るのは :meth:`KlipperClient.send_gcode` だけである。
+実装は Moonraker へ送る :class:`MoonrakerKlipper` と、``pcbasm.hal.fake.FakeKlipper`` の 2 つに限る。
 """
 
 from __future__ import annotations
 
 import functools
-import logging
-from collections.abc import Callable
 from typing import Any, Protocol
 
-import attrs
 import httpx
 
-from pcbasm.config.klipper import KlipperConfig
-from pcbasm.gcode import PRESENT_MACRO, GCode, GCodeLike
-
-logger = logging.getLogger(__name__)
-
-PRESENT_TIMEOUT = 30.0
+from pcbasm.errors import DeviceError
+from pcbasm.gcode import GCode, GCodeLike
 
 
-@attrs.frozen
-class GCodeMacro:
-    """Klipper マクロ情報を保持するクラス."""
-
-    gcode: GCode
+class KlipperError(DeviceError):
+    """Klipper が要求を断った（Moonraker の HTTP 400 以上。G-code エラー・Klipper 停止中など）."""
 
 
 class GCodeJournal(Protocol):
@@ -36,11 +27,50 @@ class GCodeJournal(Protocol):
     def write(self, gcode: GCode, timeout: float | None) -> None: ...
 
 
-class Klipper:
-    """Moonraker REST API のシンプルなラッパー.
+class KlipperClient(Protocol):
+    """Klipper への G-code 送信と、状態・printer.cfg の読み取り."""
+
+    def send_gcode(
+        self, gcode: GCodeLike, *, timeout: float | None = None
+    ) -> dict[str, Any]:
+        """G-code を送信し、Klipper がスクリプトを処理し終えるまで待つ.
+
+        処理済みでも移動が物理的に終わったとは限らない。
+        到達を待つときは末尾に ``GCode.wait_for_done()``（M400）を付ける。
+
+        Args:
+            gcode: 送信する G-code
+            timeout: この送信だけに適用するタイムアウト秒数（None は接続の既定値）
+
+        Raises:
+            KlipperError: Klipper が送信を断った場合
+        """
+        ...
+
+    def get_status(self, object: str, attribute: str) -> Any:
+        """オブジェクト（gcode_move, toolhead 等）の属性値を返す."""
+        ...
+
+    def get_config(self) -> dict[str, dict[str, Any]]:
+        """printer.cfg の内容（セクション名 → キーと値）を返す."""
+        ...
+
+    def emergency_stop(self) -> None:
+        """緊急停止を実行する.
+
+        Raises:
+            KlipperError: Klipper が要求を断った場合
+        """
+        ...
+
+
+class MoonrakerKlipper:
+    """Moonraker REST API で Klipper と通信する :class:`KlipperClient`.
+
+    接続できない・タイムアウトした場合は httpx.HTTPError を包まずに送出する。
 
     Example:
-        klipper = hal.open_klipper(machine.klipper)
+        klipper = hal.open_klipper(machine.klipper.host, machine.klipper.port)
         klipper.send_gcode(GCode.homing(x=True, y=True, z=True) + GCode.wait_for_done())
         position = klipper.get_status("gcode_move", "gcode_position")
     """
@@ -51,51 +81,36 @@ class Klipper:
         port: int,
         timeout: float | None = None,
         journal: GCodeJournal | None = None,
+        transport: httpx.BaseTransport | None = None,
     ) -> None:
-        """Klipper クライアントを初期化する.
+        """Moonraker への接続を用意する（ここでは通信しない）.
 
         Args:
             host: Moonraker サーバーのホスト IP アドレス
             port: Moonraker サーバーのポート番号
             timeout: HTTP リクエストのタイムアウト秒数（None は無制限）
             journal: 送信ブロックを書くジャーナル（None は書かない）
+            transport: HTTP の送り先（None は実ネットワーク。テストは httpx.MockTransport を渡す）
         """
         self._base_url = f"http://{host}:{port}"
         self._timeout = timeout
         self._journal = journal
-        self._client = httpx.Client(timeout=timeout)
-        self._readonly = ReadonlyKlipper(self)
+        self._client = httpx.Client(timeout=timeout, transport=transport)
 
     def __del__(self) -> None:
         """破棄時に httpx クライアントを閉じる."""
         if hasattr(self, "_client"):
             self._client.close()
 
-    @property
-    def readonly(self) -> ReadonlyKlipper:
-        """G-code を送れない読み取り専用ビュー（HAL クラスの初期化に渡す）."""
-        return self._readonly
-
     def send_gcode(
         self, gcode: GCodeLike, *, timeout: float | None = None
     ) -> dict[str, Any]:
         """G-code を送信し、Klipper がスクリプトを処理し終えるまで待つ.
 
-        処理済みでも移動が物理的に終わったとは限らない。
-        到達を待つときは末尾に ``GCode.wait_for_done()``（M400）を付ける。
         ジャーナルには送る前に書くので、届かなかった送信も残る。
-
-        Args:
-            gcode: 送信する G-code コマンド（文字列、Iterable、または GCode オブジェクト）
-            timeout: この送信だけに適用する HTTP リクエストタイムアウト秒数
 
         Returns:
             Moonraker からの応答
-
-        Raises:
-            RuntimeError: Moonraker が HTTP 400 以上を返した場合
-                （G-code エラー・Klipper 停止中など）
-            httpx.HTTPError: 接続できない・タイムアウトした場合（包まずに送出する）
         """
         script = GCode(gcode)
         if self._journal is not None:
@@ -106,23 +121,11 @@ class Klipper:
             response = self._client.post(url, params=params)
         else:
             response = self._client.post(url, params=params, timeout=timeout)
-        if response.status_code >= 400:
-            raise RuntimeError(response.reason_phrase)
+        _raise_for_klipper(response)
         return response.json()
 
     def get_status(self, object: str, attribute: str) -> Any:
-        """指定したオブジェクトの属性値を取得する.
-
-        Args:
-            object: オブジェクト名（gcode_move, toolhead 等）
-            attribute: 属性名（gcode_position, homed_axes 等）
-
-        Returns:
-            属性の値
-
-        Raises:
-            httpx.HTTPError: 接続失敗、または HTTP エラー応答の場合
-        """
+        """オブジェクトの属性値を返す（HTTP エラー応答も httpx.HTTPError で送出する）."""
         response = self._client.get(
             f"{self._base_url}/printer/objects/query",
             params={object: attribute},
@@ -133,13 +136,9 @@ class Klipper:
 
     @functools.cache
     def get_config(self) -> dict[str, dict[str, Any]]:
-        """プリンター設定（printer.cfg の内容）を取得する.
+        """printer.cfg の内容を返す.
 
-        結果はインスタンスごとにキャッシュする。
-        printer.cfg を変更した後に読み直すには、Klipper を作り直す。
-
-        Returns:
-            プリンターの設定辞書
+        読み直すにはクライアントを作り直す（結果はインスタンスごとにキャッシュする）。
         """
         response = self._client.get(
             f"{self._base_url}/printer/objects/query",
@@ -149,100 +148,33 @@ class Klipper:
         result = response.json()["result"]
         return result["status"]["configfile"]["config"]
 
-    @functools.cache
-    def get_macros(self) -> dict[str, GCodeMacro]:
-        """使用可能なマクロをすべて取得する.
-
-        Returns:
-            マクロ名をキー、GCodeMacro オブジェクトを値とする辞書
-        """
-        config = self.get_config()
-        macros: dict[str, GCodeMacro] = {}
-        for key, value in config.items():
-            if key.startswith("gcode_macro "):
-                macro_name = key.removeprefix("gcode_macro ")
-                macros[macro_name] = GCodeMacro(GCode(value.get("gcode", "")))
-        return macros
-
     def emergency_stop(self) -> None:
-        """緊急停止を実行する.
-
-        Raises:
-            RuntimeError: 緊急停止の実行に失敗した場合
-        """
+        """緊急停止を実行する."""
         response = self._client.post(f"{self._base_url}/printer/emergency_stop")
-        if response.status_code >= 400:
-            raise RuntimeError(response.reason_phrase)
+        _raise_for_klipper(response)
 
-    def firmware_restart(self) -> None:
-        """ファームウェア再起動を実行する."""
-        self.send_gcode(GCode.firmware_restart())
 
-    def has_macro(self, name: str) -> bool:
-        """指定した名前のマクロが存在するか確認する.
-
-        Args:
-            name: マクロ名
-
-        Returns:
-            マクロが存在すれば True、なければ False
-        """
-        return name in self.get_macros()
-
-    def send_present_or_relax(
-        self,
-        *,
-        warn: Callable[[str], None] | None = None,
-        timeout: float = PRESENT_TIMEOUT,
-    ) -> None:
-        """PRESENT マクロがあれば実行し、無ければ警告して M84 にフォールバックする."""
-        warning = warn if warn is not None else logger.warning
-        try:
-            has_present = self.has_macro(PRESENT_MACRO)
-        except Exception as exc:
-            warning(
-                f"{PRESENT_MACRO} マクロ確認に失敗しました: {exc}。"
-                "relax (M84) にフォールバックします"
-            )
-        else:
-            if has_present:
-                self.send_gcode(GCode.present(), timeout=timeout)
-                return
-            warning(
-                f"{PRESENT_MACRO} マクロが見つかりません。"
-                "relax (M84) にフォールバックします"
-            )
-
-        self.send_gcode(GCode.relax(), timeout=timeout)
+def _raise_for_klipper(response: httpx.Response) -> None:
+    if response.status_code >= 400:
+        raise KlipperError(response.reason_phrase)
 
 
 def open_klipper(
-    config: KlipperConfig,
+    host: str,
+    port: int,
     *,
     timeout: float | None = None,
     journal: GCodeJournal | None = None,
-) -> Klipper:
-    """設定の接続先へ Klipper クライアントを作る.
+) -> KlipperClient:
+    """Moonraker の接続先へ Klipper クライアントを作る.
 
     Klipper を作る唯一の口で、テストはこれを差し替えて実機への接続を断つ。
     呼び出し側は ``hal.open_klipper`` とモジュール経由で呼ぶ。
 
     Args:
-        config: 接続先の設定
+        host: Moonraker サーバーのホスト
+        port: Moonraker サーバーのポート番号
         timeout: HTTP リクエストのタイムアウト秒数（None は無制限）
         journal: 送信ブロックを書くジャーナル（None は書かない）
     """
-    return Klipper(config.host, config.port, timeout=timeout, journal=journal)
-
-
-class ReadonlyKlipper:
-    """状態と設定の読み取りだけを公開する Klipper のビュー.
-
-    ``send_gcode`` を持たないので、これを受け取った HAL クラスは装置を動かせない。
-    """
-
-    def __init__(self, klipper: Klipper) -> None:
-        self.get_status = klipper.get_status
-        self.get_config = klipper.get_config
-        self.get_macros = klipper.get_macros
-        self.has_macro = klipper.has_macro
+    return MoonrakerKlipper(host, port, timeout=timeout, journal=journal)

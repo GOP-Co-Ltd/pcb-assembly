@@ -4,7 +4,7 @@ import attrs
 
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d, Shift, Transform
-from pcbasm.hal import Camera, Klipper, Speed, XYZStage
+from pcbasm.hal import Camera, KlipperClient, Speed, XYZStage
 from pcbasm.posctrl.copper import CopperEdgeMatcher, CopperProjector, EdgeMatch
 from pcbasm.posctrl.correction import to_machine_transform
 from pcbasm.posctrl.region import AlignmentRegion
@@ -38,7 +38,7 @@ class RegionAligner:
         self,
         *,
         camera: Camera,
-        klipper: Klipper,
+        klipper: KlipperClient,
         stage: XYZStage,
         projector: CopperProjector,
         matcher: CopperEdgeMatcher,

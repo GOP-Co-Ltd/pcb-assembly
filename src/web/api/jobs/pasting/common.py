@@ -12,7 +12,7 @@ from typing import Any
 import attrs
 
 from pcbasm.board import Pad
-from pcbasm.hal import Klipper, XYZStage
+from pcbasm.hal import KlipperClient, XYZStage
 from pcbasm.pasting.alignment import (
     PadRefinement,
     PasteCorrection,
@@ -161,7 +161,7 @@ def drain_commands(ctx: JobContext) -> int:
 
 def run_loading_loop(
     ctx: JobContext,
-    klipper: Klipper,
+    klipper: KlipperClient,
     stage: XYZStage,
     applicator: PasteApplicator,
     *,

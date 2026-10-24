@@ -87,7 +87,7 @@ def register(catalog: JobCatalog) -> None:
 def _run_loading(ctx: JobContext) -> JobResult:
     """全軸 homing と任意位置への移動後、command 駆動ローディングを実行する."""
     klipper = create_command_klipper(ctx)
-    stage = XYZStage(klipper.readonly)
+    stage = XYZStage(klipper)
 
     target = {
         axis: float(value)

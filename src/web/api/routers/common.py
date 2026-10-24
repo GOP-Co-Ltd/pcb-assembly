@@ -5,16 +5,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from contextlib import contextmanager
-
 import attrs
 import httpx
-from fastapi import HTTPException
 
 from pcbasm import hal
 from pcbasm.geometry import Point3d
-from pcbasm.hal import Klipper
+from pcbasm.hal import KlipperClient
 from pcbasm.pasting.nozzle_clean import clean_position_label
 from pcbasm.vision import load_focus_z
 from web.api.control import ClientIdentity, LeaseInfo
@@ -40,12 +36,15 @@ from web.contract.models import (
 # --------------------------------------------------------------------------- #
 
 
-def create_klipper(state: AppState, timeout: float) -> Klipper:
+def create_klipper(state: AppState, timeout: float) -> KlipperClient:
     """[klipper] 節だけで Klipper クライアントを生成する（degraded でも緊急停止を送れる）."""
-    return hal.open_klipper(state.klipper(), timeout=timeout, journal=state.journal())
+    config = state.klipper()
+    return hal.open_klipper(
+        config.host, config.port, timeout=timeout, journal=state.journal()
+    )
 
 
-def fetch_status(klipper: Klipper) -> KlipperStatus:
+def fetch_status(klipper: KlipperClient) -> KlipperStatus:
     """Klipper から位置と homed_axes を取得する。失敗時は connected=False."""
     try:
         position = klipper.get_status("gcode_move", "gcode_position")
@@ -57,21 +56,6 @@ def fetch_status(klipper: Klipper) -> KlipperStatus:
         position=Position(x=position[0], y=position[1], z=position[2]),
         homed_axes=homed_axes,
     )
-
-
-@contextmanager
-def klipper_errors_to_502() -> Iterator[None]:
-    """Klipper 通信エラーを HTTP 502 へ変換する.
-
-    Raises:
-        HTTPException: httpx.HTTPError / RuntimeError / KeyError の場合（502）
-    """
-    try:
-        yield
-    except (httpx.HTTPError, RuntimeError, KeyError) as exc:
-        raise HTTPException(
-            status_code=502, detail=str(exc) or type(exc).__name__
-        ) from exc
 
 
 # --------------------------------------------------------------------------- #

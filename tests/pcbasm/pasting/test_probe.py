@@ -12,15 +12,14 @@ import pytest
 from pytest_mock import MockerFixture
 
 from pcbasm.gcode import GCode
-from pcbasm.hal.klipper import Klipper
+from pcbasm.hal.klipper import MoonrakerKlipper as Klipper
 from pcbasm.pasting.probe import ProbeExecutor
 
 
 def _patch_config(mocker: MockerFixture, klipper: Klipper, config: dict) -> None:
-    """get_config を Klipper 本体と readonly の両面で差し替える."""
+    """get_config を差し替える."""
     get_config = mocker.Mock(return_value=config)
     mocker.patch.object(klipper, "get_config", get_config)
-    mocker.patch.object(klipper.readonly, "get_config", get_config)
 
 
 class TestProbeExecutor:
@@ -32,7 +31,6 @@ class TestProbeExecutor:
         _patch_config(mocker, klipper, {"load_cell_probe": {}})
         get_status = mocker.Mock(return_value=-2.0)
         mocker.patch.object(klipper, "get_status", get_status)
-        mocker.patch.object(klipper.readonly, "get_status", get_status)
         mocker.patch.object(klipper, "send_gcode", mocker.Mock(return_value={}))
         return klipper
 

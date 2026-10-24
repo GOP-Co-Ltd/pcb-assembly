@@ -161,7 +161,7 @@ def _result(
     return BoardCalibrationResult(
         machine=machine,
         klipper=klipper,
-        stage=XYZStage(klipper.readonly),
+        stage=XYZStage(klipper),
         camera=FakeCamera([blank]),
         calibration=CalibrationResult(
             pixel_per_mm=20.0,
@@ -276,9 +276,9 @@ class TestFillPathFallback:
 class TestFillSequence:
     def test_variants(self, klipper: FakeKlipper, machine: MachineConfig):
         """移動律速・吐出レート律速・点とプライム後の追加遅延・微小線を 1 本ずつ送る."""
-        stage = XYZStage(klipper.readonly)
+        stage = XYZStage(klipper)
         dispenser = hal.PasteDispenser(
-            klipper=klipper.readonly,
+            klipper=klipper,
             rotations_per_ul=machine.paste_dispenser.rotations_per_ul,
         )
         motion = machine.paste_dispenser.motion
@@ -327,7 +327,7 @@ class TestInitialPurge:
 class TestNozzleClean:
     def test_prime_clean_retract(self, klipper: FakeKlipper, machine: MachineConfig):
         """パージが写らなかったときのクリーニング（prime → パージとこすり → retract）."""
-        stage = XYZStage(klipper.readonly)
+        stage = XYZStage(klipper)
         plan = resolve_nozzle_clean(machine, stage)
         assert plan is not None
 
@@ -347,7 +347,7 @@ class TestNozzleClean:
         path.write_text(text.replace("x = 120.0", "x = 299.0"), encoding="utf-8")
 
         with pytest.raises(ValueError, match="可動域外"):
-            resolve_nozzle_clean(load_machine(path), XYZStage(klipper.readonly))
+            resolve_nozzle_clean(load_machine(path), XYZStage(klipper))
 
         assert klipper.sent == ()
 
@@ -388,7 +388,7 @@ class TestLoading:
         self, klipper: FakeKlipper, machine: MachineConfig
     ):
         """ローディング画面の押出・吸引・回転（引き戻し付き）."""
-        stage = XYZStage(klipper.readonly)
+        stage = XYZStage(klipper)
 
         with build_applicator(klipper, stage, machine.paste_dispenser) as applicator:
             applicator.load(LOADING_DEFAULT_AMOUNT)
@@ -608,7 +608,7 @@ class TestMachineCommands:
 
         def run(ctx: JobContext) -> None:
             klipper = create_command_klipper(ctx)
-            stage = XYZStage(klipper.readonly)
+            stage = XYZStage(klipper)
             assert handle_machine_command(ctx, klipper, stage, command, focus_z=FOCUS_Z)
 
         catalog.register(

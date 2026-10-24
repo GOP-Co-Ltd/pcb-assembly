@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import copy
-import functools
 import math
 import threading
 import time
@@ -27,7 +26,7 @@ from pcbasm.vision.image import Image, ImageArray
 
 from .audio import AudioDevice, AudioPlayer, Sound
 from .camera import Camera, CameraInfo, Resolution
-from .klipper import Klipper, ReadonlyKlipper
+from .klipper import KlipperError
 
 # FakeKlipper が既定で返す printer.cfg。XYZStage / PasteDispenser / ProbeExecutor が読むセクションだけを持つ
 FAKE_PRINTER_CONFIG: dict[str, dict[str, Any]] = {
@@ -71,11 +70,11 @@ class StepperMove:
     distance: float
 
 
-class FakeKlipper(Klipper):
-    """送信を記録し、位置と押出量を追う Klipper の fake.
+class FakeKlipper:
+    """送信を記録し、位置と押出量を追う ``KlipperClient``.
 
     Moonraker には接続しない。
-    ``readonly`` も本物と同じ形で持つので、実 ``XYZStage`` / ``PasteDispenser`` をそのまま組み合わせられる。
+    実 ``XYZStage`` / ``PasteDispenser`` をそのまま組み合わせられる。
     位置は G28、G90 / G91 下の G0 / G1 で、manual_stepper の位置と押出量は ``MANUAL_STEPPER`` の ``SET_POSITION`` / ``MOVE`` で更新する。
     緊急停止は ``M112`` の送信として記録する。
     ``connection()`` で開いた接続は、この機体の状態と記録を共有する。
@@ -110,7 +109,6 @@ class FakeKlipper(Klipper):
         self._sent: list[SentGCode] = []
         self._fails: list[Callable[[GCode], bool]] = []
         self._settles: list[Callable[[], None]] = []
-        self._readonly = ReadonlyKlipper(self)
 
     def connection(self, *, timeout: float | None = None) -> FakeKlipper:
         """同じ機体への別の接続を返す.
@@ -120,7 +118,6 @@ class FakeKlipper(Klipper):
         """
         connection = copy.copy(self)
         connection._timeout = timeout
-        connection._readonly = ReadonlyKlipper(connection)
         return connection
 
     @property
@@ -160,14 +157,13 @@ class FakeKlipper(Klipper):
         self._status.setdefault(object, {})[attribute] = value
 
     def fail_on(self, predicate: Callable[[GCode], bool]) -> None:
-        """送信が predicate に当たったら、Moonraker の 400 と同じ RuntimeError を送出させる."""
+        """送信が predicate に当たったら、Moonraker の 400 と同じ KlipperError を送出させる."""
         self._fails[:] = [predicate]
 
     def settle_with(self, wait: Callable[[], None]) -> None:
         """送信を実行し終えてから返るまでに wait を呼ぶ（実機の静定待ちの代わり）."""
         self._settles.append(wait)
 
-    @override
     def send_gcode(
         self, gcode: GCodeLike, *, timeout: float | None = None
     ) -> dict[str, Any]:
@@ -179,16 +175,12 @@ class FakeKlipper(Klipper):
             wait()
         return {"result": "ok"}
 
-    @override
     def get_status(self, object: str, attribute: str) -> Any:
         return self._status[object][attribute]
 
-    @override
-    @functools.cache
     def get_config(self) -> dict[str, dict[str, Any]]:
         return self._config
 
-    @override
     def emergency_stop(self) -> None:
         self._record(GCode("M112"), None)
 
@@ -197,7 +189,7 @@ class FakeKlipper(Klipper):
             SentGCode(gcode, self._timeout if timeout is None else timeout)
         )
         if any(fails(gcode) for fails in self._fails):
-            raise RuntimeError("Bad Request")
+            raise KlipperError("Bad Request")
 
     def _execute(self, words: list[str]) -> None:
         match words:

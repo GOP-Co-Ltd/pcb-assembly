@@ -1,7 +1,7 @@
 import pytest
 from pytest_mock import MockerFixture
 
-from pcbasm.hal.klipper import Klipper
+from pcbasm.hal.klipper import MoonrakerKlipper as Klipper
 from pcbasm.hal.manual_stepper import ManualStepper
 
 STEPPER_NAME = "vacuum_pump"
@@ -16,7 +16,7 @@ class TestManualStepper:
         """Klipperをモックするフィクスチャ."""
         klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(
-            klipper.readonly,
+            klipper,
             "get_config",
             return_value={
                 f"manual_stepper {STEPPER_NAME}": {"rotation_distance": "0.5"}
@@ -26,16 +26,16 @@ class TestManualStepper:
 
     @pytest.fixture
     def stepper(self, mock_klipper: Klipper) -> ManualStepper:
-        return ManualStepper(mock_klipper.readonly, STEPPER_NAME)
+        return ManualStepper(mock_klipper, STEPPER_NAME)
 
     def test_init_missing_stepper_section(self, mocker: MockerFixture):
         klipper = Klipper("127.0.0.1", 7126)
-        mocker.patch.object(klipper.readonly, "get_config", return_value={})
+        mocker.patch.object(klipper, "get_config", return_value={})
 
         with pytest.raises(
             RuntimeError, match=r"printer\.cfgに\[manual_stepper vacuum_pump\]"
         ):
-            ManualStepper(klipper.readonly, STEPPER_NAME)
+            ManualStepper(klipper, STEPPER_NAME)
 
     def test_rotation_distance(self, stepper: ManualStepper):
         assert stepper.rotation_distance == 0.5

@@ -145,7 +145,7 @@ def post_job(
         raise HTTPException(status_code=404, detail=str(exc.args[0])) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    # BusyError は app.py の例外ハンドラが 409 化する
+    # BusyError は web.api.errors が 409 化する
     return {"job": job_summary(record, catalog.get(name))}
 
 

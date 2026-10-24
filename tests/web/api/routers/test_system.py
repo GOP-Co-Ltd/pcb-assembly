@@ -13,18 +13,18 @@ Phase 3 追記（計画書 webui-phase3.md「既存ルーター・app への変�
 
 - E-STOP は先頭で jobs.request_abort() を呼ぶ（Moonraker 不達で 502 でも
   実行中ジョブは ABORTED になる）
-- GET /api/stage/limits は XYZStage.limits を返す。Moonraker 不通は 502
+- GET /api/stage/limits は XYZStage.limits を返す。Moonraker 不通と printer.cfg の不備は 502
 """
 
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from pcbasm.hal.fake import FakeAudioPlayer
+from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeAudioPlayer, FakeKlipper
 from tests.web.api.jobs.conftest import register_gated
 from tests.web.update_support import UpdateSandbox, make_update_sandbox
 from web.api.app import create_app
@@ -122,6 +122,17 @@ class TestStageLimits:
         response = client.get("/api/stage/limits")
 
         assert response.status_code == 502
+
+    def test_missing_printer_cfg_section_returns_502_with_the_reason(
+        self, client: TestClient, mount_klipper: Callable[[FakeKlipper], None]
+    ):
+        config = {k: v for k, v in FAKE_PRINTER_CONFIG.items() if k != "printer"}
+        mount_klipper(FakeKlipper(config))
+
+        response = client.get("/api/stage/limits")
+
+        assert response.status_code == 502
+        assert "printer.cfgに[printer]セクション" in response.json()["detail"]
 
 
 @pytest.mark.usefixtures("unreachable_klipper")

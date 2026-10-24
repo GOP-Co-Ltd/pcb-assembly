@@ -3,10 +3,11 @@
 `park_or_present` の分岐契約:
 
 - キャップ記録済み → move_to_cap + M400 + M84 を **1 回の send_gcode** で
-  送り、フォールバック（send_present_or_relax）は呼ばない
-- キャップ未記録 → warn（"nozzle_cap" を含む文言）+ send_present_or_relax
+  送り、フォールバックしない
+- キャップ未記録 → warn（"nozzle_cap" を含む文言）+ フォールバック
 - キャップ位置が可動域外（ValueError）/ printer.cfg の limits 設定不備
-  （KeyError）→ warn + send_present_or_relax（クリーンアップ経路のため例外にしない）
+  （KeyError）→ warn + フォールバック（クリーンアップ経路のため例外にしない）
+- フォールバックは PRESENT マクロがあれば PRESENT、無いか確かめられなければ warn + M84
 
 `move_to_cap` の G-code 列契約:
 
@@ -15,21 +16,21 @@
 - M400 / M84 は含めない（終了時経路が後置で合成する）
 - 各セグメントを stage の limits で検証する
 
-Klipper は自前 HAL クラスのため mocker.Mock（または get_config をパッチした
-実 Klipper）を使い、Machine は tmp_path の実 toml から構築する
-（skill `testing-strategy`）。
+Klipper は FakeKlipper を使う（マクロ確認の失敗だけ MockTransport の Moonraker）。
+
+Machine は tmp_path の実 toml から構築する（skill `testing-strategy`）。
 """
 
 from pathlib import Path
 
+import httpx
 import pytest
-from pytest_mock import MockerFixture
 
 from pcbasm.config import MachineConfig, load_machine
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Point3d
-from pcbasm.hal import XYZStage
-from pcbasm.hal.klipper import Klipper
+from pcbasm.hal import MoonrakerKlipper, XYZStage
+from pcbasm.hal.fake import FakeKlipper, SentGCode
 from pcbasm.parking import move_to_cap, park_or_present
 from tests.support.paths import TESTING_DATA_DIR
 
@@ -44,6 +45,8 @@ _LIMITS_CONFIG = {
     "printer": {"max_velocity": "300"},
 }
 
+_PRESENT_MACRO = {"gcode_macro PRESENT": {"gcode": "G1 Y300"}}
+
 
 def _machine(tmp_path: Path, extra: str = "") -> MachineConfig:
     """検証用 machine.toml の末尾に ``extra`` を足して読む."""
@@ -57,28 +60,21 @@ class TestMoveToCap:
     """move_to_cap の G-code 列と limits 検証の契約."""
 
     @pytest.fixture
-    def stage(self, mocker: MockerFixture) -> XYZStage:
-        klipper = Klipper("127.0.0.1", 7126)
-        mocker.patch.object(klipper.readonly, "get_config", return_value=_LIMITS_CONFIG)
-        return XYZStage(klipper.readonly)
+    def stage(self) -> XYZStage:
+        return XYZStage(FakeKlipper(_LIMITS_CONFIG))
 
     @pytest.mark.parametrize(
         ("max_velocity", "expected_feed"),
         [(10, 600.0), (300, 1200.0)],
     )
     def test_sequence_caps_present_speed_at_stage_max_velocity(
-        self,
-        mocker: MockerFixture,
-        max_velocity: int,
-        expected_feed: float,
+        self, max_velocity: int, expected_feed: float
     ):
-        klipper = Klipper("127.0.0.1", 7126)
         limits_config = {
             **_LIMITS_CONFIG,
             "printer": {"max_velocity": str(max_velocity)},
         }
-        mocker.patch.object(klipper.readonly, "get_config", return_value=limits_config)
-        stage = XYZStage(klipper.readonly)
+        stage = XYZStage(FakeKlipper(limits_config))
 
         result = move_to_cap(stage, Point3d(10.0, 20.0, 3.5))
 
@@ -105,19 +101,16 @@ class TestParkOrPresent:
     """park_or_present の分岐契約."""
 
     def test_paste_with_cap_sends_park_sequence_in_single_send_gcode(
-        self, mocker: MockerFixture, tmp_path: Path
+        self, tmp_path: Path
     ):
         """Paste + cap 記録済みは Z0→XY→Z→M400→M84 を 1 回の send_gcode で送る."""
-        klipper = mocker.Mock()
-        klipper.readonly.get_config.return_value = _LIMITS_CONFIG
+        klipper = FakeKlipper(_LIMITS_CONFIG)
         machine = _machine(tmp_path, _CAP)
         warnings: list[str] = []
 
         park_or_present(klipper, machine, warn=warnings.append, timeout=12.5)
 
-        klipper.send_gcode.assert_called_once()
-        sent = GCode(klipper.send_gcode.call_args.args[0])
-        assert sent.to_list() == [
+        park = [
             "G90",
             "G1 Z0.0 F1200.0",
             "G1 X10.0 Y20.0 F1200.0",
@@ -125,50 +118,72 @@ class TestParkOrPresent:
             "M400",
             "M84",
         ]
-        assert klipper.send_gcode.call_args.kwargs.get("timeout") == 12.5
-        klipper.send_present_or_relax.assert_not_called()
+        assert klipper.sent == (SentGCode(GCode(park), 12.5),)
         assert warnings == []
 
-    def test_paste_without_cap_warns_and_falls_back_to_present(
-        self, mocker: MockerFixture, tmp_path: Path
-    ):
-        """キャップ未記録は "nozzle_cap" を含む警告を出して PRESENT にフォールバックする."""
-        klipper = mocker.Mock()
+    def test_paste_without_cap_warns_and_falls_back_to_present(self, tmp_path: Path):
+        """キャップ未記録は "nozzle_cap" を含む警告を出して PRESENT へ退避する."""
+        klipper = FakeKlipper({**_LIMITS_CONFIG, **_PRESENT_MACRO})
         machine = _machine(tmp_path)
         warnings: list[str] = []
 
-        park_or_present(klipper, machine, warn=warnings.append)
+        park_or_present(klipper, machine, warn=warnings.append, timeout=12.5)
 
-        klipper.send_present_or_relax.assert_called_once()
-        klipper.send_gcode.assert_not_called()
+        assert klipper.sent == (SentGCode(GCode("PRESENT"), 12.5),)
         assert any("nozzle_cap" in message for message in warnings)
 
     def test_cap_out_of_limits_warns_and_falls_back_without_raising(
-        self, mocker: MockerFixture, tmp_path: Path
+        self, tmp_path: Path
     ):
-        """可動域外のキャップ位置は例外にせず警告 + フォールバックする."""
-        klipper = mocker.Mock()
-        klipper.readonly.get_config.return_value = _LIMITS_CONFIG
+        """可動域外のキャップ位置は例外にせず警告して退避する."""
+        klipper = FakeKlipper({**_LIMITS_CONFIG, **_PRESENT_MACRO})
         machine = _machine(tmp_path, _CAP_OUT_OF_LIMITS)
         warnings: list[str] = []
 
         park_or_present(klipper, machine, warn=warnings.append)
 
-        klipper.send_present_or_relax.assert_called_once()
-        klipper.send_gcode.assert_not_called()
+        assert klipper.sent_lines == ["PRESENT"]
         assert any("制限外" in message for message in warnings)
 
     def test_missing_limits_config_warns_and_falls_back_without_raising(
-        self, mocker: MockerFixture, tmp_path: Path
+        self, tmp_path: Path
     ):
-        """printer.cfg の limits 設定不備（KeyError）も例外にせず警告 + フォールバックする."""
-        klipper = mocker.Mock()
-        klipper.readonly.get_config.return_value = {}
+        """printer.cfg の limits 不備（KeyError）も例外にせず警告して退避する."""
+        klipper = FakeKlipper(_PRESENT_MACRO)
         machine = _machine(tmp_path, _CAP)
         warnings: list[str] = []
 
         park_or_present(klipper, machine, warn=warnings.append)
 
-        klipper.send_present_or_relax.assert_called_once()
-        klipper.send_gcode.assert_not_called()
+        assert klipper.sent_lines == ["PRESENT"]
         assert any("printer.cfg" in message for message in warnings)
+
+    def test_falls_back_to_relax_without_present_macro(self, tmp_path: Path):
+        klipper = FakeKlipper(_LIMITS_CONFIG)
+        warnings: list[str] = []
+
+        park_or_present(klipper, _machine(tmp_path), warn=warnings.append, timeout=12.5)
+
+        assert klipper.sent == (SentGCode(GCode("M84"), 12.5),)
+        assert "PRESENT マクロが見つかりません" in warnings[-1]
+        assert "M84" in warnings[-1]
+
+    def test_falls_back_to_relax_when_macro_check_fails(self, tmp_path: Path):
+        scripts: list[str] = []
+
+        def moonraker(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/printer/objects/query":
+                return httpx.Response(503)
+            scripts.append(request.url.params["script"])
+            return httpx.Response(200, json={"result": "ok"})
+
+        klipper = MoonrakerKlipper(
+            "moonraker", 7125, transport=httpx.MockTransport(moonraker)
+        )
+        warnings: list[str] = []
+
+        park_or_present(klipper, _machine(tmp_path), warn=warnings.append)
+
+        assert scripts == ["M84"]
+        assert "確認に失敗しました" in warnings[-1]
+        assert "503" in warnings[-1]

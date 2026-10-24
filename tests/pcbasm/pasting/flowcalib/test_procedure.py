@@ -43,7 +43,7 @@ def _session(klipper: FakeKlipper) -> PasteSession:
     return PasteSession(
         machine=MACHINE,
         klipper=klipper,
-        stage=XYZStage(klipper.readonly),
+        stage=XYZStage(klipper),
         camera=unused,
         calibration=unused,
         calibration_result=unused,

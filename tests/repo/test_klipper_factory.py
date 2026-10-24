@@ -12,7 +12,7 @@ SRC_DIR = PROJECT_ROOT / "src"
 
 
 def klipper_constructions(path: Path) -> list[str]:
-    """ファイル内で `Klipper(...)` を呼ぶ関数名の一覧（モジュール直下は ``<module>``）."""
+    """ファイル内で `MoonrakerKlipper(...)` を呼ぶ関数名の一覧（モジュール直下は ``<module>``）."""
     found: list[str] = []
 
     def visit(node: ast.AST, scope: str) -> None:
@@ -20,7 +20,7 @@ def klipper_constructions(path: Path) -> list[str]:
             scope = node.name
         if (
             isinstance(node, ast.Call)
-            and ast.unparse(node.func).split(".")[-1] == "Klipper"
+            and ast.unparse(node.func).split(".")[-1] == "MoonrakerKlipper"
         ):
             found.append(scope)
         for child in ast.iter_child_nodes(node):

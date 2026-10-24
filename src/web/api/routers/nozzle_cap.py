@@ -12,17 +12,14 @@ from pydantic import BaseModel
 
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Point3d
-from pcbasm.hal import Klipper, XYZStage
+from pcbasm.hal import KlipperClient, XYZStage
 from pcbasm.parking import move_to_cap
 from pcbasm.pasting.applicator import build_applicator
 from pcbasm.pasting.nozzle_clean import clean_nozzle, plan_nozzle_clean
 from web.api.dependencies import ControlDep, MachineConfigDep, StateDep
+from web.api.errors import hal_errors_to_502
 from web.api.machine_config import MachineConfigFile
-from web.api.routers.common import (
-    create_klipper,
-    klipper_errors_to_502,
-    nozzle_clean_payload,
-)
+from web.api.routers.common import create_klipper, nozzle_clean_payload
 from web.api.state import AppState
 from web.contract.models import NozzleCleanInfo
 
@@ -47,7 +44,7 @@ class NozzleCleanTestResult(BaseModel):
     message: str
 
 
-def _require_all_axes_homed(klipper: Klipper, detail: str) -> None:
+def _require_all_axes_homed(klipper: KlipperClient, detail: str) -> None:
     """全軸ホーミング済みでなければ ``detail`` を添えて 400 で断る.
 
     M84 後の座標は stale なので、記録すれば誤った位置が残り、絶対移動を送れば
@@ -61,7 +58,7 @@ def _require_all_axes_homed(klipper: Klipper, detail: str) -> None:
         raise HTTPException(status_code=400, detail=detail)
 
 
-def _park_at_cap(cap: Point3d | None, klipper: Klipper, stage: XYZStage) -> str:
+def _park_at_cap(cap: Point3d | None, klipper: KlipperClient, stage: XYZStage) -> str:
     """ノズルキャップ位置へ戻し、結果の 1 行を返す（戻せなくても例外にしない）.
 
     脱力（M84）はしない。続けてもう一度テストできるようホーミング状態を保つため
@@ -84,13 +81,11 @@ def _record_current_position(
     state: AppState, machine_config: MachineConfigFile, *, owner: str, prefix: str
 ) -> Point3d:
     """全軸ホーミングを検査し、現在位置を 3 桁丸めで ``prefix`` のテーブルへ書く."""
-    # BusyError（RuntimeError 派生）は 502 変換の対象にせず app.py の 409 ハンドラへ
-    # 流すため、machine_lock は klipper_errors_to_502 の外側で取る
     with state.machine_lock(owner):
-        with klipper_errors_to_502():
+        with hal_errors_to_502():
             klipper = create_klipper(state, STATUS_TIMEOUT)
             _require_all_axes_homed(klipper, "全軸ホーミング後に記録してください")
-            position = XYZStage(klipper.readonly).get_position()
+            position = XYZStage(klipper).get_position()
         saved = Point3d(
             round(position.x, 3), round(position.y, 3), round(position.z, 3)
         )
@@ -157,10 +152,10 @@ def run_nozzle_clean_test(
             )
         messages: list[str] = []
         try:
-            with klipper_errors_to_502():
+            with hal_errors_to_502():
                 klipper = create_klipper(state, CLEAN_TIMEOUT)
                 _require_all_axes_homed(klipper, "全軸ホーミング後に実行してください")
-                stage = XYZStage(klipper.readonly)
+                stage = XYZStage(klipper)
                 plan = plan_nozzle_clean(stage, clean.position, clean)
                 with build_applicator(klipper, stage, dispenser) as applicator:
                     applicator.prime()

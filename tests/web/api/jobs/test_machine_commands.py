@@ -49,7 +49,7 @@ def _run_handler_job(
 
     def run(ctx: JobContext) -> None:
         klipper = create_command_klipper(ctx)
-        stage = XYZStage(klipper.readonly)
+        stage = XYZStage(klipper)
         for command in commands:
             results.append(
                 handle_machine_command(ctx, klipper, stage, command, focus_z=focus_z)

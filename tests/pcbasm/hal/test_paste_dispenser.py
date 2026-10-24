@@ -1,7 +1,7 @@
 import pytest
 from pytest_mock import MockerFixture
 
-from pcbasm.hal.klipper import Klipper
+from pcbasm.hal.klipper import MoonrakerKlipper as Klipper
 from pcbasm.hal.paste_dispenser import (
     PasteDispenser,
 )
@@ -18,7 +18,7 @@ class TestPasteDispenser:
         """Klipperをモックするフィクスチャ."""
         klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(
-            klipper.readonly,
+            klipper,
             "get_config",
             return_value={
                 f"manual_stepper {STEPPER_NAME}": {"rotation_distance": "0.5"},
@@ -30,7 +30,7 @@ class TestPasteDispenser:
     def test_init_missing_stepper_section(self, mocker: MockerFixture):
         klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(
-            klipper.readonly,
+            klipper,
             "get_config",
             return_value={"output_pin air_pump": {}},
         )
@@ -38,12 +38,12 @@ class TestPasteDispenser:
         with pytest.raises(
             RuntimeError, match=r"printer\.cfgに\[manual_stepper paste_dispenser\]"
         ):
-            PasteDispenser(klipper.readonly, rotations_per_ul=0.5)
+            PasteDispenser(klipper, rotations_per_ul=0.5)
 
     def test_init_missing_air_pump_section(self, mocker: MockerFixture):
         klipper = Klipper("127.0.0.1", 7126)
         mocker.patch.object(
-            klipper.readonly,
+            klipper,
             "get_config",
             return_value={
                 f"manual_stepper {STEPPER_NAME}": {"rotation_distance": "0.5"},
@@ -53,10 +53,10 @@ class TestPasteDispenser:
         with pytest.raises(
             RuntimeError, match=r"printer\.cfgに\[output_pin air_pump\]"
         ):
-            PasteDispenser(klipper.readonly, rotations_per_ul=0.5)
+            PasteDispenser(klipper, rotations_per_ul=0.5)
 
     def test_enable(self, mock_klipper: Klipper):
-        dispenser = PasteDispenser(mock_klipper.readonly, rotations_per_ul=0.5)
+        dispenser = PasteDispenser(mock_klipper, rotations_per_ul=0.5)
         gcode = dispenser.enable()
 
         lines = gcode.to_list()
@@ -64,7 +64,7 @@ class TestPasteDispenser:
         assert lines[1] == f"{PREFIX} ENABLE=1"
 
     def test_disable(self, mock_klipper: Klipper):
-        dispenser = PasteDispenser(mock_klipper.readonly, rotations_per_ul=0.5)
+        dispenser = PasteDispenser(mock_klipper, rotations_per_ul=0.5)
         gcode = dispenser.disable()
 
         lines = gcode.to_list()
@@ -84,9 +84,7 @@ class TestPasteDispenser:
         # rotations_per_ul=0.5, rotation_distance=0.5
         # 1μL → 0.5rev → 180deg → 180/360 * 0.5mm = 0.25mm
         rotations_per_ul = 0.5
-        dispenser = PasteDispenser(
-            mock_klipper.readonly, rotations_per_ul=rotations_per_ul
-        )
+        dispenser = PasteDispenser(mock_klipper, rotations_per_ul=rotations_per_ul)
 
         rate = 2.0  # μL/sec → 0.5*360*2 = 360 deg/s → 0.5mm/s
         accel = 4.0  # μL/sec² → 0.5*360*4 = 720 deg/s² → 1.0mm/s²
@@ -98,7 +96,7 @@ class TestPasteDispenser:
         assert lines[1] == f"{PREFIX} MOVE={expected_move_sign}0.25 SPEED=0.5 ACCEL=1.0"
 
     def test_continue_pushpull_keeps_current_coordinate(self, mock_klipper: Klipper):
-        dispenser = PasteDispenser(mock_klipper.readonly, rotations_per_ul=0.5)
+        dispenser = PasteDispenser(mock_klipper, rotations_per_ul=0.5)
 
         gcode = dispenser.continue_pushpull(1.0, -0.4, 2.0, 4.0, sync=False)
 
@@ -110,7 +108,7 @@ class TestPasteDispenser:
         # 2.0rev/s → 720deg/s → 1.0mm/s
         # 1.0rev/s² → 360deg/s² → 0.5mm/s²
         # rotations_per_ul はこのメソッドの計算には使われないが任意値でインスタンス化する
-        dispenser = PasteDispenser(mock_klipper.readonly, rotations_per_ul=0.5)
+        dispenser = PasteDispenser(mock_klipper, rotations_per_ul=0.5)
         gcode = dispenser.rotate_revolutions(rotations=10, rate=2.0, accel=1.0)
 
         lines = gcode.to_list()

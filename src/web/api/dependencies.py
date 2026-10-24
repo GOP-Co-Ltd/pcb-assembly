@@ -72,14 +72,11 @@ def get_lease(request: Request) -> ControlLease:
 def require_control(request: Request) -> LeaseInfo:
     """操作権を検証する（空きなら取得する。変更系エンドポイント用）.
 
-    **必ず `Depends`（= `ControlDep`）として使う。** ハンドラ本体で `claim` を呼ぶと、
-    Klipper 通信エラーを 502 へ変換する `klipper_errors_to_502()` が
-    `ControlDeniedError`（`RuntimeError` 派生）も変換してしまい、操作権の拒否が
-    「Klipper 通信エラー 502」として返る。
+    **必ず `Depends`（= `ControlDep`）として使う。**
 
     Raises:
-        ControlDeniedError: 他クライアントが操作権を保持している場合（app.py の
-            例外ハンドラが 423 Locked へ変換する）
+        ControlDeniedError: 他クライアントが操作権を保持している場合（``web.api.errors``
+            が 423 Locked へ変換する）
     """
     return request.app.state.control.claim(get_identity(request))
 

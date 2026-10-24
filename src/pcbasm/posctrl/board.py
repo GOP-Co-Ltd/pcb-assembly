@@ -15,7 +15,7 @@ from pcbasm.geometry import (
     Point2d,
     Shift,
 )
-from pcbasm.hal import Klipper, Speed, XYZStage
+from pcbasm.hal import KlipperClient, Speed, XYZStage
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +81,7 @@ class BoardTransformMeasurer:
     def __init__(
         self,
         adjust_reference: Callable[[], Point2d],
-        klipper: Klipper,
+        klipper: KlipperClient,
         stage: XYZStage,
         outline: Outline,
         reference_point: ReferencePointConfig,

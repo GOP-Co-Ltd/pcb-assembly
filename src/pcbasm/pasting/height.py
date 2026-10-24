@@ -22,7 +22,7 @@ from pcbasm.geometry import (
     sort_by_nearest,
     transform_polygon,
 )
-from pcbasm.hal import Klipper, Speed, XYZStage
+from pcbasm.hal import KlipperClient, Speed, XYZStage
 from pcbasm.pasting.probe import ProbeExecutor
 from pcbasm.plotting import outline_patch, polygon_with_holes_patch, save_png
 
@@ -70,7 +70,7 @@ class _BoardPointProber:
     def __init__(
         self,
         probe_executor: ProbeExecutor,
-        klipper: Klipper,
+        klipper: KlipperClient,
         stage: XYZStage,
         *,
         settle_sec: float,
@@ -128,7 +128,7 @@ class HeightPlaneMeasurer:
     def __init__(
         self,
         probe_executor: ProbeExecutor,
-        klipper: Klipper,
+        klipper: KlipperClient,
         stage: XYZStage,
         *,
         min_radius: float,

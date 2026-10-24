@@ -17,7 +17,7 @@ from pcbasm.board import Board, Copper, Layer, Pad
 from pcbasm.config import MachineConfig
 from pcbasm.config.dispenser import ToolheadConfig
 from pcbasm.geometry import Compose, HeightPlane, Identity, Point2d, Shift, Transform
-from pcbasm.hal import Camera, Klipper, XYZStage
+from pcbasm.hal import Camera, KlipperClient, XYZStage
 from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.applicator import PasteApplicator, build_applicator
 from pcbasm.pasting.height import HeightPlaneMeasurer
@@ -49,7 +49,7 @@ class PasteSession:
     """
 
     machine: MachineConfig
-    klipper: Klipper
+    klipper: KlipperClient
     stage: XYZStage
     camera: Camera
     calibration: CalibrationResult

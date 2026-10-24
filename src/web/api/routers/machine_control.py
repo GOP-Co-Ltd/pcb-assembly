@@ -12,11 +12,8 @@ from pcbasm.hal import XYZStage
 from pcbasm.parking import move_to_cap
 from pcbasm.vision import load_focus_z
 from web.api.dependencies import ControlDep, StateDep
-from web.api.routers.common import (
-    create_klipper,
-    fetch_status,
-    klipper_errors_to_502,
-)
+from web.api.errors import hal_errors_to_502
+from web.api.routers.common import create_klipper, fetch_status
 from web.api.state import AppState
 from web.contract.models import KlipperStatus
 
@@ -42,16 +39,13 @@ def post_machine_control(
 ) -> KlipperStatus:
     """``action`` に応じた G-code を Klipper へ送り、完了後の位置と homed_axes を返す.
 
-    400: パラメータ不足・可動域外など / 409: 装置が使用中 / 502: Klipper 通信エラー。
+    400: パラメータ不足・可動域外など / 409: 装置が使用中 / 502: Klipper 通信エラー・printer.cfg の不備。
     """
-    # BusyError（RuntimeError 派生）は 502 変換の対象にせず app.py の 409 ハンドラへ
-    # 流すため、machine_lock は klipper_errors_to_502 の外側で取る。操作権の検証も
-    # 同じ理由で ControlDep（ハンドラ本体の外）に置く
     with state.machine_lock("machine-control"):
         try:
-            with klipper_errors_to_502():
+            with hal_errors_to_502():
                 klipper = create_klipper(state, MOVE_TIMEOUT)
-                stage = XYZStage(klipper.readonly)
+                stage = XYZStage(klipper)
                 commands = _build_gcode(body, state, stage)
                 klipper.send_gcode(commands)
                 return fetch_status(klipper)
