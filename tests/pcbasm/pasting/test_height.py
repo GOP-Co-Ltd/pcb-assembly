@@ -7,7 +7,6 @@ from shapely.geometry import Point as ShapelyPoint, Polygon
 
 from pcbasm.board import Copper, Layer
 from pcbasm.config.probe import ProbeConfig
-from pcbasm.gcode import GCode
 from pcbasm.geometry import (
     Compose,
     HeightPlane,
@@ -19,6 +18,8 @@ from pcbasm.geometry import (
     sample_points_in_polygons,
     sort_by_nearest,
 )
+from pcbasm.hal import XYZStage
+from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeKlipper
 from pcbasm.kicad import load_board
 from pcbasm.pasting.height import (
     HeightPlaneMeasurer,
@@ -32,6 +33,14 @@ _SAMPLING_KWARGS = {"min_radius": 1.5, "min_samples": 3, "max_samples": 9}
 _BOARD_EDGE_MARGIN = 2.5
 # TOP 銅箔ゾーンを持つ実 PCB（基板背景の銅箔描画を含む）
 LED_BLINKER_PCB = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
+# 基板座標を写した移動先がどれも可動域に収まる printer.cfg
+_WIDE_LIMITS = {
+    **FAKE_PRINTER_CONFIG,
+    **{
+        f"stepper_{axis}": {"position_min": "-500", "position_max": "500"}
+        for axis in "xyz"
+    },
+}
 _MEASURER_KWARGS = {
     **_SAMPLING_KWARGS,
     "board_edge_margin": _BOARD_EDGE_MARGIN,
@@ -43,8 +52,8 @@ class TestHeightPlaneMeasurer:
     """HeightPlaneMeasurerのテスト."""
 
     @pytest.fixture
-    def mock_klipper(self, mocker):
-        return mocker.Mock()
+    def klipper(self) -> FakeKlipper:
+        return FakeKlipper(_WIDE_LIMITS)
 
     @pytest.fixture
     def mock_probe_executor(self, mocker):
@@ -53,13 +62,8 @@ class TestHeightPlaneMeasurer:
         return executor
 
     @pytest.fixture
-    def mock_stage(self, mocker):
-        # stage.move の戻り値は `+ GCode.wait(...)` で連結されるため実体の GCode を返す
-        stage = mocker.Mock()
-        stage.max_velocity = 100.0
-        stage.get_position.return_value = Point3d(0.0, 0.0, 0.0)
-        stage.move.return_value = GCode()
-        return stage
+    def stage(self, klipper: FakeKlipper) -> XYZStage:
+        return XYZStage(klipper)
 
     @pytest.fixture
     def mock_board_to_machine(self):
@@ -75,8 +79,8 @@ class TestHeightPlaneMeasurer:
     def test_measure_records_machine_xy_probe_targets(
         self,
         mock_probe_executor,
-        mock_klipper,
-        mock_stage,
+        klipper,
+        stage,
         large_copper,
     ):
         """返却 HeightPlane の XY は board ではなく実 probe 先の machine XY."""
@@ -90,8 +94,8 @@ class TestHeightPlaneMeasurer:
         mock_probe_executor.probe.side_effect = probe_zs
         measurer = HeightPlaneMeasurer(
             probe_executor=mock_probe_executor,
-            klipper=mock_klipper,
-            stage=mock_stage,
+            klipper=klipper,
+            stage=stage,
             **_MEASURER_KWARGS,
         )
 
@@ -101,10 +105,7 @@ class TestHeightPlaneMeasurer:
             outline=large_copper.polygon,
         )
 
-        move_targets = [
-            (call.kwargs["x"], call.kwargs["y"])
-            for call in mock_stage.move.call_args_list
-        ]
+        move_targets = [(move["x"], move["y"]) for move in klipper.g1_moves()]
         assert len(result.points) == len(move_targets)
         for point, move_target in zip(result.points, move_targets):
             assert (point.x, point.y) == pytest.approx(move_target)
@@ -115,8 +116,8 @@ class TestHeightPlaneMeasurer:
     def test_measure_keeps_probe_points_inside_board_margin(
         self,
         mock_probe_executor,
-        mock_klipper,
-        mock_stage,
+        klipper,
+        stage,
         mock_board_to_machine,
         large_copper,
     ):
@@ -124,8 +125,8 @@ class TestHeightPlaneMeasurer:
         outline = large_copper.polygon
         measurer = HeightPlaneMeasurer(
             probe_executor=mock_probe_executor,
-            klipper=mock_klipper,
-            stage=mock_stage,
+            klipper=klipper,
+            stage=stage,
             **_MEASURER_KWARGS,
         )
 
@@ -142,8 +143,8 @@ class TestHeightPlaneMeasurer:
     def test_measure_routes_probe_points_by_nearest_actual_move_targets(
         self,
         mock_probe_executor,
-        mock_klipper,
-        mock_stage,
+        klipper,
+        stage,
         large_copper,
     ):
         """現在位置から変換後の実移動先が近くなる順にprobeする."""
@@ -153,7 +154,8 @@ class TestHeightPlaneMeasurer:
                 Shift(x=100.0, y=20.0, z=0.0),
             ]
         )
-        mock_stage.get_position.return_value = Point3d(105.0, 8.0, 0.0)
+        start = Point3d(105.0, 8.0, 0.0)
+        klipper.set_status("gcode_move", "gcode_position", [105.0, 8.0, 0.0, 0.0])
         board_points = sample_points_in_polygons(
             [large_copper.polygon],
             **_SAMPLING_KWARGS,
@@ -167,7 +169,7 @@ class TestHeightPlaneMeasurer:
 
         expected_board_points = sort_by_nearest(
             board_points,
-            mock_stage.get_position.return_value,
+            start,
             key=actual_move_target,
         )
         expected_move_targets = [
@@ -176,8 +178,8 @@ class TestHeightPlaneMeasurer:
         ]
         measurer = HeightPlaneMeasurer(
             probe_executor=mock_probe_executor,
-            klipper=mock_klipper,
-            stage=mock_stage,
+            klipper=klipper,
+            stage=stage,
             **_MEASURER_KWARGS,
         )
 
@@ -187,10 +189,7 @@ class TestHeightPlaneMeasurer:
             outline=large_copper.polygon,
         )
 
-        move_targets = [
-            (call.kwargs["x"], call.kwargs["y"])
-            for call in mock_stage.move.call_args_list
-        ]
+        move_targets = [(move["x"], move["y"]) for move in klipper.g1_moves()]
         assert move_targets == pytest.approx(expected_move_targets)
 
 
