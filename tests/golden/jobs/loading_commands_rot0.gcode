@@ -31,6 +31,9 @@ M400
 G1 Z10.0 F6000.0
 M400
 # send timeout=60.0
+G1 Z12.5 F6000.0
+M400
+# send timeout=60.0
 SET_PIN PIN=air_pump VALUE=0
 MANUAL_STEPPER STEPPER=paste_dispenser ENABLE=0
 # send timeout=30.0

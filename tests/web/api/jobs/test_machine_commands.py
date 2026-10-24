@@ -6,7 +6,7 @@
 - handle_machine_command は jog / home / move / relax / focus_z を処理したら
   True を返す
   - 引数不正の ValueError は ctx.log して True（ジョブは継続）
-  - focus_z=None のとき focus_z コマンドは移動せず log のみで True
+  - 校正ファイルに焦点 Z が無いとき focus_z コマンドは移動せず log のみで True
   - 送信失敗（Klipper 不通）の例外は握りつぶさない（ジョブを FAILED に
     するため伝播する）
 - 未知 type は False を返す（log は呼び出し側の責務）
@@ -38,8 +38,6 @@ def _run_handler_job(
     catalog: JobCatalog,
     wait_until: WaitUntil,
     commands: list[dict[str, Any]],
-    *,
-    focus_z: float | None,
 ) -> tuple[JobRecord, list[bool]]:
     """合成ジョブ内で handle_machine_command を順に呼び、戻り値列を返す."""
     results: list[bool] = []
@@ -48,9 +46,7 @@ def _run_handler_job(
         klipper = ctx.klipper(COMMAND_TIMEOUT)
         stage = XYZStage(klipper)
         for command in commands:
-            results.append(
-                handle_machine_command(ctx, klipper, stage, command, focus_z=focus_z)
-            )
+            results.append(handle_machine_command(ctx, klipper, stage, command))
 
     catalog.register(
         JobDefinition(
@@ -74,18 +70,24 @@ class TestHandleMachineCommand:
     ):
         """未知 type は False（ジョブ固有コマンドの後段判定に委ねる）."""
         record, results = _run_handler_job(
-            manager, catalog, wait_until, [{"type": "record"}], focus_z=None
+            manager, catalog, wait_until, [{"type": "record"}]
         )
 
         assert record.status == JobStatus.SUCCEEDED
         assert results == [False]
 
     def test_focus_z_without_calibration_logs_and_returns_true(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        wait_until: WaitUntil,
+        config_dir: Path,
     ):
-        """focus_z=None なら focus_z コマンドは移動せず log のみ（True）."""
+        """校正ファイルが無ければ focus_z コマンドは移動せず log のみ（True）."""
+        (config_dir / "ov9281_test_fixture.json").unlink()
+
         record, results = _run_handler_job(
-            manager, catalog, wait_until, [{"type": "focus_z"}], focus_z=None
+            manager, catalog, wait_until, [{"type": "focus_z"}]
         )
 
         assert record.status == JobStatus.SUCCEEDED  # 送信しないので不通でも成功
@@ -107,22 +109,20 @@ class TestHandleMachineCommand:
         command: dict[str, Any],
     ):
         """引数不正（jog の非数値 dist / move の軸なし）は ValueError を log して True（継続）."""
-        record, results = _run_handler_job(
-            manager, catalog, wait_until, [command], focus_z=None
-        )
+        record, results = _run_handler_job(manager, catalog, wait_until, [command])
 
         assert record.status == JobStatus.SUCCEEDED  # 送信しないので不通でも成功
         assert results == [True]
         assert record.log_lines  # 実行できない旨の log が出る
 
     @pytest.mark.parametrize(
-        ("command", "focus_z"),
+        "command",
         [
-            ({"type": "jog", "axis": "x", "dist": 0.1}, None),
-            ({"type": "home", "axes": ["x", "y", "z"]}, None),
-            ({"type": "move", "x": 1.0, "y": 2.0}, None),
-            ({"type": "relax"}, None),
-            ({"type": "focus_z"}, 3.0),
+            {"type": "jog", "axis": "x", "dist": 0.1},
+            {"type": "home", "axes": ["x", "y", "z"]},
+            {"type": "move", "x": 1.0, "y": 2.0},
+            {"type": "relax"},
+            {"type": "focus_z"},
         ],
     )
     def test_recognized_command_send_failure_propagates_to_job_failed(
@@ -131,12 +131,9 @@ class TestHandleMachineCommand:
         catalog: JobCatalog,
         wait_until: WaitUntil,
         command: dict[str, Any],
-        focus_z: float | None,
     ):
         """認識した type は送信を試み、Klipper 不通の例外は伝播 → FAILED."""
-        record, results = _run_handler_job(
-            manager, catalog, wait_until, [command], focus_z=focus_z
-        )
+        record, results = _run_handler_job(manager, catalog, wait_until, [command])
 
         assert record.status == JobStatus.FAILED
         assert record.error  # 接続エラーが error に載る
@@ -151,7 +148,7 @@ class TestHandleMachineCommand:
         が破綻するため、未記録でも処理済み（True）にする。
         """
         record, results = _run_handler_job(
-            manager, catalog, wait_until, [{"type": "move_to_cap"}], focus_z=None
+            manager, catalog, wait_until, [{"type": "move_to_cap"}]
         )
 
         assert record.status == JobStatus.SUCCEEDED  # 送信しないので不通でも成功
@@ -174,7 +171,7 @@ class TestHandleMachineCommand:
         )
 
         record, results = _run_handler_job(
-            manager, catalog, wait_until, [{"type": "move_to_cap"}], focus_z=None
+            manager, catalog, wait_until, [{"type": "move_to_cap"}]
         )
 
         assert record.status == JobStatus.FAILED

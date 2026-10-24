@@ -151,7 +151,6 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
         result = setup_board(ctx, camera, tolerance=tolerance)
         klipper = result.klipper
         stage = result.stage
-        calibration = result.calibration
         procedure = ToolheadOffsetProcedure(
             result,
             tolerance=tolerance,
@@ -183,9 +182,7 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
         with procedure.applicator() as applicator:
             # ペーストフェーズの直前に一度だけロードする。
             klipper.send_gcode(stage.move(z=0.0) + GCode.wait_for_done())
-            run_loading_loop(
-                ctx, klipper, stage, applicator, focus_z=calibration.z_position
-            )
+            run_loading_loop(ctx, klipper, stage, applicator)
             applicator.retract()
 
             dispense_amount = float(ctx.params["dispense_amount"])

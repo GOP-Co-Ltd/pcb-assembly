@@ -255,7 +255,7 @@ class TestLoading:
         audio_player: FakeAudioPlayer,
         scenario: Scenario,
     ):
-        """ホーミング → 指定 X へ移動 → 押出・吸引・回転（引き戻し付き）・jog → 終了."""
+        """ホーミング → 指定 X へ移動 → 押出・吸引・回転（引き戻し付き）・jog・焦点 Z → 終了."""
         record = manager.start("loading", {"position_x": 50.0})
         wait_operator(record, audio_player, LOADING_STAGE)
         for command in (
@@ -270,6 +270,7 @@ class TestLoading:
             },
             {"type": "suck_rotations", "rotations": 2.0, "rate": 0.5, "accel": 0.5},
             {"type": "jog", "axis": "z", "dist": 10.0},
+            {"type": "focus_z"},
             {"type": "finish"},
         ):
             manager.submit_command(command)

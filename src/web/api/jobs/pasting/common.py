@@ -164,8 +164,6 @@ def run_loading_loop(
     klipper: KlipperClient,
     stage: XYZStage,
     applicator: PasteApplicator,
-    *,
-    focus_z: float | None = None,
 ) -> LoadingTotals:
     """ローディング段階の command 駆動ループを実行し、押出合計を返す.
 
@@ -227,9 +225,7 @@ def run_loading_loop(
             case InvalidLoadingCommand(reason=reason):
                 ctx.log(reason)
             case None:
-                if not handle_machine_command(
-                    ctx, klipper, stage, command, focus_z=focus_z
-                ):
+                if not handle_machine_command(ctx, klipper, stage, command):
                     ctx.log(f"未知のコマンドです: {command.get('type')!r}")
 
 
