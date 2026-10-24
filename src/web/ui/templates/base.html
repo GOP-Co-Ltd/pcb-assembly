@@ -63,6 +63,11 @@
   （<a href="{{ base }}/settings">マシン設定</a>か<a href="{{ base }}/dev/config_history">設定履歴</a>から直してください）
 </div>
 {% endif %}
+{% if config_notice %}
+<div class="config-notice" role="status" data-testid="config-notice">
+  {{ config_notice }}（<a href="{{ base }}/dev/config_history">設定履歴</a>）
+</div>
+{% endif %}
 <main class="layout {% block layout_class %}{% endblock %}">
 {% block content %}{% endblock %}
 </main>

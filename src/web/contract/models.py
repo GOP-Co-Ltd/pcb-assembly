@@ -161,6 +161,8 @@ class StateResponse(BaseModel):
     nozzle_clean: NozzleCleanInfo | None
     # machine.toml が読めない・検証に通らないときの理由（degraded。直せば次の取得で消える）
     config_error: str | None
+    # 起動時に machine.toml を移行したときの知らせ（次の再起動まで出す）
+    config_notice: str | None
 
 
 class SettingsField(BaseModel):

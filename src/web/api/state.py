@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
@@ -14,10 +15,13 @@ from pcbasm.config.klipper import KlipperConfig
 from pcbasm.hal import Camera, FrameHub, create_camera
 from pcbasm.hal.fake import FakeCamera
 from pcbasm.machine.journal import Journal
+from pcbasm.migrate.machine_toml import NAME, MigrationError, migrate_machine_toml
 from pcbasm.vision import Image
 from web.api.config_store import ConfigStore
 from web.api.settings import Settings
 from web.contract.models import MachineSettingValue
+
+logger = logging.getLogger(__name__)
 
 _STATE_FILENAME = "webui_state.json"
 type StoredJobParamValue = bool | float | int | str
@@ -65,6 +69,8 @@ class AppState:
         self._frame_hub: FrameHub | None = None
         # webui_state.json の read-modify-write 直列化用（machine_lock の内側）
         self._persist_lock = threading.Lock()
+        self._config_notice: str | None = None
+        self._migration_error: str | None = None
 
         persisted = self._load_persisted()
         self._selected_pcb = self._resolve_pcb(persisted.get("pcb_file"))
@@ -118,11 +124,44 @@ class AppState:
         return load_machine(self._store.machine_toml_path())
 
     def machine_or_error(self) -> tuple[MachineConfig, None] | tuple[None, str]:
-        """:meth:`machine` の degraded 版。設定エラーなら ``(None, 理由)`` を返す."""
+        """:meth:`machine` の degraded 版。設定エラーなら ``(None, 理由)`` を返す.
+
+        起動時の移行に失敗していれば、読めない理由として移行の失敗を返す。
+        """
         try:
             return self.machine(), None
         except ConfigError as exc:
+            if self._migration_error is not None:
+                return None, (
+                    "machine.toml を移行できませんでした（ファイルは変えていません）: "
+                    f"{self._migration_error}"
+                )
             return None, str(exc)
+
+    @property
+    def config_notice(self) -> str | None:
+        """起動時に machine.toml を移行したときの知らせ（移行しなければ None）."""
+        return self._config_notice
+
+    def migrate_config(self) -> None:
+        """machine.toml を移行する（起動時、設定を読む前に 1 回だけ呼ぶ）.
+
+        失敗しても例外は出さない。ファイルに触れず、読めない間はその理由を設定エラーとして出す（degraded）。
+        """
+        try:
+            changes = migrate_machine_toml(self._store.machine_toml_path())
+        except MigrationError as exc:
+            logger.error("machine.toml を移行できません: %s", exc)
+            self._migration_error = str(exc)
+            return
+        if changes:
+            logger.info(
+                "machine.toml を移行 %s で書き換えました: %s", NAME, " / ".join(changes)
+            )
+            self._config_notice = (
+                "machine.toml を新しい形へ移行しました"
+                f"（元の内容は設定履歴の machine-pre-{NAME}.toml）"
+            )
 
     def klipper(self) -> KlipperConfig:
         """machine.toml の [klipper] 節だけを読む（degraded でも緊急停止を送れるように）.
