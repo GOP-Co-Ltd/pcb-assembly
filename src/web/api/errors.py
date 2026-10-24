@@ -104,8 +104,19 @@ def install_error_handlers(app: FastAPI, control: ControlLease) -> None:
     async def stored_board_settings_error_handler(
         request: Request, exc: StoredBoardSettingsError
     ) -> JSONResponse:
-        """保存済みの塗布設定を読めない間は、その基板の pad 設定を扱う操作を断る."""
-        return JSONResponse(status_code=409, content={"detail": str(exc)})
+        """保存済みの塗布設定を読めない間は、その基板の pad 設定を扱う操作を断る.
+
+        ``board_settings_unreadable`` は画面が初期化（``POST /api/pasting/board/reset``）を出す目印。
+        ``pcb_file`` は読めなかった基板で、画面は初期化の ``expected_pcb`` に渡す。
+        """
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": str(exc),
+                "board_settings_unreadable": True,
+                "pcb_file": exc.source_pcb,
+            },
+        )
 
     @app.exception_handler(KicadError)
     async def kicad_error_handler(request: Request, exc: KicadError) -> JSONResponse:

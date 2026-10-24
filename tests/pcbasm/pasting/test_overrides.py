@@ -643,6 +643,21 @@ class TestBoardSession:
 
         assert moved.model.levels == ()
 
+    def test_initial_ignores_unreadable_saved_settings(self, tmp_path: Path):
+        """読めない保存済みの設定があっても、初期値で組める（上書きして復旧するため）."""
+        overrides = BoardOverrides(tmp_path)
+        path = tmp_path / "board_settings" / f"{overrides.board_id('a.kicad_pcb')}.json"
+        path.parent.mkdir()
+        path.write_text('{"version": 999}', encoding="utf-8")
+        board = self._board()
+        with pytest.raises(StoredBoardSettingsError):
+            BoardSession.load(overrides, "a.kicad_pcb", board, _base_config())
+
+        session = BoardSession.initial("a.kicad_pcb", board, _base_config())
+
+        assert session.model == PasteSettingsModel.from_config(_base_config())
+        assert session.board_signature == session.hierarchy.signature()
+
 
 class TestEncode:
     def test_doc_shape_omits_base_and_unset_purge_point(self):

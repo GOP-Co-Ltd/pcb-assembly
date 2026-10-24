@@ -312,7 +312,14 @@ def _iter_descendants(node: PadHierarchyNode) -> Iterator[PadHierarchyNode]:
 
 
 class StoredBoardSettingsError(ValueError):
-    """保存済みの基板の塗布設定を復元できない（理由とファイルの場所を運転者へ返す）."""
+    """保存済みの基板の塗布設定を復元できない（理由とファイルの場所を運転者へ返す）.
+
+    ``source_pcb`` は読めなかった基板で、画面はこの基板に限って初期化を出す。
+    """
+
+    def __init__(self, message: str, *, source_pcb: str) -> None:
+        super().__init__(message)
+        self.source_pcb = source_pcb
 
 
 class BoardOverrides:
@@ -322,7 +329,7 @@ class BoardOverrides:
     内ロックで直列化する。プロセス内で 1 インスタンスを共有すること
     （HTTP 経路とジョブワーカーが別インスタンスを持つとロックで直列化できない）。
 
-    :meth:`prune` と import（:meth:`model_from_doc` → :meth:`save`）は
+    :meth:`prune`、import（:meth:`model_from_doc` → :meth:`save`）、初期化（:meth:`save`）は
     アップロード済み doc や呼び出し側が持つモデルからの全量上書きなので
     ロックの対象外で、pad PATCH と同時に走ったときの原子性は保証しない。
     """
@@ -365,7 +372,8 @@ class BoardOverrides:
         decoded, error = decode_board_settings(doc, base=base_config.defaults)
         if decoded is None:
             raise StoredBoardSettingsError(
-                f"保存済みの{_LABEL}を読めません: {error} ({path})"
+                f"保存済みの{_LABEL}を読めません: {error} ({path})",
+                source_pcb=source_pcb,
             )
         if _signature_mismatch(decoded, board_signature):
             return PasteSettingsModel.from_config(base_config)
@@ -513,17 +521,27 @@ class BoardSession:
         Raises:
             StoredBoardSettingsError: 保存済みの JSON を復元できない場合
         """
+        session = cls.initial(source_pcb, board, base_config)
+        return attrs.evolve(
+            session,
+            model=overrides.load_or_init(
+                source_pcb, base_config, board_signature=session.board_signature
+            ),
+        )
+
+    @classmethod
+    def initial(
+        cls, source_pcb: str, board: Board, base_config: PasteDispenserConfig
+    ) -> Self:
+        """保存済みの設定を読まずに、``base_config`` の初期値で組む（設定を丸ごと上書きするときに使う）."""
         hierarchy = PadHierarchy.build(board.components, board.pads)
-        signature = hierarchy.signature()
         return cls(
             source_pcb=source_pcb,
             base_config=base_config,
             board=board,
             hierarchy=hierarchy,
-            board_signature=signature,
-            model=overrides.load_or_init(
-                source_pcb, base_config, board_signature=signature
-            ),
+            board_signature=hierarchy.signature(),
+            model=PasteSettingsModel.from_config(base_config),
         )
 
 

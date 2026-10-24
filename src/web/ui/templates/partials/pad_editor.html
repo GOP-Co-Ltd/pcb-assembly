@@ -3,6 +3,9 @@
   <p id="pad-editor-empty" class="pad-editor-empty" data-testid="pad-editor-empty" hidden>
     PCB を選択してください。
   </p>
+  {# 保存済みの pad 設定が読めないとき（GET 409 の board_settings_unreadable）だけ JS が出す #}
+  <button type="button" id="pad-reset-config" data-testid="pad-reset-config"
+          data-requires-control hidden>pad 設定を初期化</button>
 
   {# PCB 選択済みの編集 UI。初期は隠し、GET 成功で JS が表示する #}
   <div id="pad-editor-body" class="pad-editor-body" data-testid="pad-editor-body" hidden>

@@ -69,6 +69,7 @@ import {
   const exportButton = document.getElementById("pad-export-config");
   const importButton = document.getElementById("pad-import-config-button");
   const importInput = document.getElementById("pad-import-config");
+  const resetButton = document.getElementById("pad-reset-config");
   const routeButton = document.getElementById("pad-calculate-route");
   const fillPathButton = document.getElementById("pad-calculate-fill-path");
   const initialPurgeAmount = document.getElementById(
@@ -93,7 +94,12 @@ import {
     "pad-clear-flow-calibration-point"
   );
 
+  // 保存済みの設定を読めなかった PCB（初期化はこの PCB に限る。読めていれば null）
+  let unreadablePcb = null;
+
   async function load() {
+    unreadablePcb = null;
+    resetButton.hidden = true;
     try {
       await reloadConfig({ invalidateRoute: true, invalidateFillPath: true });
       emptyEl.hidden = true;
@@ -106,6 +112,22 @@ import {
         err.message && !/^409/.test(err.message)
           ? `pad 設定を取得できません: ${err.message}`
           : "PCB を選択してください。";
+      if (err.data?.board_settings_unreadable) unreadablePcb = err.data.pcb_file;
+      resetButton.hidden = unreadablePcb === null;
+    }
+  }
+
+  // 読めない設定を初期値で上書きする（初期化の後なら「設定を読み込み」で書き出し済みの設定に戻せる）
+  async function resetConfig() {
+    if (!window.confirm("保存済みの pad 設定を破棄して初期値に戻しますか？")) return;
+    try {
+      await api("POST", "/api/pasting/board/reset", {
+        expected_pcb: unreadablePcb,
+      });
+      toast("pad 設定を初期化しました");
+      await load();
+    } catch (err) {
+      toast(`pad 設定を初期化できません: ${err.message}`, false);
     }
   }
 
@@ -804,6 +826,8 @@ import {
       });
     });
   }
+
+  resetButton.addEventListener("click", resetConfig);
 
   load();
 })();

@@ -238,6 +238,7 @@ GATED_REQUESTS: list[tuple[str, str, dict[str, Any] | None]] = [
     ("patch", "/api/pasting/board/pads", {"ids": [], "enabled": True}),
     ("patch", "/api/pasting/board/initial-purge", {"point": None}),
     ("post", "/api/pasting/board/import", {"document": {}}),
+    ("post", "/api/pasting/board/reset", None),
 ]
 
 # 誰でも可（安全機能・読み取り専用計算・閲覧）

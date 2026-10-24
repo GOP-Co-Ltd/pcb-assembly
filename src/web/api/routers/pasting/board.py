@@ -23,7 +23,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
-from pcbasm.board import Layer, Pad
+from pcbasm.board import Board, Layer, Pad
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.hierarchy import PadHierarchyNode
 from pcbasm.pasting.initial_purge import validate_initial_purge_point
@@ -346,6 +346,12 @@ class PadConfigImport(BaseModel):
     document: dict
 
 
+class BoardReset(BaseModel):
+    """POST /api/pasting/board/reset のリクエスト."""
+
+    expected_pcb: str  # 初期化する PCB（選択中の PCB と違えば 409）
+
+
 class AffectedPad(BaseModel):
     """編集の影響を受けた pad の最新状態."""
 
@@ -512,12 +518,8 @@ def pad_info(
 # --------------------------------------------------------------------------- #
 # 共通: PCB / 階層 / モデルのロード
 # --------------------------------------------------------------------------- #
-def load_session(
-    selection: Selection, machine_config: MachineConfigFile, overrides: BoardOverrides
-) -> BoardSession:
-    """選択中基板の Board / 階層 / 保存済みモデルをまとめてロードする.
-
-    Board はファイルが変わっていなければキャッシュを使い、差し替わっていれば読み直す。
+def _selected_board(selection: Selection) -> tuple[str, Board]:
+    """選択中基板の相対パスと Board（ファイルが変わっていなければキャッシュを使う）.
 
     Raises:
         HTTPException: PCB 未選択（409）の場合
@@ -526,11 +528,35 @@ def load_session(
     if selected is None:
         raise HTTPException(status_code=409, detail="PCB が選択されていません")
     pcb_rel, board = selected
+    return pcb_rel.as_posix(), board
+
+
+def load_session(
+    selection: Selection, machine_config: MachineConfigFile, overrides: BoardOverrides
+) -> BoardSession:
+    """選択中基板の Board / 階層 / 保存済みモデルをまとめてロードする.
+
+    Raises:
+        HTTPException: PCB 未選択（409）の場合
+        StoredBoardSettingsError: 保存済みの設定を読めない場合（409）
+    """
+    source_pcb, board = _selected_board(selection)
     return BoardSession.load(
-        overrides,
-        pcb_rel.as_posix(),
-        board,
-        machine_config.machine().paste_dispenser,
+        overrides, source_pcb, board, machine_config.machine().paste_dispenser
+    )
+
+
+def _initial_session(
+    selection: Selection, machine_config: MachineConfigFile
+) -> BoardSession:
+    """保存済みの設定を読まずに、選択中基板を machine.toml の初期値で組む（全量上書き用）.
+
+    Raises:
+        HTTPException: PCB 未選択（409）の場合
+    """
+    source_pcb, board = _selected_board(selection)
+    return BoardSession.initial(
+        source_pcb, board, machine_config.machine().paste_dispenser
     )
 
 
@@ -909,22 +935,45 @@ def import_board(
     overrides: OverridesDep,
     _control: ControlDep,
 ) -> PadConfigResponse:
-    """アップロードされた基板 override 設定を検証して保存し、最新設定を返す."""
-    loaded = load_session(selection, machine_config, overrides)
+    """アップロードされた基板 override 設定を検証して保存し、最新設定を返す.
+
+    全量上書きなので保存済みの設定は読まない（読めなくなった設定もこれで置き換えられる）。
+    """
+    session = _initial_session(selection, machine_config)
     try:
         model = overrides.model_from_doc(
             body.document,
-            loaded.base_config,
-            board_signature=loaded.board_signature,
-            expected_source_pcb=loaded.source_pcb,
+            session.base_config,
+            board_signature=session.board_signature,
+            expected_source_pcb=session.source_pcb,
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     pruned = overrides.prune(
-        loaded.source_pcb,
+        session.source_pcb,
         model,
-        loaded.hierarchy,
-        outline=loaded.board.outline.polygon,
-        board_signature=loaded.board_signature,
+        session.hierarchy,
+        outline=session.board.outline.polygon,
+        board_signature=session.board_signature,
     )
-    return build_pad_config(attrs.evolve(loaded, model=pruned))
+    return build_pad_config(attrs.evolve(session, model=pruned))
+
+
+@router.post("/reset")
+def reset_board(
+    body: BoardReset,
+    selection: SelectionDep,
+    machine_config: MachineConfigDep,
+    overrides: OverridesDep,
+    _control: ControlDep,
+) -> PadConfigResponse:
+    """選択中基板の塗布設定を machine.toml の初期値で上書きし、最新設定を返す.
+
+    保存済みの設定が読めない（409）ときに、pad 編集を使える状態へ戻す入口。
+    """
+    session = _initial_session(selection, machine_config)
+    _check_expected_pcb(body.expected_pcb, session)
+    overrides.save(
+        session.source_pcb, session.model, board_signature=session.board_signature
+    )
+    return build_pad_config(session)

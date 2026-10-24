@@ -111,6 +111,8 @@ class TestPcbNotSelected:
             ),
             pytest.param("POST", "/route", {"layer": "Top"}, id="route"),
             pytest.param("POST", "/fill-path", {"layer": "Top"}, id="fill-path"),
+            pytest.param("POST", "/import", {"document": {}}, id="import"),
+            pytest.param("POST", "/reset", {"expected_pcb": _SELECTED_PCB}, id="reset"),
         ],
     )
     def test_requires_selected_pcb(
@@ -145,22 +147,78 @@ class TestUnreadableBoardSettings:
         suffix: str,
         payload: dict | None,
     ):
-        doc = selected_client.get("/api/pasting/board/export").json()
-        doc["settings"]["initial_purge_pad_id"] = "U1.1"
-        board_id = BoardOverrides(webui_settings.webui_data_dir).board_id(_SELECTED_PCB)
-        path = webui_settings.webui_data_dir / "board_settings" / f"{board_id}.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(doc), encoding="utf-8")
+        path = _break_saved_settings(selected_client, webui_settings)
 
         response = selected_client.request(
             method, f"/api/pasting/board{suffix}", json=payload
         )
 
         assert response.status_code == 409
-        assert response.json()["detail"] == (
-            "保存済みの基板の塗布設定を読めません: 基板の塗布設定 schema v1 が不正です: "
-            f"未知のキーです: initial_purge_pad_id ({path})"
+        assert response.json() == {
+            "detail": (
+                "保存済みの基板の塗布設定を読めません: 基板の塗布設定 schema v1 が不正です: "
+                f"未知のキーです: initial_purge_pad_id ({path})"
+            ),
+            "board_settings_unreadable": True,
+            "pcb_file": _SELECTED_PCB,
+        }
+
+    def test_reset_overwrites_with_the_defaults(
+        self, selected_client: TestClient, webui_settings: Env
+    ):
+        """初期化すると読めない設定を初期値で上書きし、pad 編集へ戻れる."""
+        _break_saved_settings(selected_client, webui_settings)
+
+        response = selected_client.post(
+            "/api/pasting/board/reset", json={"expected_pcb": _SELECTED_PCB}
         )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["overrides"] == {}
+        assert _get_config(selected_client)["overrides"] == {}
+
+    def test_reset_refuses_a_board_other_than_the_selected_one(
+        self, selected_client: TestClient, webui_settings: Env
+    ):
+        """初期化を押した画面の基板と選択中の基板が違えば、選択中の基板の設定を消さない."""
+        path = _break_saved_settings(selected_client, webui_settings)
+        before = path.read_text(encoding="utf-8")
+
+        response = selected_client.post(
+            "/api/pasting/board/reset", json={"expected_pcb": "other.kicad_pcb"}
+        )
+
+        assert response.status_code == 409
+        assert path.read_text(encoding="utf-8") == before
+
+    def test_import_overwrites_without_reading_the_saved_settings(
+        self, selected_client: TestClient, webui_settings: Env
+    ):
+        """書き出し済みの設定の読み込みも、読めない設定を置き換えられる."""
+        selected_client.patch(
+            "/api/pasting/board/pads",
+            json={"ids": ["U1.2"], "enabled": False, "expected_pcb": _SELECTED_PCB},
+        )
+        exported = selected_client.get("/api/pasting/board/export").json()
+        _break_saved_settings(selected_client, webui_settings)
+
+        response = selected_client.post(
+            "/api/pasting/board/import", json={"document": exported}
+        )
+
+        assert response.status_code == 200, response.text
+        assert _pad_by_id(_get_config(selected_client), "U1.2")["enabled"] is False
+
+
+def _break_saved_settings(client: TestClient, webui_settings: Env) -> Path:
+    """選択中基板の保存済みの設定を、読めない内容（未知のキー入り）で書き、そのパスを返す."""
+    doc = client.get("/api/pasting/board/export").json()
+    doc["settings"]["initial_purge_pad_id"] = "U1.1"
+    board_id = BoardOverrides(webui_settings.webui_data_dir).board_id(_SELECTED_PCB)
+    path = webui_settings.webui_data_dir / "board_settings" / f"{board_id}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    return path
 
 
 class TestReplacedBoard:
