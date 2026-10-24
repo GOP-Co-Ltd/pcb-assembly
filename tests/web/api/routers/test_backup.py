@@ -14,7 +14,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from web.api.env import Settings
+from web.api.env import Env
 
 
 def _backup(client: TestClient) -> zipfile.ZipFile:
@@ -27,7 +27,7 @@ def _backup(client: TestClient) -> zipfile.ZipFile:
 
 class TestBackup:
     def test_contains_config_and_operational_data(
-        self, client: TestClient, webui_settings: Settings, tmp_path: Path
+        self, client: TestClient, webui_settings: Env, tmp_path: Path
     ):
         config_dir = webui_settings.config_dir
         printer_cfg = tmp_path / "printer_data" / "printer.cfg"
@@ -63,9 +63,7 @@ class TestBackup:
         assert archive.read("config/printer.cfg") == b"[printer]\n"
         assert any(name.startswith("config/history/machine-") for name in names)
 
-    def test_manifest_lists_legacy_paths(
-        self, client: TestClient, webui_settings: Settings
-    ):
+    def test_manifest_lists_legacy_paths(self, client: TestClient, webui_settings: Env):
         legacy = webui_settings.data_dir / "board_settings"
         legacy.mkdir()
         (legacy / "fedcba9876543210.json").write_text("{}")

@@ -28,7 +28,7 @@ from pcbasm.machine.park import PRESENT_TIMEOUT, park
 from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.validators import is_finite_number
 from pcbasm.vision import Image
-from web.api.env import Settings, resolve_machine_id
+from web.api.env import Env, resolve_machine_id
 from web.api.jobs.catalog import JobCatalog, JobDefinition
 from web.api.jobs.context import (
     Answer,
@@ -419,7 +419,7 @@ class JobManager:
         state: AppState,
         preview: PreviewService,
         catalog: JobCatalog,
-        settings: Settings,
+        settings: Env,
         overrides: BoardOverrides,
         *,
         audio_player: AudioPlayer | None = None,

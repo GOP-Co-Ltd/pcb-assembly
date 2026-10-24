@@ -8,7 +8,7 @@ from typing import override
 import uvicorn
 
 from web.api.app import create_app
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.preview import PreviewService
 from web.process import setup_logging
 
@@ -29,7 +29,7 @@ class _WebUIServer(uvicorn.Server):
 def main() -> None:
     # FrameHub の start/stop ログ（E2E の停止確認に使う）を含めて出力する
     setup_logging()
-    settings = Settings.from_env()
+    settings = Env.from_env()
     app = create_app(settings)
     config = uvicorn.Config(
         app,

@@ -43,7 +43,7 @@ from pcbasm.pasting.pad_editor import (
 )
 from pcbasm.pasting.params import PASTE_PARAM_FIELDS, PasteParamValue
 from pcbasm.pasting.plan import PastePlan, plan_paste
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.state import AppState
 
 
@@ -493,7 +493,7 @@ def pad_info(
 # 共通: PCB / 階層 / モデルのロード
 # --------------------------------------------------------------------------- #
 def load_session(
-    state: AppState, settings: Settings, overrides: BoardOverrides
+    state: AppState, settings: Env, overrides: BoardOverrides
 ) -> BoardSession:
     """選択中基板の Board / 階層 / 保存済みモデルをまとめてロードする.
 

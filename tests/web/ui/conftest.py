@@ -30,7 +30,7 @@ from fastapi.testclient import TestClient
 
 from tests.helpers import copy_testing_config
 from web.api.app import create_app as create_backend_app
-from web.api.env import Settings as ApiSettings
+from web.api.env import Env as ApiEnv
 from web.ui.machines import MachineEndpoint
 from web.ui.settings import Settings
 
@@ -49,11 +49,11 @@ def backend_pcb_root(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def backend_settings(tmp_path: Path, backend_pcb_root: Path) -> ApiSettings:
+def backend_settings(tmp_path: Path, backend_pcb_root: Path) -> ApiEnv:
     """上流 backend の Settings（`data/testing/config` を tmp_path へコピーして使う）."""
     data_dir = tmp_path / "backend" / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
-    return ApiSettings(
+    return ApiEnv(
         config_dir=copy_testing_config(tmp_path / "backend"),
         data_dir=data_dir,
         pcb_browse_root=backend_pcb_root,
@@ -70,7 +70,7 @@ def backend_settings(tmp_path: Path, backend_pcb_root: Path) -> ApiSettings:
 
 @pytest.fixture
 def backend_app(
-    backend_settings: ApiSettings,
+    backend_settings: ApiEnv,
     paste_test_board_footprint_root: Path,
 ) -> Iterator[FastAPI]:
     """実物の backend app。lifespan は走らないので後始末だけ明示的に行う."""

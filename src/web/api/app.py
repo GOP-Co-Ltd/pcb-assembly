@@ -21,7 +21,7 @@ from web.api.discovery import (
     local_ipv4_addresses,
     select_advertise_addresses,
 )
-from web.api.env import Settings, resolve_machine_id
+from web.api.env import Env, resolve_machine_id
 from web.api.errors import install_error_handlers
 from web.api.jobs.catalog import default_catalog
 from web.api.jobs.manager import JobManager
@@ -76,7 +76,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.appstate.close()
 
 
-def _build_advertiser(settings: Settings) -> ServiceAdvertiser:
+def _build_advertiser(settings: Env) -> ServiceAdvertiser:
     """設定から広告を組む（ソケットは開かない）.
 
     設定エラー（degraded）でも広告する。機体一覧に載らないと WebUI から直せない。
@@ -97,7 +97,7 @@ def _build_advertiser(settings: Settings) -> ServiceAdvertiser:
     )
 
 
-def _build_update_runner(settings: Settings) -> UpdateRunner:
+def _build_update_runner(settings: Env) -> UpdateRunner:
     """設定から自己更新のランナーを組む（リポジトリは常にこのソースツリー）.
 
     ブランチ・remote・`uv` の引数はサーバ側の固定値。リクエストからは変更できない。
@@ -139,7 +139,7 @@ def _control_change_notifier(app: FastAPI) -> Callable[[], None]:
 
 
 def create_app(
-    settings: Settings | None = None,
+    settings: Env | None = None,
     *,
     devices: Devices | None = None,
     audio_player: AudioPlayer | None = None,
@@ -161,7 +161,7 @@ def create_app(
         構成済みの FastAPI アプリ
     """
     if settings is None:
-        settings = Settings.from_env()
+        settings = Env.from_env()
 
     app = FastAPI(title="pcb-assembly WebUI", lifespan=_lifespan)
     machine_config = MachineConfigFile(

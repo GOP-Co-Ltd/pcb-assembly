@@ -36,7 +36,7 @@ from fastapi.testclient import TestClient
 from pcbasm.config.fields import setting_fields
 from tests.web.ui.conftest import BACKEND_MACHINE_ID
 from web.api.app import create_app as create_backend_app
-from web.api.env import Settings as ApiSettings
+from web.api.env import Env as ApiEnv
 from web.api.jobs.catalog import JobCatalog, default_catalog
 from web.api.state import AppState
 from web.ui.app import create_app as create_frontend_app
@@ -118,7 +118,7 @@ def client(frontend_client: TestClient) -> TestClient:
 
 
 @pytest.fixture
-def config_dir(backend_settings: ApiSettings) -> Path:
+def config_dir(backend_settings: ApiEnv) -> Path:
     """上流 backend が読む config ディレクトリ（machine.toml の書き換え材料）."""
     return backend_settings.config_dir
 
@@ -178,7 +178,7 @@ def machine_toml_without_required_paste_dispenser_key(config_dir: Path) -> Path:
 @contextmanager
 def _frontend_over(
     ui_settings: UiSettings,
-    backend_settings: ApiSettings,
+    backend_settings: ApiEnv,
     *,
     catalog: JobCatalog | None = None,
 ) -> Iterator[TestClient]:
@@ -229,7 +229,7 @@ class TestPages:
 
     @pytest.mark.parametrize("tab", TABS)
     def test_tab_page_renders_with_common_chrome(
-        self, client: TestClient, backend_settings: ApiSettings, tab: str
+        self, client: TestClient, backend_settings: ApiEnv, tab: str
     ):
         response = client.get(f"/{tab}")
 
@@ -240,7 +240,7 @@ class TestPages:
         assert backend_settings.mainsail_url in response.text
 
     def test_file_browser_start_path_is_rendered(
-        self, ui_settings: UiSettings, backend_settings: ApiSettings
+        self, ui_settings: UiSettings, backend_settings: ApiEnv
     ):
         """Pcb_browse_start の pcb_browse_root 相対パスが data-fb-start に出る.
 
@@ -257,7 +257,7 @@ class TestPages:
         assert f'data-fb-start="{start}"' in text
 
     def test_mainsail_link_resolves_from_machine_id_when_unset(
-        self, ui_settings: UiSettings, backend_settings: ApiSettings
+        self, ui_settings: UiSettings, backend_settings: ApiEnv
     ):
         """PCBASM_MAINSAIL_URL 未設定時は backend の machine_id から `.local` で解決する.
 
@@ -752,7 +752,7 @@ class TestMissingSelectionNotice:
     """起動時に選択していた PCB が無ければ、選択を解除したことを全ページに出す."""
 
     @pytest.fixture
-    def missing_selection(self, backend_settings: ApiSettings) -> None:
+    def missing_selection(self, backend_settings: ApiEnv) -> None:
         """Backend 起動前に、もう無い PCB を選択済みとして残す."""
         state_file = backend_settings.webui_data_dir / "webui_state.json"
         state_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1067,7 +1067,7 @@ class TestMachinePrefixedUrls:
         assert "busy" in response.json()
 
     def test_artifacts_path_is_proxied_and_not_eaten_by_the_pages_router(
-        self, client: TestClient, ui_settings: UiSettings, backend_settings: ApiSettings
+        self, client: TestClient, ui_settings: UiSettings, backend_settings: ApiEnv
     ):
         """`/m/{id}/artifacts/...` も同じ（成果物リンクとジョブの画像表示）."""
         backend_settings.webui_data_dir.mkdir(parents=True, exist_ok=True)
@@ -1275,7 +1275,7 @@ class TestBackendContractMismatch:
     """
 
     def test_job_page_returns_503_when_the_backend_omits_the_job(
-        self, ui_settings: UiSettings, backend_settings: ApiSettings
+        self, ui_settings: UiSettings, backend_settings: ApiEnv
     ):
         with _frontend_over(
             ui_settings, backend_settings, catalog=JobCatalog()

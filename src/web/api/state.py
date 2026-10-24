@@ -16,7 +16,7 @@ from pcbasm.atomic import write_bytes_atomic, write_text_atomic
 from pcbasm.config import ConfigError, MachineConfig, load_machine
 from pcbasm.machine.devices import Devices, open_devices
 from pcbasm.migrate.machine_toml import NAME, MigrationError, migrate_machine_toml
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.machine_config import MachineConfigFile
 from web.api.selection import BoardCache
 
@@ -51,7 +51,7 @@ class AppState:
 
     def __init__(
         self,
-        settings: Settings,
+        settings: Env,
         machine_config: MachineConfigFile,
         devices: Devices | None = None,
     ) -> None:

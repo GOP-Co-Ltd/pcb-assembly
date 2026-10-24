@@ -223,12 +223,12 @@ class JobContext:
 
     @property
     def paste_dataset_dir(self) -> Path:
-        """永続ペースト dataset root（テストでは Settings から注入可能）."""
+        """永続ペースト dataset root（テストでは Env から注入可能）."""
         return self._paste_dataset_dir
 
     @property
     def paste_volume_calibration_dir(self) -> Path:
-        """永続の塗布量校正 root（テストでは Settings から注入可能）."""
+        """永続の塗布量校正 root（テストでは Env から注入可能）."""
         return self._paste_volume_calibration_dir
 
     @property

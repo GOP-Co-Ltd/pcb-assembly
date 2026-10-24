@@ -17,10 +17,10 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
-from web.api.env import Settings
+from web.api.env import Env
 
 
-def build_backup(settings: Settings, *, machine_id: str, created_at: datetime) -> bytes:
+def build_backup(settings: Env, *, machine_id: str, created_at: datetime) -> bytes:
     """バックアップ zip の中身を返す."""
     webui = settings.webui_data_dir
     buffer = io.BytesIO()

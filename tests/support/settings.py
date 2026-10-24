@@ -1,4 +1,4 @@
-"""テスト用に隔離した backend / frontend の Settings を組む.
+"""テスト用に隔離した backend の Env と frontend の Settings を組む.
 
 E2E の実サーバーと、アプリを組んで route を調べるテスト（tests/repo）が共有する。
 """
@@ -7,13 +7,13 @@ from pathlib import Path
 
 from tests.helpers import copy_testing_config
 from tests.web.api.conftest import FAKE_CAMERA_IMAGE
-from web.api.env import Settings
+from web.api.env import Env
 from web.ui.machines import MachineEndpoint
 from web.ui.settings import Settings as UiSettings
 
 
-def make_api_settings(root: Path, *, hostname: str) -> Settings:
-    """Fake カメラ + テスト用 config + 隔離 data_dir の backend Settings を組む.
+def make_api_settings(root: Path, *, hostname: str) -> Env:
+    """Fake カメラ + テスト用 config + 隔離 data_dir の backend Env を組む.
 
     `data/testing/config` を `root` 内に複製する。Klipper port 7126（非リッスン）なので、
     誤って実機 Moonraker に接続しない。
@@ -24,7 +24,7 @@ def make_api_settings(root: Path, *, hostname: str) -> Settings:
             テスト（test_update_e2e.py 等）で URL prefix を区別するために注入する
 
     Returns:
-        構築済みの backend Settings
+        構築済みの backend Env
     """
     root.mkdir(parents=True, exist_ok=True)
     config_dir = copy_testing_config(root)
@@ -32,7 +32,7 @@ def make_api_settings(root: Path, *, hostname: str) -> Settings:
     pcb_root.mkdir()
     data_dir = root / "data"
     data_dir.mkdir()
-    return Settings(
+    return Env(
         config_dir=config_dir,
         data_dir=data_dir,
         pcb_browse_root=pcb_root,

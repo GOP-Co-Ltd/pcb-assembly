@@ -10,7 +10,7 @@ import pytest
 from pcbasm.pasting.overrides import BoardOverrides
 from tests.web.api.conftest import decode_jpeg, jpeg_payload
 from tests.web.api.jobs.conftest import WaitUntil, answer_next_prompt
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.manager import JobManager, JobStatus
 from web.api.preview import PreviewService
@@ -40,7 +40,7 @@ class TestHeightPlaneFrontFlow:
         self,
         manager: JobManager,
         state: AppState,
-        fake_camera_settings: Settings,
+        fake_camera_settings: Env,
         copper_pcb_path: Path,
         wait_until: WaitUntil,
     ):
@@ -85,7 +85,7 @@ class TestHeightPlaneFrontFlow:
         self,
         catalog: JobCatalog,
         state: AppState,
-        fake_camera_settings: Settings,
+        fake_camera_settings: Env,
         overrides: BoardOverrides,
         copper_pcb_path: Path,
         wait_until: WaitUntil,

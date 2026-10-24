@@ -23,7 +23,7 @@ from tests.support.golden import assert_transcript
 from tests.web.api.jobs.conftest import register_synthetic
 from tests.web.update_support import make_update_sandbox
 from web.api.app import create_app
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.context import JobContext
 from web.api.jobs.machine_commands import handle_machine_command
@@ -45,7 +45,7 @@ def homed_klipper(machine_klipper: FakeKlipper) -> FakeKlipper:
 
 @pytest.fixture
 def make_app(
-    job_settings: Settings, devices: Devices, paste_test_board_footprint_root: Path
+    job_settings: Env, devices: Devices, paste_test_board_footprint_root: Path
 ) -> Callable[[UpdateRunner | None], FastAPI]:
     """実アプリを golden 用の config と装置で組む関数を返す（自己更新のランナーだけ差し替えられる）."""
 

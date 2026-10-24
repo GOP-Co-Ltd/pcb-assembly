@@ -28,7 +28,7 @@ from pcbasm.hal.fake import FakeAudioPlayer
 from tests.support.polling import before_deadline
 from tests.web.update_support import UpdateSandbox, make_update_sandbox
 from web.api.app import create_app as create_backend_app
-from web.api.env import Settings as ApiSettings
+from web.api.env import Env as ApiEnv
 from web.selfupdate.runner import UpdateRunner
 from web.ui.app import create_app
 from web.ui.machines import MachineEndpoint
@@ -255,7 +255,7 @@ class TestUpdateNotice:
     def _client(
         self,
         ui_settings: Settings,
-        backend_settings: ApiSettings,
+        backend_settings: ApiEnv,
         footprint_root: Path,
         runner: UpdateRunner,
         machine_runner: UpdateRunner,
@@ -284,7 +284,7 @@ class TestUpdateNotice:
     def notice_client(
         self,
         ui_settings: Settings,
-        backend_settings: ApiSettings,
+        backend_settings: ApiEnv,
         paste_test_board_footprint_root: Path,
         runner: UpdateRunner,
         machine_runner: UpdateRunner,
@@ -396,7 +396,7 @@ class TestUpdateNotice:
     def test_colocated_host_is_counted_once(
         self,
         ui_settings: Settings,
-        backend_settings: ApiSettings,
+        backend_settings: ApiEnv,
         paste_test_board_footprint_root: Path,
         sandbox: UpdateSandbox,
         runner: UpdateRunner,

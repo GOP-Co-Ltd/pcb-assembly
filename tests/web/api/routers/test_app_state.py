@@ -8,12 +8,12 @@ MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
 
 - GET /api/machine-info — backend の自己申告（machine_id / machine_type /
   mainsail_url / fb_start / api_version）。到達性プローブも兼ねる
-- machine_id は `Settings.hostname` があればそれ、無ければ backend ホストの hostname
+- machine_id は `Env.hostname` があればそれ、無ければ backend ホストの hostname
   （これがそのまま機体名。machine.toml に表示名の設定は持たない）
 - mainsail_url は backend 側で解決した値。リクエストのホスト名には追従しない
   （プロキシ配下で必ず誤るため）。未設定時は `http://{machine_id}.local`
   （machine_id が既にドットを含むなら `.local` を重ねない）
-  fake の機体（`Settings.fake`）は実機の Mainsail へ導かないよう空文字を返す
+  fake の機体（`Env.fake`）は実機の Mainsail へ導かないよう空文字を返す
 - StateResponse に nozzle_cap を追加。`[paste_dispenser.nozzle_cap]` が x/y/z を揃えていない
   machine.toml でも 200 + null（防御しないと全クライアントのポーリングが 500 する）
 """
@@ -24,7 +24,7 @@ import attrs
 from fastapi.testclient import TestClient
 
 from web.api.app import create_app
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.machine_config import MachineConfigFile
 from web.api.state import AppState
 
@@ -32,9 +32,7 @@ from web.api.state import AppState
 class TestStateApi:
     """GET /api/state."""
 
-    def test_state_reports_all_fields(
-        self, client: TestClient, webui_settings: Settings
-    ):
+    def test_state_reports_all_fields(self, client: TestClient, webui_settings: Env):
         response = client.get("/api/state")
 
         assert response.status_code == 200
@@ -111,7 +109,7 @@ class TestStateApi:
 class TestMachineInfoApi:
     """GET /api/machine-info — backend の自己申告（到達性プローブ兼用）."""
 
-    def test_reports_all_fields(self, webui_settings: Settings):
+    def test_reports_all_fields(self, webui_settings: Env):
         settings = attrs.evolve(webui_settings, hostname="paste-01")
         with TestClient(create_app(settings)) as client:
             response = client.get("/api/machine-info")
@@ -129,7 +127,7 @@ class TestMachineInfoApi:
         }
 
     def test_mainsail_url_resolves_from_machine_id_not_request_host(
-        self, webui_settings: Settings
+        self, webui_settings: Env
     ):
         """Mainsail_url 未設定時は machine_id から解決し、リクエスト元には追従しない.
 
@@ -145,7 +143,7 @@ class TestMachineInfoApi:
         assert "testserver" not in info["mainsail_url"]
 
     def test_mainsail_url_does_not_repeat_local_on_a_dotted_machine_id(
-        self, webui_settings: Settings
+        self, webui_settings: Env
     ):
         """Machine_id が既にドットを含むなら `.local` を重ねない（FQDN 注入・`.local` 注入）."""
         settings = attrs.evolve(
@@ -156,9 +154,7 @@ class TestMachineInfoApi:
 
         assert info["mainsail_url"] == "http://paste-01.local"
 
-    def test_fake_machine_does_not_link_to_a_real_mainsail(
-        self, webui_settings: Settings
-    ):
+    def test_fake_machine_does_not_link_to_a_real_mainsail(self, webui_settings: Env):
         """Fake の機体は実機と同じ machine_id を名乗るので、そこから Mainsail を導かない."""
         settings = attrs.evolve(
             webui_settings, mainsail_url=None, hostname="paste-01", fake=True
@@ -168,7 +164,7 @@ class TestMachineInfoApi:
 
         assert info["mainsail_url"] == ""
 
-    def test_fb_start_is_relative_to_browse_root(self, webui_settings: Settings):
+    def test_fb_start_is_relative_to_browse_root(self, webui_settings: Env):
         settings = attrs.evolve(
             webui_settings, pcb_browse_root=webui_settings.pcb_browse_root.parent
         )

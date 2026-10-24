@@ -20,7 +20,7 @@ from tests.golden.conftest import CAMERA_MODEL, JOBS, finish, scene_camera
 from tests.golden.scenarios import Scenario, scenarios_of
 from tests.support.golden import assert_transcript
 from tests.web.api.jobs.conftest import answer_next_prompt
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.jobs.manager import JobManager, JobStatus
 from web.api.machine_config import MachineConfigFile
 from web.api.state import AppState
@@ -93,7 +93,7 @@ class TestCameraCalibration:
         self,
         manager: JobManager,
         job_state: AppState,
-        job_settings: Settings,
+        job_settings: Env,
         machine_klipper: FakeKlipper,
         mount_camera: Callable[[Camera], None],
         grid_shapes: list[Polygon],
@@ -148,7 +148,7 @@ class TestCalibrationWithoutFocusZ:
         self,
         manager: JobManager,
         job_state: AppState,
-        job_settings: Settings,
+        job_settings: Env,
         machine_klipper: FakeKlipper,
         mount_camera: Callable[[Camera], None],
         grid_shapes: list[Polygon],

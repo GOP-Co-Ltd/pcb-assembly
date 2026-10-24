@@ -35,7 +35,7 @@ from shapely import Polygon
 from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.pasting.params import PASTE_PARAM_NAMES
 from tests.web.api.conftest import COPPER_PCB_FIXTURE, REAL_PCB_FIXTURE
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.state import AppState
 
 # selected_client が選ぶ PCB（copper_pcb_path）。PATCH の expected_pcb に添える
@@ -83,7 +83,7 @@ def _leaf_pad_ids(node: dict) -> set[str]:
     return ids
 
 
-def _saved_board_settings_doc(webui_settings: Settings) -> dict:
+def _saved_board_settings_doc(webui_settings: Env) -> dict:
     paths = list((webui_settings.webui_data_dir / "board_settings").rglob("*.json"))
     assert len(paths) == 1
     return json.loads(paths[0].read_text(encoding="utf-8"))
@@ -142,7 +142,7 @@ class TestUnreadableBoardSettings:
     def test_reports_the_reason_and_the_file(
         self,
         selected_client: TestClient,
-        webui_settings: Settings,
+        webui_settings: Env,
         method: str,
         suffix: str,
         payload: dict | None,
@@ -305,7 +305,7 @@ class TestInitialPurgePadConfig:
         self,
         selected_client: TestClient,
         config_dir: Path,
-        webui_settings: Settings,
+        webui_settings: Env,
     ):
         response = selected_client.patch(
             "/api/pasting/pad-config/initial-purge",
@@ -331,7 +331,7 @@ class TestInitialPurgePadConfig:
         self,
         selected_client: TestClient,
         config_dir: Path,
-        webui_settings: Settings,
+        webui_settings: Env,
     ):
         amount_response = selected_client.patch(
             "/api/pasting/pad-config/initial-purge",
@@ -380,7 +380,7 @@ class TestInitialPurgePoint:
     """PATCH initial-purge の座標指定（パージは pad ではなく座標で扱う）."""
 
     def test_patch_saves_the_point_and_resolves_it(
-        self, selected_client: TestClient, webui_settings: Settings
+        self, selected_client: TestClient, webui_settings: Env
     ):
         response = selected_client.patch(
             "/api/pasting/pad-config/initial-purge",
@@ -398,7 +398,7 @@ class TestInitialPurgePoint:
         assert doc["settings"]["initial_purge_point"] == pytest.approx([15.0, 4.0])
 
     def test_null_point_returns_to_the_automatic_selection(
-        self, selected_client: TestClient, webui_settings: Settings
+        self, selected_client: TestClient, webui_settings: Env
     ):
         saved = selected_client.patch(
             "/api/pasting/pad-config/initial-purge",
@@ -456,7 +456,7 @@ class TestFlowCalibrationPoints:
         assert "未設定" in flow["selection_label"]
 
     def test_patch_saves_the_points(
-        self, selected_client: TestClient, webui_settings: Settings
+        self, selected_client: TestClient, webui_settings: Env
     ):
         response = selected_client.patch(
             "/api/pasting/pad-config/flow-calibration",
@@ -496,7 +496,7 @@ class TestFlowCalibrationPoints:
         assert "2 点" in flow["selection_label"]
 
     def test_an_empty_list_returns_to_unset(
-        self, selected_client: TestClient, webui_settings: Settings
+        self, selected_client: TestClient, webui_settings: Env
     ):
         saved = selected_client.patch(
             "/api/pasting/pad-config/flow-calibration",
@@ -527,7 +527,7 @@ class TestFlowCalibrationPoints:
         assert "基板外形" in response.json()["detail"]
 
     def test_an_empty_body_reports_the_current_state_without_saving(
-        self, selected_client: TestClient, webui_settings: Settings
+        self, selected_client: TestClient, webui_settings: Env
     ):
         response = selected_client.patch(
             "/api/pasting/pad-config/flow-calibration",
@@ -1020,7 +1020,7 @@ class TestPatchPads:
     """PATCH /api/pasting/pad-config/pads（一括 enabled）."""
 
     def test_bulk_disable_returns_and_persists_only_selected_pads(
-        self, selected_client: TestClient, webui_settings: Settings
+        self, selected_client: TestClient, webui_settings: Env
     ):
         response = selected_client.patch(
             "/api/pasting/pad-config/pads",
@@ -1250,7 +1250,7 @@ class TestExpectedPcb:
         assert response.status_code == 422, response.text
 
     def test_rejected_patch_does_not_persist(
-        self, selected_client: TestClient, webui_settings: Settings
+        self, selected_client: TestClient, webui_settings: Env
     ):
         # 先に成功する PATCH を通して JSON を作る（「一度も書かれていない」
         # 状態と「409 で書かれなかった」状態を区別するため）

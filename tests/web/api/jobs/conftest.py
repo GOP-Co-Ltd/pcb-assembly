@@ -18,7 +18,7 @@ import pytest
 from pcbasm.hal import AudioPlayer
 from pcbasm.pasting.overrides import BoardOverrides
 from tests.support import polling
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import JobContext, JobResult
 from web.api.jobs.manager import JobManager, JobRecord
@@ -115,13 +115,13 @@ def catalog() -> JobCatalog:
     return JobCatalog()
 
 
-def make_overrides(settings: Settings) -> BoardOverrides:
-    """Settings に対応する基板設定ストア（JobManager への DI 用）."""
+def make_overrides(settings: Env) -> BoardOverrides:
+    """Env に対応する基板設定ストア（JobManager への DI 用）."""
     return BoardOverrides(settings.webui_data_dir)
 
 
 @pytest.fixture
-def overrides(fake_camera_settings: Settings) -> BoardOverrides:
+def overrides(fake_camera_settings: Env) -> BoardOverrides:
     """Fake camera 設定に対応する基板設定ストア."""
     return make_overrides(fake_camera_settings)
 
@@ -130,7 +130,7 @@ def overrides(fake_camera_settings: Settings) -> BoardOverrides:
 def make_manager(
     state: AppState,
     preview: PreviewService,
-    fake_camera_settings: Settings,
+    fake_camera_settings: Env,
     overrides: BoardOverrides,
 ) -> Iterator[ManagerFactory]:
     """JobManager のファクトリ。生成した manager はテスト終了時に shutdown する."""

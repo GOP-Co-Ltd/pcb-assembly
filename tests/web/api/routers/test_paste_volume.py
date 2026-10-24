@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 
 from pcbasm.pasting.paste_volume.calibration import CALIBRATION_SUFFIX
 from tests.support.paths import TESTING_DATA_DIR
-from web.api.env import Settings
+from web.api.env import Env
 
 CALIBRATION_V1 = TESTING_DATA_DIR / "schemas" / "paste_volume_calibration_v1.json"
 
@@ -36,7 +36,7 @@ def _write(root: Path, stem: str, *, document: dict | None = None) -> Path:
 
 
 @pytest.fixture
-def calibration_dir(fake_camera_settings: Settings) -> Path:
+def calibration_dir(fake_camera_settings: Env) -> Path:
     return fake_camera_settings.paste_volume_calibration_dir
 
 

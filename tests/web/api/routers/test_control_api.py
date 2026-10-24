@@ -35,7 +35,7 @@ from tests.support.polling import before_deadline
 from tests.web.api.jobs.conftest import register_synthetic
 from web.api.app import create_app
 from web.api.control import ClientIdentity
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.jobs.context import JobContext, PromptSpec
 
 ALICE = {"X-Pcbasm-Session": "alice-session", "X-Pcbasm-Client-Name": quote("田中")}
@@ -565,7 +565,7 @@ class TestNoAutoRelease:
         assert _control(client, BOB)["held"] is True
         assert client.post("/api/control/acquire", headers=BOB).status_code == 423
 
-    def test_restart_frees_the_lease(self, webui_settings: Settings):
+    def test_restart_frees_the_lease(self, webui_settings: Env):
         with TestClient(create_app(webui_settings)) as client:
             assert client.post("/api/control/acquire", headers=ALICE).status_code == 200
 

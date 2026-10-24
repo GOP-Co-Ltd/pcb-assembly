@@ -9,7 +9,7 @@ MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節「ファイル公開�
 追記契約:
 
 - `pcb_browse_root` は `board_id` の算出基準なので `/` のまま変えない。代わりに
-  `Settings.pcb_browse_allowed`（既定 = リポジトリルート + /media + /mnt）の
+  `Env.pcb_browse_allowed`（既定 = リポジトリルート + /media + /mnt）の
   サブツリーだけを公開する
 - 許可サブツリー外は列挙も選択も 400。許可サブツリーと文字列 prefix を共有する兄弟
   （`.../pcb` に対する `.../pcb-evil`）も外側として扱う
@@ -25,7 +25,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from web.api.app import create_app
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.state import AppState
 
 
@@ -41,7 +41,7 @@ def _entries(client: TestClient, path: str) -> set[tuple[str, str]]:
 
 
 @pytest.fixture
-def slash_root_client(webui_settings: Settings, pcb_root: Path):
+def slash_root_client(webui_settings: Env, pcb_root: Path):
     """実機の既定形（pcb_browse_root="/" + 許可サブツリーのみ公開）の TestClient."""
     settings = attrs.evolve(
         webui_settings, pcb_browse_root=Path("/"), pcb_browse_allowed=(pcb_root,)
@@ -138,7 +138,7 @@ class TestPcbFileApi:
 
 
 class TestPcbBrowseAllowed:
-    """公開範囲（`Settings.pcb_browse_allowed`）の境界（MR2）."""
+    """公開範囲（`Env.pcb_browse_allowed`）の境界（MR2）."""
 
     def test_root_listing_shows_only_the_way_to_allowed_subtrees(
         self, slash_root_client: TestClient, pcb_root: Path
@@ -224,7 +224,7 @@ class TestPcbBrowseAllowed:
         assert response.status_code == 400
 
     def test_upload_destination_outside_allowed_subtree_returns_400(
-        self, webui_settings: Settings, tmp_path: Path
+        self, webui_settings: Env, tmp_path: Path
     ):
         """アップロード先が許可サブツリー外なら保存前に 400 で断る."""
         settings = attrs.evolve(webui_settings, pcb_upload_dir=tmp_path / "elsewhere")

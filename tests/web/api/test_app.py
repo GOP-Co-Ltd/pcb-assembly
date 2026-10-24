@@ -2,7 +2,7 @@
 
 計画書「`src/webui/app.py` / `__main__.py`」節:
 
-- create_app(settings) で注入 Settings のアプリが起動する
+- create_app(settings) で注入 Env のアプリが起動する
 - BusyError → 409 JSON の exception handler が登録される
 
 MR1 追記（計画書 web-api-ui-split.md「MR1」節）:
@@ -50,7 +50,7 @@ from pcbasm.paths import PROJECT_ROOT
 from tests.support.moonraker import FakeMoonraker
 from tests.support.polling import wait_until
 from web.api.app import create_app
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.jobs.catalog import JobDefinition
 from web.api.jobs.context import JobContext
 from web.api.state import AppState
@@ -104,7 +104,7 @@ class TestCreateApp:
 
         assert response.status_code == 404
 
-    def test_lifespan_closes_injected_audio_player_once(self, webui_settings: Settings):
+    def test_lifespan_closes_injected_audio_player_once(self, webui_settings: Env):
         player = FakeAudioPlayer()
         app = create_app(webui_settings, audio_player=player)
 
@@ -219,7 +219,7 @@ class TestMigrationAtStartup:
     """設定を読む前に machine.toml を移行する."""
 
     def test_migrates_the_old_layout_and_reports_it(
-        self, config_dir: Path, webui_settings: Settings
+        self, config_dir: Path, webui_settings: Env
     ):
         path = config_dir / "machine.toml"
         shutil.copy(MIGRATION_BEFORE, path)
@@ -255,7 +255,7 @@ class TestMigrationAtStartup:
     def test_unmigratable_file_starts_degraded_and_is_left_untouched(
         self,
         config_dir: Path,
-        webui_settings: Settings,
+        webui_settings: Env,
         header: str,
         inserted: str,
         reason: str,

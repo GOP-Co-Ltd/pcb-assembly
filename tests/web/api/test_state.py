@@ -35,13 +35,13 @@ import attrs
 import pytest
 
 from tests.web.api.conftest import COPPER_PCB_FIXTURE
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.machine_config import MachineConfigFile
 from web.api.state import AppState, BusyError
 
 
 @pytest.fixture
-def state(webui_settings: Settings, machine_config: MachineConfigFile) -> AppState:
+def state(webui_settings: Env, machine_config: MachineConfigFile) -> AppState:
     """実カメラ設定なしの素の AppState（共有 fixture の fake camera 版を意図的に override）.
 
     本モジュールは選択・永続化・ロックの検証が主目的で、camera / FrameHub を 構築しないため close も不要。
@@ -58,7 +58,7 @@ class TestPcbSelection:
     def test_select_pcb_stores_relative_path_and_persists(
         self,
         state: AppState,
-        webui_settings: Settings,
+        webui_settings: Env,
         machine_config: MachineConfigFile,
         content: bytes | None,
     ):
@@ -76,7 +76,7 @@ class TestPcbSelection:
         assert restored.selected_pcb == path
 
     def test_corrupted_state_file_falls_back_to_default(
-        self, webui_settings: Settings, machine_config: MachineConfigFile
+        self, webui_settings: Env, machine_config: MachineConfigFile
     ):
         (webui_settings.webui_data_dir / "webui_state.json").parent.mkdir(
             parents=True, exist_ok=True
@@ -131,14 +131,14 @@ class TestMissingSelectionAtStartup:
     """起動時に選択していた PCB が無ければ選択を解除し、選び直すまで知らせる."""
 
     def _restart_after_removing(
-        self, state: AppState, webui_settings: Settings, pcb: Path
+        self, state: AppState, webui_settings: Env, pcb: Path
     ) -> AppState:
         state.select_pcb(pcb)
         (webui_settings.pcb_browse_root / pcb).unlink()
         return AppState(webui_settings, state.machine_config)
 
     def test_missing_pcb_is_deselected_with_a_notice(
-        self, state: AppState, webui_settings: Settings
+        self, state: AppState, webui_settings: Env
     ):
         restarted = self._restart_after_removing(
             state, webui_settings, Path("boards/sample.kicad_pcb")
@@ -149,7 +149,7 @@ class TestMissingSelectionAtStartup:
         assert "boards/sample.kicad_pcb" in restarted.pcb_notice
 
     def test_pcb_that_reappears_is_selected_again_on_next_startup(
-        self, state: AppState, webui_settings: Settings
+        self, state: AppState, webui_settings: Env
     ):
         pcb = Path("boards/sample.kicad_pcb")
         content = (webui_settings.pcb_browse_root / pcb).read_bytes()
@@ -162,7 +162,7 @@ class TestMissingSelectionAtStartup:
         assert restarted.pcb_notice is None
 
     def test_selecting_again_clears_the_notice(
-        self, state: AppState, webui_settings: Settings
+        self, state: AppState, webui_settings: Env
     ):
         restarted = self._restart_after_removing(
             state, webui_settings, Path("boards/sample.kicad_pcb")
@@ -173,7 +173,7 @@ class TestMissingSelectionAtStartup:
         assert restarted.pcb_notice is None
 
     def test_existing_pcb_stays_selected_without_notice(
-        self, state: AppState, webui_settings: Settings
+        self, state: AppState, webui_settings: Env
     ):
         state.select_pcb(Path("boards/sample.kicad_pcb"))
 
@@ -189,7 +189,7 @@ class TestJobParamDefaults:
     def test_merge_job_param_defaults_persists_across_instances(
         self,
         state: AppState,
-        webui_settings: Settings,
+        webui_settings: Env,
         machine_config: MachineConfigFile,
     ):
         state.merge_job_param_defaults(
@@ -210,7 +210,7 @@ class TestJobParamDefaults:
         assert state.job_param_defaults("no-such-job") == {}
 
     def test_state_file_with_invalid_job_param_defaults_ignores_bad_values(
-        self, webui_settings: Settings, machine_config: MachineConfigFile
+        self, webui_settings: Env, machine_config: MachineConfigFile
     ):
         (webui_settings.webui_data_dir / "webui_state.json").parent.mkdir(
             parents=True, exist_ok=True
@@ -265,7 +265,7 @@ class TestJobParamDefaults:
         assert state.job_param_defaults("flow_calibration") == {"rotations": 60.0}
 
     def test_concurrent_merges_never_roll_back_the_state_file(
-        self, state: AppState, webui_settings: Settings
+        self, state: AppState, webui_settings: Env
     ):
         """別ジョブ名の同時 merge で、保存済みジョブ名がファイルから消えない.
 
@@ -356,7 +356,7 @@ class TestPersistenceFailure:
     def test_failed_write_keeps_previous_state_until_retry_succeeds(
         self,
         state: AppState,
-        webui_settings: Settings,
+        webui_settings: Env,
         machine_config: MachineConfigFile,
         operation: str,
     ):
@@ -492,7 +492,7 @@ class TestFakeCamera:
 
     @pytest.fixture
     def fake_state(
-        self, webui_settings: Settings, machine_config: MachineConfigFile
+        self, webui_settings: Env, machine_config: MachineConfigFile
     ) -> Iterator[AppState]:
         state = AppState(attrs.evolve(webui_settings, fake=True), machine_config)
         yield state
@@ -512,7 +512,7 @@ class TestFakeCamera:
         return int(image[image.shape[0] // 2, image.shape[1] // 2, 0])
 
     def test_selecting_a_pcb_puts_its_top_left_marker_on_the_reference_point(
-        self, fake_state: AppState, webui_settings: Settings
+        self, fake_state: AppState, webui_settings: Env
     ):
         empty = self._center_at_reference(fake_state)
         shutil.copy(COPPER_PCB_FIXTURE, webui_settings.pcb_browse_root)

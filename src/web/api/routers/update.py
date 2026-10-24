@@ -14,7 +14,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from web.api.dependencies import ControlDep, SettingsDep, StateDep, UpdateDep
+from web.api.dependencies import ControlDep, EnvDep, StateDep, UpdateDep
 from web.api.env import resolve_machine_id
 from web.contract.update import UpdateRunResponse, UpdateStatusResponse
 from web.selfupdate.report import UpdatePlan, run_payload, status_payload
@@ -34,20 +34,20 @@ class UpdateRunRequest(BaseModel):
 
 
 def _status(
-    update: UpdateRunner, plan: UpdatePlan, settings: SettingsDep
+    update: UpdateRunner, plan: UpdatePlan, settings: EnvDep
 ) -> UpdateStatusResponse:
     return status_payload(plan, update.status(), hostname=resolve_machine_id(settings))
 
 
 @router.get("/update/status")
-def get_update_status(update: UpdateDep, settings: SettingsDep) -> UpdateStatusResponse:
+def get_update_status(update: UpdateDep, settings: EnvDep) -> UpdateStatusResponse:
     """更新の可否と直近の結果（fetch しないので毎秒ポーリングしてよい）."""
     return _status(update, update.plan(), settings)
 
 
 @router.post("/update/check")
 def post_update_check(
-    update: UpdateDep, settings: SettingsDep, _control: ControlDep
+    update: UpdateDep, settings: EnvDep, _control: ControlDep
 ) -> UpdateStatusResponse:
     """Remote を fetch してから状態を返す（ネットワーク I/O を伴う）."""
     return _status(update, update.check(), settings)

@@ -21,14 +21,14 @@ from tests.e2e.conftest import (
 )
 from tests.support.settings import make_ui_settings
 from web.api.app import create_app as create_api_app
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.jobs.context import JobContext, JobResult, PromptSpec
 from web.ui.app import create_app
 from web.ui.machines import MachineEndpoint
 
 
 @pytest.fixture
-def live_server(e2e_settings: Settings) -> Iterator[LiveServer]:
+def live_server(e2e_settings: Env) -> Iterator[LiveServer]:
     app = create_api_app(e2e_settings, audio_player=FakeAudioPlayer())
 
     def run(ctx: JobContext) -> JobResult:

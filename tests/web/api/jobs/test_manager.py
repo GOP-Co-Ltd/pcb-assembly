@@ -37,7 +37,7 @@ import tomlkit
 from pcbasm.config.audio import AudioConfig
 from pcbasm.hal import AudioPlaybackError
 from pcbasm.hal.fake import FakeAudioPlayer
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.jobs.catalog import JobCatalog, ParamSpec
 from web.api.jobs.context import ApplyPayload, JobContext, JobResult, PromptSpec
 from web.api.jobs.manager import (
@@ -934,7 +934,7 @@ class TestJournal:
         catalog: JobCatalog,
         state: AppState,
         wait_until: WaitUntil,
-        fake_camera_settings: Settings,
+        fake_camera_settings: Env,
     ):
         _register(catalog, lambda ctx: None, uses_machine=True)
         first = manager.start("synthetic", {})

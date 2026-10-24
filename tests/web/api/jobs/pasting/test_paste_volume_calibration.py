@@ -18,7 +18,7 @@ from pcbasm.pasting.paste_volume.dataset.reader import DatasetSession
 from pcbasm.pasting.paste_volume.fit import fit_session
 from tests.helpers import build_paste_volume_session
 from tests.web.api.jobs.conftest import ManagerFactory, WaitUntil, register_synthetic
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.jobs.catalog import JobCatalog, ParamSpec
 from web.api.jobs.context import JobContext, JobResult
 from web.api.jobs.manager import JobManager, JobRecord, JobStatus
@@ -187,7 +187,7 @@ class TestPasteVolumeCalibrationFitStep:
     def test_saves_a_calibration_without_a_second_page(
         self,
         fit_manager: JobManager,
-        fake_camera_settings: Settings,
+        fake_camera_settings: Env,
         wait_until: WaitUntil,
     ):
         """校正ファイルと診断（総体積誤差・図）が収集ジョブの中で揃う."""
@@ -216,7 +216,7 @@ class TestPasteVolumeCalibrationFitStep:
     def test_an_empty_save_name_still_saves_under_an_auto_name(
         self,
         fit_manager: JobManager,
-        fake_camera_settings: Settings,
+        fake_camera_settings: Env,
         wait_until: WaitUntil,
     ):
         """1 時間かけた実行の主成果物なので「保存しない」は選ばせない.
@@ -241,7 +241,7 @@ class TestPasteVolumeCalibrationFitStep:
     def test_a_blank_false_positive_does_not_lose_the_collection(
         self,
         fit_manager: JobManager,
-        fake_camera_settings: Settings,
+        fake_camera_settings: Env,
         wait_until: WaitUntil,
     ):
         """校正づくりが目的でも、1 時間の収集を FAILED で捨てない.
@@ -264,7 +264,7 @@ class TestPasteVolumeCalibrationFitStep:
     def test_a_figure_failure_still_saves_the_calibration(
         self,
         fit_manager: JobManager,
-        fake_camera_settings: Settings,
+        fake_camera_settings: Env,
         wait_until: WaitUntil,
     ):
         """図は診断の補助。描けなくても校正は成果として残す.
@@ -296,7 +296,7 @@ class TestPasteVolumeCalibrationFitStep:
     def test_an_unreadable_session_does_not_lose_the_collection(
         self,
         fit_manager: JobManager,
-        fake_camera_settings: Settings,
+        fake_camera_settings: Env,
         wait_until: WaitUntil,
     ):
         record = self._run(
@@ -348,10 +348,10 @@ class TestPasteDatasetVolumeVerification:
         )
         return make_manager(catalog)
 
-    def _session(self, settings: Settings) -> Path:
+    def _session(self, settings: Env) -> Path:
         return build_paste_volume_session(settings.paste_dataset_dir / self.STEM)
 
-    def _calibration(self, settings: Settings) -> str:
+    def _calibration(self, settings: Env) -> str:
         """収集した session から校正を作って保存し、ファイル名を返す."""
         session, error = DatasetSession.load(settings.paste_dataset_dir / self.STEM)
         assert error is None, error
@@ -381,7 +381,7 @@ class TestPasteDatasetVolumeVerification:
     def test_verifies_the_collected_session_and_writes_the_report(
         self,
         verify_manager: JobManager,
-        fake_camera_settings: Settings,
+        fake_camera_settings: Env,
         wait_until: WaitUntil,
     ):
         """総体積誤差の summary + JSON レポート + 散布図が成果物として揃う.
@@ -412,7 +412,7 @@ class TestPasteDatasetVolumeVerification:
     def test_does_nothing_when_no_calibration_is_selected(
         self,
         verify_manager: JobManager,
-        fake_camera_settings: Settings,
+        fake_camera_settings: Env,
         wait_until: WaitUntil,
     ):
         session = self._session(fake_camera_settings)
@@ -427,7 +427,7 @@ class TestPasteDatasetVolumeVerification:
     def test_an_unusable_calibration_does_not_lose_the_collection(
         self,
         verify_manager: JobManager,
-        fake_camera_settings: Settings,
+        fake_camera_settings: Env,
         wait_until: WaitUntil,
         broken: bool,
     ):

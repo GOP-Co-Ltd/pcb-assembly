@@ -27,7 +27,7 @@ import pytest
 from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.vision import Image
 from tests.web.api.conftest import COPPER_PCB_FIXTURE, decode_jpeg, jpeg_payload
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.jobs.catalog import JobCatalog, ParamSpec
 from web.api.jobs.context import JobContext
 from web.api.jobs.manager import JobManager, JobStatus
@@ -106,7 +106,7 @@ class TestContextProperties:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        fake_camera_settings: Settings,
+        fake_camera_settings: Env,
         wait_until: WaitUntil,
     ):
         captured: list[Path] = []
@@ -240,7 +240,7 @@ class TestFrame:
         self,
         state: AppState,
         catalog: JobCatalog,
-        fake_camera_settings: Settings,
+        fake_camera_settings: Env,
         overrides: BoardOverrides,
         wait_until: WaitUntil,
     ):

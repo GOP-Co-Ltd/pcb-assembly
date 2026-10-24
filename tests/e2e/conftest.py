@@ -41,7 +41,7 @@ from tests.support.job_demo import register_job_demo
 from tests.support.settings import make_api_settings, make_ui_settings
 from tests.web.api.conftest import COPPER_PCB_FIXTURE
 from web.api.app import create_app
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.jobs.catalog import JobCatalog, JobDefinition
 from web.api.jobs.context import JobContext, JobResult
 from web.api.jobs.manager import JobManager
@@ -137,10 +137,10 @@ def pytest_collection_modifyitems(
 
 @attrs.frozen
 class LiveServer:
-    """起動済み backend WebAPI のベース URL と注入 Settings."""
+    """起動済み backend WebAPI のベース URL と注入 Env."""
 
     base_url: str
-    settings: Settings
+    settings: Env
     # frontend の静的登録に渡す実ポート（エフェメラル）
     port: int
 
@@ -432,14 +432,14 @@ def moonraker_is_down(unreachable_klipper: None) -> None:
 
 
 @pytest.fixture
-def e2e_settings(tmp_path: Path) -> Settings:
-    """Fake カメラ + テスト用 config + 隔離 data_dir の E2E 用 backend Settings."""
+def e2e_settings(tmp_path: Path) -> Env:
+    """Fake カメラ + テスト用 config + 隔離 data_dir の E2E 用 backend Env."""
     return make_api_settings(tmp_path / "api", hostname=E2E_MACHINE_ID)
 
 
 @pytest.fixture
 def live_server(
-    e2e_settings: Settings,
+    e2e_settings: Env,
     paste_test_board_footprint_root: Path,
 ) -> Iterator[LiveServer]:
     """実 uvicorn の backend WebAPI を起動し、停止まで面倒を見る.

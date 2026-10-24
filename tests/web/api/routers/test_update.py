@@ -31,7 +31,7 @@ from pcbasm.hal.fake import FakeAudioPlayer
 from tests.support.polling import before_deadline
 from tests.web.update_support import UpdateSandbox, make_update_sandbox
 from web.api.app import create_app
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.state import AppState
 from web.selfupdate.runner import UpdateRunner
 
@@ -49,7 +49,7 @@ def sandbox(tmp_path: Path) -> UpdateSandbox:
 
 @contextmanager
 def closing_client(
-    settings: Settings,
+    settings: Env,
     footprint_root: Path,
     runner: UpdateRunner,
 ) -> Iterator[TestClient]:
@@ -72,7 +72,7 @@ def runner(sandbox: UpdateSandbox) -> UpdateRunner:
 
 @pytest.fixture
 def update_app(
-    webui_settings: Settings,
+    webui_settings: Env,
     paste_test_board_footprint_root: Path,
     runner: UpdateRunner,
 ) -> FastAPI:
@@ -125,7 +125,7 @@ class TestStatus:
 
     def test_stays_200_outside_a_git_repository(
         self,
-        webui_settings: Settings,
+        webui_settings: Env,
         paste_test_board_footprint_root: Path,
         tmp_path: Path,
     ):
@@ -225,7 +225,7 @@ class TestRun:
 
     def test_disabled_installation_returns_403(
         self,
-        webui_settings: Settings,
+        webui_settings: Env,
         paste_test_board_footprint_root: Path,
         tmp_path: Path,
     ):

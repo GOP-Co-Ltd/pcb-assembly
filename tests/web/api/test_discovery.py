@@ -32,7 +32,7 @@ from web.api.discovery import (
     local_ipv4_addresses,
     select_advertise_addresses,
 )
-from web.api.env import Settings, resolve_machine_id
+from web.api.env import Env, resolve_machine_id
 from web.contract.discovery import API_VERSION, SERVICE_TYPE, TXT_KEY_API, TXT_KEY_ID
 
 # このホストに存在しないアドレス（TEST-NET-3）。zeroconf は bind できず OSError
@@ -178,12 +178,12 @@ class TestMachineIdResolution:
     """`resolve_machine_id` — 広告と `/api/machine-info` が同じ ID を使う（D7）."""
 
     def test_injected_hostname_wins(self, tmp_path: Path):
-        settings = Settings(tmp_path, tmp_path, hostname="injected")
+        settings = Env(tmp_path, tmp_path, hostname="injected")
 
         assert resolve_machine_id(settings) == "injected"
 
     def test_machine_info_and_advertisement_share_the_id(
-        self, client: TestClient, webui_settings: Settings
+        self, client: TestClient, webui_settings: Env
     ):
         """`/api/machine-info` の machine_id と広告の instance 名が一致する."""
         machine_id = client.get("/api/machine-info").json()["machine_id"]
@@ -212,11 +212,11 @@ class TestDiscoveryIsolation:
         tmp_path: Path,
         config_dir: Path,
     ):
-        """`Settings.from_env()` 経路（uvicorn --factory と同じ）でも広告しない.
+        """`Env.from_env()` 経路（uvicorn --factory と同じ）でも広告しない.
 
         共有 fixture の `discovery_enabled=False` はこの経路を通らない。守っているのは
         `tests/conftest.py` の autouse fixture（`PCBASM_API_DISCOVERY_ENABLED=0`）だけ
-        なので、そこが外れたらここが落ちる（外れると env から Settings を組む既存
+        なので、そこが外れたらここが落ちる（外れると env から Env を組む既存
         テストが運用サービス型で全 IF に広告を出す）。
 
         lifespan は起動しない（`TestClient` を被せない）。`app.state.advertiser` は
@@ -226,6 +226,6 @@ class TestDiscoveryIsolation:
         monkeypatch.setenv("PCBASM_CONFIG_DIR", str(config_dir))
         monkeypatch.setenv("PCBASM_API_DATA_DIR", str(tmp_path / "data"))
 
-        app = create_app(Settings.from_env())
+        app = create_app(Env.from_env())
 
         assert app.state.advertiser is None

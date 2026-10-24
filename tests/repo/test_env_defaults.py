@@ -3,7 +3,7 @@
 import pytest
 
 from pcbasm.paths import PROJECT_ROOT
-from web.api.env import Settings
+from web.api.env import Env
 
 
 class TestBackendDirs:
@@ -13,7 +13,7 @@ class TestBackendDirs:
         monkeypatch.delenv("PCBASM_CONFIG_DIR", raising=False)
         monkeypatch.delenv("PCBASM_API_DATA_DIR", raising=False)
 
-        settings = Settings.from_env()
+        settings = Env.from_env()
 
         assert settings.config_dir == PROJECT_ROOT / "config"
         assert settings.data_dir == PROJECT_ROOT / "data"

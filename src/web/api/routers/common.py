@@ -13,7 +13,7 @@ from pcbasm.hal import KlipperClient
 from pcbasm.pasting.labels import clean_position_label
 from pcbasm.vision import load_focus_z
 from web.api.control import ClientIdentity, LeaseInfo
-from web.api.env import Settings, resolve_machine_id
+from web.api.env import Env, resolve_machine_id
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.manager import JobManager
 from web.api.preview import PreviewService
@@ -76,7 +76,7 @@ def nozzle_clean_payload(position: Point3d) -> NozzleCleanInfo:
 
 def build_state_response(
     state: AppState,
-    settings: Settings,
+    settings: Env,
     preview: PreviewService,
     jobs: JobManager,
     control: LeaseInfo,
@@ -119,7 +119,7 @@ def build_state_response(
 # --------------------------------------------------------------------------- #
 
 
-def _fb_start(settings: Settings) -> str:
+def _fb_start(settings: Env) -> str:
     """ファイルブラウザの初期表示パス（pcb_browse_root からの相対）."""
     try:
         start = (
@@ -144,7 +144,7 @@ def _default_mainsail_url(machine_id: str) -> str:
     return f"http://{host}"
 
 
-def build_machine_info(settings: Settings) -> MachineInfo:
+def build_machine_info(settings: Env) -> MachineInfo:
     """Backend の自己申告情報を組み立てる.
 
     ホスト名の解決といった環境依存の処理はここに集約する（pcbasm 層は machine.toml に

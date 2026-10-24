@@ -17,14 +17,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from web.api.app import create_app
-from web.api.env import Settings
+from web.api.env import Env
 
 
 @pytest.fixture
-def broken_camera_client(
-    fake_camera_settings: Settings, tmp_path
-) -> Iterator[TestClient]:
-    """fake_camera_image が不存在の Settings で構築したクライアント（503 検証用）."""
+def broken_camera_client(fake_camera_settings: Env, tmp_path) -> Iterator[TestClient]:
+    """fake_camera_image が不存在の Env で構築したクライアント（503 検証用）."""
     settings = attrs.evolve(
         fake_camera_settings, fake_camera_image=tmp_path / "missing.png"
     )

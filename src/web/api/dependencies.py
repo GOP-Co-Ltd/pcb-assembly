@@ -12,7 +12,7 @@ from pcbasm.pasting.test_board.generator import (
     BoardGenerator,
 )
 from web.api.control import ClientIdentity, ControlLease, LeaseInfo
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.identity import get_identity
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.manager import JobManager
@@ -30,7 +30,7 @@ def get_machine_config(request: Request) -> MachineConfigFile:
     return request.app.state.machine_config
 
 
-def get_settings(request: Request) -> Settings:
+def get_settings(request: Request) -> Env:
     return request.app.state.settings
 
 
@@ -83,7 +83,7 @@ def require_control(request: Request) -> LeaseInfo:
 
 StateDep = Annotated[AppState, Depends(get_state)]
 MachineConfigDep = Annotated[MachineConfigFile, Depends(get_machine_config)]
-SettingsDep = Annotated[Settings, Depends(get_settings)]
+EnvDep = Annotated[Env, Depends(get_settings)]
 PreviewDep = Annotated[PreviewService, Depends(get_preview)]
 JobsDep = Annotated[JobManager, Depends(get_jobs)]
 AudioPlayerDep = Annotated[AudioPlayer, Depends(get_audio_player)]

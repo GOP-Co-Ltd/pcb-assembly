@@ -47,7 +47,7 @@ class Settings:
     update_enabled: bool = True
     update_uv_sync_args: tuple[str, ...] = ("--locked", "--inexact")
     # リポジトリ直下に固定する。ロックで保護する対象は worktree なので、同居機の backend
-    # （`web.api.env.Settings.update_state_dir`）と必ず同じロックファイルを使う
+    # （`web.api.env.Env.update_state_dir`）と必ず同じロックファイルを使う
     update_state_dir: Path = PROJECT_ROOT / "data" / "selfupdate"
 
     @classmethod

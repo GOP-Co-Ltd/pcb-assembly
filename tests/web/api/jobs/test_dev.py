@@ -17,7 +17,7 @@ import cv2
 import pytest
 
 from pcbasm.kicad import load_board
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.jobs.catalog import default_catalog
 from web.api.jobs.manager import JobManager, JobStatus
 from web.api.state import AppState
@@ -33,7 +33,7 @@ def dev_manager(make_manager: ManagerFactory) -> JobManager:
     return make_manager(default_catalog())
 
 
-def _artifact_file(settings: Settings, path: str) -> Path:
+def _artifact_file(settings: Env, path: str) -> Path:
     """Artifact.path（data/webui からの相対）を実ファイルパスに解決する."""
     return settings.webui_data_dir / path
 
@@ -46,7 +46,7 @@ class TestExtractPcb:
         dev_manager: JobManager,
         state: AppState,
         real_pcb_path: Path,
-        fake_camera_settings: Settings,
+        fake_camera_settings: Env,
         wait_until: WaitUntil,
     ):
         state.select_pcb(real_pcb_path)
@@ -85,7 +85,7 @@ class TestMakeFillCoveragePcb:
     def test_output_is_readable_by_pcbfile(
         self,
         dev_manager: JobManager,
-        fake_camera_settings: Settings,
+        fake_camera_settings: Env,
         wait_until: WaitUntil,
     ):
         record = dev_manager.start("make_fill_coverage_pcb", {})

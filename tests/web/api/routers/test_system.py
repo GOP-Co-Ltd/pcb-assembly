@@ -28,7 +28,7 @@ from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeAudioPlayer, FakeKlipper
 from tests.web.api.jobs.conftest import register_gated
 from tests.web.update_support import UpdateSandbox, make_update_sandbox
 from web.api.app import create_app
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.state import AppState
 from web.selfupdate.runner import UpdateRunner
 
@@ -153,7 +153,7 @@ class TestFirmwareRestartAlsoRestartsServices:
     @pytest.fixture
     def restart_client(
         self,
-        webui_settings: Settings,
+        webui_settings: Env,
         paste_test_board_footprint_root: Path,
         sandbox: UpdateSandbox,
     ) -> Iterator[TestClient]:

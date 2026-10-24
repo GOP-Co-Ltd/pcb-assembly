@@ -35,7 +35,7 @@ from starlette.routing import Mount
 from starlette.types import Receive, Scope, Send
 
 from tests.support.paths import TESTING_DATA_DIR
-from web.api.env import Settings as ApiSettings
+from web.api.env import Env as ApiEnv
 from web.ui.machine_client import BackendGateway
 from web.ui.machines import MachineEndpoint, MachineRegistry
 from web.ui.proxy import ProxyApp
@@ -297,7 +297,7 @@ class TestRelayToRealBackend:
         assert response.json()["pcb_file"] == "boards/sample.kicad_pcb"
 
     def test_multipart_upload_lands_in_backend_upload_dir(
-        self, backend_client: TestClient, backend_settings: ApiSettings
+        self, backend_client: TestClient, backend_settings: ApiEnv
     ):
         """実 .kicad_pcb をプロキシ経由で送り、bytes が一致することを確かめる."""
         with REAL_PCB.open("rb") as pcb:
@@ -325,7 +325,7 @@ class TestRelayToRealBackend:
         assert response.json()["owner"] == "pytest-job"
 
     def test_artifacts_are_relayed_as_bytes(
-        self, backend_client: TestClient, backend_settings: ApiSettings
+        self, backend_client: TestClient, backend_settings: ApiEnv
     ):
         artifact = backend_settings.webui_data_dir / "job-1" / "plot.png"
         artifact.parent.mkdir(parents=True, exist_ok=True)

@@ -32,7 +32,7 @@ from pcbasm.pasting.paste_volume.calibration import (
 from pcbasm.vision import CameraModel
 from tests.support import polling
 from tests.support.paths import TESTING_DATA_DIR
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.jobs.catalog import JobCatalog, default_catalog
 from web.api.jobs.manager import JobManager, JobRecord, JobStatus
 from web.api.machine_config import MachineConfigFile
@@ -110,7 +110,7 @@ def wait_operator(
     )
 
 
-def enable_flow_calibration(settings: Settings, state: AppState, pcb: Path) -> None:
+def enable_flow_calibration(settings: Env, state: AppState, pcb: Path) -> None:
     """校正ファイルと基板ごとの測定点を置き、運転時補正を有効にする."""
     calibration, error = parse_calibration(
         json.loads(CALIBRATION_PIN.read_text(encoding="utf-8"))
@@ -153,7 +153,7 @@ def mount_camera(mounted_cameras: list[Camera]) -> Callable[[Camera], None]:
 
 @pytest.fixture
 def devices(
-    job_settings: Settings, machine_klipper: FakeKlipper, mounted_cameras: list[Camera]
+    job_settings: Env, machine_klipper: FakeKlipper, mounted_cameras: list[Camera]
 ) -> Devices:
     return Devices(
         MachineConfigFile(job_settings.config_dir).path,
@@ -164,7 +164,7 @@ def devices(
 
 
 @pytest.fixture
-def job_settings(tmp_path: Path) -> Settings:
+def job_settings(tmp_path: Path) -> Env:
     """テスト用の config（machine.toml と校正ファイル）と、空の PCB 置き場."""
     config_dir = tmp_path / "config"
     config_dir.mkdir()
@@ -174,7 +174,7 @@ def job_settings(tmp_path: Path) -> Settings:
     data_dir.mkdir()
     pcb_root = tmp_path / "pcb"
     pcb_root.mkdir()
-    return Settings(
+    return Env(
         config_dir=config_dir,
         data_dir=data_dir,
         pcb_browse_root=pcb_root,
@@ -187,7 +187,7 @@ def job_settings(tmp_path: Path) -> Settings:
 
 
 @pytest.fixture
-def job_state(job_settings: Settings, devices: Devices) -> Iterator[AppState]:
+def job_state(job_settings: Env, devices: Devices) -> Iterator[AppState]:
     state = AppState(job_settings, MachineConfigFile(job_settings.config_dir), devices)
     yield state
     state.close()
@@ -195,7 +195,7 @@ def job_state(job_settings: Settings, devices: Devices) -> Iterator[AppState]:
 
 @pytest.fixture
 def place_board(
-    job_settings: Settings, job_state: AppState
+    job_settings: Env, job_state: AppState
 ) -> Callable[[Path], list[Polygon]]:
     """PCB を選び、置いた基板の基準円と銅箔を返す関数を返す."""
 
@@ -243,7 +243,7 @@ def audio_player() -> FakeAudioPlayer:
 @pytest.fixture
 def manager(
     job_state: AppState,
-    job_settings: Settings,
+    job_settings: Env,
     catalog: JobCatalog,
     audio_player: FakeAudioPlayer,
 ) -> Iterator[JobManager]:

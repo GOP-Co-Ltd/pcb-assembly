@@ -5,11 +5,11 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from web.api.dependencies import (
+    EnvDep,
     IdentityDep,
     JobsDep,
     LeaseDep,
     PreviewDep,
-    SettingsDep,
     StateDep,
 )
 from web.api.routers.common import build_machine_info, build_state_response
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api")
 @router.get("/state")
 def get_state(
     state: StateDep,
-    settings: SettingsDep,
+    settings: EnvDep,
     preview: PreviewDep,
     jobs: JobsDep,
     lease: LeaseDep,
@@ -38,6 +38,6 @@ def get_state(
 
 
 @router.get("/machine-info")
-def get_machine_info(settings: SettingsDep) -> MachineInfo:
+def get_machine_info(settings: EnvDep) -> MachineInfo:
     """Backend が自己申告する装置情報を返す（到達性プローブ兼用）."""
     return build_machine_info(settings)

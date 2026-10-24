@@ -22,7 +22,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeKlipper
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.state import AppState
 
 

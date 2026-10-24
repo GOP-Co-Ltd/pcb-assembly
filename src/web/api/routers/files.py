@@ -1,7 +1,7 @@
 """PCB ファイルブラウザの API.
 
 `pcb_browse_root` は `board_id` の算出基準なので `/` 固定だが、実際に読める範囲は
-`Settings.pcb_browse_allowed` のサブツリーに限る。許可サブツリーへ辿り着くための
+`Env.pcb_browse_allowed` のサブツリーに限る。許可サブツリーへ辿り着くための
 祖先ディレクトリは列挙だけ許す（`/` から `/media` の USB を選べるようにするため）。
 """
 
@@ -15,13 +15,13 @@ from pydantic import BaseModel
 
 from web.api.dependencies import (
     ControlDep,
+    EnvDep,
     IdentityDep,
     JobsDep,
     PreviewDep,
-    SettingsDep,
     StateDep,
 )
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.routers.common import build_state_response
 from web.contract.models import StateResponse
 
@@ -44,7 +44,7 @@ class PcbFileSelect(BaseModel):
     path: str
 
 
-def _allowed_roots(settings: Settings) -> tuple[Path, ...]:
+def _allowed_roots(settings: Env) -> tuple[Path, ...]:
     """公開を許可するサブツリーの絶対パス（symlink 解決済み）."""
     return tuple(allowed.resolve() for allowed in settings.pcb_browse_allowed)
 
@@ -74,7 +74,7 @@ def _resolve_under_root(root: Path, rel: str) -> Path:
     return resolved
 
 
-def _resolve_browsable(settings: Settings, rel: str) -> Path:
+def _resolve_browsable(settings: Env, rel: str) -> Path:
     """Root 配下へ解決し、許可サブツリーの内側であることを検証する.
 
     Raises:
@@ -89,7 +89,7 @@ def _resolve_browsable(settings: Settings, rel: str) -> Path:
 
 
 @router.get("/files")
-def list_files(settings: SettingsDep, path: str = "") -> FilesResponse:
+def list_files(settings: EnvDep, path: str = "") -> FilesResponse:
     """ディレクトリと ``.kicad_pcb`` ファイルを列挙する（``path`` は pcb_browse_root からの相対）.
 
     400: 絶対パス・範囲外・許可サブツリー外 / 404: ディレクトリが無い。
@@ -128,7 +128,7 @@ def list_files(settings: SettingsDep, path: str = "") -> FilesResponse:
 def put_pcb_file(
     body: PcbFileSelect,
     state: StateDep,
-    settings: SettingsDep,
+    settings: EnvDep,
     preview: PreviewDep,
     jobs: JobsDep,
     identity: IdentityDep,
@@ -158,7 +158,7 @@ def put_pcb_file(
 async def upload_pcb_file(
     file: UploadFile,
     state: StateDep,
-    settings: SettingsDep,
+    settings: EnvDep,
     preview: PreviewDep,
     jobs: JobsDep,
     identity: IdentityDep,

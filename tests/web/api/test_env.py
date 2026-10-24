@@ -1,4 +1,4 @@
-"""`web.api.env.Settings` の仕様テスト.
+"""`web.api.env.Env` の仕様テスト.
 
 計画書「`src/webui/settings.py`」節: 既定値と `from_env` の env 上書きが契約。
 
@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 
 from pcbasm.paths import PROJECT_ROOT
 from web.api.app import create_app
-from web.api.env import Settings
+from web.api.env import Env
 
 # PCBASM_API_DISCOVERY_ENABLED はここに足さない。tests/conftest.py の autouse
 # fixture が全テストで "0" を入れており、delenv すると実 LAN への mDNS 広告が復活する
@@ -41,10 +41,10 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class TestSettingsFromEnv:
-    """Settings.from_env の振る舞い."""
+    """Env.from_env の振る舞い."""
 
     def test_defaults_without_env(self, clean_env: None):
-        settings = Settings.from_env()
+        settings = Env.from_env()
 
         # config_dir と data_dir の既定は tests/repo/test_env_defaults.py が固定する
         # root は board_id の算出基準なので "/" 固定。公開範囲は allowed で絞る
@@ -74,7 +74,7 @@ class TestSettingsFromEnv:
         monkeypatch.setenv("PCBASM_API_PORT", "9001")
         monkeypatch.setenv("PCBASM_FAKE", "1")
 
-        settings = Settings.from_env()
+        settings = Env.from_env()
 
         assert settings.config_dir == tmp_path / "config"
         assert settings.data_dir == tmp_path / "data"
@@ -91,7 +91,7 @@ class TestSettingsFromEnv:
         """Root を env で差し替えたら公開範囲もそこへ追従する（既定 3 パスは残す）."""
         monkeypatch.setenv("PCBASM_API_PCB_ROOT", str(tmp_path / "pcb"))
 
-        settings = Settings.from_env()
+        settings = Env.from_env()
 
         assert settings.pcb_browse_allowed == (
             PROJECT_ROOT,
@@ -106,13 +106,13 @@ class TestSettingsFromEnv:
         monkeypatch.setenv("PCBASM_API_PORT", "not-a-number")
 
         with pytest.raises(ValueError):
-            Settings.from_env()
+            Env.from_env()
 
 
 class TestPcbRootEnvIsBrowsable:
     """`PCBASM_API_PCB_ROOT` で差し替えた root が実アプリで閲覧・選択できる.
 
-    `Settings` を組むだけの assert では、`pcb_browse_allowed` が root に追従して
+    `Env` を組むだけの assert では、`pcb_browse_allowed` が root に追従して
     いなくても通ってしまう（実測: 追従前は `GET /api/files` と `PUT /api/pcb-file` が
     全パス 400 でファイルブラウザが使えなかった）。公開範囲の判定は router 側に
     あるので、実 HTTP 経路で確認する。
@@ -127,11 +127,11 @@ class TestPcbRootEnvIsBrowsable:
         config_dir: Path,
         pcb_root: Path,
     ) -> Iterator[TestClient]:
-        """Env だけで組み立てた Settings（`from_env`）で起動した TestClient."""
+        """環境変数だけで組み立てた Env（`from_env`）で起動した TestClient."""
         monkeypatch.setenv("PCBASM_CONFIG_DIR", str(config_dir))
         monkeypatch.setenv("PCBASM_API_DATA_DIR", str(tmp_path / "data"))
         monkeypatch.setenv("PCBASM_API_PCB_ROOT", str(pcb_root))
-        with TestClient(create_app(Settings.from_env())) as client:
+        with TestClient(create_app(Env.from_env())) as client:
             yield client
 
     @pytest.mark.parametrize("path", ("", "boards"))
@@ -176,7 +176,7 @@ class TestDiscoveryKillSwitch:
         else:
             monkeypatch.setenv("PCBASM_API_DISCOVERY_ENABLED", raw)
 
-        assert Settings.from_env().discovery_enabled is expected
+        assert Env.from_env().discovery_enabled is expected
 
 
 class TestFake:
@@ -190,7 +190,7 @@ class TestFake:
         monkeypatch.delenv("PCBASM_API_UPDATE_ENABLED", raising=False)
         monkeypatch.setenv("PCBASM_FAKE", "1")
 
-        settings = Settings.from_env()
+        settings = Env.from_env()
 
         assert settings.discovery_enabled is False
         assert settings.update_enabled is False
@@ -202,7 +202,7 @@ class TestFake:
         monkeypatch.setenv("PCBASM_API_DATA_DIR", str(tmp_path / "data"))
         monkeypatch.setenv("PCBASM_FAKE", "1")
 
-        settings = Settings.from_env()
+        settings = Env.from_env()
 
         assert settings.pcb_upload_dir == tmp_path / "data" / "uploads"
         assert settings.pcb_upload_dir in settings.pcb_browse_allowed

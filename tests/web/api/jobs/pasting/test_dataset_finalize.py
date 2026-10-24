@@ -9,7 +9,7 @@ import pytest
 
 from tests.support.paths import PROJECT_ROOT
 from tests.web.api.jobs.conftest import WaitUntil, answer_next_prompt
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.jobs.manager import JobManager, JobStatus
 
 
@@ -23,7 +23,7 @@ class TestPasteDatasetFinalize:
     STEM = "plate-20x20-20260908T143052.123+0000"
     MEASURED_MASS_MG = 0.945
 
-    def _incomplete_session(self, settings: Settings) -> Path:
+    def _incomplete_session(self, settings: Env) -> Path:
         """pending.json と、それが参照する capture を持つ未完了 session を作る."""
         document = json.loads(
             (
@@ -45,7 +45,7 @@ class TestPasteDatasetFinalize:
     def test_finalizes_the_selected_session_without_touching_the_machine(
         self,
         manager: JobManager,
-        fake_camera_settings: Settings,
+        fake_camera_settings: Env,
         wait_until: WaitUntil,
     ):
         incomplete = self._incomplete_session(fake_camera_settings)
@@ -84,7 +84,7 @@ class TestPasteDatasetFinalize:
     def test_rejects_non_positive_mass_before_prompting(
         self,
         manager: JobManager,
-        fake_camera_settings: Settings,
+        fake_camera_settings: Env,
         wait_until: WaitUntil,
         mass: float,
     ):

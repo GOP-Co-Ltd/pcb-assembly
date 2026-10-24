@@ -41,7 +41,7 @@ from tests.helpers import random_service_type, skip_if_no_mdns
 from tests.support.settings import make_api_settings, make_ui_settings
 from web.api.app import create_app as create_backend_app
 from web.api.discovery import ServiceAdvertiser
-from web.api.env import Settings
+from web.api.env import Env
 from web.ui.discovery import MachineDiscovery
 from web.ui.machines import MachineEndpoint
 from web.ui.settings import Settings as UiSettings
@@ -197,8 +197,8 @@ class TestBackendAppAdvertises:
     """実 backend アプリ（uvicorn）の広告（実装契約 §4 の配線）."""
 
     @pytest.fixture
-    def advertising_settings(self, tmp_path: Path, service_type: str) -> Settings:
-        """広告を有効にした backend Settings（ループバックに閉じる）."""
+    def advertising_settings(self, tmp_path: Path, service_type: str) -> Env:
+        """広告を有効にした backend Env（ループバックに閉じる）."""
         return attrs.evolve(
             make_api_settings(tmp_path / "api", hostname="e2eadv"),
             discovery_enabled=True,
@@ -208,7 +208,7 @@ class TestBackendAppAdvertises:
         )
 
     @pytest.fixture
-    def live_backend(self, advertising_settings: Settings) -> Iterator[LiveServer]:
+    def live_backend(self, advertising_settings: Env) -> Iterator[LiveServer]:
         running = start_app(create_backend_app(advertising_settings))
         try:
             yield LiveServer(
@@ -246,10 +246,10 @@ class TestDiscoveryIsolation:
     """
 
     def test_shared_settings_opt_out_of_discovery(
-        self, tmp_path: Path, e2e_settings: Settings
+        self, tmp_path: Path, e2e_settings: Env
     ):
         # 既定は有効（実運用は広告する）。だから共有 fixture 側の明示が要件になる
-        assert Settings(tmp_path, tmp_path).discovery_enabled is True
+        assert Env(tmp_path, tmp_path).discovery_enabled is True
         assert UiSettings().discovery_enabled is True
 
         # e2e_settings が同じ tmp_path の "api" を使うのでディレクトリを分ける

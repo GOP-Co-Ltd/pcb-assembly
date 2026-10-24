@@ -52,7 +52,7 @@ from tests.support.golden import assert_document, assert_transcript
 from tests.support.paste_session import full_board_correction
 from tests.support.paths import TESTING_DATA_DIR
 from tests.web.api.jobs.conftest import answer_next_prompt, register_synthetic
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.context import JobContext
 from web.api.jobs.manager import JobManager, JobRecord
@@ -151,7 +151,7 @@ class TestPasteVolumeCalibration:
         self,
         manager: JobManager,
         job_state: AppState,
-        job_settings: Settings,
+        job_settings: Env,
         machine_klipper: FakeKlipper,
         audio_player: FakeAudioPlayer,
         mount_camera: Callable[[Camera], None],
@@ -209,7 +209,7 @@ class TestFlowCalibration:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        job_settings: Settings,
+        job_settings: Env,
         job_state: AppState,
         machine_klipper: FakeKlipper,
         mount_camera: Callable[[Camera], None],
@@ -271,7 +271,7 @@ class TestPasteVolumeRefit:
         self,
         manager: JobManager,
         job_state: AppState,
-        job_settings: Settings,
+        job_settings: Env,
         machine_klipper: FakeKlipper,
     ):
         """実画像の session を選んで計測・フィットし、校正ファイルを書く（装置は動かさない）."""
@@ -298,7 +298,7 @@ class TestPasteDatasetFinalize:
         self,
         manager: JobManager,
         job_state: AppState,
-        job_settings: Settings,
+        job_settings: Env,
         machine_klipper: FakeKlipper,
     ):
         """未完了 session の pending.json と計量質量から metadata.json を書いて確定する."""

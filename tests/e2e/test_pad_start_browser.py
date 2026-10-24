@@ -20,12 +20,12 @@ from tests.e2e.conftest import (
 )
 from tests.e2e.network import delayed_ui
 from web.api.app import create_app
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.jobs.context import JobContext
 
 
 @pytest.fixture
-def live_server(e2e_settings: Settings) -> Iterator[LiveServer]:
+def live_server(e2e_settings: Env) -> Iterator[LiveServer]:
     app = create_app(e2e_settings, audio_player=FakeAudioPlayer())
 
     def run(ctx: JobContext) -> None:

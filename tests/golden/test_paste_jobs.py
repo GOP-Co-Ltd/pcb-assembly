@@ -32,7 +32,7 @@ from tests.golden.conftest import (
 from tests.golden.scenarios import Scenario, scenarios_of
 from tests.support.golden import assert_transcript
 from tests.web.api.jobs.conftest import answer_next_prompt
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.jobs.manager import JobManager, JobStatus
 from web.api.jobs.pasting.common import LOADING_STAGE
 from web.api.machine_config import MachineConfigFile
@@ -78,7 +78,7 @@ class CloggedKlipper(FakeKlipper):
         return result
 
 
-def _forget_nozzle_clean(settings: Settings) -> None:
+def _forget_nozzle_clean(settings: Env) -> None:
     """machine.toml のクリーニング節を座標の無い節にする（設定ページから動作値だけを保存した未教示の機体）."""
     path = MachineConfigFile(settings.config_dir).path
     document = tomlkit.parse(path.read_text(encoding="utf-8"))
@@ -149,7 +149,7 @@ class TestPasteSolder:
     def test_no_nozzle_clean(
         self,
         run: Callable[..., None],
-        job_settings: Settings,
+        job_settings: Env,
         scenario: Scenario,
     ):
         """クリーニング位置が未教示なら、こすらずにパージだけやり直す."""
@@ -163,7 +163,7 @@ class TestPasteSolder:
     def test_flow_corrected(
         self,
         run: Callable[..., None],
-        job_settings: Settings,
+        job_settings: Env,
         job_state: AppState,
         scenario: Scenario,
     ):
@@ -176,7 +176,7 @@ class TestPasteSolder:
         "scenario", scenarios_of("paste_solder", "pad_refined"), ids=lambda s: s.name
     )
     def test_pad_refined(
-        self, run: Callable[..., None], job_settings: Settings, scenario: Scenario
+        self, run: Callable[..., None], job_settings: Env, scenario: Scenario
     ):
         """短辺 0.6 mm 以下の pad は、領域の補正を初期値に pad 中心で照合し直し、その結果で塗る."""
         MachineConfigFile(job_settings.config_dir).write(

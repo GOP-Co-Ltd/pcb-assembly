@@ -23,7 +23,7 @@ from pcbasm.config.audio import DEFAULT_AUDIO_DEVICE, DEFAULT_AUDIO_VOLUME
 from pcbasm.hal import AudioPlaybackError
 from pcbasm.hal.fake import FAKE_AUDIO_DEVICES, FakeAudioPlayer
 from web.api.app import create_app
-from web.api.env import Settings
+from web.api.env import Env
 
 
 class TestAudioSettingsApi:
@@ -57,7 +57,7 @@ class TestAudioSettingsApi:
         assert data["volume"] == 0.4
 
     def test_get_appends_unlisted_selected_device(
-        self, webui_settings: Settings, audio_player: FakeAudioPlayer
+        self, webui_settings: Env, audio_player: FakeAudioPlayer
     ):
         """列挙されないデバイスが設定されていても候補末尾に現れ、選択値は保持される."""
         with TestClient(
@@ -91,7 +91,7 @@ class TestAudioTestApi:
             (sound, DEFAULT_AUDIO_DEVICE, DEFAULT_AUDIO_VOLUME),
         )
 
-    def test_returns_502_when_playback_fails(self, webui_settings: Settings):
+    def test_returns_502_when_playback_fails(self, webui_settings: Env):
         player = FakeAudioPlayer(
             playback_error=AudioPlaybackError("speaker disconnected")
         )

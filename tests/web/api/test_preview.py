@@ -28,7 +28,7 @@ import pytest
 
 from pcbasm.vision import Image, ImageArray
 from tests.support.paths import TESTING_DATA_DIR
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.machine_config import MachineConfigFile
 from web.api.preview import PreviewService
 from web.api.state import AppState
@@ -47,7 +47,7 @@ def service(state: AppState) -> PreviewService:
 
 @pytest.fixture
 def reflective_board_service(
-    fake_camera_settings: Settings, machine_config: MachineConfigFile
+    fake_camera_settings: Env, machine_config: MachineConfigFile
 ):
     """実撮像 PNG を FakeCamera で配信する PreviewService."""
     settings = attrs.evolve(
@@ -148,7 +148,7 @@ class TestMjpegStream:
         assert not state.devices.frame_hub().running
 
     def test_camera_construction_failure_propagates(
-        self, fake_camera_settings: Settings, config_dir, tmp_path
+        self, fake_camera_settings: Env, config_dir, tmp_path
     ):
         settings = attrs.evolve(
             fake_camera_settings, fake_camera_image=tmp_path / "missing.png"

@@ -63,7 +63,7 @@ import pytest
 
 from pcbasm.kicad import load_board
 from pcbasm.vision import CameraCalibration, Image
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.jobs.catalog import JobCatalog, default_catalog
 from web.api.jobs.manager import JobManager, JobStatus
 from web.api.jobs.posctrl import register_posctrl_jobs
@@ -100,7 +100,7 @@ def catalog() -> JobCatalog:
 
 @pytest.fixture
 def checkerboard_state(
-    checkerboard_camera_settings: Settings, machine_config: MachineConfigFile
+    checkerboard_camera_settings: Env, machine_config: MachineConfigFile
 ) -> Iterator[AppState]:
     # checkerboard.png は 400x400。既定 crop 600 は画像をはみ出すため、
     # tmp コピーの machine.toml へ 400x400 を書いてから AppState を作る
@@ -114,7 +114,7 @@ def checkerboard_state(
 @pytest.fixture
 def checkerboard_manager(
     checkerboard_state: AppState,
-    checkerboard_camera_settings: Settings,
+    checkerboard_camera_settings: Env,
     catalog: JobCatalog,
 ) -> Iterator[JobManager]:
     manager = JobManager(
@@ -173,7 +173,7 @@ class TestGenerateGridPcb:
     def test_output_is_readable_with_divisions_squared_pads(
         self,
         manager: JobManager,
-        fake_camera_settings: Settings,
+        fake_camera_settings: Env,
         wait_until: WaitUntil,
     ):
         record = manager.start(
@@ -199,7 +199,7 @@ class TestCameraCalibrationJob:
     def test_full_run_with_checkerboard_yields_apply_payload(
         self,
         checkerboard_manager: JobManager,
-        checkerboard_camera_settings: Settings,
+        checkerboard_camera_settings: Env,
         wait_until: WaitUntil,
     ):
         """チェッカーボード画像で SUCCEEDED まで完走し Apply payload を返す.

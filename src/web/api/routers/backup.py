@@ -8,14 +8,14 @@ from fastapi import APIRouter
 from fastapi.responses import Response
 
 from web.api.backup import build_backup
-from web.api.dependencies import SettingsDep
+from web.api.dependencies import EnvDep
 from web.api.env import resolve_machine_id
 
 router = APIRouter(prefix="/api")
 
 
 @router.get("/backup")
-def get_backup(settings: SettingsDep) -> Response:
+def get_backup(settings: EnvDep) -> Response:
     """設定と運用データの zip を返す（中身は `web.api.backup`）."""
     machine_id = resolve_machine_id(settings)
     created_at = datetime.now()

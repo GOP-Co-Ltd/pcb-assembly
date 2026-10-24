@@ -29,9 +29,9 @@ from pcbasm.pasting.paste_volume.runtime_correction import (
 from pcbasm.pasting.plan import plan_paste
 from web.api.dependencies import (
     ControlDep,
+    EnvDep,
     MachineConfigDep,
     OverridesDep,
-    SettingsDep,
     StateDep,
 )
 from web.api.routers.pasting_view import (
@@ -67,7 +67,7 @@ router = APIRouter(prefix="/api")
 @router.get("/pasting/pad-config")
 def get_pad_config(
     state: StateDep,
-    settings: SettingsDep,
+    settings: EnvDep,
     overrides: OverridesDep,
 ) -> PadConfigResponse:
     """選択中基板の pad ジオメトリ・階層・解決済み設定・疎 override を返す."""
@@ -77,7 +77,7 @@ def get_pad_config(
 @router.get("/pasting/pad-config/copper")
 def get_pad_config_copper(
     state: StateDep,
-    settings: SettingsDep,
+    settings: EnvDep,
     overrides: OverridesDep,
 ) -> PadConfigCopperResponse:
     """選択中基板の銅箔島を表示用に返す（基板ごとに 1 回取る読み取り専用）."""
@@ -88,7 +88,7 @@ def get_pad_config_copper(
 def calculate_pad_route(
     body: PasteRouteRequest,
     state: StateDep,
-    settings: SettingsDep,
+    settings: EnvDep,
     overrides: OverridesDep,
 ) -> PasteRouteResponse:
     """選択中基板の有効 pad だけを対象に塗布順路を返す（POST だが読み取り専用計算）."""
@@ -100,7 +100,7 @@ def calculate_pad_route(
 def calculate_pad_fill_path(
     body: PasteFillPathRequest,
     state: StateDep,
-    settings: SettingsDep,
+    settings: EnvDep,
     overrides: OverridesDep,
 ) -> PasteFillPathResponse:
     """選択中基板の有効 pad だけを対象に塗布パスを返す（POST だが読み取り専用計算）."""
@@ -112,7 +112,7 @@ def calculate_pad_fill_path(
 def patch_pad_config_node(
     body: NodePatch,
     state: StateDep,
-    settings: SettingsDep,
+    settings: EnvDep,
     overrides: OverridesDep,
     _control: ControlDep,
 ) -> PatchResponse:
@@ -147,7 +147,7 @@ def patch_pad_config_node(
 def patch_pad_config_pads(
     body: PadEnablePatch,
     state: StateDep,
-    settings: SettingsDep,
+    settings: EnvDep,
     overrides: OverridesDep,
     _control: ControlDep,
 ) -> PatchResponse:
@@ -173,7 +173,7 @@ def patch_pad_config_pads(
 def patch_initial_purge(
     body: InitialPurgePatch,
     state: StateDep,
-    settings: SettingsDep,
+    settings: EnvDep,
     overrides: OverridesDep,
     machine_config: MachineConfigDep,
     _control: ControlDep,
@@ -231,7 +231,7 @@ def patch_initial_purge(
 def patch_flow_calibration(
     body: FlowCalibrationPatch,
     state: StateDep,
-    settings: SettingsDep,
+    settings: EnvDep,
     overrides: OverridesDep,
     _control: ControlDep,
 ) -> FlowCalibrationResponse:
@@ -306,7 +306,7 @@ def _initial_purge_point(value: list[float] | None) -> Point2d | None:
 
 @router.get("/pasting/pad-config/export")
 def export_pad_config(
-    state: StateDep, settings: SettingsDep, overrides: OverridesDep
+    state: StateDep, settings: EnvDep, overrides: OverridesDep
 ) -> JSONResponse:
     """現在の基板 override 設定をダウンロード用 JSON として返す."""
     loaded = load_session(state, settings, overrides)
@@ -338,7 +338,7 @@ def _attachment(filename: str) -> str:
 def import_pad_config(
     body: PadConfigImport,
     state: StateDep,
-    settings: SettingsDep,
+    settings: EnvDep,
     overrides: OverridesDep,
     _control: ControlDep,
 ) -> PadConfigResponse:

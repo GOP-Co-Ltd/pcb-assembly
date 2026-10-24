@@ -9,7 +9,7 @@ import cv2
 from pcbasm.pasting.paste_volume.calibration import list_calibrations, load_calibration
 from tests.helpers import build_paste_volume_session
 from tests.web.api.jobs.conftest import WaitUntil, answer_next_prompt
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.jobs.manager import JobManager, JobRecord, JobStatus
 
 
@@ -22,7 +22,7 @@ class TestPasteVolumeRefit:
 
     STEM = "plate-47.5x20-20260909T145923.452+0900"
 
-    def _session(self, settings: Settings, *, blank_material: str = "blank") -> Path:
+    def _session(self, settings: Env, *, blank_material: str = "blank") -> Path:
         return build_paste_volume_session(
             settings.paste_dataset_dir / self.STEM, blank_material=blank_material
         )
@@ -33,7 +33,7 @@ class TestPasteVolumeRefit:
     def test_fits_the_selected_session_and_writes_the_calibration(
         self,
         manager: JobManager,
-        fake_camera_settings: Settings,
+        fake_camera_settings: Env,
         wait_until: WaitUntil,
     ):
         self._session(fake_camera_settings)
@@ -55,7 +55,7 @@ class TestPasteVolumeRefit:
     def test_an_empty_save_name_still_reports_and_draws_the_diagnostics(
         self,
         manager: JobManager,
-        fake_camera_settings: Settings,
+        fake_camera_settings: Env,
         wait_until: WaitUntil,
     ):
         """保存名なし = ハイパラ探索。図とまとめだけ出し、保存先は汚さない.
@@ -86,7 +86,7 @@ class TestPasteVolumeRefit:
     def test_fails_when_a_blank_cell_is_detected_as_a_deposit(
         self,
         manager: JobManager,
-        fake_camera_settings: Settings,
+        fake_camera_settings: Env,
         wait_until: WaitUntil,
     ):
         self._session(fake_camera_settings, blank_material="large")
@@ -103,7 +103,7 @@ class TestPasteVolumeRefit:
     def test_can_continue_past_a_blank_false_positive_on_request(
         self,
         manager: JobManager,
-        fake_camera_settings: Settings,
+        fake_camera_settings: Env,
         wait_until: WaitUntil,
     ):
         self._session(fake_camera_settings, blank_material="large")
@@ -128,7 +128,7 @@ class TestPasteVolumeRefit:
     def test_rejects_an_invalid_detection_hyperparameter_before_prompting(
         self,
         manager: JobManager,
-        fake_camera_settings: Settings,
+        fake_camera_settings: Env,
         wait_until: WaitUntil,
     ):
         self._session(fake_camera_settings)

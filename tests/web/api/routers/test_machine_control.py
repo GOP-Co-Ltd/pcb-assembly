@@ -29,7 +29,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from pcbasm.hal.fake import FakeKlipper
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.state import AppState
 
 
@@ -92,7 +92,7 @@ class TestJournal:
     """REST の操作は当日の G-code ジャーナルに残る."""
 
     def test_send_is_journaled_even_when_moonraker_is_down(
-        self, client: TestClient, webui_settings: Settings
+        self, client: TestClient, webui_settings: Env
     ):
         response = client.post(
             "/api/machine-control", json={"type": "home", "axes": ["x"]}

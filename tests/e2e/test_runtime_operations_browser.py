@@ -22,14 +22,14 @@ from tests.e2e.conftest import (
 )
 from tests.support.settings import make_ui_settings
 from web.api.app import create_app as create_api_app
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.jobs.context import JobContext
 from web.ui.app import create_app
 from web.ui.machines import MachineEndpoint
 
 
 @pytest.fixture
-def live_server(e2e_settings: Settings) -> Iterator[LiveServer]:
+def live_server(e2e_settings: Env) -> Iterator[LiveServer]:
     """実カタログのフォーム定義を、装置を使わない対話ジョブへ接続する。
 
     JobDefinition.run と JobManager の公開コンストラクタで構成する。

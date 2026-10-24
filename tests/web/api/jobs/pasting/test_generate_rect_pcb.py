@@ -6,7 +6,7 @@ import pytest
 
 from pcbasm.kicad import load_board
 from tests.web.api.jobs.conftest import WaitUntil
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.jobs.manager import JobManager, JobStatus
 
 
@@ -16,7 +16,7 @@ class TestGenerateRectPcb:
     def test_output_is_readable_outline_only_pcb(
         self,
         manager: JobManager,
-        fake_camera_settings: Settings,
+        fake_camera_settings: Env,
         wait_until: WaitUntil,
     ):
         record = manager.start("generate_rect_pcb", {"width": 50.0, "height": 20.0})

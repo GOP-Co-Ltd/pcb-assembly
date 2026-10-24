@@ -16,12 +16,12 @@ from tests.e2e.conftest import (
 from tests.e2e.network import DelayedHttp, delayed_ui
 from tests.support.settings import make_api_settings
 from tests.web.api.conftest import CHECKERBOARD_CAMERA_IMAGE
-from web.api.env import Settings
+from web.api.env import Env
 from web.api.machine_config import MachineConfigFile
 
 
 @pytest.fixture
-def e2e_settings(tmp_path: Path) -> Settings:
+def e2e_settings(tmp_path: Path) -> Env:
     settings = make_api_settings(tmp_path / "api", hostname=E2E_MACHINE_ID)
     MachineConfigFile(settings.config_dir).write(
         {"camera.crop.width": 400, "camera.crop.height": 400}

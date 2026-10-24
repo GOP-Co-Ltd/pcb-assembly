@@ -1,4 +1,4 @@
-"""Backend WebAPI の起動設定。env による上書きをサポートする."""
+"""Backend WebAPI の起動時の環境。環境変数による上書きをサポートする."""
 
 from __future__ import annotations
 
@@ -15,8 +15,8 @@ from web.process import env_fake, env_path, env_words
 
 
 @attrs.frozen
-class Settings:
-    """Backend WebAPI サーバーの設定値."""
+class Env:
+    """Backend WebAPI サーバーの起動時の環境."""
 
     config_dir: Path
     data_dir: Path
@@ -91,8 +91,8 @@ class Settings:
         return self.data_dir / "paste-volume-calibrations"
 
     @classmethod
-    def from_env(cls) -> Settings:
-        """環境変数を反映した Settings を生成する.
+    def from_env(cls) -> Env:
+        """環境変数を反映した Env を生成する.
 
         config_dir と data_dir の既定はリポジトリ直下（本番の unit は env を設定しない）。
 
@@ -153,11 +153,11 @@ class Settings:
         )
 
 
-def resolve_machine_id(settings: Settings) -> str:
+def resolve_machine_id(env: Env) -> str:
     """Backend の自己申告 machine_id（``/api/machine-info`` と mDNS 広告で共有）.
 
     ここ 1 箇所でだけ導出する。2 箇所で別々に導出すると ``hostname`` を注入した
     E2E で広告 ID と ``/api/machine-info`` の ID がずれ、frontend の
     ``/m/{machine_id}`` が解決できなくなる。
     """
-    return settings.hostname or socket.gethostname()
+    return env.hostname or socket.gethostname()

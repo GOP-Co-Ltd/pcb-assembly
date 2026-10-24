@@ -15,7 +15,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from pcbasm.pasting.paste_volume.calibration import list_calibrations, load_calibration
-from web.api.dependencies import SettingsDep
+from web.api.dependencies import EnvDep
 
 router = APIRouter(prefix="/api/pasting/paste-volume", tags=["pasting"])
 
@@ -44,7 +44,7 @@ class CalibrationsResponse(BaseModel):
 
 
 @router.get("/calibrations")
-def list_paste_volume_calibrations(settings: SettingsDep) -> CalibrationsResponse:
+def list_paste_volume_calibrations(settings: EnvDep) -> CalibrationsResponse:
     """保存済み校正をファイル名順に返す（壊れたファイルも 1 件として載せる）."""
     return CalibrationsResponse(
         calibrations=[
