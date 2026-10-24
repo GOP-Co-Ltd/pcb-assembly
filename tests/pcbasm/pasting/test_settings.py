@@ -5,7 +5,9 @@ from collections.abc import Sequence
 import pytest
 from shapely import Polygon
 
+from pcbasm.board import Component, Layer, Pad
 from pcbasm.geometry.transform import Point2d
+from pcbasm.pasting.hierarchy import PadHierarchy
 from pcbasm.pasting.params import PasteParams, PasteParamsPatch
 from pcbasm.pasting.settings import (
     LevelSetting,
@@ -16,8 +18,6 @@ from pcbasm.pasting.settings import (
     resolve_pad_settings,
     select_enabled_pads,
 )
-from pcbasm.pcb import Component, Layer, Pad
-from pcbasm.pcb.grouping import PadHierarchy
 
 
 def _rect(cx: float, cy: float, w: float, h: float) -> Polygon:

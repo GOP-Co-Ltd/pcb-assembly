@@ -12,8 +12,8 @@ import numpy as np
 from shapely import Polygon
 from shapely.coords import CoordinateSequence
 
+from pcbasm.board import Layer
 from pcbasm.geometry import Compose, Point2d, Shift, Transform
-from pcbasm.pcb import Layer
 from pcbasm.vision import ImageArray, Offset
 
 if TYPE_CHECKING:

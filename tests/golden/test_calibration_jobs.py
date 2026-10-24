@@ -21,14 +21,14 @@ from shapely import Polygon
 from pcbasm.geometry import Identity
 from pcbasm.hal import Camera, XYZStage
 from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper
+from pcbasm.kicad import PcbFile
+from pcbasm.kicad.build import generate_rect_pcb, save_board
 from pcbasm.pasting.paste_volume.calibration import CALIBRATION_SUFFIX
 from pcbasm.pasting.paste_volume.runtime import (
     FlowCalibrationOutcome,
     plan_flow_calibration,
 )
 from pcbasm.pasting.session import PasteSession
-from pcbasm.pcb import PcbFile
-from pcbasm.pcb.generate import generate_rect_pcb, save_board
 from pcbasm.posctrl import BoardCalibrationResult
 from tests.golden.conftest import (
     BOARD_PLACEMENT,

@@ -14,9 +14,9 @@ from fastapi.staticfiles import StaticFiles
 
 from pcbasm.config import ConfigError
 from pcbasm.hal import AlsaAudioPlayer, AudioPlayer
+from pcbasm.kicad.units import KicadError
 from pcbasm.pasting.testboard.config import BoardConfigError
 from pcbasm.pasting.testboard.generator import BoardGenerator
-from pcbasm.pcb.units import KicadError
 from web.api.board_settings import BoardSettingsStore
 from web.api.control import ControlDeniedError, ControlLease, LeaseInfo
 from web.api.discovery import (

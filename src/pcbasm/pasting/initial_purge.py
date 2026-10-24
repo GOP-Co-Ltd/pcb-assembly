@@ -6,8 +6,9 @@ from typing import Literal
 import attrs
 from shapely import Point, Polygon
 
+from pcbasm.board import Pad
 from pcbasm.geometry import Point2d
-from pcbasm.pcb import Pad, PadShapeKey
+from pcbasm.pasting.hierarchy import PadShapeKey
 from pcbasm.validators import is_finite_number
 
 PurgeSource = Literal["explicit", "default"]

@@ -8,9 +8,9 @@ from pytest_mock import MockerFixture
 from shapely import Polygon
 
 from pcbasm import gcode
+from pcbasm.board import Outline
 from pcbasm.config.reference_point import CornerOffsetsConfig, ReferencePointConfig
 from pcbasm.geometry import Compose, Matrix2d, Point2d, Shift
-from pcbasm.pcb import Outline
 from pcbasm.posctrl.board import BoardTransformMeasurer, Corner, corner_offset
 
 

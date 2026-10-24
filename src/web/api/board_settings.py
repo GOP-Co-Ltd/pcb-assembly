@@ -23,6 +23,7 @@ from shapely import Point, Polygon
 from pcbasm.atomic import write_text_atomic
 from pcbasm.config.dispenser import PasteDispenserConfig
 from pcbasm.geometry import Point2d
+from pcbasm.pasting.hierarchy import PadHierarchy
 from pcbasm.pasting.params import PasteParams
 from pcbasm.pasting.persist import (
     DecodedBoardSettings,
@@ -30,7 +31,6 @@ from pcbasm.pasting.persist import (
     encode_board_settings,
 )
 from pcbasm.pasting.settings import PasteSettingsModel
-from pcbasm.pcb import PadHierarchy
 
 
 class BoardSettingsStore:

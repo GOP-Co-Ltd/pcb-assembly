@@ -14,8 +14,8 @@ from pcbasm.config import MachineConfig
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Shift, Transform
 from pcbasm.hal import Camera, Klipper, XYZStage, create_camera
+from pcbasm.kicad import PcbFile
 from pcbasm.machine.journal import Journal
-from pcbasm.pcb import PcbFile
 from pcbasm.posctrl.board import BoardTransformMeasurer
 from pcbasm.posctrl.offset import OffsetTransformMeasurer
 from pcbasm.posctrl.position import XYPositionAdjustor

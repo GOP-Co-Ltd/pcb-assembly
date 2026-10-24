@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from pcbasm.kicad.footprint import FootprintLibraryError
+from pcbasm.kicad.units import KicadError
 from pcbasm.pasting.testboard.config import (
     BoardConfig,
     BoardConfigError,
@@ -12,8 +14,6 @@ from pcbasm.pasting.testboard.config import (
 from pcbasm.pasting.testboard.generator import (
     BoardGenerator,
 )
-from pcbasm.pcb.footprint import FootprintLibraryError
-from pcbasm.pcb.units import KicadError
 from tests.helpers import make_paste_test_board_offset_pad_root
 from tests.pcbasm.pasting.testboard.support import (
     QFN,

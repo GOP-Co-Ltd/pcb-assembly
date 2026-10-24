@@ -11,8 +11,8 @@ from collections.abc import Sequence
 
 import attrs
 
+from pcbasm.board import Pad
 from pcbasm.geometry import Point2d, Transform
-from pcbasm.pcb import Pad
 from pcbasm.posctrl import (
     BoardAlignment,
     RegionAlignment,

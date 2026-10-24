@@ -16,7 +16,7 @@ from pathlib import Path
 import cv2
 import pytest
 
-from pcbasm.pcb import PcbFile
+from pcbasm.kicad import PcbFile
 from web.api.jobs.catalog import default_catalog
 from web.api.jobs.manager import JobManager, JobStatus
 from web.api.settings import Settings

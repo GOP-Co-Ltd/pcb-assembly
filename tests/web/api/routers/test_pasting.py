@@ -30,6 +30,7 @@ from urllib.parse import unquote
 
 import pytest
 from fastapi.testclient import TestClient
+from shapely import Polygon
 
 from pcbasm.pasting.params import PASTE_PARAM_NAMES
 from tests.web.api.conftest import COPPER_PCB_FIXTURE
@@ -578,6 +579,31 @@ class TestPadConfigCopper:
         for ring in island["rings"]:
             assert len(ring) >= 4
             assert ring[0] == ring[-1]
+
+    def test_holes_follow_the_exterior_ring(self, selected_client: TestClient):
+        # led_blinker の銅箔には簡略化後も穴が残る
+        body = selected_client.get("/api/pasting/pad-config/copper").json()
+
+        island = next(island for island in body["islands"] if len(island["rings"]) > 1)
+        exterior, *holes = island["rings"]
+        outer = Polygon(exterior)
+        assert all(outer.contains(Polygon(hole)) for hole in holes)
+
+    def test_coordinates_are_rounded_to_three_decimals(
+        self, selected_client: TestClient
+    ):
+        # 形を見せる用途なので転送量を抑える
+        body = selected_client.get("/api/pasting/pad-config/copper").json()
+
+        values = [
+            value
+            for island in body["islands"]
+            for ring in island["rings"]
+            for point in ring
+            for value in point
+        ]
+        assert values
+        assert all(round(value, 3) == value for value in values)
 
     def test_islands_stay_inside_the_board_outline(self, selected_client: TestClient):
         config = _get_config(selected_client)

@@ -13,6 +13,7 @@ from typing import Any
 
 import attrs
 
+from pcbasm.kicad.build import generate_rect_pcb, save_board
 from pcbasm.pasting.flowcalib.flow import (
     CONVERGENCE_REL_TOL,
     DispenseRateCalibration,
@@ -241,9 +242,6 @@ def _run_dispense_calibration(ctx: JobContext) -> JobResult:
 
 def _generate_calibration_board(ctx: JobContext, width: float, height: float) -> Path:
     """キャリブ用の外形だけ矩形銅板を artifacts へ生成し、そのパスを返す."""
-    # pcbnew 依存はジョブ実行時のみ（KiCAD 未導入でも webui は起動可）
-    from pcbasm.pcb.generate import generate_rect_pcb, save_board
-
     filename = f"dispense_calibration_rect_{width:g}x{height:g}.kicad_pcb"
     path = ctx.artifacts_dir / filename
     save_board(generate_rect_pcb(width, height), path)

@@ -15,9 +15,9 @@ import attrs
 
 from pcbasm.config.dispenser import PasteDispenserConfig
 from pcbasm.pasting.fill_path import FillPlan
+from pcbasm.pasting.hierarchy import HierKey, PadHierarchy, PadRef
 from pcbasm.pasting.params import PASTE_PARAM_FIELDS
 from pcbasm.pasting.settings import ResolvedSetting
-from pcbasm.pcb.grouping import HierKey, PadHierarchy, PadRef
 
 # 方式の値 → 表示ラベル（選択肢の並び順 = 件数の表示順）
 _MODE_LABELS: dict[str, str] = {

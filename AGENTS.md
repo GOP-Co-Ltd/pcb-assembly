@@ -57,8 +57,8 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 - `src/pcbasm/posctrl/`: PCB の位置合わせ共通制御
 - `src/pcbasm/pasting/`: ペースト塗布ロジック
 - `src/pcbasm/geometry/`: 3D 座標と幾何計算
-- `src/pcbasm/pcb/`: KiCAD 読込と PCB 設計情報
-- `src/pcbasm/visualization/`: 塗布パス・高さ面・PCB の可視化
+- `src/pcbasm/board/`: pcbnew に依存しない基板データ（外形・部品・パッド・銅箔）と書き出し
+- `src/pcbasm/kicad/`: KiCAD 読込と基板生成（pcbnew を import する唯一の場所）
 - `src/web/api/`: 機体ごとの backend WebAPI（FastAPI、port 8081）
 - `src/web/ui/`: LAN に 1 つ立てる UI frontend（FastAPI、port 8080。ページ描画と
     `/m/{machine_id}/api/**` の backend 中継）

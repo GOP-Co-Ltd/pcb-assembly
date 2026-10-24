@@ -14,6 +14,7 @@ import attrs
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
+from pcbasm.board import Layer
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.initial_purge import validate_initial_purge
 from pcbasm.pasting.params import validate_field_names, validate_param_values
@@ -21,7 +22,6 @@ from pcbasm.pasting.paste_volume.runtime import validate_flow_calibration_point
 from pcbasm.pasting.persist import board_settings_export_filename
 from pcbasm.pasting.route import routed_enabled_pads
 from pcbasm.pasting.settings import PasteSettingsModel
-from pcbasm.pcb import Layer
 from web.api.dependencies import (
     BoardStoreDep,
     ControlDep,

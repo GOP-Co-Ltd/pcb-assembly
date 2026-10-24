@@ -14,12 +14,12 @@ import logging
 from collections.abc import Callable, Sequence
 from typing import Self, cast
 
+from pcbasm.board import Copper, Layer
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Compose, Point2d, Transform
 from pcbasm.pasting.applicator import DispenseExecution, PasteApplicator
 from pcbasm.pasting.flowcalib.flow import RotationsPerUlRound
 from pcbasm.pasting.session import PasteSession
-from pcbasm.pcb import Copper, Layer
 from pcbasm.posctrl import BoardCalibrationResult
 
 logger = logging.getLogger(__name__)

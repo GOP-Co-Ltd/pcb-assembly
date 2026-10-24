@@ -11,9 +11,9 @@ import pytest
 from shapely import Polygon
 from shapely.affinity import rotate
 
+from pcbasm.board import Component, Layer, Pad
 from pcbasm.geometry.transform import Point2d
-from pcbasm.pcb import Component, Layer, Pad
-from pcbasm.pcb.grouping import (
+from pcbasm.pasting.hierarchy import (
     PadHierarchy,
     PadHierarchyNode,
     PadShapeKey,

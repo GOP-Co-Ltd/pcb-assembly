@@ -2,8 +2,8 @@
 
 import shapely
 
+from pcbasm.board import Layer, Pad
 from pcbasm.pasting.alignment import refinement_targets
-from pcbasm.pcb import Layer, Pad
 
 
 def _pad(designator: str, width: float, height: float) -> Pad:

@@ -1,8 +1,8 @@
-"""pcbasm.pcb.units のテスト."""
+"""pcbasm.kicad.units のテスト."""
 
 import pytest
 
-from pcbasm.pcb.units import (
+from pcbasm.kicad.units import (
     KICAD_COORD_MAX_NM,
     KICAD_MAX_COORD_MM,
     KicadCoordinateError,

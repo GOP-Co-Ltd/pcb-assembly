@@ -13,17 +13,19 @@ from pathlib import Path
 import pytest
 from shapely import Point, Polygon
 
+from pcbasm.board import Layer
 from pcbasm.config import MachineConfig, load_machine
 from pcbasm.geometry import Compose, Point2d, Rotation, Shift, transform_polygon
 from pcbasm.hal import Camera
 from pcbasm.hal.fake import Checkerboard, FakeAudioPlayer, FakeKlipper, SceneCamera
+from pcbasm.kicad import PcbFile
+from pcbasm.kicad.build import generate_grid_pcb
+from pcbasm.pasting.hierarchy import PadHierarchy
 from pcbasm.pasting.paste_volume.calibration import (
     CALIBRATION_SUFFIX,
     parse_calibration,
     write_calibration,
 )
-from pcbasm.pcb import Layer, PadHierarchy, PcbFile
-from pcbasm.pcb.generate import generate_grid_pcb
 from pcbasm.posctrl.board import Corner, corner_offset
 from pcbasm.vision import CalibrationResult
 from tests.support import polling

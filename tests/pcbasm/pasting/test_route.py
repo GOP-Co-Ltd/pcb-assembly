@@ -3,11 +3,12 @@
 import pytest
 from shapely import Polygon
 
+from pcbasm.board import Component, Layer, Pad
 from pcbasm.geometry import Point2d
+from pcbasm.pasting.hierarchy import PadHierarchy
 from pcbasm.pasting.params import PasteParams
 from pcbasm.pasting.route import plan_paste_route, routed_enabled_pads
 from pcbasm.pasting.settings import LevelSetting, PasteSettingsModel
-from pcbasm.pcb import Component, Layer, Pad, PadHierarchy
 
 
 def _rect(cx: float, cy: float, w: float, h: float) -> Polygon:

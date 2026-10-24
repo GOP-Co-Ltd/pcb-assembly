@@ -9,8 +9,8 @@ from typing import Any, Literal, TypeAlias, TypeGuard
 
 import attrs
 
-from pcbasm.pcb.footprint import format_footprint_id, parse_footprint_id
-from pcbasm.pcb.units import (
+from pcbasm.kicad.footprint import format_footprint_id, parse_footprint_id
+from pcbasm.kicad.units import (
     KICAD_COORD_MAX_NM,
     KICAD_MAX_COORD_MM,
     is_kicad_length,
@@ -34,7 +34,7 @@ _KICAD_PAD_SIZE_RANGE_TEXT = f"1 nm以上{_KICAD_MAX_PAD_SIZE_MM:.6f} mm以下"
 class BoardConfigError(ValueError):
     """基板設定がドメイン制約を満たさない（``normalized()`` の invariant）.
 
-    KiCad 環境・座標のエラーは :mod:`pcbasm.pcb` 側の例外
+    KiCad 環境・座標のエラーは :mod:`pcbasm.kicad` 側の例外
     （``FootprintLibraryError`` / ``KicadError``）をそのまま使う。
     """
 

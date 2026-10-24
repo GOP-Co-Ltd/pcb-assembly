@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from pcbasm.geometry.packing import Rect
+from pcbasm.kicad.footprint import FootprintInfo
 from pcbasm.pasting.testboard.catalog import PadPattern
 from pcbasm.pasting.testboard.config import (
     BOARD_KIND,
@@ -37,7 +38,6 @@ from pcbasm.pasting.testboard.layout import (
     PadLayout,
     PatternLayout,
 )
-from pcbasm.pcb.footprint import FootprintInfo
 from web.api.attrs_models import mirror_model
 from web.api.dependencies import BoardGeneratorDep
 

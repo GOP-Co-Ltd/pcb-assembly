@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from pcbasm.pcb import PcbFile
+from pcbasm.kicad import PcbFile
 from tests.web.api.jobs.conftest import WaitUntil
 from web.api.jobs.manager import JobManager, JobStatus
 from web.api.settings import Settings

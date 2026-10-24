@@ -19,10 +19,8 @@ SRC = PROJECT_ROOT / "src"
 
 # まだ改名していない単位 → 移行先（移行先と同じ規則で検査する）
 _RENAMED = {
-    "pcbasm.pcb": "pcbasm.board",
     "pcbasm.posctrl": "pcbasm.align",
     "pcbasm.parking": "pcbasm.machine",
-    "pcbasm.visualization": "pcbasm.plotting",
 }
 
 # 単位の中にあり、下の層から import されるので独立した単位として検査するモジュール
@@ -87,11 +85,8 @@ _THIRD_PARTY_OWNER = {"pcbnew": "pcbasm.kicad"}
 _ALLOWED_VIOLATIONS = {
     # open_klipper が KlipperConfig を受け取る
     ("pcbasm.hal", "pcbasm.config"),
-    ("pcbasm.pasting", "pcbnew"),
-    ("pcbasm.pcb", "pcbnew"),
-    ("pcbasm.visualization", "pcbasm.pasting"),
-    ("pcbasm.visualization", "pcbasm.pcb"),
-    ("pcbasm.visualization", "pcbasm.vision"),
+    # setup_board_calibration が PCB ファイルを読む
+    ("pcbasm.posctrl", "pcbasm.kicad"),
 }
 
 

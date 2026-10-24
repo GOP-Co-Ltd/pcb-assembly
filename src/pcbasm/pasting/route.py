@@ -4,9 +4,10 @@ from collections.abc import Iterable
 
 import attrs
 
+from pcbasm.board import Pad
 from pcbasm.geometry import Point2d, sort_by_nearest
+from pcbasm.pasting.hierarchy import PadHierarchy, PadShapeKey
 from pcbasm.pasting.settings import PasteSettingsModel, select_enabled_pads
-from pcbasm.pcb import Pad, PadHierarchy, PadShapeKey
 
 
 @attrs.frozen
@@ -34,7 +35,7 @@ def plan_paste_route(
 ) -> list[PasteRouteStop]:
     """Pad を同種類ごとにまとめ、面積の小さい順に塗布順へ並べる.
 
-    同種類の判定は :class:`pcbasm.pcb.PadShapeKey` に従う。グループ間は
+    同種類の判定は :class:`pcbasm.pasting.hierarchy.PadShapeKey` に従う。グループ間は
     面積昇順、グループ内は直前位置からの nearest route で並べる。
     面積が同じグループどうしは長辺・短辺の昇順、次に通常形状を先、最後に入力順で決める。
 

@@ -1,24 +1,37 @@
-"""HeightPlaneMeasurerのテスト."""
+"""pcbasm.pasting.height のテスト."""
 
+import cv2
+import numpy as np
 import pytest
 from shapely.geometry import Point as ShapelyPoint, Polygon
 
+from pcbasm.board import Copper, Layer
 from pcbasm.config.probe import ProbeConfig
 from pcbasm.gcode import GCode
 from pcbasm.geometry import (
     Compose,
+    HeightPlane,
     Identity,
+    Point2d,
     Point3d,
     Scale,
     Shift,
     sample_points_in_polygons,
     sort_by_nearest,
 )
-from pcbasm.pasting.height import HeightPlaneMeasurer, plan_probe_points
-from pcbasm.pcb import Copper, Layer
+from pcbasm.kicad import PcbFile
+from pcbasm.pasting.height import (
+    HeightPlaneMeasurer,
+    plan_probe_points,
+    render_height_plane,
+    render_planned_points,
+)
+from tests.support.paths import TESTING_DATA_DIR
 
 _SAMPLING_KWARGS = {"min_radius": 1.5, "min_samples": 3, "max_samples": 9}
 _BOARD_EDGE_MARGIN = 2.5
+# TOP 銅箔ゾーンを持つ実 PCB（基板背景の銅箔描画を含む）
+LED_BLINKER_PCB = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
 _MEASURER_KWARGS = {
     **_SAMPLING_KWARGS,
     "board_edge_margin": _BOARD_EDGE_MARGIN,
@@ -213,3 +226,102 @@ class TestPlanProbePoints:
 
         with pytest.raises(ValueError, match="min_samples"):
             plan_probe_points([tiny], outline, config=ProbeConfig(min_radius=1.5))
+
+
+def _spread_points_in_outline(pcb, fractions):
+    """Outline bbox 内の指定比率位置に Point2d を置く（基板に依存しない配置）."""
+    minx, miny, maxx, maxy = pcb.outline.polygon.bounds
+    return [
+        Point2d(minx + fx * (maxx - minx), miny + fy * (maxy - miny))
+        for fx, fy in fractions
+    ]
+
+
+class TestHeightRender:
+    """render_planned_points / render_height_plane（PNG として読めることだけを確かめる）."""
+
+    def test_render_planned_points_outputs_readable_png(self, tmp_path):
+        pcb = PcbFile(LED_BLINKER_PCB)
+        # 凸包（薄線描画）が成立する 4 点
+        points = _spread_points_in_outline(
+            pcb, [(0.2, 0.2), (0.8, 0.2), (0.8, 0.8), (0.2, 0.8)]
+        )
+        output = tmp_path / "planned_points.png"
+
+        render_planned_points(points, pcb, "Planned probe points", output)
+
+        image = cv2.imread(str(output))
+        assert image is not None
+        assert image.size > 0
+
+    def test_render_planned_points_accepts_fewer_than_hull_points(self, tmp_path):
+        """凸包が成立しない 2 点でも描画できる（境界ケース）."""
+        pcb = PcbFile(LED_BLINKER_PCB)
+        points = _spread_points_in_outline(pcb, [(0.3, 0.5), (0.7, 0.5)])
+        output = tmp_path / "planned_two.png"
+
+        render_planned_points(points, pcb, "Planned (2 points)", output)
+
+        image = cv2.imread(str(output))
+        assert image is not None
+        assert image.size > 0
+
+    def test_render_height_plane_outputs_readable_png(self, tmp_path):
+        pcb = PcbFile(LED_BLINKER_PCB)
+        # 2 次曲面フィットに必要な非退化 6 点（z は緩い傾斜）
+        fractions = [
+            (0.1, 0.1),
+            (0.9, 0.1),
+            (0.1, 0.9),
+            (0.9, 0.9),
+            (0.5, 0.3),
+            (0.3, 0.6),
+        ]
+        points = _spread_points_in_outline(pcb, fractions)
+        height_plane = HeightPlane(
+            tuple(Point3d(p.x, p.y, 0.01 * p.x + 0.02 * p.y) for p in points)
+        )
+        output = tmp_path / "height_plane.png"
+
+        render_height_plane(height_plane, pcb, "Height Plane", output)
+
+        image = cv2.imread(str(output))
+        assert image is not None
+        assert image.size > 0
+
+    def test_render_height_plane_accepts_pcb_to_plane_frame(self, tmp_path):
+        pcb = PcbFile(LED_BLINKER_PCB)
+        pcb_to_plane = Shift(x=120.0, y=-80.0, z=0.0)
+        fractions = [
+            (0.1, 0.1),
+            (0.9, 0.1),
+            (0.1, 0.9),
+            (0.9, 0.9),
+            (0.5, 0.3),
+            (0.3, 0.6),
+        ]
+        board_points = _spread_points_in_outline(pcb, fractions)
+        plane_points = [pcb_to_plane.apply(p) for p in board_points]
+        height_plane = HeightPlane(
+            tuple(Point3d(p.x, p.y, 0.01 * p.x + 0.02 * p.y) for p in plane_points)
+        )
+        identity_output = tmp_path / "height_plane_identity_frame.png"
+        plane_output = tmp_path / "height_plane_machine_frame.png"
+
+        render_height_plane(height_plane, pcb, "Height Plane", identity_output)
+        render_height_plane(
+            height_plane,
+            pcb,
+            "Height Plane",
+            plane_output,
+            pcb_to_plane=pcb_to_plane,
+        )
+
+        identity_image = cv2.imread(str(identity_output))
+        plane_image = cv2.imread(str(plane_output))
+        assert identity_image is not None
+        assert plane_image is not None
+        assert plane_image.size > 0
+        assert plane_image.shape == identity_image.shape
+        diff = np.asarray(cv2.absdiff(plane_image, identity_image))
+        assert float(diff.mean()) > 0.1

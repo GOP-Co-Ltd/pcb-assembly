@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pcbasm.kicad.build import generate_rect_pcb, save_board
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import JobContext, JobResult
 
@@ -23,9 +24,6 @@ def register(catalog: JobCatalog) -> None:
 
 def _run_generate_rect_pcb(ctx: JobContext) -> JobResult:
     """Flow calibration 用の外形だけ矩形 PCB を生成する（装置・カメラ不要）."""
-    # pcbnew 依存はジョブ実行時のみ（KiCAD 未導入でも webui は起動可）
-    from pcbasm.pcb.generate import generate_rect_pcb, save_board
-
     width = float(ctx.params["width"])
     height = float(ctx.params["height"])
 

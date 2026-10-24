@@ -13,15 +13,16 @@ from typing import Self
 
 import attrs
 
+from pcbasm.board import Copper, Layer, Pad
 from pcbasm.config import MachineConfig
 from pcbasm.config.dispenser import ToolheadConfig
 from pcbasm.geometry import Compose, HeightPlane, Identity, Point2d, Shift, Transform
 from pcbasm.hal import Camera, Klipper, XYZStage
+from pcbasm.kicad import PcbFile
 from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.applicator import PasteApplicator, build_applicator
 from pcbasm.pasting.height import HeightPlaneMeasurer
 from pcbasm.pasting.probe import ProbeExecutor
-from pcbasm.pcb import Copper, Layer, Pad, PcbFile
 from pcbasm.posctrl import BoardCalibrationResult, RegionAlignmentSession
 from pcbasm.vision import CalibrationResult, FrameSink
 

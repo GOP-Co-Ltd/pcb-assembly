@@ -17,6 +17,7 @@ import shapely
 from shapely import Polygon
 
 from pcbasm import geometry, hal
+from pcbasm.board import Copper, Layer
 from pcbasm.config import MachineConfig, load_machine
 from pcbasm.gcode import GCode
 from pcbasm.geometry import (
@@ -34,6 +35,8 @@ from pcbasm.hal.fake import (
     FakeCamera,
     FakeKlipper,
 )
+from pcbasm.kicad import PcbFile
+from pcbasm.kicad.build import generate_rect_pcb, save_board
 from pcbasm.parking import park_or_present
 from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.applicator import build_applicator
@@ -47,6 +50,7 @@ from pcbasm.pasting.flowcalib.flow import RotationsPerUlRound
 from pcbasm.pasting.flowcalib.lines import plan_rate_sweep, plan_speed_sweep
 from pcbasm.pasting.flowcalib.params import CalibrationParams
 from pcbasm.pasting.flowcalib.procedure import FlowCalibrationProcedure
+from pcbasm.pasting.hierarchy import PadHierarchy
 from pcbasm.pasting.nozzle_clean import clean_nozzle, resolve_nozzle_clean
 from pcbasm.pasting.params import PasteParamsPatch
 from pcbasm.pasting.session import PasteSession
@@ -56,8 +60,6 @@ from pcbasm.pasting.toolhead_offset import (
     plan_toolhead_offset_points,
 )
 from pcbasm.pasting.workflow import PasteTargets, plan_paste_targets
-from pcbasm.pcb import Copper, Layer, PadHierarchy, PcbFile
-from pcbasm.pcb.generate import generate_rect_pcb, save_board
 from pcbasm.posctrl import (
     AlignmentRegion,
     BoardAlignment,

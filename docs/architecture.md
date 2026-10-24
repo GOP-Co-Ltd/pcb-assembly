@@ -17,23 +17,24 @@ flowchart TD
 
 ## 責務と変更先
 
-| 配置                                | 責務                                                         |
-| ----------------------------------- | ------------------------------------------------------------ |
-| `src/pcbasm/geometry/`              | 座標変換、ポリゴン、経路、配置の計算                         |
-| `src/pcbasm/pcb/`                   | KiCad 読込・生成、パッド、footprint、単位変換                |
-| `src/pcbasm/vision/`                | カメラ校正、画像・銅箔・塗布点の検出                         |
-| `src/pcbasm/hal/`                   | カメラ、Klipper、ステージ、ディスペンサー、音声の抽象と実装  |
-| `src/pcbasm/posctrl/`               | 基板の位置合わせ、基準点、補正、カメラと装置の座標対応       |
-| `src/pcbasm/pasting/`               | 塗布の設定解決、経路、高さ面、機械手順、画像収集、塗布量校正 |
-| `src/pcbasm/visualization/`         | PCB・塗布経路・高さ面・校正結果の描画                        |
-| `src/web/api/routers/`              | HTTP 入出力とコア呼び出し、例外から HTTP 応答への変換        |
-| `src/web/api/jobs/`                 | 長時間処理、進捗、中断、操作者への質問、成果物の公開         |
-| `src/web/ui/`                       | マシン探索・選択、SSR ページ、backend への中継               |
-| `src/web/ui/templates/` / `static/` | HTML、CSS、DOM 操作、API 応答の表示                          |
-| `src/web/selfupdate/`               | backend / frontend 共通の Git 更新とサービス再起動手順       |
-| `src/web/contract/`                 | backend・frontend・自己更新が共有する応答モデルとワイヤ定数  |
-| `src/web/process.py`                | backend / frontend 共通の env 読み取りと logging の初期化    |
-| `scripts/`                          | ホストのセットアップとサービス運用                           |
+| 配置                                | 責務                                                                                            |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `src/pcbasm/geometry/`              | 座標変換、ポリゴン、経路、配置の計算                                                            |
+| `src/pcbasm/plotting.py`            | 描画の共通部品（Agg、穴付きポリゴン、基板外形、PNG 保存）。図そのものは使う側のパッケージに置く |
+| `src/pcbasm/board/`                 | 基板データ（外形・部品・パッド・銅箔）と CSV / JSON の書き出し、全体図の描画                    |
+| `src/pcbasm/kicad/`                 | KiCad 読込・生成、footprint、単位変換（pcbnew はここだけ）                                      |
+| `src/pcbasm/vision/`                | カメラ校正、画像・銅箔・塗布点の検出                                                            |
+| `src/pcbasm/hal/`                   | カメラ、Klipper、ステージ、ディスペンサー、音声の抽象と実装                                     |
+| `src/pcbasm/posctrl/`               | 基板の位置合わせ、基準点、補正、カメラと装置の座標対応                                          |
+| `src/pcbasm/pasting/`               | 塗布の設定解決、経路、高さ面、機械手順、画像収集、塗布量校正                                    |
+| `src/web/api/routers/`              | HTTP 入出力とコア呼び出し、例外から HTTP 応答への変換                                           |
+| `src/web/api/jobs/`                 | 長時間処理、進捗、中断、操作者への質問、成果物の公開                                            |
+| `src/web/ui/`                       | マシン探索・選択、SSR ページ、backend への中継                                                  |
+| `src/web/ui/templates/` / `static/` | HTML、CSS、DOM 操作、API 応答の表示                                                             |
+| `src/web/selfupdate/`               | backend / frontend 共通の Git 更新とサービス再起動手順                                          |
+| `src/web/contract/`                 | backend・frontend・自己更新が共有する応答モデルとワイヤ定数                                     |
+| `src/web/process.py`                | backend / frontend 共通の env 読み取りと logging の初期化                                       |
+| `scripts/`                          | ホストのセットアップとサービス運用                                                              |
 
 `pcbasm` は `web` を import しない。ジョブの画面や API が変わっても、
 位置合わせや塗布計画の計算はコア層で検証できるようにする。

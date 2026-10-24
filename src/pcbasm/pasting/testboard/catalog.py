@@ -7,10 +7,10 @@ from collections.abc import Mapping
 from pathlib import Path
 
 import attrs
-import pcbnew
 
-from pcbasm.pcb.footprint import (
+from pcbasm.kicad.footprint import (
     FRONT_PAD_LAYERS,
+    Footprint,
     FootprintEnvelope,
     FootprintInfo,
     FootprintLibrary,
@@ -60,7 +60,7 @@ class ResolvedPadPattern:
     """カタログ表示情報と生成用 KiCad template の組."""
 
     item: PadPattern
-    template: pcbnew.FOOTPRINT
+    template: Footprint
 
 
 # 空検索時に列挙する、はんだペースト印刷で一般的な SMD footprint。
@@ -155,7 +155,7 @@ class PadCatalog:
     def __init__(self, footprint_root: Path | None = None) -> None:
         self._library = FootprintLibrary(footprint_root)
         self._pad_patterns: dict[str, tuple[PadPattern, ...]] = {}
-        self._pad_templates: dict[str, pcbnew.FOOTPRINT] = {}
+        self._pad_templates: dict[str, Footprint] = {}
 
     @property
     def footprint_count(self) -> int:
@@ -191,9 +191,9 @@ class PadCatalog:
             raise BoardConfigError("footprint IDが不正です")
         library, footprint_name = parsed
         footprint = self._library.load(library, footprint_name)
-        grouped: dict[tuple[object, ...], tuple[int, pcbnew.FOOTPRINT, list[str]]] = {}
+        grouped: dict[tuple[object, ...], tuple[int, Footprint, list[str]]] = {}
         for pad_index, pad in enumerate(footprint.Pads()):
-            if not pad_on_any_layer(pad, FRONT_PAD_LAYERS):
+            if not pad_on_any_layer(pad, (layer for _, layer in FRONT_PAD_LAYERS)):
                 continue
             template = single_pad_footprint(pad)
             signature = pad_geometry_signature(template)

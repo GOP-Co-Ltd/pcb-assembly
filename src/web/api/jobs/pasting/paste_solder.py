@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from pcbasm.gcode import GCode
+from pcbasm.pasting.hierarchy import PadHierarchy
 from pcbasm.pasting.nozzle_clean import resolve_nozzle_clean
 from pcbasm.pasting.workflow import plan_paste_targets
-from pcbasm.pcb import PadHierarchy
 from web.api.jobs.board_ops import setup_board
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import JobContext, JobResult
