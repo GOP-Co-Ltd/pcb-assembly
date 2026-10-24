@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from pcbasm.board.export import save_copper, save_outline, save_pads, save_pnp_csv
+from pcbasm.board.plot import render_pcb
 from pcbasm.kicad import PcbFile
 from pcbasm.kicad.build import build_fill_coverage_board, save_board
-from pcbasm.visualization import render_pcb
 from web.api.jobs.catalog import JobCatalog, JobDefinition
 from web.api.jobs.context import JobContext, JobResult
 

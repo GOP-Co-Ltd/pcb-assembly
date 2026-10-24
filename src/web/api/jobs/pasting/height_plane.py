@@ -7,10 +7,13 @@ import cv2
 from pcbasm.board import Layer
 from pcbasm.geometry import sampling_diagnostics
 from pcbasm.kicad import PcbFile
-from pcbasm.pasting.height import plan_probe_points
+from pcbasm.pasting.height import (
+    plan_probe_points,
+    render_height_plane,
+    render_planned_points,
+)
 from pcbasm.pasting.session import PasteSession
 from pcbasm.vision import Image
-from pcbasm.visualization import render_height_plane, render_planned_points
 from web.api.jobs.board_ops import setup_board
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import JobAborted, JobContext, JobResult, PromptSpec

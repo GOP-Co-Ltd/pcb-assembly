@@ -21,7 +21,6 @@ SRC = PROJECT_ROOT / "src"
 _RENAMED = {
     "pcbasm.posctrl": "pcbasm.align",
     "pcbasm.parking": "pcbasm.machine",
-    "pcbasm.visualization": "pcbasm.plotting",
 }
 
 # 単位の中にあり、下の層から import されるので独立した単位として検査するモジュール
@@ -88,10 +87,6 @@ _ALLOWED_VIOLATIONS = {
     ("pcbasm.hal", "pcbasm.config"),
     # setup_board_calibration が PCB ファイルを読む
     ("pcbasm.posctrl", "pcbasm.kicad"),
-    ("pcbasm.visualization", "pcbasm.board"),
-    ("pcbasm.visualization", "pcbasm.kicad"),
-    ("pcbasm.visualization", "pcbasm.pasting"),
-    ("pcbasm.visualization", "pcbasm.vision"),
 }
 
 

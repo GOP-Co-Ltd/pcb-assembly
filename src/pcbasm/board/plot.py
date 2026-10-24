@@ -5,18 +5,14 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
-import matplotlib
-
-matplotlib.use("Agg")
-
 import matplotlib.pyplot as plt
 from matplotlib.artist import Artist
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch, Polygon as MplPolygon
 
-from pcbasm.board import Component, Copper, Layer, Outline, Pad
+from pcbasm.plotting import outline_patch, polygon_with_holes_patch, save_png
 
-from .patches import polygon_with_holes_patch
+from .model import Component, Copper, Layer, Outline, Pad
 
 
 def render_pcb(
@@ -35,16 +31,7 @@ def render_pcb(
     ax.set_facecolor("#2a2a2a")
 
     # アウトライン描画
-    coords = list(outline.polygon.exterior.coords)
-    outline_polygon = MplPolygon(
-        coords,
-        closed=True,
-        facecolor="none",
-        edgecolor="#ffffff",
-        linewidth=1.5,
-        linestyle="--",
-    )
-    ax.add_patch(outline_polygon)
+    ax.add_patch(outline_patch(outline.polygon))
 
     # 銅箔描画 (パッドより下に配置)
     for cu in copper:
@@ -164,6 +151,4 @@ def render_pcb(
         labelcolor="white",
     )
 
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=150, facecolor="#1a1a1a")
-    plt.close(fig)
+    save_png(fig, output_path, dpi=150, facecolor="#1a1a1a")

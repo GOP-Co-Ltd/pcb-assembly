@@ -5,10 +5,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
-import matplotlib
-
-matplotlib.use("Agg")
-
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
@@ -17,6 +13,7 @@ from matplotlib.axes import Axes
 from pcbasm.pasting.paste_volume.evaluate import PasteVolumeEvaluation
 from pcbasm.pasting.paste_volume.fit import CellMeasurement
 from pcbasm.pasting.paste_volume.model import CubicVolumeModel
+from pcbasm.plotting import save_png
 from pcbasm.vision.image import ImageArray
 
 _CURVE_SAMPLES = 200
@@ -48,9 +45,7 @@ def render_calibration_scatter(
     ax.legend(loc="upper left", fontsize=9)
     ax.set_xlim(left=0.0)
     ax.set_ylim(bottom=0.0)
-    fig.tight_layout()
-    fig.savefig(output_path, dpi=120)
-    plt.close(fig)
+    save_png(fig, output_path)
 
 
 def render_evaluation_scatter(
@@ -93,9 +88,7 @@ def render_evaluation_scatter(
     ax.legend(loc="upper left", fontsize=9)
     ax.set_xlim(0.0, limit)
     ax.set_ylim(0.0, limit)
-    fig.tight_layout()
-    fig.savefig(output_path, dpi=120)
-    plt.close(fig)
+    save_png(fig, output_path)
 
 
 def render_detection_montage(
@@ -129,9 +122,7 @@ def render_detection_montage(
             if column == 0:
                 ax.set_ylabel(name, fontsize=9)
     fig.suptitle(title)
-    fig.tight_layout()
-    fig.savefig(output_path, dpi=120)
-    plt.close(fig)
+    save_png(fig, output_path)
 
 
 def _draw_cells(ax: Axes, cells: Sequence[CellMeasurement]) -> None:

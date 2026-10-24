@@ -82,7 +82,7 @@ PR10 より前の版は設定履歴を持たないので、「1. 001 でブラ�
 | `pcbasm.posctrl`、`pcbasm.vision`                     | A3, A4, A5, A8                          |
 | `pcbasm.board`、`pcbasm.kicad`                        | A8, A17                                 |
 | `pcbasm.pasting`                                      | A6, A7, A8, A9, A15, A16                |
-| `pcbasm.visualization`                                | A7, A9, A17                             |
+| 描画（`pcbasm.plotting` と `render_*`）               | A7, A9, A17                             |
 | `pcbasm.config`、`web.api.machine_config`、設定の移行 | A10, A13, A18, A19 と、全項目の起動確認 |
 | `web.api`、`web.ui`                                   | A1, A8, A12, A17, A18 の画面操作        |
 | `web.selfupdate`、`scripts/`、unit                    | A11                                     |

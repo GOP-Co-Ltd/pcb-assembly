@@ -1,6 +1,14 @@
-"""Shapely ジオメトリを matplotlib アーティストに変換するヘルパー."""
+"""Matplotlib で PNG を描く部品（Agg の設定、穴付きポリゴン、基板外形、保存）."""
 
-from matplotlib.patches import PathPatch
+from pathlib import Path
+
+import matplotlib
+
+matplotlib.use("Agg")
+
+import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+from matplotlib.patches import PathPatch, Polygon as MplPolygon
 from matplotlib.path import Path as MplPath
 from shapely import Polygon
 
@@ -44,3 +52,24 @@ def polygon_with_holes_patch(
         alpha=alpha,
         linewidth=linewidth,
     )
+
+
+def outline_patch(polygon: Polygon) -> MplPolygon:
+    """基板外形を白の破線で描く patch."""
+    return MplPolygon(
+        list(polygon.exterior.coords),
+        closed=True,
+        facecolor="none",
+        edgecolor="#ffffff",
+        linewidth=1.5,
+        linestyle="--",
+    )
+
+
+def save_png(
+    fig: Figure, output_path: Path, *, dpi: int = 120, facecolor: str = "auto"
+) -> None:
+    """余白を詰めて PNG で保存し、figure を閉じる."""
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=dpi, facecolor=facecolor)
+    plt.close(fig)

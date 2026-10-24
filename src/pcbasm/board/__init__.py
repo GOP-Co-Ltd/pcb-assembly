@@ -6,7 +6,7 @@
 
 X は右向き、Y は下向き（KiCad と同じ）。
 
-KiCad ファイルからの読込は :mod:`pcbasm.kicad`、書き出しは :mod:`.export` に置く。
+KiCad ファイルからの読込は :mod:`pcbasm.kicad`、書き出しは :mod:`.export`、描画は :mod:`.plot` に置く。
 """
 
 from .model import Component, Copper, Layer, Outline, Pad

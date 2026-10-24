@@ -6,7 +6,7 @@
 
 既定値の出典を :class:`DotDetectionSpec` ひとつにして、片方のジョブだけ既定値が
 変わることを防ぐ。判定とフィットそのものは :mod:`pcbasm.pasting.paste_volume.fit`、図は
-:mod:`pcbasm.visualization.paste_volume_render` にあり、ここは成果物への変換と
+:mod:`pcbasm.pasting.paste_volume.plot` にあり、ここは成果物への変換と
 保存の可否だけを担う。
 """
 
@@ -26,11 +26,11 @@ from pcbasm.pasting.paste_volume.calibration import (
 )
 from pcbasm.pasting.paste_volume.detect import DotDetectionSpec, detection_mask
 from pcbasm.pasting.paste_volume.fit import CalibrationFit, CellMeasurement, fit_session
-from pcbasm.vision.image import ImageArray
-from pcbasm.visualization.paste_volume_render import (
+from pcbasm.pasting.paste_volume.plot import (
     render_calibration_scatter,
     render_detection_montage,
 )
+from pcbasm.vision.image import ImageArray
 from web.api.jobs.catalog import ParamSpec
 from web.api.jobs.context import Artifact, JobContext, JobResult, ParamValue
 

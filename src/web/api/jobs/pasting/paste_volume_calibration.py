@@ -62,12 +62,12 @@ from pcbasm.pasting.paste_volume.evaluate import (
     evaluation_document,
     evaluation_lines,
 )
+from pcbasm.pasting.paste_volume.plot import (
+    render_evaluation_scatter,
+)
 from pcbasm.pasting.session import PasteSession
 from pcbasm.vision import CalibrationResult
 from pcbasm.vision.crop import RectCrop, crop_pixel_size
-from pcbasm.visualization.paste_volume_render import (
-    render_evaluation_scatter,
-)
 from web.api.jobs.board_ops import setup_board
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import (
