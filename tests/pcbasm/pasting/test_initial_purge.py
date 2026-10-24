@@ -10,11 +10,11 @@ from pcbasm.board import Layer, Pad
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.initial_purge import (
     ResolvedInitialPurge,
-    purge_point_label,
     resolve_initial_purge,
     resolve_initial_purge_for,
     validate_initial_purge,
 )
+from pcbasm.pasting.labels import purge_point_label
 
 
 def _outline(size: float = 20.0) -> Polygon:

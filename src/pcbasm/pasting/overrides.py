@@ -234,17 +234,6 @@ def _node_paths(
         yield from _node_paths(child, path)
 
 
-def select_enabled_pads(
-    pads: Iterable[Pad], hierarchy: PadHierarchy, model: PasteSettingsModel
-) -> list[Pad]:
-    """塗布対象（enabled）の pad だけを元の順序で返す.
-
-    プレビュー（webui router）と実行（webui job）が同一の絞り込みを共有するための単一ソース。
-    """
-    resolved = resolve_pad_settings(hierarchy, model)
-    return [pad for pad in pads if resolved[pad.ref].enabled]
-
-
 @attrs.frozen
 class OwnOverrideSummary:
     """ノード自身の明示設定の集計（UI の行バッジ表示用）.

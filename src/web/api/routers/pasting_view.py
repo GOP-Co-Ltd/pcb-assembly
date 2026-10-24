@@ -14,22 +14,15 @@ node_id 規約（フロントと共有する契約）:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable
 
 import attrs
 from fastapi import HTTPException
 from pydantic import BaseModel
-from shapely import Polygon
 
 from pcbasm.board import Layer, Pad
-from pcbasm.config.dispenser import PasteDispenserConfig, VolumeCorrectionConfig
 from pcbasm.geometry import Point2d
-from pcbasm.pasting.fill_path import FillPlan
-from pcbasm.pasting.hierarchy import PadHierarchy, PadHierarchyNode
-from pcbasm.pasting.initial_purge import (
-    purge_point_label,
-    resolve_initial_purge_for,
-)
+from pcbasm.pasting.hierarchy import PadHierarchyNode
 from pcbasm.pasting.overrides import (
     BoardOverrides,
     BoardSession,
@@ -39,16 +32,17 @@ from pcbasm.pasting.overrides import (
     own_override_summary,
     resolve_node_settings,
     resolve_pad_settings,
-    select_enabled_pads,
 )
-from pcbasm.pasting.pad_editor import AppliedModeSummary, applied_mode_summaries
+from pcbasm.pasting.pad_editor import (
+    COPPER_DISPLAY_TOLERANCE_MM,
+    AppliedModeSummary,
+    applied_mode_summaries,
+    display_rings,
+    flow_calibration_view,
+    initial_purge_view,
+)
 from pcbasm.pasting.params import PASTE_PARAM_FIELDS, PasteParamValue
-from pcbasm.pasting.paste_volume.runtime_correction import (
-    FlowCalibrationPlan,
-    overlapping_crops,
-    plan_flow_calibration,
-)
-from pcbasm.pasting.route import plan_paste_route, routed_enabled_pads
+from pcbasm.pasting.plan import PastePlan, plan_paste
 from web.api.env import Settings
 from web.api.state import AppState
 
@@ -224,11 +218,6 @@ class PadConfigResponse(BaseModel):
     pads: list[PadInfo]
     overrides: dict[str, NodeOverrideInfo]  # node_id -> 明示 override（疎、L0 含む）
     fields: list[ParamFieldInfo]  # 塗布パラメータの UI メタデータ（列順）
-
-
-# 銅箔の表示簡略化の許容誤差 [mm]。基板ビューの 1px 未満に収まる範囲で
-# 頂点を間引き、転送量を 1/9 程度へ落とす
-COPPER_DISPLAY_TOLERANCE_MM = 0.02
 
 
 class CopperIslandInfo(BaseModel):
@@ -420,11 +409,6 @@ def resolved_default(model: PasteSettingsModel) -> ResolvedSettings:
     return ResolvedSettings(enabled=True, **model.base.to_dict())
 
 
-def layer_pads(loaded: BoardSession, layer: Layer) -> Iterator[Pad]:
-    """指定 layer の全 pad（有効/無効問わず）を返す."""
-    return (pad for pad in loaded.hierarchy.iter_pads() if pad.layer is layer)
-
-
 def param_fields() -> list[ParamFieldInfo]:
     """:data:`PASTE_PARAM_FIELDS` をレスポンス形式へ写す（列順を保つ）."""
     return [
@@ -443,103 +427,46 @@ def param_fields() -> list[ParamFieldInfo]:
     ]
 
 
-def build_initial_purge(loaded: BoardSession) -> InitialPurgeInfo:
-    """ロード済みコンテキストから初回パージ設定の解決結果を返す.
+def _xy(point: Point2d | None) -> list[float] | None:
+    return None if point is None else [point.x, point.y]
 
-    設定が不正（保存済みの座標が基板外など）でもここでは 400 にしない。
 
-    pad-config 全体をエラーにすると pad editor ごと開けなくなり、原因の座標を直す手段まで
-    失う。
-    流量キャリブレーションと同じく理由を ``error`` に載せて返す。
-    """
-    routed = routed_enabled_pads(
-        layer_pads(loaded, Layer.TOP), loaded.hierarchy, loaded.model
-    )
-    point = loaded.model.initial_purge_point
-    resolution = resolve_initial_purge_for(
-        amount_ul=loaded.base_config.initial_purge_ul,
-        point=point,
-        routed_pads=routed,
-        outline=loaded.board.outline.polygon,
-    )
-    resolved, default_point, error = (
-        resolution.resolved,
-        resolution.default_point,
-        resolution.error,
-    )
+def build_initial_purge(plan: PastePlan) -> InitialPurgeInfo:
+    """初回パージの設定と解決結果を返す（不正でも 400 にせず理由を ``error`` に載せる）."""
+    view = initial_purge_view(plan)
+    resolved = view.resolved
     return InitialPurgeInfo(
-        initial_purge_ul=loaded.base_config.initial_purge_ul,
-        point=None if point is None else [point.x, point.y],
-        default_point=(
-            None if default_point is None else [default_point.x, default_point.y]
-        ),
+        initial_purge_ul=view.amount_ul,
+        point=_xy(view.point),
+        default_point=_xy(view.default_point),
         resolved=(
-            ResolvedInitialPurgeInfo(
+            None
+            if resolved is None
+            else ResolvedInitialPurgeInfo(
                 label=resolved.label,
                 amount=resolved.amount_ul,
                 point=[resolved.point.x, resolved.point.y],
                 source=resolved.source,
             )
-            if resolved is not None
-            else None
         ),
-        selection_label=_purge_selection_label(point, default_point),
-        error=error,
+        selection_label=view.selection_label,
+        error=view.error,
     )
 
 
-def build_flow_calibration(loaded: BoardSession) -> FlowCalibrationInfo:
-    """ロード済みコンテキストから流量キャリブレーションの解決結果を返す.
-
-    設定が不正（測定位置が基板外・撮影範囲どうしが重なる）でもここでは 400 にしない。
-
-    塗布を始める前にページで直せるよう、理由を載せて返す。
-    """
-    config = loaded.base_config.volume_correction
-    points = loaded.model.flow_calibration_points
-    plan, error = plan_flow_calibration(
-        config=config, points=points, outline=loaded.board.outline.polygon
-    )
+def build_flow_calibration(plan: PastePlan) -> FlowCalibrationInfo:
+    """運転時補正の設定と解決結果を返す（不正でも 400 にせず理由を ``error`` に載せる）."""
+    view = flow_calibration_view(plan)
     return FlowCalibrationInfo(
-        enabled=config.enabled,
-        points=[[point.x, point.y] for point in points],
-        overlapping=list(overlapping_crops(points, crop_size_mm=config.crop_size_mm)),
-        planned=plan is not None,
-        amount_ul=config.amount_ul,
-        crop_size_mm=config.crop_size_mm,
-        selection_label=_flow_calibration_label(config, points, plan, error),
-        error=error,
+        enabled=view.enabled,
+        points=[[point.x, point.y] for point in view.points],
+        overlapping=list(view.overlapping),
+        planned=view.planned,
+        amount_ul=view.amount_ul,
+        crop_size_mm=view.crop_size_mm,
+        selection_label=view.selection_label,
+        error=view.error,
     )
-
-
-def _flow_calibration_label(
-    config: VolumeCorrectionConfig,
-    points: Sequence[Point2d],
-    plan: FlowCalibrationPlan | None,
-    error: str | None,
-) -> str:
-    """流量キャリブレーションの状態を表示用文字列に組む（サーバー側で確定させる）.
-
-    JS は本文にこれしか出さないので、補正されない理由はここへ入れる。
-    """
-    if not points:
-        return "未設定（補正しません）"
-    listed = "、".join(f"({point.x:.2f}, {point.y:.2f})" for point in points)
-    placed = f"{len(points)} 点 {listed} mm"
-    if plan is not None:
-        return f"{placed} x {plan.amount_ul:.3f} uL"
-    if error is not None:
-        return f"{placed}（{error}）"
-    return f"{placed}（校正ファイル未設定のため補正しません）"
-
-
-def _purge_selection_label(point: Point2d | None, default_point: Point2d | None) -> str:
-    """パージ位置の指定内容を表示用文字列に組む（サーバー側で確定させる）."""
-    if point is not None:
-        return purge_point_label(point)
-    if default_point is not None:
-        return f"自動 {purge_point_label(default_point)}"
-    return "自動 (順路が空です)"
 
 
 def pad_info(
@@ -592,7 +519,8 @@ def build_pad_config(loaded: BoardSession) -> PadConfigResponse:
     hierarchy = loaded.hierarchy
     model = loaded.model
 
-    resolved = resolve_pad_settings(hierarchy, model)
+    plan = plan_paste(loaded)
+    resolved = plan.resolved
     node_resolved = resolve_node_settings(hierarchy, model)
     package_by_designator = {c.designator: c.package for c in pcb.components}
 
@@ -613,8 +541,8 @@ def build_pad_config(loaded: BoardSession) -> PadConfigResponse:
         width=outline.width,
         height=outline.height,
         defaults=resolved_default(model),
-        initial_purge=build_initial_purge(loaded),
-        flow_calibration=build_flow_calibration(loaded),
+        initial_purge=build_initial_purge(plan),
+        flow_calibration=build_flow_calibration(plan),
         tree=tree(
             hierarchy.root,
             model,
@@ -634,7 +562,7 @@ def build_copper(loaded: BoardSession) -> PadConfigCopperResponse:
     islands = [
         CopperIslandInfo(layer=copper.layer.value, rings=rings)
         for copper in loaded.board.copper
-        if (rings := _display_rings(copper.polygon))
+        if (rings := display_rings(copper.polygon))
     ]
     return PadConfigCopperResponse(
         pcb_file=loaded.source_pcb,
@@ -643,22 +571,8 @@ def build_copper(loaded: BoardSession) -> PadConfigCopperResponse:
     )
 
 
-def _display_rings(polygon: Polygon) -> list[list[list[float]]]:
-    """頂点を間引いて 3 桁に丸めた環列（exterior が先、以降が穴）を返す.
-
-    各環は閉環（末尾が始点の重複）。簡略化で退化して消えた島は空の環列になる。
-    """
-    shape = polygon.simplify(COPPER_DISPLAY_TOLERANCE_MM)
-    if not isinstance(shape, Polygon) or shape.is_empty:
-        return []
-    return [
-        [[round(x, 3), round(y, 3)] for x, y in ring.coords]
-        for ring in (shape.exterior, *shape.interiors)
-    ]
-
-
-def build_route(loaded: BoardSession, layer: Layer) -> PasteRouteResponse:
-    """ロード済みコンテキストから有効 pad の順路レスポンスを構築する."""
+def build_route(plan: PastePlan, layer: Layer) -> PasteRouteResponse:
+    """有効 pad の塗布順路を返す."""
     route = [
         PasteRoutePad(
             id=stop.pad.ref,
@@ -667,39 +581,21 @@ def build_route(loaded: BoardSession, layer: Layer) -> PasteRouteResponse:
             area=stop.area,
             center=[stop.pad.center.x, stop.pad.center.y],
         )
-        for stop in plan_paste_route(
-            select_enabled_pads(
-                layer_pads(loaded, layer), loaded.hierarchy, loaded.model
-            )
-        )
+        for stop in plan.route
     ]
     return PasteRouteResponse(layer=layer.value, pads=route)
 
 
-def build_fill_path(loaded: BoardSession, layer: Layer) -> PasteFillPathResponse:
-    """ロード済みコンテキストから有効 pad の塗布パスを構築する."""
-    nozzle_diameter = loaded.base_config.nozzle_diameter
-    resolved = resolve_pad_settings(loaded.hierarchy, loaded.model)
-    component_positions = {
-        component.designator: component.position
-        for component in loaded.board.components
-    }
+def build_fill_path(plan: PastePlan, layer: Layer) -> PasteFillPathResponse:
+    """有効 pad の塗布経路を塗る順に返す."""
     pads: list[PasteFillPathPad] = []
-    for pad in loaded.hierarchy.iter_pads():
-        setting = resolved[pad.ref]
-        if pad.layer is not layer or not setting.enabled:
-            continue
-        plan = FillPlan.for_pad(
-            pad.polygon,
-            config=loaded.base_config,
-            params=setting.params,
-            line_reference=component_positions.get(pad.designator),
-        )
-        points = [[[point.x, point.y] for point in path] for path in plan.paths]
+    for pad in plan.routed_pads:
+        fill = plan.fill_plan(pad)
+        points = [[[point.x, point.y] for point in path] for path in fill.paths]
         pads.append(
             PasteFillPathPad(
                 id=pad.ref,
-                dispense_mode=plan.dispense_mode,
+                dispense_mode=fill.dispense_mode,
                 path_count=len(points),
                 point_count=sum(len(path) for path in points),
                 paths=points,
@@ -707,7 +603,7 @@ def build_fill_path(loaded: BoardSession, layer: Layer) -> PasteFillPathResponse
         )
     return PasteFillPathResponse(
         layer=layer.value,
-        nozzle_diameter=nozzle_diameter,
+        nozzle_diameter=plan.config.nozzle_diameter,
         pads=pads,
     )
 

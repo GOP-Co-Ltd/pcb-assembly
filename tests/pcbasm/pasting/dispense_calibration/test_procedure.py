@@ -1,8 +1,8 @@
 """FlowCalibrationProcedure のテスト.
 
 自前 HAL の fake は ``FakeKlipper`` だけで、``XYZStage`` / ``PasteDispenser`` /
-``PasteApplicator`` は実物を組み合わせる。``setup`` は Board 計測結果（実カメラ）を
-要するため unit では通さず、コンストラクタに ``PasteSession`` と transform を直接渡す。
+``PasteApplicator`` は実物を組み合わせる。銅板の高さ計測は Board 計測結果（実カメラ）を
+要するため unit では通さず、平らな高さ面の ``CopperPlate`` を直接組んで渡す。
 検証は送信された G-code（``MANUAL_STEPPER ... MOVE=`` の距離を rotation_distance と
 rotations_per_ul で μL に戻す、``G1`` の座標を読む）に対して行う。
 """
@@ -16,11 +16,12 @@ import pytest
 
 from pcbasm.align import BoardFrame
 from pcbasm.config import load_machine
-from pcbasm.geometry import Identity, Point2d, Shift
+from pcbasm.geometry import HeightPlane, Identity, Point2d, Point3d, Shift
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeKlipper
 from pcbasm.pasting.dispense_calibration.mass import RotationsPerUlRound
 from pcbasm.pasting.dispense_calibration.procedure import FlowCalibrationProcedure
+from pcbasm.pasting.plate import CopperPlate
 from pcbasm.pasting.session import PasteSession
 from tests.support.paths import TESTING_DATA_DIR
 
@@ -49,7 +50,7 @@ def _session(klipper: FakeKlipper) -> PasteSession:
         board_frame=BoardFrame(
             board=unused,
             camera_model=unused,
-            board_transform=Identity(),
+            board_transform=Shift(x=100.0, y=50.0),
         ),
         toolhead_offset=Identity(),
         probe_executor=unused,
@@ -108,7 +109,13 @@ def klipper() -> FakeKlipper:
 
 @pytest.fixture
 def procedure(klipper: FakeKlipper) -> FlowCalibrationProcedure:
-    return FlowCalibrationProcedure(_session(klipper), Shift(x=100.0, y=50.0, z=0.0))
+    flat = HeightPlane(
+        tuple(
+            Point3d(x, y, 0.0)
+            for x, y in ((0, 0), (1, 0), (0, 1), (1, 1), (2, 0), (0, 2))
+        )
+    )
+    return FlowCalibrationProcedure(CopperPlate(_session(klipper), flat))
 
 
 class TestLifecycle:

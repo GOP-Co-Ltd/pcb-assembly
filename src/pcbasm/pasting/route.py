@@ -6,8 +6,7 @@ import attrs
 
 from pcbasm.board import Pad
 from pcbasm.geometry import Point2d, sort_by_nearest
-from pcbasm.pasting.hierarchy import PadHierarchy, PadShapeKey
-from pcbasm.pasting.overrides import PasteSettingsModel, select_enabled_pads
+from pcbasm.pasting.hierarchy import PadShapeKey
 
 
 @attrs.frozen
@@ -84,18 +83,3 @@ def plan_paste_route(
         if group:
             current = group[-1].center.to3d()
     return route
-
-
-def routed_enabled_pads(
-    pads: Iterable[Pad], hierarchy: PadHierarchy, model: PasteSettingsModel
-) -> list[Pad]:
-    """有効 pad だけを通常塗布順（同種類連続・小面積優先）に並べて返す.
-
-    :func:`pcbasm.pasting.overrides.select_enabled_pads` の絞り込みと
-    :func:`plan_paste_route` の順路を 1 手で適用する。順路の stop 情報
-    （order / group_label / area）が要る場合は ``plan_paste_route`` を使う。
-    """
-    return [
-        stop.pad
-        for stop in plan_paste_route(select_enabled_pads(pads, hierarchy, model))
-    ]

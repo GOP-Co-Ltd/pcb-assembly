@@ -26,7 +26,7 @@ from pcbasm.pasting.params import validate_field_names, validate_param_values
 from pcbasm.pasting.paste_volume.runtime_correction import (
     validate_flow_calibration_point,
 )
-from pcbasm.pasting.route import routed_enabled_pads
+from pcbasm.pasting.plan import plan_paste
 from web.api.dependencies import (
     ControlDep,
     MachineConfigDep,
@@ -58,7 +58,6 @@ from web.api.routers.pasting_view import (
     build_pad_config,
     build_route,
     key_from_node_id,
-    layer_pads,
     load_session,
 )
 
@@ -93,7 +92,8 @@ def calculate_pad_route(
     overrides: OverridesDep,
 ) -> PasteRouteResponse:
     """選択中基板の有効 pad だけを対象に塗布順路を返す（POST だが読み取り専用計算）."""
-    return build_route(load_session(state, settings, overrides), body.layer)
+    loaded = load_session(state, settings, overrides)
+    return build_route(plan_paste(loaded, layer=body.layer), body.layer)
 
 
 @router.post("/pasting/pad-config/fill-path")
@@ -104,7 +104,8 @@ def calculate_pad_fill_path(
     overrides: OverridesDep,
 ) -> PasteFillPathResponse:
     """選択中基板の有効 pad だけを対象に塗布パスを返す（POST だが読み取り専用計算）."""
-    return build_fill_path(load_session(state, settings, overrides), body.layer)
+    loaded = load_session(state, settings, overrides)
+    return build_fill_path(plan_paste(loaded, layer=body.layer), body.layer)
 
 
 @router.patch("/pasting/pad-config/node")
@@ -223,7 +224,7 @@ def patch_initial_purge(
             state.machine().paste_dispenser if amount_sent else loaded.base_config
         ),
     )
-    return InitialPurgeResponse(initial_purge=build_initial_purge(updated))
+    return InitialPurgeResponse(initial_purge=build_initial_purge(plan_paste(updated)))
 
 
 @router.patch("/pasting/pad-config/flow-calibration")
@@ -249,7 +250,9 @@ def patch_flow_calibration(
     loaded = load_session(state, settings, overrides)
     _check_expected_pcb(body.expected_pcb, loaded)
     if "points" not in body.model_fields_set:
-        return FlowCalibrationResponse(flow_calibration=build_flow_calibration(loaded))
+        return FlowCalibrationResponse(
+            flow_calibration=build_flow_calibration(plan_paste(loaded))
+        )
 
     next_points = _flow_calibration_points(body.points)
     for point in next_points:
@@ -265,7 +268,9 @@ def patch_flow_calibration(
         mutate=lambda current: current.with_flow_calibration_points(next_points),
     )
     updated = attrs.evolve(loaded, model=model)
-    return FlowCalibrationResponse(flow_calibration=build_flow_calibration(updated))
+    return FlowCalibrationResponse(
+        flow_calibration=build_flow_calibration(plan_paste(updated))
+    )
 
 
 def _flow_calibration_points(values: list[list[float]]) -> tuple[Point2d, ...]:

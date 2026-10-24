@@ -3,7 +3,7 @@
 ノズル先端クリーニング（クリーニング位置でパージ → 十字往復でこすり）の契約を固定する。
 
 塗布ジョブがこれを呼ぶのは初回パージが写らなかったときだけで、その判断は
-`web.api.jobs.pasting.purge_check` が持つ。
+`pcbasm.pasting.purge_check` が持つ。
 
 G-code を返す関数の契約:
 
@@ -48,7 +48,6 @@ from pcbasm.pasting.applicator import PasteApplicator, build_applicator
 from pcbasm.pasting.nozzle_clean import (
     NozzleCleanPlan,
     clean_nozzle,
-    clean_position_label,
     depart_gcode,
     plan_nozzle_clean,
     resolve_nozzle_clean,
@@ -267,14 +266,6 @@ class TestPlanNozzleClean:
         # x ∈ [0, 300] に対し 299 + 2 = 301
         with pytest.raises(ValueError, match="可動域外.*x=301.0"):
             plan_nozzle_clean(stage, _position(x=299.0), _clean(stroke=2.0))
-
-
-class TestCleanPositionLabel:
-    """表示文字列はサーバー側で組む（JS に整形させない）."""
-
-    def test_label_shows_the_recorded_surface_position(self):
-        """押し込み量は設定欄で編集するので含めない（含めると表示だけ古くなる）."""
-        assert clean_position_label(POSITION) == "(68.00, 53.00, -3.00) mm"
 
 
 class TestCleanNozzle:

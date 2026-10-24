@@ -8,7 +8,7 @@ toolhead → 高さ面）と applicator の構築点を 1 箇所に置く。
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from typing import Self
 
 import attrs
@@ -108,11 +108,6 @@ class PasteSession:
     @property
     def top_coppers(self) -> tuple[Copper, ...]:
         return tuple(c for c in self.board_frame.board.copper if c.layer == Layer.TOP)
-
-    @property
-    def component_positions(self) -> Mapping[str, Point2d]:
-        """Designator → 部品位置（線塗布の走行方向の基準）."""
-        return {c.designator: c.position for c in self.board_frame.board.components}
 
     def measure_height_plane(
         self, coppers: Sequence[Copper] | None = None

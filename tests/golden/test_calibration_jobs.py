@@ -5,6 +5,7 @@
 送信列には、ジョブの本体に続けて、終了時の駐機（JobManager が行う）も入る。
 装置を使わないジョブは、送信 0 行と成果物の JSON（``artifacts/``）で固定する。
 運転時補正は送信列に表れない補正値も JSON（``artifacts/``）で固定する。
+塗布量の校正は、書いた dataset の metadata.json（生成時刻は伏せる）も JSON（``artifacts/``）で固定する。
 数値は OpenCV の検出結果そのもので、Pi 5（aarch64）と uv.lock の opencv-python 4.12.0.88 で採った。
 """
 
@@ -28,6 +29,7 @@ from pcbasm.pasting.paste_volume.calibration import CALIBRATION_SUFFIX
 from pcbasm.pasting.paste_volume.runtime_correction import (
     FlowCalibrationOutcome,
     plan_flow_calibration,
+    run_flow_calibration,
 )
 from pcbasm.pasting.session import PasteSession
 from tests.golden.conftest import (
@@ -47,16 +49,15 @@ from tests.golden.scenarios import Scenario, scenarios_of
 from tests.helpers import build_paste_volume_session
 from tests.support import polling
 from tests.support.golden import assert_document, assert_transcript
+from tests.support.paste_session import full_board_correction
 from tests.support.paths import TESTING_DATA_DIR
 from tests.web.api.jobs.conftest import answer_next_prompt, register_synthetic
-from tests.web.api.jobs.pasting.conftest import full_board_correction
 from web.api.env import Settings
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.context import JobContext
 from web.api.jobs.manager import JobManager, JobRecord
 from web.api.jobs.pasting.common import LOADING_STAGE
 from web.api.jobs.pasting.dispense_calibration import CALIBRATION_MENU_STAGE
-from web.api.jobs.pasting.flow_calibration import run_flow_calibration
 from web.api.state import AppState
 
 ARTIFACTS = GOLDEN_DIR / "artifacts"
@@ -187,6 +188,14 @@ class TestPasteVolumeCalibration:
         finish(job_state, record)
 
         assert (job_settings.paste_volume_calibration_dir / SAVE_NAME).is_file()
+        (metadata,) = job_settings.paste_dataset_dir.glob("*/metadata.json")
+        assert_document(
+            {
+                **json.loads(metadata.read_text(encoding="utf-8")),
+                "created_at": "<created_at>",
+            },
+            ARTIFACTS / f"{scenario.name}_metadata.json",
+        )
         assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")
 
 
@@ -237,7 +246,12 @@ class TestFlowCalibration:
                 with session.make_applicator() as applicator:
                     outcomes.append(
                         run_flow_calibration(
-                            ctx, session, full_board_correction(), applicator, plan
+                            ctx,
+                            session,
+                            full_board_correction(),
+                            applicator,
+                            plan,
+                            calibration_dir=ctx.paste_volume_calibration_dir,
                         )
                     )
 

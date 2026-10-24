@@ -8,13 +8,10 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Mapping
-from pathlib import Path
 from typing import Any
 
 import attrs
 
-from pcbasm.kicad import load_board
-from pcbasm.kicad.build import generate_rect_pcb, save_board
 from pcbasm.pasting.dispense_calibration.lines import (
     LineLayout,
     plan_rate_sweep,
@@ -29,6 +26,7 @@ from pcbasm.pasting.dispense_calibration.mass import (
 )
 from pcbasm.pasting.dispense_calibration.params import CalibrationParams
 from pcbasm.pasting.dispense_calibration.procedure import FlowCalibrationProcedure
+from pcbasm.pasting.plate import CopperPlate, write_rect_board
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import (
     JobContext,
@@ -212,7 +210,7 @@ def register(catalog: JobCatalog) -> None:
 def _run_dispense_calibration(ctx: JobContext) -> JobResult:
     """銅板に線を引いて ①②③ を検証ループまで回す統合キャリブレーション.
 
-    共通の準備（その場生成した矩形銅板 → ボード計測 → 平面計測 → applicator）を
+    共通の準備（その場生成した矩形銅板 → ボード計測 → :class:`CopperPlate` の高さ計測 → applicator）を
     :class:`FlowCalibrationProcedure` として確立し、メニュー（``run_calib`` コマンド）で
     ① rotations_per_ul / ② max_dispense_rate / ③ max_fill_speed を順次/個別に実行する。
     各キャリブの確定値は採用時点で machine.toml へ即時反映する（中止・失敗でも失われない）。
@@ -229,27 +227,17 @@ def _run_dispense_calibration(ctx: JobContext) -> JobResult:
     if message is not None:
         raise ValueError(message)
 
+    width, height = params.board_width, params.board_height
     with ctx.open_camera() as camera:
-        pcb_path = _generate_calibration_board(
-            ctx, params.board_width, params.board_height
-        )
-        session = setup_paste_session(
-            ctx, camera, tolerance=tolerance, board=load_board(pcb_path)
-        )
+        filename = f"dispense_calibration_rect_{width:g}x{height:g}.kicad_pcb"
+        board = write_rect_board(ctx.artifacts_dir / filename, width, height)
+        ctx.log(f"キャリブレーション銅板を生成: {filename}（{width:g}x{height:g} mm）")
+        session = setup_paste_session(ctx, camera, tolerance=tolerance, board=board)
         ctx.progress("高さ計測")
-        with FlowCalibrationProcedure.setup(session) as procedure:
+        with FlowCalibrationProcedure(CopperPlate.measure(session)) as procedure:
             results = _calibration_menu_loop(ctx, procedure)
 
     return _dispense_calibration_result(results)
-
-
-def _generate_calibration_board(ctx: JobContext, width: float, height: float) -> Path:
-    """キャリブ用の外形だけ矩形銅板を artifacts へ生成し、そのパスを返す."""
-    filename = f"dispense_calibration_rect_{width:g}x{height:g}.kicad_pcb"
-    path = ctx.artifacts_dir / filename
-    save_board(generate_rect_pcb(width, height), path)
-    ctx.log(f"キャリブレーション銅板を生成: {filename}（{width:g}x{height:g} mm）")
-    return path
 
 
 @attrs.frozen

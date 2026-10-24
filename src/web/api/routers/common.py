@@ -10,7 +10,7 @@ import httpx
 
 from pcbasm.geometry import Point3d
 from pcbasm.hal import KlipperClient
-from pcbasm.pasting.nozzle_clean import clean_position_label
+from pcbasm.pasting.labels import clean_position_label
 from pcbasm.vision import load_focus_z
 from web.api.control import ClientIdentity, LeaseInfo
 from web.api.env import Settings, resolve_machine_id

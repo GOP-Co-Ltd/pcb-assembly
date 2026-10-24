@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pcbasm.kicad.build import generate_rect_pcb, save_board
+from pcbasm.pasting.plate import write_rect_board
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import JobContext, JobResult
 
@@ -29,7 +29,7 @@ def _run_generate_rect_pcb(ctx: JobContext) -> JobResult:
 
     ctx.progress("生成")
     filename = f"flow_calibration_rect_{width:g}x{height:g}.kicad_pcb"
-    save_board(generate_rect_pcb(width, height), ctx.artifacts_dir / filename)
+    write_rect_board(ctx.artifacts_dir / filename, width, height)
     ctx.log(f"生成: {filename}（{width:g}x{height:g} mm）")
     ctx.progress("完了", 100.0)
 

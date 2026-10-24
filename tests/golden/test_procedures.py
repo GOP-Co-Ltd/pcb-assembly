@@ -23,7 +23,6 @@ from pcbasm.align import (
     EdgeMatch,
     RegionFit,
 )
-from pcbasm.board import Copper, Layer
 from pcbasm.config import MachineConfig, load_machine
 from pcbasm.gcode import GCode
 from pcbasm.geometry import (
@@ -43,24 +42,25 @@ from pcbasm.hal.fake import (
     FakeKlipper,
 )
 from pcbasm.kicad import load_board
-from pcbasm.kicad.build import generate_rect_pcb, save_board
 from pcbasm.machine.park import PRESENT_TIMEOUT, park
 from pcbasm.pasting.applicator import build_applicator
 from pcbasm.pasting.dispense_calibration.lines import plan_rate_sweep, plan_speed_sweep
 from pcbasm.pasting.dispense_calibration.mass import RotationsPerUlRound
 from pcbasm.pasting.dispense_calibration.params import CalibrationParams
 from pcbasm.pasting.dispense_calibration.procedure import FlowCalibrationProcedure
+from pcbasm.pasting.dot_capture import PRIME_EXTRA_DELAY
 from pcbasm.pasting.fill_sequence import FillSequence, MicroLineSequence
 from pcbasm.pasting.hierarchy import PadHierarchy
 from pcbasm.pasting.nozzle_clean import clean_nozzle, resolve_nozzle_clean
-from pcbasm.pasting.overrides import PasteSettingsModel
+from pcbasm.pasting.overrides import BoardSession, PasteSettingsModel
 from pcbasm.pasting.params import PasteParamsPatch
 from pcbasm.pasting.paste_volume.dataset.plan import (
     DEFAULT_PASTE_HEIGHT_MM,
     DotGridSpec,
     plan_dot_grid,
 )
-from pcbasm.pasting.plan import PasteTargets, plan_paste_targets
+from pcbasm.pasting.plan import PastePlan, plan_paste
+from pcbasm.pasting.plate import CopperPlate, write_rect_board
 from pcbasm.pasting.prepare import PasteCorrection
 from pcbasm.pasting.session import PasteSession
 from pcbasm.pasting.toolhead_offset import (
@@ -170,26 +170,29 @@ def _session(klipper: FakeKlipper, machine: MachineConfig, pcb: Path) -> PasteSe
     )
 
 
-def _targets(session: PasteSession) -> PasteTargets:
+def _plan(session: PasteSession) -> PastePlan:
     """塗布ジョブと同じく、基板設定の無い基板の対象 pad・順路・初回パージを解決する."""
     dispenser = session.machine.paste_dispenser
-    targets, error = plan_paste_targets(
-        session.board_frame.board,
-        PadHierarchy.build(
-            session.board_frame.board.components, session.board_frame.board.pads
-        ),
-        PasteSettingsModel.from_config(dispenser),
-        initial_purge_ul=dispenser.initial_purge_ul,
-        flow_calibration=dispenser.volume_correction,
+    board = session.board_frame.board
+    hierarchy = PadHierarchy.build(board.components, board.pads)
+    plan = plan_paste(
+        BoardSession(
+            source_pcb="",
+            base_config=dispenser,
+            board=board,
+            hierarchy=hierarchy,
+            board_signature=hierarchy.signature(),
+            model=PasteSettingsModel.from_config(dispenser),
+        )
     )
-    assert targets is not None, error
-    return targets
+    assert plan.error is None, plan.error
+    return plan
 
 
 def _plate(tmp_path: Path, width: float, height: float) -> Path:
     """校正ジョブと同じく、外形だけの矩形銅板をその場で生成する."""
     path = tmp_path / "plate.kicad_pcb"
-    save_board(generate_rect_pcb(width, height), path)
+    write_rect_board(path, width, height)
     return path
 
 
@@ -199,17 +202,17 @@ class TestApplicator:
     @pytest.mark.parametrize("mode", ["dot", "line", "area", "micro_line", "auto"])
     def test_routed_pads(self, klipper: FakeKlipper, machine: MachineConfig, mode: str):
         session = _session(klipper, machine, LED_BLINKER)
-        targets = _targets(session)
+        plan = _plan(session)
 
         with session.make_applicator() as applicator:
             applicator.retract()
-            for pad in targets.routed_pads:
-                params = targets.params_for(pad)
+            for pad in plan.routed_pads:
+                params = plan.params_for(pad)
                 applicator.apply(
                     pad.polygon,
                     params=params.patched(PasteParamsPatch(dispense_mode=mode)),
                     transform=session.pad_transform(pad, CORRECTION),
-                    line_reference=session.component_positions.get(pad.designator),
+                    line_reference=plan.line_reference(pad),
                 )
 
         assert_transcript(klipper.sent, PROCEDURES / f"applicator_{mode}.gcode")
@@ -299,7 +302,7 @@ class TestInitialPurge:
     def test_retract_then_purge(self, klipper: FakeKlipper, machine: MachineConfig):
         """塗布ジョブの先頭と同じく、リトラクトしてから面積最大の pad の中心へパージする."""
         session = _session(klipper, machine, LED_BLINKER)
-        purge = _targets(session).initial_purge
+        purge = _plan(session).initial_purge.resolved
         assert purge is not None
 
         with session.make_applicator() as applicator:
@@ -464,7 +467,7 @@ class TestFlowCalibration:
     ):
         """① 線を引いて計量し、算出値を採用して applicator を作り直す."""
         density = machine.paste_dispenser.density_mg_per_ul
-        with FlowCalibrationProcedure.setup(session) as procedure:
+        with FlowCalibrationProcedure(CopperPlate.measure(session)) as procedure:
             procedure.move_to_loading_z()
             procedure.draw_lines(
                 params.line_layout().lines, amount_ul=params.line_amount_ul
@@ -494,7 +497,7 @@ class TestFlowCalibration:
         points, error = plan_rate_sweep(params, fill_speed=fill_speed)
         assert points is not None, error
 
-        with FlowCalibrationProcedure.setup(session) as procedure:
+        with FlowCalibrationProcedure(CopperPlate.measure(session)) as procedure:
             procedure.applicator.retract()
             for point in points:
                 procedure.draw_lines(
@@ -526,7 +529,7 @@ class TestFlowCalibration:
         )
         assert sweep is not None, error
 
-        with FlowCalibrationProcedure.setup(session) as procedure:
+        with FlowCalibrationProcedure(CopperPlate.measure(session)) as procedure:
             procedure.draw_lines(
                 [(point.start, point.end) for point in sweep.points],
                 amount_ul=sweep.total_amount_ul,
@@ -547,14 +550,11 @@ class TestPasteDataset:
         assert plan is not None, error
         plate = _plate(tmp_path, spec.plate_width_mm, spec.plate_height_mm)
         session = _session(klipper, machine, plate)
-        height_plane = session.measure_height_plane(
-            [Copper(layer=Layer.TOP, polygon=session.board_frame.board.outline.polygon)]
-        )
-        transform = session.plate_transform(height_plane=height_plane)
+        transform = CopperPlate.measure(session).transform
         params = attrs.evolve(
             machine.paste_dispenser.defaults,
             paste_height=DEFAULT_PASTE_HEIGHT_MM,
-            prime_extra_delay=0.0,
+            prime_extra_delay=PRIME_EXTRA_DELAY,
         )
 
         with session.make_applicator() as applicator:

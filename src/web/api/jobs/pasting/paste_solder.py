@@ -5,8 +5,10 @@ from __future__ import annotations
 from pcbasm.gcode import GCode
 from pcbasm.pasting.nozzle_clean import resolve_nozzle_clean
 from pcbasm.pasting.overrides import BoardSession
-from pcbasm.pasting.plan import plan_paste_targets
+from pcbasm.pasting.paste_volume.runtime_correction import run_flow_calibration
+from pcbasm.pasting.plan import plan_paste
 from pcbasm.pasting.prepare import measure_correction
+from pcbasm.pasting.purge_check import purge_with_cleaning
 from web.api.jobs.board_ops import align_events
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import JobContext, JobResult
@@ -16,8 +18,6 @@ from web.api.jobs.pasting.common import (
     run_loading_loop,
     setup_paste_session,
 )
-from web.api.jobs.pasting.flow_calibration import run_flow_calibration, summary_line
-from web.api.jobs.pasting.purge_check import purge_with_cleaning
 
 
 def register(catalog: JobCatalog) -> None:
@@ -65,33 +65,28 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
 
         # pad 階層 + 基板ごとの塗布設定（装置不要・前段で解決）
         assert ctx.source_pcb is not None  # requires_pcb=True
-        loaded = BoardSession.load(
-            ctx.overrides,
-            ctx.source_pcb,
-            session.board_frame.board,
-            ctx.machine.paste_dispenser,
+        plan = plan_paste(
+            BoardSession.load(
+                ctx.overrides,
+                ctx.source_pcb,
+                session.board_frame.board,
+                ctx.machine.paste_dispenser,
+            )
         )
-        targets, error = plan_paste_targets(
-            loaded.board,
-            loaded.hierarchy,
-            loaded.model,
-            initial_purge_ul=ctx.machine.paste_dispenser.initial_purge_ul,
-            flow_calibration=ctx.machine.paste_dispenser.volume_correction,
-        )
-        if targets is None:
-            raise ValueError(error)
+        if plan.error is not None:
+            raise ValueError(plan.error)
         ctx.log(
-            f"塗布対象: 有効 {len(targets.routed_pads)} / 全 {len(targets.top_pads)} pads"
-            f"（無効 {targets.disabled_count} 件スキップ）"
+            f"塗布対象: 有効 {len(plan.route)} / 全 {len(plan.pads)} pads"
+            f"（無効 {plan.disabled_count} 件スキップ）"
         )
-        purge = targets.initial_purge
+        purge = plan.initial_purge.resolved
         if purge is not None:
             ctx.log(f"初回パージ: {purge.label} に {purge.amount_ul:.3f} uL")
 
         ctx.progress("高さ計測")
         correction = measure_correction(
             session,
-            targets.routed_pads,
+            plan.routed_pads,
             on_event=align_events(ctx),
             frame_sink=ctx.frame,
         )
@@ -123,33 +118,40 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                     nozzle_clean=nozzle_clean,
                 )
 
-            flow = targets.flow_calibration
+            flow = plan.flow_calibration
             outcome = (
                 None
                 if flow is None
-                else run_flow_calibration(ctx, session, correction, applicator, flow)
+                else run_flow_calibration(
+                    ctx,
+                    session,
+                    correction,
+                    applicator,
+                    flow,
+                    calibration_dir=ctx.paste_volume_calibration_dir,
+                )
             )
             if outcome is not None:
                 applicator.adopt_rotations_per_ul(outcome.rotations_per_ul)
 
             # pad を 1 件ずつ apply して per-pad の進捗・設定・abort 境界を確保
-            for index, pad in enumerate(targets.routed_pads):
-                ctx.progress("塗布", 100.0 * index / len(targets.routed_pads))
+            for index, pad in enumerate(plan.routed_pads):
+                ctx.progress("塗布", 100.0 * index / len(plan.route))
                 ctx.checkpoint()
                 applicator.apply(
                     pad.polygon,
-                    params=targets.params_for(pad),
+                    params=plan.params_for(pad),
                     transform=session.pad_transform(pad, correction),
-                    line_reference=session.component_positions.get(pad.designator),
+                    line_reference=plan.line_reference(pad),
                 )
 
     return JobResult(
         summary=(
             f"{correction.alignment.summary()} / "
-            f"塗布 有効 {len(targets.routed_pads)} / 全 {len(targets.top_pads)} pads"
-            f"（無効 {targets.disabled_count} 件スキップ・"
+            f"塗布 有効 {len(plan.route)} / 全 {len(plan.pads)} pads"
+            f"（無効 {plan.disabled_count} 件スキップ・"
             f"初回パージ {purge.amount_ul if purge else 0.0:.3f} uL・"
             f"押出合計 {total.amount_ul:+.3f} uL）"
-            + ("" if outcome is None else f" / {summary_line(outcome)}")
+            + ("" if outcome is None else f" / {outcome.summary()}")
         )
     )

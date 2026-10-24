@@ -20,6 +20,7 @@ import attrs
 import numpy as np
 
 from pcbasm.pasting.paste_volume.calibration import (
+    CaptureConditions,
     PasteVolumeCalibration,
     load_calibration,
 )
@@ -245,10 +246,13 @@ def condition_mismatch(
     """校正の条件と session の条件が食い違う点を並べる（評価は止めない）."""
     metadata = session.metadata
     return calibration.conditions.mismatches(
+        CaptureConditions(
+            nozzle_diameter_mm=metadata.nozzle.diameter_mm,
+            paste_height_mm=metadata.config.paste_height_mm,
+            pixel_per_mm=metadata.camera.pixel_per_mm,
+            crop_size_mm=metadata.config.crop_size_mm,
+        ),
         paste_id=metadata.paste.paste_id,
-        nozzle_diameter_mm=metadata.nozzle.diameter_mm,
-        paste_height_mm=metadata.config.paste_height_mm,
-        pixel_per_mm=metadata.camera.pixel_per_mm,
     )
 
 

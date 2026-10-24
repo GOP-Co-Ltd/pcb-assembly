@@ -150,6 +150,7 @@ class TestConditionMismatch:
             ("nozzle_diameter_mm", 0.5, "ノズル径"),
             ("paste_height_mm", 0.4, "塗布高さ"),
             ("pixel_per_mm", 10.0, "撮影スケール"),
+            ("crop_size_mm", 5.0, "撮影crop寸法"),
         ],
     )
     def test_names_each_condition_that_differs(

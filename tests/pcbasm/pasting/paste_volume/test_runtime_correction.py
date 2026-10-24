@@ -1,26 +1,48 @@
-"""運転時流量キャリブレーションの計画と補正の公開契約.
+"""運転時流量キャリブレーションの計画・実行・補正の公開契約.
 
-装置に触れない純関数だけを見る。
-
-撮影と塗布は web 層のジョブが担う。
+実行で最優先は **補正できなくても例外にしない**こと。
+この時点で位置合わせと高さ計測が終わっており、後から足した補正の失敗で塗布を取りやめるのは割に合わない。
+装置側は自前 HAL の fake。
 """
 
+import json
 import math
+import re
+import time
+from pathlib import Path
 
+import attrs
 import pytest
 from shapely import Polygon
 
+from pcbasm.config import load_machine
 from pcbasm.config.dispenser import VolumeCorrectionConfig
 from pcbasm.geometry import Point2d
+from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeCamera, FakeKlipper
+from pcbasm.pasting.paste_volume.calibration import (
+    CALIBRATION_SUFFIX,
+    parse_calibration,
+    write_calibration,
+)
 from pcbasm.pasting.paste_volume.estimator import PasteVolumePrediction
 from pcbasm.pasting.paste_volume.runtime_correction import (
     MAX_CORRECTION_SCALE,
     MIN_CORRECTION_SCALE,
+    FlowCalibrationOutcome,
     correct_rotations_per_ul,
     overlapping_crops,
     plan_flow_calibration,
+    run_flow_calibration,
     validate_crop_separation,
 )
+from tests.support.paste_session import (
+    FOCUS_Z,
+    RecordingHooks,
+    full_board_correction,
+    paste_session,
+    uniform_frame,
+)
+from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR
 
 OUTLINE = Polygon([(0.0, 0.0), (40.0, 0.0), (40.0, 30.0), (0.0, 30.0)])
 ENABLED = VolumeCorrectionConfig(calibration_file="cal.paste-volume.json")
@@ -312,3 +334,193 @@ class TestCorrectRotationsPerUl:
 
         assert outcome is None
         assert error is not None
+
+
+def _outcome(**overrides: object) -> FlowCalibrationOutcome:
+    values: dict[str, object] = {
+        "commanded_ul": 0.6,
+        "estimated_ul": 0.75,
+        "ratio": 1.25,
+        "previous_rotations_per_ul": 1.0,
+        "rotations_per_ul": 0.8,
+        "clamped": False,
+        "accepted_count": 3,
+        "rejections": (),
+    }
+    values.update(overrides)
+    return FlowCalibrationOutcome(**values)  # pyright: ignore[reportArgumentType]
+
+
+class TestOutcomeSummary:
+    """補正結果の 1 行表示（ログとジョブのまとめで共用する）."""
+
+    def test_carries_the_factor_change_and_the_accepted_count(self):
+        line = _outcome().summary()
+
+        assert "3 点採用" in line
+        assert "1.0000" in line
+        assert "0.8000" in line
+
+    def test_marks_a_clamped_correction(self):
+        assert "頭打ち" in _outcome(clamped=True).summary()
+
+
+CALIBRATION_PIN = TESTING_DATA_DIR / "schemas" / "paste_volume_calibration_v1.json"
+POINTS = (Point2d(10.0, 6.0), Point2d(13.0, 6.0), Point2d(16.0, 6.0))
+_MOVE_RE = re.compile(r"MANUAL_STEPPER STEPPER=paste_dispenser MOVE=(\S+)(.*)")
+_ROTATION_DISTANCE = float(
+    FAKE_PRINTER_CONFIG["manual_stepper paste_dispenser"]["rotation_distance"]
+)
+
+
+def _dispense_amounts_ul(klipper: FakeKlipper, rotations_per_ul: float) -> list[float]:
+    """塗布吐出（SET_POSITION 直後の SYNC=0 付き MOVE）の量 [μL] を呼び出し順に返す."""
+    lines = klipper.sent_lines
+    amounts: list[float] = []
+    for previous, line in zip(lines, lines[1:], strict=False):
+        match = _MOVE_RE.match(line)
+        if (
+            previous.endswith("SET_POSITION=0.0")
+            and match
+            and "SYNC=0" in match.group(2)
+        ):
+            amounts.append(
+                float(match.group(1)) / _ROTATION_DISTANCE / rotations_per_ul
+            )
+    return amounts
+
+
+@attrs.frozen
+class _Ran:
+    """`run_flow_calibration` 1 回の結果.
+
+    Attributes:
+        outcome: 補正の結果
+        focus_z_moves: 送った G1 のうちピント高さへの移動の位置（撮影パスと塗布パスの並びを見る）
+        move_count: 送った G1 の数
+        dispensed: 塗布吐出の量 [μL]（プライム押し戻しを含む）
+        elapsed: かかった秒数
+    """
+
+    outcome: FlowCalibrationOutcome | None
+    focus_z_moves: list[int]
+    move_count: int
+    dispensed: list[float]
+    elapsed: float
+
+
+class TestRunFlowCalibration:
+    """撮影 → 塗布 → 撮影 → 推定 → 補正の実行."""
+
+    @staticmethod
+    def _write_calibration(root: Path) -> str:
+        """検証用のピン済み校正を保存し、ファイル名を返す."""
+        calibration, error = parse_calibration(
+            json.loads(CALIBRATION_PIN.read_text(encoding="utf-8"))
+        )
+        assert error is None, error
+        assert calibration is not None
+        name = f"runtime{CALIBRATION_SUFFIX}"
+        write_calibration(root / name, calibration)
+        return name
+
+    @staticmethod
+    def _run(
+        root: Path,
+        calibration_file: str,
+        *,
+        settle_seconds: float = 0.0,
+        prime_extra_delay: float = 0.0,
+    ) -> _Ran:
+        machine = load_machine(TESTING_CONFIG_DIR / "machine.toml")
+        machine = attrs.evolve(
+            machine,
+            paste_dispenser=attrs.evolve(
+                machine.paste_dispenser,
+                defaults=attrs.evolve(
+                    machine.paste_dispenser.defaults,
+                    prime_extra_delay=prime_extra_delay,
+                ),
+            ),
+        )
+        klipper = FakeKlipper()
+        session = paste_session(FakeCamera([uniform_frame()]), klipper, machine)
+        plan, error = plan_flow_calibration(
+            config=VolumeCorrectionConfig(
+                calibration_file=calibration_file, settle_seconds=settle_seconds
+            ),
+            points=POINTS,
+            outline=session.board_frame.board.outline.polygon,
+        )
+        assert plan is not None, error
+        with session.make_applicator() as applicator:
+            klipper.clear_sent()
+            started = time.monotonic()
+            outcome = run_flow_calibration(
+                RecordingHooks(),
+                session,
+                full_board_correction(),
+                applicator,
+                plan,
+                calibration_dir=root,
+            )
+            elapsed = time.monotonic() - started
+            moves = [move.get("z") for move in klipper.g1_moves()]
+            return _Ran(
+                outcome=outcome,
+                focus_z_moves=[
+                    index
+                    for index, z in enumerate(moves)
+                    if z is not None and z == pytest.approx(FOCUS_Z)
+                ],
+                move_count=len(moves),
+                dispensed=_dispense_amounts_ul(
+                    klipper, machine.paste_dispenser.rotations_per_ul
+                ),
+                elapsed=elapsed,
+            )
+
+    def test_a_missing_calibration_file_does_not_correct(self, tmp_path: Path):
+        ran = self._run(tmp_path, "absent.paste-volume.json")
+
+        assert ran.outcome is None
+        assert ran.move_count == 0
+
+    def test_undetectable_dots_do_not_correct(self, tmp_path: Path):
+        """一様なフレームでは塗布前後の差が無い。補正せず進む."""
+        ran = self._run(tmp_path, self._write_calibration(tmp_path))
+
+        assert ran.outcome is None
+
+    def test_captures_every_point_before_dispensing_and_again_after(
+        self, tmp_path: Path
+    ):
+        """3 パス構成。塗ってすぐ撮ると点ごとに落ち着き時間が変わる."""
+        ran = self._run(tmp_path, self._write_calibration(tmp_path))
+
+        focus = ran.focus_z_moves
+        assert len(focus) == 6
+        # 先頭 3 つが pre パス、末尾 3 つが post パス。間に塗布の移動が挟まる
+        assert focus[:3] == [0, 1, 2]
+        last = ran.move_count
+        assert focus[3:] == [last - 3, last - 2, last - 1]
+
+    def test_waits_for_the_paste_to_settle_before_the_post_pass(self, tmp_path: Path):
+        """塗り終えてすぐ撮ると、広がりきる前の小さい円を測ることになる."""
+        ran = self._run(tmp_path, self._write_calibration(tmp_path), settle_seconds=1.5)
+
+        assert ran.elapsed >= 1.5
+
+    def test_dispenses_only_the_commanded_amount_despite_prime_extra_delay(
+        self, tmp_path: Path
+    ):
+        """追加遅延ぶんの押し出しは補正の比の分母に入らないので、出さない."""
+        ran = self._run(
+            tmp_path, self._write_calibration(tmp_path), prime_extra_delay=0.5
+        )
+
+        retract_ul = load_machine(
+            TESTING_CONFIG_DIR / "machine.toml"
+        ).paste_dispenser.motion.retract_amount
+        expected = retract_ul + VolumeCorrectionConfig().amount_ul
+        assert ran.dispensed == pytest.approx([expected] * len(POINTS))

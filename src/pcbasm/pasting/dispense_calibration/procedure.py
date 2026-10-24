@@ -1,6 +1,6 @@
-"""流量キャリブレーションの機械手順（銅板・transform・applicator を束ねる）.
+"""流量キャリブレーションの機械手順（銅板・applicator を束ねる）.
 
-共通の前準備（その場生成した銅板 → Board 計測 → 高さ計測 → transform）を確立し、
+計測済みの銅板（:class:`~pcbasm.pasting.plate.CopperPlate`）へ線を引き、
 メニューループ中保持し続ける applicator を管理する。① の検証ループは新
 ``rotations_per_ul`` で applicator を作り直すため、現在の applicator と現在の
 ``rotations_per_ul`` をここで一元管理する。
@@ -14,11 +14,11 @@ import logging
 from collections.abc import Callable, Sequence
 from typing import Self, cast
 
-from pcbasm.board import Copper, Layer
 from pcbasm.gcode import GCode
-from pcbasm.geometry import Compose, Point2d, Transform
+from pcbasm.geometry import Point2d, Transform
 from pcbasm.pasting.applicator import DispenseExecution, PasteApplicator
 from pcbasm.pasting.dispense_calibration.mass import RotationsPerUlRound
+from pcbasm.pasting.plate import CopperPlate
 from pcbasm.pasting.session import PasteSession
 
 logger = logging.getLogger(__name__)
@@ -31,29 +31,17 @@ class FlowCalibrationProcedure:
     有効になる。:meth:`adopt` は ``with`` の中で呼ぶ。
 
     Example:
-        with FlowCalibrationProcedure.setup(session) as procedure:
+        with FlowCalibrationProcedure(CopperPlate.measure(session)) as procedure:
             executions = procedure.draw_lines(layout.lines, amount_ul=0.5)
             procedure.move_to_removal_z(0.0)
     """
 
-    def __init__(self, session: PasteSession, transform: Transform) -> None:
-        """Board 計測済みのセッションと、銅板 board 座標 → 機械座標（高さ面込み）の変換で組む."""
-        self._session = session
-        self._transform = transform
-        self._rotations_per_ul = session.machine.paste_dispenser.rotations_per_ul
-        self._applicator = session.make_applicator()
-
-    @classmethod
-    def setup(cls, session: PasteSession) -> Self:
-        """Board 計測済みのセッションで、銅板外形を銅箔とみなして高さ計測し、手順を組む."""
-        outline = session.board_frame.board.outline.polygon
-        height_plane = session.measure_height_plane(
-            [Copper(layer=Layer.TOP, polygon=outline)]
-        )
-        transform = Compose(
-            [session.board_frame.board_transform, session.toolhead_offset, height_plane]
-        )
-        return cls(session, transform)
+    def __init__(self, plate: CopperPlate) -> None:
+        """計測済みの銅板で組む."""
+        self._session = plate.session
+        self._transform = plate.transform
+        self._rotations_per_ul = plate.session.machine.paste_dispenser.rotations_per_ul
+        self._applicator = plate.session.make_applicator()
 
     def __enter__(self) -> Self:
         self._applicator.__enter__()

@@ -6,7 +6,7 @@
 
 塗布ジョブでこれを呼ぶのは、初回パージを撮って塗布が写らなかったときだけ（詰まりの
 疑い）。判断とパージのやり直しは
-:func:`~web.api.jobs.pasting.purge_check.purge_with_cleaning` が持つ。
+:func:`~pcbasm.pasting.purge_check.purge_with_cleaning` が持つ。
 
 位置は :class:`~pcbasm.config.dispenser.NozzleCleanConfig` の ``position`` がマシン座標で持ち、基板とは
 無関係なので board 補正を通さない。接近はノズルキャップへの駐機と同じ :meth:`~pcbasm.hal.XYZStage.travel_to` で、
@@ -28,6 +28,7 @@ from pcbasm.geometry import Path, Point3d
 from pcbasm.hal import KlipperClient, Speed, XYZStage
 from pcbasm.hal.stage import TRAVEL_Z
 from pcbasm.pasting.applicator import PasteApplicator
+from pcbasm.pasting.labels import clean_position_label
 
 logger = logging.getLogger(__name__)
 
@@ -150,14 +151,6 @@ def resolve_nozzle_clean(
         (log or logger.info)(_NOT_RECORDED)
         return None
     return plan_nozzle_clean(stage, clean.position, clean)
-
-
-def clean_position_label(position: Point3d) -> str:
-    """記録したクリーニング面の位置を表す文字列（サーバー側で組んで返す）.
-
-    押し込み量は同じ画面の設定欄で編集できるので、ここには含めない。 含めると設定を即保存したとき、表示だけが古いまま残る。
-    """
-    return f"({position.x:.2f}, {position.y:.2f}, {position.z:.2f}) mm"
 
 
 def clean_nozzle(

@@ -10,6 +10,8 @@ import attrs
 
 from pcbasm.config.dispenser import PasteDispenserConfig
 from pcbasm.pasting.applicator import PasteApplicationResult
+from pcbasm.pasting.fill_path import paste_height_mm
+from pcbasm.pasting.params import PasteParams
 from pcbasm.pasting.paste_volume.dataset.metadata import (
     CAPTURE_ORDER,
     DatasetCapturedView,
@@ -33,7 +35,7 @@ from pcbasm.pasting.paste_volume.dataset.pending import (
     finalize_pending,
     sample_key,
 )
-from pcbasm.pasting.paste_volume.dataset.plan import DotCell, DotGridPlan, DotTarget
+from pcbasm.pasting.paste_volume.dataset.plan import DotGridPlan, DotTarget
 from pcbasm.pasting.paste_volume.dataset.store import PasteDatasetWriter
 from pcbasm.validators import is_finite_number
 from pcbasm.vision import CameraModel
@@ -51,7 +53,7 @@ class DatasetRunInfo:
         machine_id: 機体 ID（backend の自己申告 ID。そのまま機体名として記録する）
         paste_id: ペースト製品 ID
         paste_lot: 製造ロット（任意）
-        paste_height_mm: 点塗布の塗布高さ [mm]
+        params: 点塗布に実際に使った塗布パラメータ（塗布高さと prime 後の追加遅延を記録する）
         height_plane_z_mm: 計測した銅板面の Z [mm]
         view_count: 周辺 view 数（中心 view を含まない）
         view_offset_mm: 周辺 view の移動距離 [mm]
@@ -65,7 +67,7 @@ class DatasetRunInfo:
     machine_id: str
     paste_id: str
     paste_lot: str | None
-    paste_height_mm: float
+    params: PasteParams
     height_plane_z_mm: float
     view_count: int
     view_offset_mm: float
@@ -119,26 +121,24 @@ class PasteDatasetRecorder:
         """:meth:`finalize` で確定した metadata（未確定なら ``None``）."""
         return self._metadata
 
-    def record_pre(self, target: DotTarget, view: DatasetView, crop: RectCrop) -> None:
-        """塗布前画像を書き、view 記述をセルと紐付けて保持する."""
-        self._captured[(target.index, view.number)] = self._writer.write_capture(
-            target.index, view, "pre", crop
+    def record_pre(self, index: int, view: DatasetView, crop: RectCrop) -> None:
+        """Sample ``index`` の塗布前画像を書き、view 記述をセルと紐付けて保持する."""
+        self._captured[(index, view.number)] = self._writer.write_capture(
+            index, view, "pre", crop
         )
 
-    def record_execution(self, cell: DotCell, result: PasteApplicationResult) -> None:
-        """セルへの点塗布実績を記録する."""
-        self._executions[sample_key(cell.index)] = result
+    def record_execution(self, index: int, result: PasteApplicationResult) -> None:
+        """Sample ``index`` への点塗布実績を記録する."""
+        self._executions[sample_key(index)] = result
 
-    def record_post(
-        self, target: DotTarget, view: DatasetView, crop: RectCrop
-    ) -> str | None:
-        """塗布後画像を書き、pre と crop 矩形が一致しなければ理由を返す."""
-        post_view = self._writer.write_capture(target.index, view, "post", crop)
-        pre_view = self._captured.get((target.index, view.number))
+    def record_post(self, index: int, view: DatasetView, crop: RectCrop) -> str | None:
+        """Sample ``index`` の塗布後画像を書き、pre と crop 矩形が一致しなければ理由を返す."""
+        post_view = self._writer.write_capture(index, view, "post", crop)
+        pre_view = self._captured.get((index, view.number))
         if pre_view is None:
-            return f"sample {target.index} のpre画像が記録されていません"
+            return f"sample {index} のpre画像が記録されていません"
         if post_view.pixel_rect != pre_view.pixel_rect:
-            return f"sample {target.index} のpre/post crop位置が一致しません"
+            return f"sample {index} のpre/post crop位置が一致しません"
         return None
 
     def build_pending(self, run: DatasetRunInfo) -> PasteDatasetPending:
@@ -177,8 +177,8 @@ class PasteDatasetRecorder:
                 dispense_accel_ul_s2=dispenser.motion.dispense_accel,
                 retract_amount_ul=dispenser.motion.retract_amount,
                 retract_rate_ul_s=dispenser.motion.retract_rate,
-                paste_height_mm=run.paste_height_mm,
-                prime_extra_delay_s=0.0,
+                paste_height_mm=paste_height_mm(run.params),
+                prime_extra_delay_s=run.params.prime_extra_delay,
                 cell_size_mm=spec.cell_size_mm,
                 cell_gap_mm=spec.cell_gap_mm,
                 crop_size_mm=spec.crop_size_mm,

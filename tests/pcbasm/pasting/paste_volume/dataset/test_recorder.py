@@ -9,11 +9,13 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+import attrs
 import numpy as np
 import pytest
 
 from pcbasm.config.dispenser import PasteDispenserConfig, ToolheadConfig
 from pcbasm.pasting.applicator import DispenseExecution, PasteApplicationResult
+from pcbasm.pasting.dot_capture import PRIME_EXTRA_DELAY
 from pcbasm.pasting.params import DispenseMotion, PasteParams
 from pcbasm.pasting.paste_volume.dataset.metadata import (
     DatasetView,
@@ -121,7 +123,11 @@ def _run_info() -> DatasetRunInfo:
         machine_id="machine-1",
         paste_id="paste-1",
         paste_lot=None,
-        paste_height_mm=PASTE_HEIGHT_MM,
+        params=attrs.evolve(
+            _dispenser().defaults,
+            paste_height=PASTE_HEIGHT_MM,
+            prime_extra_delay=PRIME_EXTRA_DELAY,
+        ),
         height_plane_z_mm=HEIGHT_PLANE_Z_MM,
         view_count=0,
         view_offset_mm=1.0,
@@ -170,11 +176,11 @@ def _recorder(tmp_path: Path, plan: DotGridPlan) -> PasteDatasetRecorder:
 def _record_all(recorder: PasteDatasetRecorder, plan: DotGridPlan) -> None:
     """3 パス（全点 pre → ローディング → 全点塗布 → 全点 post）で 1 セッションぶんを記録する."""
     for target in plan.targets:
-        recorder.record_pre(target, VIEW, _crop())
+        recorder.record_pre(target.index, VIEW, _crop())
     for cell in plan.cells:
-        recorder.record_execution(cell, _execution(SAMPLE_ROTATIONS))
+        recorder.record_execution(cell.index, _execution(SAMPLE_ROTATIONS))
     for target in plan.targets:
-        assert recorder.record_post(target, VIEW, _crop()) is None
+        assert recorder.record_post(target.index, VIEW, _crop()) is None
 
 
 class TestValidateDatasetRun:
@@ -334,17 +340,19 @@ class TestPasteDatasetRecorder:
         assert metadata.plate.height_plane_z_mm == HEIGHT_PLANE_Z_MM
         assert metadata.loading == LOADING
         assert metadata.label.kind == "rotation_allocated"
-        # prime_extra_delay は dispenser 設定が 0.8 でも 0.0 固定で記録する
-        assert config.prime_extra_delay_s == 0.0
+        # dispenser 設定の 0.8 ではなく、実際に塗った値を記録する
+        assert config.prime_extra_delay_s == PRIME_EXTRA_DELAY
 
     def test_record_post_reports_crop_rect_mismatch(
         self, tmp_path: Path, plan: DotGridPlan
     ):
         recorder = _recorder(tmp_path, plan)
         cell = plan.cells[0]
-        recorder.record_pre(cell, VIEW, _crop())
+        recorder.record_pre(cell.index, VIEW, _crop())
 
-        error = recorder.record_post(cell, VIEW, _crop(pixel_rect=(11, 20, 19, 26)))
+        error = recorder.record_post(
+            cell.index, VIEW, _crop(pixel_rect=(11, 20, 19, 26))
+        )
 
         assert error is not None
         assert str(cell.index) in error
@@ -354,7 +362,7 @@ class TestPasteDatasetRecorder:
     ):
         recorder = _recorder(tmp_path, plan)
 
-        error = recorder.record_post(plan.cells[0], VIEW, _crop())
+        error = recorder.record_post(plan.cells[0].index, VIEW, _crop())
 
         assert error is not None
         assert "pre" in error
@@ -364,7 +372,7 @@ class TestPasteDatasetRecorder:
     ):
         recorder = _recorder(tmp_path, plan)
         target = plan.targets[0]
-        recorder.record_pre(target, VIEW, _crop())
+        recorder.record_pre(target.index, VIEW, _crop())
 
         incomplete = recorder.mark_incomplete()
 

@@ -51,6 +51,16 @@ SCALE_TOLERANCE = 0.05
 
 
 @attrs.frozen
+class CaptureConditions:
+    """点を塗って撮った条件（校正を作ったときと、校正を当てるときで同じ項目を比べる）."""
+
+    nozzle_diameter_mm: float
+    paste_height_mm: float
+    pixel_per_mm: float
+    crop_size_mm: float
+
+
+@attrs.frozen
 class CalibrationConditions:
     """校正が成り立つ条件（ペースト・ノズル・塗布高さ・撮影スケール）."""
 
@@ -64,43 +74,49 @@ class CalibrationConditions:
     crop_size_px: int
     crop_size_mm: float
 
+    @property
+    def capture(self) -> CaptureConditions:
+        """校正を作ったときの撮影条件."""
+        return CaptureConditions(
+            nozzle_diameter_mm=self.nozzle_diameter_mm,
+            paste_height_mm=self.paste_height_mm,
+            pixel_per_mm=self.pixel_per_mm,
+            crop_size_mm=self.crop_size_mm,
+        )
+
     def mismatches(
-        self,
-        *,
-        nozzle_diameter_mm: float,
-        paste_height_mm: float,
-        pixel_per_mm: float,
-        paste_id: str | None = None,
-        crop_size_mm: float | None = None,
+        self, current: CaptureConditions, *, paste_id: str | None = None
     ) -> tuple[str, ...]:
-        """いま置かれている条件との食い違いを表示用の文で並べる.
+        """いまの撮影条件との食い違いを表示用の文で並べる.
 
         推定を拒否するためではなく運転者へ知らせるための情報なので、呼び出し側は
         これが空でなくても処理を止めなくてよい。
-        ``paste_id`` / ``crop_size_mm`` は分かるときだけ渡す。
+        ``paste_id`` は分かるときだけ渡す（塗布ジョブはペーストを知らない）。
         """
+        calibrated = self.capture
         mismatches: list[str] = []
         if paste_id is not None and self.paste_id != paste_id:
             mismatches.append(f"ペースト: 校正 {self.paste_id} / 現在 {paste_id}")
-        if self.nozzle_diameter_mm != nozzle_diameter_mm:
+        if calibrated.nozzle_diameter_mm != current.nozzle_diameter_mm:
             mismatches.append(
-                f"ノズル径: 校正 {self.nozzle_diameter_mm} mm / "
-                f"現在 {nozzle_diameter_mm} mm"
+                f"ノズル径: 校正 {calibrated.nozzle_diameter_mm} mm / "
+                f"現在 {current.nozzle_diameter_mm} mm"
             )
-        if self.paste_height_mm != paste_height_mm:
+        if calibrated.paste_height_mm != current.paste_height_mm:
             mismatches.append(
-                f"塗布高さ: 校正 {self.paste_height_mm} mm / "
-                f"現在 {paste_height_mm} mm"
+                f"塗布高さ: 校正 {calibrated.paste_height_mm} mm / "
+                f"現在 {current.paste_height_mm} mm"
             )
-        if _scale_differs(self.pixel_per_mm, pixel_per_mm):
+        if _scale_differs(calibrated.pixel_per_mm, current.pixel_per_mm):
             mismatches.append(
-                f"撮影スケール: 校正 {self.pixel_per_mm:.3f} px/mm / "
-                f"現在 {pixel_per_mm:.3f} px/mm"
+                f"撮影スケール: 校正 {calibrated.pixel_per_mm:.3f} px/mm / "
+                f"現在 {current.pixel_per_mm:.3f} px/mm"
             )
         # 2 値化は crop 内の Otsu なので、crop に対する背景の割合が閾値を動かす
-        if crop_size_mm is not None and self.crop_size_mm != crop_size_mm:
+        if calibrated.crop_size_mm != current.crop_size_mm:
             mismatches.append(
-                f"撮影crop寸法: 校正 {self.crop_size_mm} mm / 現在 {crop_size_mm} mm"
+                f"撮影crop寸法: 校正 {calibrated.crop_size_mm} mm / "
+                f"現在 {current.crop_size_mm} mm"
             )
         return tuple(mismatches)
 

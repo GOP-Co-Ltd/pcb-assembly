@@ -21,19 +21,15 @@ import json
 import logging
 import random
 import shutil
-from collections.abc import Mapping
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
 import attrs
 
-from pcbasm.board import Copper, Layer
-from pcbasm.gcode import GCode
-from pcbasm.geometry import HeightPlane, Point2d
-from pcbasm.kicad import load_board
-from pcbasm.kicad.build import generate_rect_pcb, save_board
-from pcbasm.pasting.capture import PointCapturer
-from pcbasm.pasting.params import PasteParams
+from pcbasm.pasting.applicator import PasteApplicator
+from pcbasm.pasting.dot_capture import DotCaptureRun, DotSpot
 from pcbasm.pasting.paste_volume.calibration import calibration_path
 from pcbasm.pasting.paste_volume.dataset.metadata import (
     DatasetView,
@@ -43,9 +39,10 @@ from pcbasm.pasting.paste_volume.dataset.plan import (
     DEFAULT_PASTE_HEIGHT_MM,
     DEFAULT_VIEW_COUNT,
     DEFAULT_VIEW_OFFSET_MM,
+    DotCell,
     DotGridPlan,
     DotGridSpec,
-    DotTarget,
+    grid_spec_from_params,
     plan_dot_grid,
     plan_views,
     validate_capture_reach,
@@ -69,16 +66,16 @@ from pcbasm.pasting.paste_volume.evaluate import (
 from pcbasm.pasting.paste_volume.plot import (
     render_evaluation_scatter,
 )
+from pcbasm.pasting.plate import CopperPlate, write_rect_board
 from pcbasm.pasting.session import PasteSession
 from pcbasm.vision import CameraModel
-from pcbasm.vision.crop import RectCrop, crop_pixel_size
+from pcbasm.vision.crop import crop_pixel_size
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import (
     Artifact,
     JobAborted,
     JobContext,
     JobResult,
-    ParamValue,
     PromptSpec,
 )
 from web.api.jobs.pasting.common import (
@@ -87,6 +84,7 @@ from web.api.jobs.pasting.common import (
     LOADING_DEFAULT_ROTATION_ACCEL,
     LOADING_DEFAULT_ROTATION_RATE,
     LOADING_DEFAULT_ROTATIONS,
+    LoadingTotals,
     prompt_positive_number,
     run_loading_loop,
     setup_paste_session,
@@ -358,28 +356,6 @@ def resolve_shuffle_seed(value: int) -> int:
     return value if value != 0 else random.randrange(1, _SEED_MAX)
 
 
-def grid_spec_from_params(params: Mapping[str, ParamValue]) -> DotGridSpec:
-    """ジョブパラメータからセル格子設定を組む.
-
-    ``shuffle_seed`` はそのまま写す（``0`` の解決は :func:`resolve_shuffle_seed`）。
-    レイアウト preview API は同じ写しを使い、``0`` を決定論的な配置として描く。
-    """
-    return DotGridSpec(
-        plate_width_mm=float(params["plate_width"]),
-        plate_height_mm=float(params["plate_height"]),
-        edge_margin_mm=float(params["edge_margin"]),
-        cell_size_mm=float(params["cell_size"]),
-        cell_gap_mm=float(params["cell_gap"]),
-        crop_size_mm=float(params["crop_size"]),
-        volume_min_ul=float(params["volume_min"]),
-        volume_max_ul=float(params["volume_max"]),
-        volume_divisions=int(params["volume_divisions"]),
-        samples_per_volume=int(params["samples_per_volume"]),
-        blank_count=int(params["blank_count"]),
-        shuffle_seed=int(params["shuffle_seed"]),
-    )
-
-
 def _plan_collection(
     ctx: JobContext,
 ) -> tuple[DotGridPlan, tuple[DatasetView, ...], int]:
@@ -484,31 +460,6 @@ def _confirm_dataset_collection(ctx: JobContext) -> None:
         raise JobAborted()
 
 
-def _generate_plate(ctx: JobContext, width: float, height: float) -> Path:
-    """収集用の外形だけ矩形銅板を artifacts へ生成し、そのパスを返す."""
-    filename = f"paste_dataset_plate_{width:g}x{height:g}.kicad_pcb"
-    path = ctx.artifacts_dir / filename
-    save_board(generate_rect_pcb(width, height), path)
-    ctx.log(f"収集用銅板を生成: {filename}（{width:g}x{height:g} mm）")
-    return path
-
-
-def _measure_plate_height(session: PasteSession) -> HeightPlane:
-    """銅板外形を銅箔とみなして高さ面を計測する（生成板は TOP 銅箔を持たない）."""
-    return session.measure_height_plane(
-        [Copper(layer=Layer.TOP, polygon=session.board_frame.board.outline.polygon)]
-    )
-
-
-def _plate_center_z(
-    session: PasteSession, spec: DotGridSpec, height_plane: HeightPlane
-) -> float:
-    """計測した高さ面の、銅板中心における Z [mm]."""
-    center = Point2d(spec.plate_width_mm / 2.0, spec.plate_height_mm / 2.0)
-    machine_center = session.board_to_machine.apply(center)
-    return height_plane.apply(machine_center.to3d(0.0)).z
-
-
 def _check_reach(
     session: PasteSession, plan: DotGridPlan, views: tuple[DatasetView, ...]
 ) -> None:
@@ -530,40 +481,6 @@ def _check_reach(
     ):
         if error is not None:
             raise ValueError(error)
-
-
-def _move_clear_of_plate(ctx: JobContext, session: PasteSession) -> None:
-    """ローディング前にノズルを銅板の手前へ逃がす.
-
-    直前の塗布前撮影パスはヘッドを最後のセルの真上に残すので、そのまま押し出すと
-    ペーストが板へ落ちて計量値を汚す。可動域へ入らない場合は移動を諦め、運転者へ jog での退避を促す（装置を止めるほどのことではない）。
-    """
-    target = session.board_to_machine.apply(Point2d(0.0, -LOADING_CLEARANCE_MM))
-    if not session.stage.limits.contains(x=target.x, y=target.y):
-        ctx.log(
-            f"退避位置 ({target.x:.3f}, {target.y:.3f}) が可動域外のため移動しません。"
-            "押し出す前に、ノズルを銅板の外へ jog してください"
-        )
-        return
-    session.klipper.send_gcode(
-        session.stage.move(x=target.x, y=target.y) + GCode.wait_for_done()
-    )
-
-
-def _pass_percent(position: int, total: int, start: float, end: float) -> float:
-    """1 パス内の進捗を、全体の進捗 ``[start, end]`` へ写す."""
-    return start + (end - start) * position / total
-
-
-def _capture(capturer: PointCapturer, target: DotTarget, view: DatasetView) -> RectCrop:
-    crop, error = capturer.capture(
-        target.center, offset=Point2d(view.offset_x_mm, view.offset_y_mm)
-    )
-    if crop is None:
-        raise ValueError(
-            f"sample {target.index} view {view.number} の撮影に失敗: {error}"
-        )
-    return crop
 
 
 def _run_paste_volume_calibration(ctx: JobContext) -> JobResult:
@@ -604,47 +521,43 @@ def _run_paste_volume_calibration(ctx: JobContext) -> JobResult:
     _confirm_dataset_collection(ctx)
 
     with ctx.open_camera() as camera:
-        plate_path = _generate_plate(ctx, spec.plate_width_mm, spec.plate_height_mm)
-        session = setup_paste_session(ctx, camera, board=load_board(plate_path))
+        width, height = spec.plate_width_mm, spec.plate_height_mm
+        filename = f"paste_dataset_plate_{width:g}x{height:g}.kicad_pcb"
+        board = write_rect_board(ctx.artifacts_dir / filename, width, height)
+        ctx.log(f"収集用銅板を生成: {filename}（{width:g}x{height:g} mm）")
+        session = setup_paste_session(ctx, camera, board=board)
         _check_reach(session, plan, views)
         ctx.progress("高さ計測")
-        height_plane = _measure_plate_height(session)
+        plate = CopperPlate.measure(session)
 
-        capturer = PointCapturer(
-            session, crop_size_px=crop_size_px, frame_sink=ctx.frame
-        )
         writer = PasteDatasetWriter.open(
             ctx.paste_dataset_dir,
-            plate_name=f"plate-{spec.plate_width_mm:g}x{spec.plate_height_mm:g}",
+            plate_name=f"plate-{width:g}x{height:g}",
             started_at=started_at,
         )
         recorder = PasteDatasetRecorder(writer, plan, views)
-        # 領域照合の補正を挟まないので、変換は板上のどの点でも同じ 1 本で足りる。
-        transform = session.plate_transform(height_plane=height_plane)
-        # prime 後の追加遅延は量に依らず一定量を押し出すので、小さい量の点で
-        # ラベルと blob の対応が歪む。収集では 0 固定にする。
-        params = attrs.evolve(
-            dispenser_config.defaults,
-            paste_height=paste_height_mm,
-            prime_extra_delay=0.0,
+        capture = DotCaptureRun(
+            session,
+            ctx,
+            crop_size_px=crop_size_px,
+            params=attrs.evolve(
+                dispenser_config.defaults, paste_height=paste_height_mm
+            ),
+            views=views,
         )
-        targets = plan.targets
+        loading_totals = LoadingTotals()
 
-        try:
-            # 撮影パスは applicator を開かない。AirPump を入れたまま数十分ヘッドを
-            # 動かすと、ノズルからペーストが垂れて pre 画像と blank セルが汚れる。
-            for position, target in enumerate(targets):
-                ctx.progress(
-                    "塗布前撮影", _pass_percent(position, len(targets), 0.0, 45.0)
-                )
-                ctx.checkpoint()
-                for view in views:
-                    recorder.record_pre(target, view, _capture(capturer, target, view))
+        @contextmanager
+        def loaded_applicator() -> Iterator[PasteApplicator]:
+            """撮影パスが板の上に残したヘッドを逃がし、AirPump を入れてローディングさせる.
 
-            # 撮影パスはヘッドを板の上に残すので、AirPump を入れる前に逃がす。
-            ctx.checkpoint()
-            _move_clear_of_plate(ctx, session)
+            撮影パスは applicator を開かない。
 
+            AirPump を入れたまま撮ると、ノズルから垂れたペーストが pre 画像と blank セルを汚す。
+            """
+            nonlocal loading_totals
+            if (error := plate.move_clear(LOADING_CLEARANCE_MM)) is not None:
+                ctx.log(f"{error}。押し出す前に、ノズルを銅板の外へ jog してください")
             with session.make_applicator() as applicator:
                 # stage と進捗は run_loading_loop が設定する。押し出す量は運転者が
                 # 決めるので percent は持たせない。
@@ -655,40 +568,35 @@ def _run_paste_volume_calibration(ctx: JobContext) -> JobResult:
                 loading_totals = run_loading_loop(
                     ctx, session.klipper, session.stage, applicator
                 )
+                yield applicator
 
-                for position, cell in enumerate(plan.cells):
-                    ctx.progress(
-                        "塗布", _pass_percent(position, len(plan.cells), 47.0, 55.0)
-                    )
-                    ctx.checkpoint()
-                    recorder.record_execution(
-                        cell,
-                        applicator.deposit_at(
-                            cell.center,
-                            amount_ul=cell.commanded_volume_ul,
-                            transform=transform,
-                            params=params,
+        try:
+            error = capture.run(
+                [
+                    DotSpot(
+                        index=target.index,
+                        point=target.center,
+                        transform=plate.transform,
+                        amount_ul=(
+                            target.commanded_volume_ul
+                            if isinstance(target, DotCell)
+                            else None
                         ),
                     )
-
-            for position, target in enumerate(targets):
-                ctx.progress(
-                    "塗布後撮影", _pass_percent(position, len(targets), 55.0, 100.0)
-                )
-                ctx.checkpoint()
-                for view in views:
-                    post_error = recorder.record_post(
-                        target, view, _capture(capturer, target, view)
-                    )
-                    if post_error is not None:
-                        raise ValueError(post_error)
+                    for target in plan.targets
+                ],
+                recorder,
+                before_deposit=loaded_applicator,
+            )
+            if error is not None:
+                raise ValueError(error)
 
             run = DatasetRunInfo(
                 machine_id=ctx.machine_id,
                 paste_id=paste_id,
                 paste_lot=paste_lot,
-                paste_height_mm=paste_height_mm,
-                height_plane_z_mm=_plate_center_z(session, spec, height_plane),
+                params=capture.params,
+                height_plane_z_mm=plate.center_z(),
                 view_count=view_count,
                 view_offset_mm=view_offset_mm,
                 crop_size_px=crop_size_px,

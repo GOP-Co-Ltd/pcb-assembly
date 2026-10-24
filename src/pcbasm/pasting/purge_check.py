@@ -8,9 +8,9 @@
 で行うが、見るのは「写ったか」だけで体積は推定しない。校正ファイルを必要としないので、
 流量キャリブレーションを使わない機体でも同じように確かめられる。
 
-**確かめられなくてもジョブを失敗させない。** カメラが撮影位置へ届かない・撮影や計測に
+**確かめられなくても塗布ジョブを止めない。** カメラが撮影位置へ届かない・撮影や計測に
 失敗した、のいずれも確かめずに先へ進む。写らなかったと断定できたときだけ掃除し、
-掃除しても写らなければジョブを失敗させる。
+掃除しても写らなければ例外で塗布ジョブを止める。
 """
 
 from __future__ import annotations
@@ -18,13 +18,13 @@ from __future__ import annotations
 from pcbasm.geometry import Point2d, Transform
 from pcbasm.pasting.applicator import PasteApplicator
 from pcbasm.pasting.capture import PointCapturer
+from pcbasm.pasting.hooks import ProcedureHooks
 from pcbasm.pasting.initial_purge import ResolvedInitialPurge
 from pcbasm.pasting.nozzle_clean import NozzleCleanPlan, clean_nozzle
 from pcbasm.pasting.paste_volume.detect import measure_dot
 from pcbasm.pasting.prepare import PasteCorrection
 from pcbasm.pasting.session import PasteSession
 from pcbasm.vision.crop import RectCrop, crop_pixel_size
-from web.api.jobs.context import JobContext
 
 # パージ点を切り出す一辺 [mm]。流量キャリブレーションの crop と同じ広さを既定にする。
 # 広く取るほど感度が下がる（blank ガードが crop 全体の 99 パーセンタイルなので、
@@ -34,7 +34,7 @@ PURGE_CROP_SIZE_MM = 2.0
 
 
 def purge_with_cleaning(
-    ctx: JobContext,
+    hooks: ProcedureHooks,
     session: PasteSession,
     correction: PasteCorrection,
     applicator: PasteApplicator,
@@ -49,7 +49,7 @@ def purge_with_cleaning(
     行う（詰まりはパージだけで抜けることもあり、位置の教示を塗布の前提にしない）。
 
     Args:
-        ctx: ジョブ文脈（進捗・ログ・中断）
+        hooks: 経過の出力と中断の確認
         session: 計測済みの塗布セッション
         correction: 位置合わせと高さ面の補正
         applicator: 塗布に使うディスペンサー（有効化済み）
@@ -60,37 +60,37 @@ def purge_with_cleaning(
         ValueError: 掃除してパージし直しても塗布が写らない場合
     """
     point_correction = correction.alignment.correction_for(purge.point)
-    capturer, error = _make_capturer(ctx, session, purge.point, point_correction)
+    capturer, error = _make_capturer(hooks, session, purge.point, point_correction)
     if capturer is None:
-        ctx.log(f"パージ確認: {error}ので確かめずに進みます")
-        _purge(ctx, session, correction, applicator, purge)
+        hooks.log(f"パージ確認: {error}ので確かめずに進みます")
+        _purge(hooks, session, correction, applicator, purge)
         return
 
-    ctx.checkpoint()
+    hooks.checkpoint()
     baseline, error = capturer.capture(purge.point, correction=point_correction)
     if baseline is None:
-        ctx.log(f"パージ確認: 塗布前の撮影に失敗したので確かめません: {error}")
-        _purge(ctx, session, correction, applicator, purge)
+        hooks.log(f"パージ確認: 塗布前の撮影に失敗したので確かめません: {error}")
+        _purge(hooks, session, correction, applicator, purge)
         return
 
     # None は「確かめられなかった」。写らなかったと断定できたときだけ掃除する
     if (
         _purge_and_detect(
-            ctx, session, correction, applicator, capturer, purge, baseline
+            hooks, session, correction, applicator, capturer, purge, baseline
         )
         is not False
     ):
         return
 
-    ctx.log("パージ確認: ペーストが写りません。ノズルをクリーニングしてやり直します")
-    performed = _clean(ctx, session, applicator, nozzle_clean)
+    hooks.log("パージ確認: ペーストが写りません。ノズルをクリーニングしてやり直します")
+    performed = _clean(hooks, session, applicator, nozzle_clean)
 
-    ctx.progress("パージやり直し")
+    hooks.progress("パージやり直し")
     # やり直しも 1 回目と同じ塗布前画像と比べる。2 回目の直前を基準にすると、1 回目が
     # 実は出ていて検出だけ失敗した場合に増分しか見えず、正常なノズルを詰まりと断じる
     if (
         _purge_and_detect(
-            ctx, session, correction, applicator, capturer, purge, baseline
+            hooks, session, correction, applicator, capturer, purge, baseline
         )
         is False
     ):
@@ -101,7 +101,7 @@ def purge_with_cleaning(
 
 
 def _make_capturer(
-    ctx: JobContext,
+    hooks: ProcedureHooks,
     session: PasteSession,
     point: Point2d,
     point_correction: Transform | None,
@@ -114,7 +114,9 @@ def _make_capturer(
         return None, f"crop 寸法を決められない（{error}）"
     if error := _camera_reach_error(session, point, point_correction):
         return None, error
-    return PointCapturer(session, crop_size_px=crop_size_px, frame_sink=ctx.frame), None
+    return PointCapturer(
+        session, crop_size_px=crop_size_px, frame_sink=hooks.frame
+    ), None
 
 
 def _camera_reach_error(
@@ -138,7 +140,7 @@ def _camera_reach_error(
 
 
 def _purge_and_detect(
-    ctx: JobContext,
+    hooks: ProcedureHooks,
     session: PasteSession,
     correction: PasteCorrection,
     applicator: PasteApplicator,
@@ -150,14 +152,14 @@ def _purge_and_detect(
 
     確かめられなかった（撮影・計測に失敗した）ときは ``None`` を返す。
     """
-    _purge(ctx, session, correction, applicator, purge)
+    _purge(hooks, session, correction, applicator, purge)
 
-    ctx.checkpoint()
+    hooks.checkpoint()
     post, error = capturer.capture(
         purge.point, correction=correction.alignment.correction_for(purge.point)
     )
     if post is None:
-        ctx.log(f"パージ確認: 塗布後の撮影に失敗したので確かめません: {error}")
+        hooks.log(f"パージ確認: 塗布後の撮影に失敗したので確かめません: {error}")
         return None
 
     measurement, error = measure_dot(
@@ -166,9 +168,9 @@ def _purge_and_detect(
         pixel_per_mm=session.board_frame.camera_model.pixel_per_mm,
     )
     if measurement is None:
-        ctx.log(f"パージ確認: 計測できないので確かめません: {error}")
+        hooks.log(f"パージ確認: 計測できないので確かめません: {error}")
         return None
-    ctx.log(
+    hooks.log(
         f"パージ確認: 直径 {measurement.diameter_mm:.3f} mm"
         if measurement.detected
         else "パージ確認: ペーストが写りません"
@@ -177,7 +179,7 @@ def _purge_and_detect(
 
 
 def _purge(
-    ctx: JobContext,
+    hooks: ProcedureHooks,
     session: PasteSession,
     correction: PasteCorrection,
     applicator: PasteApplicator,
@@ -187,7 +189,7 @@ def _purge(
 
     パージは pad ではなく座標なので、その点を覆う成功領域から内挿した補正を使う。
     """
-    ctx.checkpoint()
+    hooks.checkpoint()
     applicator.deposit_at(
         purge.point,
         amount_ul=purge.amount_ul,
@@ -196,7 +198,7 @@ def _purge(
 
 
 def _clean(
-    ctx: JobContext,
+    hooks: ProcedureHooks,
     session: PasteSession,
     applicator: PasteApplicator,
     nozzle_clean: NozzleCleanPlan | None,
@@ -209,11 +211,11 @@ def _clean(
     :meth:`PasteApplicator.deposit_at` が自分で prime する。
     """
     if nozzle_clean is None:
-        ctx.log("ノズルクリーニング: 位置が未記録のためこすらずにパージし直します")
+        hooks.log("ノズルクリーニング: 位置が未記録のためこすらずにパージし直します")
         return "パージのやり直し"
-    ctx.progress("ノズルクリーニング")
-    ctx.checkpoint()
+    hooks.progress("ノズルクリーニング")
+    hooks.checkpoint()
     applicator.prime()
-    clean_nozzle(session.klipper, applicator, nozzle_clean, log=ctx.log)
+    clean_nozzle(session.klipper, applicator, nozzle_clean, log=hooks.log)
     applicator.retract()
     return "クリーニングとパージのやり直し"

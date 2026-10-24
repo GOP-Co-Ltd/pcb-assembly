@@ -6,14 +6,15 @@
 
 通常塗布ジョブ（``web.api.jobs.pasting.paste_solder``）の流れと担当モジュール:
 
-1. 装置を動かす前に、対象 pad・順路・初回パージ・運転時補正を決める: :mod:`.plan`（設定解決は :mod:`.overrides`、順路は :mod:`.route`）
+1. 装置を動かす前に、対象 pad・順路・初回パージ・運転時補正を決める: :mod:`.plan`（設定解決は :mod:`.overrides`、順路は :mod:`.route`。pad 編集画面の preview も同じ計画を使う）
 2. Board 計測の結果から :class:`~.session.PasteSession` を組み、:func:`~.prepare.measure_correction` が高さ面計測と位置合わせで :class:`~.prepare.PasteCorrection` を作る
 3. ``with session.make_applicator()`` でディスペンサーを有効化し、``retract()`` する
-4. 初回パージを点塗布する（写らなければ :mod:`.nozzle_clean` で掃除してやり直す）
-5. 運転時補正（:mod:`.paste_volume.runtime_correction`）の結果で ``rotations_per_ul`` を差し替える
+4. 初回パージを点塗布する（:mod:`.purge_check`。写らなければ :mod:`.nozzle_clean` で掃除してやり直す）
+5. 運転時補正（:mod:`.paste_volume.runtime_correction`。撮影は :mod:`.dot_capture`）の結果で ``rotations_per_ul`` を差し替える
 6. pad ごとに :meth:`~.applicator.PasteApplicator.apply` で塗る（経路は :mod:`.fill_path`、G-code は :mod:`.fill_sequence`）
 
-判断・ログ・進捗・中断は web ジョブが持ち、このパッケージは持たない。
+運転者への問い合わせ（prompt）と成果物は web ジョブが持ち、このパッケージは持たない。
+手順のログ・進捗・中断は :class:`~.hooks.ProcedureHooks` を通してジョブへ渡す。
 
 2 つの「流量キャリブレーション」を混同しない:
 

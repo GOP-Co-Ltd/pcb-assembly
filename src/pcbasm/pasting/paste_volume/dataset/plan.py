@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 import random
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 import attrs
 
@@ -359,6 +359,28 @@ def preview_dot_grid(
         views_per_cell=resolved_views,
         image_count=target_count * resolved_views * 2,
         error=geometry_error or plan_error or view_error,
+    )
+
+
+def grid_spec_from_params(params: Mapping[str, float | int | str]) -> DotGridSpec:
+    """収集ジョブのパラメータ（レイアウト preview API も同じ名前で受ける）からセル格子設定を組む.
+
+    ``shuffle_seed`` はそのまま写す。
+    ``0`` を実行ごとのシードへ解決するのはジョブで、preview は ``0`` を決定論的な配置として描く。
+    """
+    return DotGridSpec(
+        plate_width_mm=float(params["plate_width"]),
+        plate_height_mm=float(params["plate_height"]),
+        edge_margin_mm=float(params["edge_margin"]),
+        cell_size_mm=float(params["cell_size"]),
+        cell_gap_mm=float(params["cell_gap"]),
+        crop_size_mm=float(params["crop_size"]),
+        volume_min_ul=float(params["volume_min"]),
+        volume_max_ul=float(params["volume_max"]),
+        volume_divisions=int(params["volume_divisions"]),
+        samples_per_volume=int(params["samples_per_volume"]),
+        blank_count=int(params["blank_count"]),
+        shuffle_seed=int(params["shuffle_seed"]),
     )
 
 

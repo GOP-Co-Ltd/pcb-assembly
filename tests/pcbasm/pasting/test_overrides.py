@@ -45,7 +45,6 @@ from pcbasm.pasting.overrides import (
     own_override_summary,
     resolve_node_settings,
     resolve_pad_settings,
-    select_enabled_pads,
 )
 from pcbasm.pasting.params import DispenseMotion, PasteParams, PasteParamsPatch
 
@@ -1337,31 +1336,6 @@ class TestEnabledResolution:
         assert resolved["U1.#2"].enabled is False
         assert resolved["U1.#3"].enabled is True
         assert resolved["U1.#4"].enabled is True
-
-
-class TestSelectEnabledPads:
-    """select_enabled_pads は有効 pad のみを元の順序で返す。"""
-
-    def test_returns_all_pads_when_no_overrides(self):
-        _, pads, hierarchy = _two_component_hierarchy()
-        model = PasteSettingsModel(base=_full_base())
-
-        assert select_enabled_pads(pads, hierarchy, model) == list(pads)
-
-    def test_excludes_disabled_pads_and_keeps_order(self):
-        _, pads, hierarchy = _two_component_hierarchy()
-        model = PasteSettingsModel(
-            base=_full_base(),
-            levels=(LevelSetting(("L4", "U1", "1"), enabled=False),),
-        )
-
-        selected = select_enabled_pads(pads, hierarchy, model)
-
-        assert [(p.designator, p.pad_number) for p in selected] == [
-            ("R1", "1"),
-            ("R1", "2"),
-            ("U1", "9"),
-        ]
 
 
 class TestResolveNodeSettings:

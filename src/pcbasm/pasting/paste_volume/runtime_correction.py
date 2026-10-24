@@ -1,12 +1,11 @@
-"""運転時補正（塗布ジョブ中の流量キャリブレーション）の計画と補正（装置に触れない純関数）.
+"""運転時補正（塗布ジョブ中の流量キャリブレーション）の計画・実行・補正.
 
 はんだ塗布は ``machine.toml`` の ``rotations_per_ul`` で μL を回転数へ換算する。
 この係数はペーストの粘度・温度・残量で動くので、塗布パスへ入る直前に基板上へ
 既知量のドットを並べて塗り、塗布前後画像から推定した体積との比で係数を直す。
 
-撮影と塗布そのものは web 層のジョブが行う。
-ここにあるのは「どこに何点塗るか」と「推定結果から係数をどう求めるか」だけで、
-どちらも装置なしで検証できる。
+「どこに何点塗るか」（:func:`plan_flow_calibration`）と「推定結果から係数をどう求めるか」（:func:`correct_rotations_per_ul`）は装置に触れない。
+撮影と塗布は :func:`run_flow_calibration` が塗布量の校正と同じ 3 パス撮影で行う。
 
 1 点だけでは点ごとの吐出ばらつき（実測で相対 9〜11 %）がそのまま補正値に乗って
 しまうので、複数点を合計体積で集約する。
@@ -15,14 +14,29 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from contextlib import nullcontext
+from pathlib import Path
 
 import attrs
 from shapely import Point, Polygon
 
 from pcbasm.config.dispenser import VolumeCorrectionConfig
 from pcbasm.geometry import Point2d
-from pcbasm.pasting.paste_volume.estimator import PasteVolumePrediction
+from pcbasm.pasting.applicator import PasteApplicationResult, PasteApplicator
+from pcbasm.pasting.dot_capture import DotCaptureRun, DotSpot
+from pcbasm.pasting.fill_path import paste_height_mm
+from pcbasm.pasting.hooks import ProcedureHooks
+from pcbasm.pasting.labels import fmt_xy
+from pcbasm.pasting.paste_volume.calibration import CaptureConditions
+from pcbasm.pasting.paste_volume.dataset.metadata import DatasetView
+from pcbasm.pasting.paste_volume.estimator import (
+    PasteVolumePrediction,
+    load_diameter_estimator,
+)
+from pcbasm.pasting.prepare import PasteCorrection
+from pcbasm.pasting.session import PasteSession
 from pcbasm.validators import is_finite_number
+from pcbasm.vision.crop import RectCrop, crop_pixel_size
 
 # 1 回の補正で許す ``rotations_per_ul`` の変化幅。
 # 画像の取り違え・ノズル詰まり・校正の条件違いは極端な比として現れるので、
@@ -78,6 +92,16 @@ class FlowCalibrationOutcome:
     clamped: bool
     accepted_count: int
     rejections: tuple[str, ...]
+
+    def summary(self) -> str:
+        """補正結果の 1 行表示（ログとジョブのまとめで共用）."""
+        return (
+            f"流量キャリブレーション: {self.accepted_count} 点採用 / "
+            f"推定 {self.estimated_ul:.3f} uL / 指令 {self.commanded_ul:.3f} uL / "
+            f"比 {self.ratio:.3f} / rotations_per_ul "
+            f"{self.previous_rotations_per_ul:.4f} → {self.rotations_per_ul:.4f}"
+            + ("（上限で頭打ち）" if self.clamped else "")
+        )
 
 
 def plan_flow_calibration(
@@ -141,7 +165,7 @@ def validate_crop_separation(
                 return (
                     f"測定位置 {first + 1} と {second + 1} の撮影範囲"
                     f"（{crop_size_mm} mm 角）が重なっています: "
-                    f"({a.x:.3f}, {a.y:.3f}) / ({b.x:.3f}, {b.y:.3f})"
+                    f"{fmt_xy(a, 3)} / {fmt_xy(b, 3)}"
                 )
     return None
 
@@ -193,7 +217,7 @@ def validate_flow_calibration_point(
     if not outline.covers(Point(point.x, point.y)):
         return (
             "流量キャリブレーション位置は基板外形の内側で指定してください: "
-            f"({point.x:.3f}, {point.y:.3f})"
+            f"{fmt_xy(point, 3)}"
         )
     return None
 
@@ -262,3 +286,128 @@ def correct_rotations_per_ul(
         ),
         None,
     )
+
+
+def run_flow_calibration(
+    hooks: ProcedureHooks,
+    session: PasteSession,
+    correction: PasteCorrection,
+    applicator: PasteApplicator,
+    plan: FlowCalibrationPlan,
+    *,
+    calibration_dir: Path,
+) -> FlowCalibrationOutcome | None:
+    """測定点を塗って撮り、``rotations_per_ul`` の補正値を返す（補正しないなら ``None``）.
+
+    撮影は塗布量の校正と同じ 3 パス（:class:`~pcbasm.pasting.dot_capture.DotCaptureRun`）で、塗布パスと塗布後パスの間に ``plan.settle_seconds`` 待つ。
+    点数が少ないと塗布パスがすぐ終わるので、待たないと広がりきる前の円を測る。
+
+    **補正できなくても例外にしない。** この時点で基板の位置合わせと高さ計測が済んでおり、後から足した補正が失敗したせいで塗布そのものを取りやめるのは割に合わない。
+    校正ファイルが読めない・撮れない・検出できない・採用できる直径範囲の外だった、のいずれもログに残して ``None`` を返し、呼び出し側は ``machine.toml`` の係数のまま塗る。
+
+    Args:
+        hooks: 経過の出力と中断の確認
+        session: 計測済みの塗布セッション
+        correction: 位置合わせと高さ面の補正
+        applicator: 塗布に使うディスペンサー（有効化済み）
+        plan: 測定点と条件
+        calibration_dir: 校正ファイルの置き場所
+    """
+    estimator, error = load_diameter_estimator(
+        calibration_dir / plan.calibration_file, reliable_range_only=True
+    )
+    if estimator is None:
+        hooks.log(f"流量キャリブレーション: 校正を読めないので補正しません: {error}")
+        return None
+
+    pixel_per_mm = session.board_frame.camera_model.pixel_per_mm
+    crop_size_px, error = crop_pixel_size(plan.crop_size_mm, pixel_per_mm)
+    if crop_size_px is None:
+        hooks.log(f"流量キャリブレーション: crop 寸法を決められません: {error}")
+        return None
+
+    run = DotCaptureRun(
+        session,
+        hooks,
+        crop_size_px=crop_size_px,
+        params=applicator.default_params,
+        settle_sec=plan.settle_seconds,
+        stage_prefix="流量キャリブレーション: ",
+    )
+    current = CaptureConditions(
+        nozzle_diameter_mm=session.machine.paste_dispenser.nozzle_diameter,
+        paste_height_mm=paste_height_mm(run.params),
+        pixel_per_mm=pixel_per_mm,
+        crop_size_mm=plan.crop_size_mm,
+    )
+    for mismatch in estimator.calibration.conditions.mismatches(current):
+        hooks.log(f"流量キャリブレーション: 校正の条件と違います（続行）: {mismatch}")
+
+    hooks.log(
+        f"流量キャリブレーション: {len(plan.points)} 点 x {plan.amount_ul:.3f} uL / "
+        f"crop {crop_size_px} px / 静定待ち {plan.settle_seconds:.1f} s / "
+        f"校正 {plan.calibration_file}"
+    )
+    crops = _Crops()
+    error = run.run(
+        [
+            DotSpot(
+                index=index,
+                point=point,
+                transform=session.point_transform(point, correction),
+                amount_ul=plan.amount_ul,
+                correction=correction.alignment.correction_for(point),
+            )
+            for index, point in enumerate(plan.points)
+        ],
+        crops,
+        before_deposit=lambda: nullcontext(applicator),
+    )
+    if error is not None:
+        hooks.log(f"流量キャリブレーション: {error}。補正しません")
+        return None
+
+    predictions = [
+        estimator.predict(before.image, after.image, pixel_per_mm=pixel_per_mm)
+        for before, after in zip(crops.pre, crops.post, strict=True)
+    ]
+    for index, prediction in enumerate(predictions):
+        hooks.log(
+            f"流量キャリブレーション: 点{index} 推定 {prediction.mean_volume_ul:.4f} uL"
+            if prediction.accepted
+            else f"流量キャリブレーション: 点{index} 不採用 ({prediction.rejection_reason})"
+        )
+
+    outcome, error = correct_rotations_per_ul(
+        predictions,
+        amount_ul=plan.amount_ul,
+        rotations_per_ul=applicator.rotations_per_ul,
+    )
+    if outcome is None:
+        hooks.log(f"流量キャリブレーション: 補正しません: {error}")
+        return None
+    hooks.log(outcome.summary())
+    if outcome.clamped:
+        hooks.log(
+            "流量キャリブレーション: 補正量が 1/3〜3 倍の上限に当たりました。"
+            "校正の条件やノズルの状態を確認してください"
+        )
+    return outcome
+
+
+@attrs.define
+class _Crops:
+    """3 パス撮影の塗布前後の crop を点の順に集める."""
+
+    pre: list[RectCrop] = attrs.Factory(list)
+    post: list[RectCrop] = attrs.Factory(list)
+
+    def record_pre(self, index: int, view: DatasetView, crop: RectCrop) -> None:
+        self.pre.append(crop)
+
+    def record_execution(self, index: int, result: PasteApplicationResult) -> None:
+        pass
+
+    def record_post(self, index: int, view: DatasetView, crop: RectCrop) -> str | None:
+        self.post.append(crop)
+        return None
