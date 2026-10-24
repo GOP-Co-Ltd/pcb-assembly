@@ -72,7 +72,7 @@ class TestNozzleCleanTestRun:
     """クリーニング動作のテスト実行エンドポイント.
 
     記録と違って装置を動かすので、検査の順序そのものが契約になる。未記録は Klipper に
-    触れる前に 400 で断り（`create_klipper` は接続しないので 502 に化けない）、記録済み
+    触れる前に 400 で断り（`Devices.klipper` は接続しないので 502 に化けない）、記録済み
     なら homed_axes の取得まで進んでテスト用 config の Klipper（port 7126 非リッスン）で
     502 になる = 位置の検証を通過した証明。
     """
@@ -108,10 +108,15 @@ class TestNozzleCleanTestRun:
         assert response.status_code == 502
 
     def test_out_of_reach_returns_400_without_sending(
-        self, config_dir: Path, machine_klipper: FakeKlipper, client: TestClient
+        self,
+        config_dir: Path,
+        mount_klipper: Callable[[FakeKlipper], None],
+        client: TestClient,
     ):
         """クリーニング G-code を組む段で可動域外と分かるので、プライムも送らない."""
-        machine_klipper.set_status("toolhead", "homed_axes", "xyz")
+        klipper = FakeKlipper()
+        klipper.set_status("toolhead", "homed_axes", "xyz")
+        mount_klipper(klipper)
         path = config_dir / "machine.toml"
         with path.open("a", encoding="utf-8") as machine_toml:
             machine_toml.write(
@@ -122,7 +127,7 @@ class TestNozzleCleanTestRun:
 
         assert response.status_code == 400
         assert "可動域外" in response.json()["detail"]
-        assert machine_klipper.sent == ()
+        assert klipper.sent == ()
 
     def test_missing_air_pump_section_returns_502_with_the_reason(
         self,

@@ -7,7 +7,7 @@ from pcbasm.hal import XYZStage
 from pcbasm.pasting.applicator import build_applicator
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import JobContext, JobResult
-from web.api.jobs.machine_commands import create_command_klipper
+from web.api.jobs.machine_commands import COMMAND_TIMEOUT
 from web.api.jobs.pasting.common import (
     LOADING_DEFAULT_AMOUNT,
     LOADING_DEFAULT_RETRACT_ROTATIONS,
@@ -86,7 +86,7 @@ def register(catalog: JobCatalog) -> None:
 
 def _run_loading(ctx: JobContext) -> JobResult:
     """全軸 homing と任意位置への移動後、command 駆動ローディングを実行する."""
-    klipper = create_command_klipper(ctx)
+    klipper = ctx.klipper(COMMAND_TIMEOUT)
     stage = XYZStage(klipper)
 
     target = {

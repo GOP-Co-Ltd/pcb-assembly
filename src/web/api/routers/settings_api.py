@@ -59,7 +59,7 @@ def put_machine_settings(
             key.startswith("camera.") and not key.startswith("camera.crop.")
             for key in body.values
         ):
-            state.rebuild_camera()
+            state.devices.rebuild_camera()
     return _settings(state, machine_config)
 
 
@@ -87,5 +87,5 @@ def restore_config_history(
             machine_config.restore(name)
         except UnknownSnapshotError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        state.rebuild_camera()
+        state.devices.rebuild_camera()
     return ConfigHistoryResponse(entries=machine_config.history_entries())

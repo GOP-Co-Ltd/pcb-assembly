@@ -7,7 +7,7 @@
 
 import importlib
 import subprocess
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import attrs
@@ -192,8 +192,10 @@ class TestEmergencyStop:
     """緊急停止は操作権にも装置ロックにも妨げられない."""
 
     def test_viewer_stops_a_busy_machine(
-        self, backend_app: FastAPI, machine_klipper: FakeKlipper
+        self, backend_app: FastAPI, mount_klipper: Callable[[FakeKlipper], None]
     ):
+        klipper = FakeKlipper()
+        mount_klipper(klipper)
         client = TestClient(backend_app)
         assert client.post("/api/control/acquire", headers=ALICE).status_code == 200
 
@@ -202,7 +204,7 @@ class TestEmergencyStop:
 
         assert response.status_code == 200
         assert response.json() == {"ok": True}
-        assert machine_klipper.sent_lines == ["M112"]
+        assert klipper.sent_lines == ["M112"]
 
 
 class TestFrontendEndpoints:

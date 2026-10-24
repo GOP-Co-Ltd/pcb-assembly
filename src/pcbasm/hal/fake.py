@@ -26,7 +26,7 @@ from pcbasm.vision.image import Image, ImageArray
 
 from .audio import AudioDevice, AudioPlayer, Sound
 from .camera import Camera, CameraInfo, Resolution
-from .klipper import KlipperError
+from .klipper import GCodeJournal, KlipperError
 
 # FakeKlipper が既定で返す printer.cfg。XYZStage / PasteDispenser / ProbeExecutor が読むセクションだけを持つ
 FAKE_PRINTER_CONFIG: dict[str, dict[str, Any]] = {
@@ -78,6 +78,7 @@ class FakeKlipper:
     位置は G28、G90 / G91 下の G0 / G1 で、manual_stepper の位置と押出量は ``MANUAL_STEPPER`` の ``SET_POSITION`` / ``MOVE`` で更新する。
     緊急停止は ``M112`` の送信として記録する。
     ``connection()`` で開いた接続は、この機体の状態と記録を共有する。
+    ジャーナルを与えた接続は、``MoonrakerKlipper`` と同じく送信をジャーナルにも書く（緊急停止は書かない）。
     """
 
     def __init__(
@@ -94,6 +95,7 @@ class FakeKlipper:
         """
         self._config = {section: dict(values) for section, values in config.items()}
         self._timeout = timeout
+        self._journal: GCodeJournal | None = None
         # 以下は connection() と共有するので、属性を差し替えずに中身を更新する
         self._status: dict[str, dict[str, Any]] = {
             "gcode_move": {
@@ -110,14 +112,17 @@ class FakeKlipper:
         self._fails: list[Callable[[GCode], bool]] = []
         self._settles: list[Callable[[], None]] = []
 
-    def connection(self, *, timeout: float | None = None) -> FakeKlipper:
+    def connection(
+        self, *, timeout: float | None = None, journal: GCodeJournal | None = None
+    ) -> FakeKlipper:
         """同じ機体への別の接続を返す.
 
-        位置・押出量・送信の記録・失敗の注入・静定待ちを共有し、送信ごとの指定が無いときの実効 timeout だけが違う。
-        ``open_klipper`` を何度も呼ぶジョブ（本体と終了時の駐機など）を、1 台の機体として記録するのに使う。
+        位置・押出量・送信の記録・失敗の注入・静定待ちを共有し、送信ごとの指定が無いときの実効 timeout とジャーナルだけが違う。
+        ``Devices`` が用途ごとに timeout を替えた接続（塗布の本体、jog、駐機など）を、1 台の機体として記録するのに使う。
         """
         connection = copy.copy(self)
         connection._timeout = timeout
+        connection._journal = journal
         return connection
 
     @property
@@ -168,6 +173,9 @@ class FakeKlipper:
         self, gcode: GCodeLike, *, timeout: float | None = None
     ) -> dict[str, Any]:
         sent = GCode(gcode)
+        timeout = self._timeout if timeout is None else timeout
+        if self._journal is not None:
+            self._journal.write(sent, timeout)
         self._record(sent, timeout)
         for line in str(sent).splitlines():
             self._execute(line.split())
@@ -182,12 +190,13 @@ class FakeKlipper:
         return self._config
 
     def emergency_stop(self) -> None:
-        self._record(GCode("M112"), None)
+        self._record(GCode("M112"), self._timeout)
+
+    def close(self) -> None:
+        """何もしない（``open_klipper`` の差し替えで返せるよう口をそろえる）."""
 
     def _record(self, gcode: GCode, timeout: float | None) -> None:
-        self._sent.append(
-            SentGCode(gcode, self._timeout if timeout is None else timeout)
-        )
+        self._sent.append(SentGCode(gcode, timeout))
         if any(fails(gcode) for fails in self._fails):
             raise KlipperError("Bad Request")
 

@@ -221,7 +221,7 @@ class PreviewService:
 
     def _acquire(self) -> FrameHub:
         """参照カウントを +1 し、現行 hub を起動して返す（start は冪等）."""
-        hub = self._state.frame_hub()
+        hub = self._state.devices.frame_hub()
         with self._count_lock:
             self._client_count += 1
             hub.start()

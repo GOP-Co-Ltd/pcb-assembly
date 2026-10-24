@@ -26,6 +26,10 @@ webui-audio-output 計画書「`src/webui/app.py`」節が追記契約（通知�
 - ジョブの開始は拒否する。設定・設定履歴・バックアップと、[klipper] が読めれば緊急停止は使える
 - 毎回ディスクから読むので、手編集は再起動なしで次のジョブと config_error に効く
 
+装置への接続の契約:
+
+- 起動時には Moonraker へ接続しない。Moonraker が落ちていても起動し、起きた後は操作なしで使える
+
 起動時の移行（pcbasm.migrate）の契約:
 
 - 設定を読む前に移行し、移行したことを `/api/state` の config_notice に出す
@@ -43,6 +47,7 @@ from fastapi.testclient import TestClient
 from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper
 from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.paths import PROJECT_ROOT
+from tests.support.moonraker import FakeMoonraker
 from tests.support.polling import wait_until
 from web.api.app import create_app
 from web.api.jobs.catalog import JobDefinition
@@ -191,6 +196,23 @@ class TestDegraded:
 
         assert client.post("/api/emergency-stop").status_code == 200
         assert klipper.sent_lines == ["M112"]
+
+
+class TestMoonrakerAtStartup:
+    """Moonraker が電源投入直後でまだ起きていなくても、backend は起動して後から使える."""
+
+    def test_starts_while_moonraker_is_down_and_uses_it_once_up(
+        self, app: FastAPI, moonraker: FakeMoonraker
+    ):
+        moonraker.up = False
+        with TestClient(app) as client:
+            assert moonraker.requests == []
+            assert client.get("/api/klipper/status").json()["connected"] is False
+
+            moonraker.up = True
+            status = client.get("/api/klipper/status").json()
+
+        assert status["connected"] is True
 
 
 class TestMigrationAtStartup:

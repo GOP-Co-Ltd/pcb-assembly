@@ -7,12 +7,11 @@ from collections.abc import Callable
 from fastapi import APIRouter
 
 from pcbasm.gcode import GCode
-from pcbasm.hal import KlipperClient, XYZStage
+from pcbasm.hal import XYZStage
 from web.api.dependencies import ControlDep, JobsDep, StateDep, UpdateDep
 from web.api.errors import hal_errors_to_502
 from web.api.jobs.manager import JobManager
-from web.api.routers.common import create_klipper, fetch_status
-from web.api.state import AppState
+from web.api.routers.common import fetch_status
 from web.contract.models import FirmwareRestartResponse, KlipperStatus
 from web.selfupdate.service import restart_scheduled_notice
 
@@ -24,13 +23,13 @@ router = APIRouter(prefix="/api")
 @router.get("/klipper/status")
 def get_klipper_status(state: StateDep) -> KlipperStatus:
     """Klipper の位置と homed_axes を返す（不通でも 200 で ``connected=False``）."""
-    return fetch_status(create_klipper(state, STATUS_TIMEOUT))
+    return fetch_status(state.devices.klipper(STATUS_TIMEOUT))
 
 
 @router.get("/stage/limits")
 def get_stage_limits(state: StateDep) -> dict[str, dict[str, float]]:
     """選択マシンの XYZ 可動域を返す（Moonraker 不通と printer.cfg の不備は 502）."""
-    klipper = create_klipper(state, STATUS_TIMEOUT)
+    klipper = state.devices.klipper(STATUS_TIMEOUT)
     with hal_errors_to_502():
         limits = XYZStage(klipper).limits
     return {
@@ -40,20 +39,18 @@ def get_stage_limits(state: StateDep) -> dict[str, dict[str, float]]:
     }
 
 
-def _klipper_action(
-    state: AppState, jobs: JobManager, action: Callable[[KlipperClient], object]
-) -> dict[str, bool]:
+def _klipper_action(jobs: JobManager, action: Callable[[], object]) -> dict[str, bool]:
     """Abort 要求を立ててから Klipper へアクションを送る（不通は 502）."""
     # Klipper 送信が失敗しても abort フラグは必ず立てる（先頭で実行）
     jobs.request_abort()
-    action(create_klipper(state, STATUS_TIMEOUT))
+    action()
     return {"ok": True}
 
 
 @router.post("/emergency-stop")
 def post_emergency_stop(state: StateDep, jobs: JobsDep) -> dict[str, bool]:
     """緊急停止（安全機能なので操作権でゲートしない。**ControlDep を足さない**）."""
-    return _klipper_action(state, jobs, lambda klipper: klipper.emergency_stop())
+    return _klipper_action(jobs, state.devices.emergency_stop)
 
 
 @router.post("/firmware-restart")
@@ -72,7 +69,10 @@ def post_firmware_restart(
     場合でも画面だけが止まる。Klipper 送信が失敗した時点で 502 を返して中断する。
     """
     _klipper_action(
-        state, jobs, lambda klipper: klipper.send_gcode(GCode.firmware_restart())
+        jobs,
+        lambda: state.devices.klipper(STATUS_TIMEOUT).send_gcode(
+            GCode.firmware_restart()
+        ),
     )
     units = update.restart_units()
     warning = update.restart_services() or ""

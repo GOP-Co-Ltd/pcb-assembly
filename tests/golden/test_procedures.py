@@ -73,10 +73,7 @@ from tests.support.golden import assert_transcript
 from tests.support.paths import TESTING_DATA_DIR
 from web.api.jobs.catalog import JobCatalog, JobDefinition
 from web.api.jobs.context import JobContext
-from web.api.jobs.machine_commands import (
-    create_command_klipper,
-    handle_machine_command,
-)
+from web.api.jobs.machine_commands import COMMAND_TIMEOUT, handle_machine_command
 from web.api.jobs.manager import JobManager, JobStatus
 from web.api.jobs.pasting.common import (
     LOADING_DEFAULT_AMOUNT,
@@ -607,7 +604,7 @@ class TestMachineCommands:
         )
 
         def run(ctx: JobContext) -> None:
-            klipper = create_command_klipper(ctx)
+            klipper = ctx.klipper(COMMAND_TIMEOUT)
             stage = XYZStage(klipper)
             assert handle_machine_command(ctx, klipper, stage, command, focus_z=FOCUS_Z)
 

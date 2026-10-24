@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from pcbasm import hal
 from pcbasm.gcode import GCode
 from pcbasm.hal import KlipperClient, XYZStage
 from pcbasm.parking import move_to_cap
@@ -13,14 +12,6 @@ from web.api.jobs.context import JobContext
 
 # wait_for_done (M400) を含む移動完了待ちのため長め（machine_control と同値）
 COMMAND_TIMEOUT = 60.0
-
-
-def create_command_klipper(ctx: JobContext) -> KlipperClient:
-    """ジョブのマシン設定とジャーナルで移動コマンド用 Klipper クライアントを生成する."""
-    config = ctx.machine.klipper
-    return hal.open_klipper(
-        config.host, config.port, timeout=COMMAND_TIMEOUT, journal=ctx.journal
-    )
 
 
 def handle_machine_command(

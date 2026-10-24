@@ -1,0 +1,187 @@
+"""機体 1 台の装置（Klipper とカメラ）.
+
+装置を組み立てる場所はここだけで、fake への切替もここで行う。
+"""
+
+from __future__ import annotations
+
+import functools
+import threading
+from collections.abc import Callable
+from pathlib import Path
+
+from pcbasm import hal
+from pcbasm.config import load_klipper, load_machine
+from pcbasm.config.klipper import KlipperConfig
+from pcbasm.hal import Camera, FrameHub, KlipperClient, MoonrakerKlipper
+from pcbasm.hal.fake import FakeCamera, FakeKlipper
+from pcbasm.machine.journal import Journal
+from pcbasm.vision import Image
+
+EMERGENCY_STOP_TIMEOUT = 10.0
+
+
+class Devices:
+    """機体 1 台の装置.
+
+    作っただけでは外部装置へ接続しない。
+    Moonraker へは最初の送信か問い合わせで、カメラへは最初に :meth:`frame_hub` を呼んだときに接続する。
+    Moonraker が起動していなくても作れ、起動した後は作り直さずにそのまま使える。
+    """
+
+    def __init__(
+        self,
+        config_path: Path,
+        journal_dir: Path,
+        *,
+        klipper: FakeKlipper | None = None,
+        camera: Callable[[], Camera] | None = None,
+    ) -> None:
+        """Devices を初期化する.
+
+        Args:
+            config_path: machine.toml（[klipper] は接続先を渡されないときに、[camera] はカメラを開くときに読む）
+            journal_dir: G-code ジャーナルの置き場所
+            klipper: Moonraker の代わりに使う fake 機体（None は [klipper] の Moonraker）
+            camera: カメラを開く関数（None は [camera] のカメラを開く）
+        """
+        self._config_path = config_path
+        self._journal_dir = journal_dir
+        self._fake_klipper = klipper
+        self._open_camera = camera
+        self._klipper_lock = threading.Lock()
+        self._moonraker: MoonrakerKlipper | None = None
+        self._endpoint: KlipperConfig | None = None
+        self._camera_lock = threading.Lock()
+        self._frame_hub: FrameHub | None = None
+
+    def klipper(
+        self,
+        timeout: float | None = None,
+        *,
+        journal: Journal | None = None,
+        endpoint: KlipperConfig | None = None,
+    ) -> KlipperClient:
+        """Klipper への接続を返す.
+
+        HTTP クライアントは 1 つを使い回し、呼び出しごとに替えるのは既定の timeout とジャーナルだけにする。
+        接続先が前と変わっていれば HTTP クライアントを作り直す。
+        printer.cfg は接続ごとに最初の 1 回だけ読むので、ジョブは 1 つの接続を使い回せば同じ版で走る。
+
+        Args:
+            timeout: 送信ごとの指定が無いときと、問い合わせの timeout 秒数（None は無制限。塗布の本体はこれ）
+            journal: 送信を書くジャーナル（None は当日の REST のジャーナル）
+            endpoint: 接続先（None はそのときの machine.toml の [klipper]。ジョブは開始時に読んだ設定を渡す）
+
+        Raises:
+            ConfigError: endpoint が None で [klipper] が読めない場合
+        """
+        if journal is None:
+            journal = Journal.for_today(self._journal_dir)
+        return self._klipper(endpoint).connection(timeout=timeout, journal=journal)
+
+    def emergency_stop(self) -> None:
+        """緊急停止を送る（使い回す HTTP クライアントとは別に送り、実行中の長い送信の後ろで待たない）.
+
+        Raises:
+            ConfigError: [klipper] が読めない場合
+            KlipperError: Klipper が要求を断った場合
+        """
+        if self._fake_klipper is not None:
+            self._fake_klipper.connection(
+                timeout=EMERGENCY_STOP_TIMEOUT
+            ).emergency_stop()
+            return
+        endpoint = load_klipper(self._config_path)
+        klipper = hal.open_klipper(
+            endpoint.host, endpoint.port, timeout=EMERGENCY_STOP_TIMEOUT
+        )
+        try:
+            klipper.emergency_stop()
+        finally:
+            klipper.close()
+
+    def frame_hub(self) -> FrameHub:
+        """FrameHub を返す（初回の呼び出しでカメラを開く。start はしない）.
+
+        Raises:
+            OSError: カメラデバイスが見つからない・開けない場合
+            RuntimeError: カメラがフォーマット等をサポートしない場合
+        """
+        with self._camera_lock:
+            if self._frame_hub is None:
+                self._frame_hub = FrameHub(self._camera())
+            return self._frame_hub
+
+    def rebuild_camera(self) -> None:
+        """FrameHub を止めて捨てる（次の :meth:`frame_hub` で [camera] を読み直して開く）."""
+        with self._camera_lock:
+            hub = self._frame_hub
+            self._frame_hub = None
+        if hub is not None:
+            hub.stop()
+
+    def close(self) -> None:
+        """後始末（FrameHub を止め、Moonraker への HTTP クライアントを閉じる）."""
+        self.rebuild_camera()
+        with self._klipper_lock:
+            moonraker = self._moonraker
+            self._moonraker = None
+        if moonraker is not None:
+            moonraker.close()
+
+    def _klipper(
+        self, endpoint: KlipperConfig | None
+    ) -> MoonrakerKlipper | FakeKlipper:
+        if self._fake_klipper is not None:
+            return self._fake_klipper
+        if endpoint is None:
+            endpoint = load_klipper(self._config_path)
+        with self._klipper_lock:
+            if self._moonraker is None or endpoint != self._endpoint:
+                # 古いクライアントは閉じない（実行中のジョブの接続がまだ使っているかもしれない）
+                self._moonraker = hal.open_klipper(endpoint.host, endpoint.port)
+                self._endpoint = endpoint
+            return self._moonraker
+
+    def _camera(self) -> Camera:
+        if self._open_camera is not None:
+            return self._open_camera()
+        camera = load_machine(self._config_path).camera
+        return hal.create_camera(
+            device_id=camera.device_id,
+            width=camera.width,
+            height=camera.height,
+            fps=camera.fps,
+            format=camera.format,
+            backend=camera.backend,
+        )
+
+
+def open_devices(
+    config_path: Path,
+    journal_dir: Path,
+    *,
+    fake: bool,
+    camera_image: Path | None = None,
+) -> Devices:
+    """machine.toml の機体の装置を組む（ここでは外部装置へ接続しない）.
+
+    Args:
+        config_path: machine.toml
+        journal_dir: G-code ジャーナルの置き場所
+        fake: Klipper を FakeKlipper にする
+        camera_image: 与えると、カメラをこの画像を返し続ける FakeCamera にする
+    """
+    return Devices(
+        config_path,
+        journal_dir,
+        klipper=FakeKlipper() if fake else None,
+        camera=(
+            None if camera_image is None else functools.partial(_still, camera_image)
+        ),
+    )
+
+
+def _still(image: Path) -> Camera:
+    return FakeCamera([Image.load(image)], fps=15.0)

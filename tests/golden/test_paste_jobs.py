@@ -40,17 +40,21 @@ from web.api.state import AppState
 
 
 class CloggedKlipper(FakeKlipper):
-    """先端が詰まった fake 機体（最初の ``clogged`` 回の押し出しではペーストが出ない）.
+    """先端が詰まりうる fake 機体（:meth:`clog` で与えた回数の押し出しではペーストが出ない）.
 
     押し出し 1 回は、manual_stepper を正の向きに進める ``MOVE`` を含む送信 1 回と数える。
     出なかった送信の ``MOVE`` は ``stepper_moves`` から除くので、SceneCamera は塗布痕を描かない。
     """
 
-    def __init__(self, clogged: float) -> None:
+    def __init__(self) -> None:
         super().__init__()
         # connection() と共有するので、属性を差し替えずに中身を更新する
-        self._clogged = [clogged]
+        self._clogged = [0.0]
         self._swallowed: set[int] = set()
+
+    def clog(self, times: float) -> None:
+        """次の times 回の押し出しでペーストを出さない."""
+        self._clogged[0] = times
 
     @property
     @override
@@ -86,28 +90,33 @@ def _forget_nozzle_clean(settings: Settings) -> None:
 
 class TestPasteSolder:
     @pytest.fixture
+    def machine_klipper(self) -> CloggedKlipper:
+        return CloggedKlipper()
+
+    @pytest.fixture
     def run(
         self,
         manager: JobManager,
         job_state: AppState,
-        mount_klipper: Callable[[FakeKlipper], None],
+        machine_klipper: CloggedKlipper,
         mount_camera: Callable[[Camera], None],
         led_blinker_shapes: list[Polygon],
     ) -> Callable[..., None]:
         """詰まりの回数を与えてはんだ塗布を走らせ、送信列を golden と比べる関数を返す."""
 
         def run(scenario: Scenario, *, clogged: float = 0) -> None:
-            klipper = CloggedKlipper(clogged)
-            mount_klipper(klipper)
+            machine_klipper.clog(clogged)
             mount_camera(
-                scene_camera(klipper, scenario.rotation, shapes=led_blinker_shapes)
+                scene_camera(
+                    machine_klipper, scenario.rotation, shapes=led_blinker_shapes
+                )
             )
 
             record = manager.start("paste_solder", {"tolerance": 0.1})
             status = JobStatus.SUCCEEDED if scenario.succeeds else JobStatus.FAILED
             finish(job_state, record, status)
 
-            assert_transcript(klipper.sent, JOBS / f"{scenario.name}.gcode")
+            assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")
 
         return run
 

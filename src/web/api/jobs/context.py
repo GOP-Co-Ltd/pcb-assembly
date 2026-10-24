@@ -12,7 +12,8 @@ import attrs
 
 from pcbasm.board import Board
 from pcbasm.config import MachineConfig
-from pcbasm.hal import Camera, FrameHub
+from pcbasm.hal import Camera, FrameHub, KlipperClient
+from pcbasm.machine.devices import Devices
 from pcbasm.machine.journal import Journal
 from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.vision import Image
@@ -140,6 +141,7 @@ class JobContext:
         *,
         pcb_path: Path | None,
         machine: MachineConfig,
+        devices: Devices,
         artifacts_dir: Path,
         journal: Journal,
         machine_id: str,
@@ -153,6 +155,7 @@ class JobContext:
         self._bridge = bridge
         self._pcb_path = pcb_path
         self._machine = machine
+        self._devices = devices
         self._artifacts_dir = artifacts_dir
         self._journal = journal
         self._machine_id = machine_id
@@ -182,14 +185,29 @@ class JobContext:
         return self._machine
 
     @property
+    def devices(self) -> Devices:
+        """機体の装置（Klipper とカメラ）."""
+        return self._devices
+
+    @property
     def artifacts_dir(self) -> Path:
         """成果物ディレクトリ data/webui/<job_id>/（作成済み）."""
         return self._artifacts_dir
 
     @property
     def journal(self) -> Journal:
-        """このジョブの送信を書く G-code ジャーナル（Klipper を作るときに渡す）."""
+        """このジョブの送信を書く G-code ジャーナル."""
         return self._journal
+
+    def klipper(self, timeout: float | None = None) -> KlipperClient:
+        """装置の Klipper への接続（接続先はジョブ開始時の設定、送信はこのジョブのジャーナルへ書く）.
+
+        Args:
+            timeout: 送信ごとの指定が無いときと、問い合わせの timeout 秒数（None は無制限）
+        """
+        return self._devices.klipper(
+            timeout, journal=self._journal, endpoint=self._machine.klipper
+        )
 
     @property
     def machine_id(self) -> str:

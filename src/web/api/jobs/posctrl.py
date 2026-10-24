@@ -10,7 +10,6 @@ from typing import Any
 import attrs
 import cv2
 
-from pcbasm import hal
 from pcbasm.board import Layer, Pad
 from pcbasm.config import MachineConfig
 from pcbasm.gcode import GCode
@@ -46,7 +45,7 @@ from web.api.jobs.context import (
     JobResult,
     PromptSpec,
 )
-from web.api.jobs.machine_commands import create_command_klipper, handle_machine_command
+from web.api.jobs.machine_commands import COMMAND_TIMEOUT, handle_machine_command
 
 # camera_calibration の Z 取得（best-effort）のタイムアウト [sec]
 Z_QUERY_TIMEOUT = 5.0
@@ -150,7 +149,7 @@ def _run_reference_point_setup(ctx: JobContext) -> JobResult:
     マシン操作パネル（ジョブモード）の WS command でジョグし、record で現在位置を確定・即時反映、quit で中止する。
     """
     machine = ctx.machine
-    klipper = create_command_klipper(ctx)
+    klipper = ctx.klipper(COMMAND_TIMEOUT)
     stage = XYZStage(klipper)
     cam_config = machine.camera
     try:
@@ -294,11 +293,7 @@ def _run_camera_calibration(ctx: JobContext) -> JobResult:
     # Z 位置は best-effort（Klipper 不通でも calibration 自体は成立させる）
     z: float | None = None
     try:
-        config = ctx.machine.klipper
-        klipper = hal.open_klipper(
-            config.host, config.port, timeout=Z_QUERY_TIMEOUT, journal=ctx.journal
-        )
-        z = XYZStage(klipper).get_position().z
+        z = XYZStage(ctx.klipper(Z_QUERY_TIMEOUT)).get_position().z
     except Exception as exc:
         ctx.log(f"Z 位置の取得に失敗しました（z_position なしで続行）: {exc}")
     result = attrs.evolve(result, z_position=z)

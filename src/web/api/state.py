@@ -10,13 +10,9 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from pcbasm.atomic import write_bytes_atomic, write_text_atomic
-from pcbasm.config import ConfigError, MachineConfig, load_klipper, load_machine
-from pcbasm.config.klipper import KlipperConfig
-from pcbasm.hal import Camera, FrameHub, create_camera
-from pcbasm.hal.fake import FakeCamera
-from pcbasm.machine.journal import Journal
+from pcbasm.config import ConfigError, MachineConfig, load_machine
+from pcbasm.machine.devices import Devices, open_devices
 from pcbasm.migrate.machine_toml import NAME, MigrationError, migrate_machine_toml
-from pcbasm.vision import Image
 from web.api.machine_config import MachineConfigFile
 from web.api.selection import BoardCache
 from web.api.settings import Settings
@@ -44,13 +40,18 @@ class BusyError(RuntimeError):
 
 
 class AppState:
-    """選択 PCB の保持・永続化（とその Board のキャッシュ）と装置排他ロックを担うクラス.
+    """選択 PCB の保持・永続化（とその Board のキャッシュ）、装置、装置排他ロックを担うクラス.
 
     ロック順序は ``machine_lock`` → ``_persist_lock`` に固定する
     （``_persist_lock`` 保持中に装置排他ロックを取る経路を作らない）。
     """
 
-    def __init__(self, settings: Settings, machine_config: MachineConfigFile) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        machine_config: MachineConfigFile,
+        devices: Devices | None = None,
+    ) -> None:
         """AppState を初期化する.
 
         webui_data_dir/webui_state.json から選択状態を復元する。
@@ -60,15 +61,23 @@ class AppState:
         Args:
             settings: WebUI 設定
             machine_config: machine.toml の読み書き
+            devices: 装置（None なら settings どおりに組む。テストは fake を注入する）
         """
         self._settings = settings
         self._machine_config = machine_config
+        if devices is None:
+            devices = open_devices(
+                machine_config.path,
+                settings.journal_dir,
+                fake=False,
+                camera_image=(
+                    settings.fake_camera_image if settings.fake_camera else None
+                ),
+            )
+        self._devices = devices
         self._lock = threading.Lock()
         self._busy_owner: str | None = None
         self._state_path = settings.webui_data_dir / _STATE_FILENAME
-        # カメラ/FrameHub の遅延構築用（machine_lock とは別の内部ロック）
-        self._camera_lock = threading.Lock()
-        self._frame_hub: FrameHub | None = None
         # webui_state.json の read-modify-write 直列化用（machine_lock の内側）
         self._persist_lock = threading.Lock()
         self._config_notice: str | None = None
@@ -135,6 +144,11 @@ class AppState:
             self._boards.forget()
 
     @property
+    def devices(self) -> Devices:
+        """装置（Klipper とカメラ）."""
+        return self._devices
+
+    @property
     def machine_config(self) -> MachineConfigFile:
         """machine.toml の読み書き（書き込みは装置排他ロックの内側で行う）."""
         return self._machine_config
@@ -189,18 +203,6 @@ class AppState:
                 f"（元の内容は設定履歴の machine-pre-{NAME}.toml）"
             )
 
-    def klipper(self) -> KlipperConfig:
-        """machine.toml の [klipper] 節だけを読む（degraded でも緊急停止を送れるように）.
-
-        Raises:
-            ConfigError: [klipper] が読めない場合
-        """
-        return load_klipper(self._machine_config.path)
-
-    def journal(self) -> Journal:
-        """ジョブの外の操作（REST）を書く当日の G-code ジャーナルを返す."""
-        return Journal.for_today(self._settings.journal_dir)
-
     def job_param_defaults(self, job_name: str) -> dict[str, StoredJobParamValue]:
         """ジョブフォーム用に保存された既定値を返す（未保存なら空 dict）."""
         with self._persist_lock:
@@ -229,47 +231,9 @@ class AppState:
             self._job_param_defaults = updated
             return dict(merged)
 
-    def frame_hub(self) -> FrameHub:
-        """FrameHub を返す（初回アクセスで遅延構築）.
-
-        start はしない（PreviewService の責務）。
-
-        Raises:
-            OSError: カメラデバイスが見つからない・開けない場合
-            RuntimeError: カメラがフォーマット等をサポートしない場合
-        """
-        with self._camera_lock:
-            if self._frame_hub is None:
-                self._frame_hub = FrameHub(self._build_camera())
-            return self._frame_hub
-
-    def rebuild_camera(self) -> None:
-        """現行 FrameHub を停止し参照を破棄する（次回 frame_hub() で再構築）.
-
-        未構築なら no-op（冪等）。
-        """
-        with self._camera_lock:
-            hub = self._frame_hub
-            self._frame_hub = None
-        if hub is not None:
-            hub.stop()
-
     def close(self) -> None:
-        """シャットダウン後始末（FrameHub 停止 + 参照破棄）."""
-        self.rebuild_camera()
-
-    def _build_camera(self) -> Camera:
-        if self._settings.fake_camera:
-            return FakeCamera([Image.load(self._settings.fake_camera_image)], fps=15.0)
-        camera = self.machine().camera
-        return create_camera(
-            device_id=camera.device_id,
-            width=camera.width,
-            height=camera.height,
-            fps=camera.fps,
-            format=camera.format,
-            backend=camera.backend,
-        )
+        """シャットダウン後始末（装置の FrameHub を止める）."""
+        self._devices.close()
 
     def acquire_machine(self, owner: str) -> None:
         """装置排他ロックを非ブロッキングで取得する.

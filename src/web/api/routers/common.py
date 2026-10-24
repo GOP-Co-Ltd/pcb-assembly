@@ -1,4 +1,4 @@
-"""複数ルーターが共有するヘルパ（Klipper 接続・状態レスポンス・ジョブ定義のパラメータ）.
+"""複数ルーターが共有するヘルパ（Klipper の状態・状態レスポンス・ジョブ定義のパラメータ）.
 
 2 つ以上の router から使われるものだけを置く（1 router 専用のヘルパは各 router に残す）。
 """
@@ -8,7 +8,6 @@ from __future__ import annotations
 import attrs
 import httpx
 
-from pcbasm import hal
 from pcbasm.geometry import Point3d
 from pcbasm.hal import KlipperClient
 from pcbasm.pasting.nozzle_clean import clean_position_label
@@ -32,16 +31,8 @@ from web.contract.models import (
 )
 
 # --------------------------------------------------------------------------- #
-# Klipper 接続
+# Klipper の状態
 # --------------------------------------------------------------------------- #
-
-
-def create_klipper(state: AppState, timeout: float) -> KlipperClient:
-    """[klipper] 節だけで Klipper クライアントを生成する（degraded でも緊急停止を送れる）."""
-    config = state.klipper()
-    return hal.open_klipper(
-        config.host, config.port, timeout=timeout, journal=state.journal()
-    )
 
 
 def fetch_status(klipper: KlipperClient) -> KlipperStatus:

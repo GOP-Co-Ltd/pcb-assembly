@@ -20,6 +20,7 @@ MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
 """
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -66,9 +67,11 @@ class TestKlipperErrors:
     """Klipper へ届かない・断られた操作は 502 で理由を返す."""
 
     def test_refused_send_returns_502_with_moonraker_reason(
-        self, client: TestClient, machine_klipper: FakeKlipper
+        self, client: TestClient, mount_klipper: Callable[[FakeKlipper], None]
     ):
-        machine_klipper.fail_on(lambda gcode: True)
+        klipper = FakeKlipper()
+        klipper.fail_on(lambda gcode: True)
+        mount_klipper(klipper)
 
         response = client.post("/api/machine-control", json={"action": "relax"})
 

@@ -106,7 +106,7 @@ class TestFakeKlipper:
         )
 
     def test_connection_shares_machine_with_its_own_timeout(self):
-        """``open_klipper`` を開き直すジョブも、1 台の機体の 1 列の送信として記録できる."""
+        """用途ごとに timeout を替えた接続も、1 台の機体の 1 列の送信として記録できる."""
         klipper = FakeKlipper(timeout=60.0)
         connection = klipper.connection(timeout=30.0)
 

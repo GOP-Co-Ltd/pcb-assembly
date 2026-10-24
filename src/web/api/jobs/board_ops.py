@@ -37,6 +37,7 @@ def setup_board(
         board = ctx.board()
     ctx.progress("セットアップ")
     return setup_board_calibration(
+        ctx.devices,
         machine=ctx.machine,
         board=board,
         tolerance=tolerance,

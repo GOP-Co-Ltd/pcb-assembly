@@ -8,11 +8,6 @@
 - machine_lock は非ブロッキング取得、失敗時 BusyError(現 owner)
 - focus_z は calibration JSON の z_position（ファイル欠落等は None）
 
-Phase 2 追記（計画書 webui-phase2.md「src/webui/state.py」節）:
-
-- frame_hub() は遅延構築 + キャッシュ
-- rebuild_camera() / close() は hub を停止して参照破棄
-
 Phase 3 追記（計画書 webui-phase3.md「src/webui/state.py」節）:
 
 - acquire_machine / release_machine は machine_lock の取得・解放分離形。
@@ -36,7 +31,6 @@ from pathlib import Path
 
 import pytest
 
-from pcbasm.hal import FrameHub
 from web.api.machine_config import MachineConfigFile
 from web.api.settings import Settings
 from web.api.state import AppState, BusyError
@@ -487,36 +481,3 @@ class TestMachineConfig:
 
     def test_machine_loads_config_dir_machine(self, state: AppState):
         assert state.machine().klipper.port == 7126
-
-
-class TestCameraLifecycle:
-    """FrameHub の遅延構築・再構築・後始末（Phase 2）."""
-
-    @pytest.fixture
-    def camera_state(
-        self, fake_camera_settings: Settings, machine_config: MachineConfigFile
-    ) -> AppState:
-        return AppState(fake_camera_settings, machine_config)
-
-    def test_frame_hub_is_constructed_lazily_and_cached(self, camera_state: AppState):
-        hub = camera_state.frame_hub()
-
-        assert isinstance(hub, FrameHub)
-        assert camera_state.frame_hub() is hub
-
-    def test_rebuild_camera_stops_hub_and_recreates(self, camera_state: AppState):
-        hub = camera_state.frame_hub()
-        hub.start()
-
-        camera_state.rebuild_camera()
-
-        assert not hub.running
-        assert camera_state.frame_hub() is not hub
-
-    def test_close_stops_hub(self, camera_state: AppState):
-        hub = camera_state.frame_hub()
-        hub.start()
-
-        camera_state.close()
-
-        assert not hub.running

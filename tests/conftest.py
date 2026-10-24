@@ -16,6 +16,7 @@ import pytest
 
 if TYPE_CHECKING:
     from pcbasm.hal.fake import FakeKlipper
+    from tests.support.moonraker import FakeMoonraker
 
 
 @pytest.fixture(autouse=True)
@@ -60,35 +61,45 @@ def unreachable_klipper(monkeypatch: pytest.MonkeyPatch) -> None:
     # localhost でなく 127.0.0.1 なのは、IPv6 を試す分だけ失敗が遅れるため
     monkeypatch.setattr(
         "pcbasm.hal.open_klipper",
-        lambda host, port, *, timeout=None, journal=None: MoonrakerKlipper(
-            "127.0.0.1", 7126, timeout=timeout, journal=journal
+        lambda host, port, *, timeout=None: MoonrakerKlipper(
+            "127.0.0.1", 7126, timeout=timeout
         ),
     )
 
 
 @pytest.fixture
+def moonraker(monkeypatch: pytest.MonkeyPatch) -> FakeMoonraker:
+    """`open_klipper` が、HTTP を FakeMoonraker に応えさせる Klipper を返すようにする."""
+    import httpx
+
+    from pcbasm.hal import MoonrakerKlipper
+    from tests.support.moonraker import FakeMoonraker
+
+    server = FakeMoonraker()
+    monkeypatch.setattr(
+        "pcbasm.hal.open_klipper",
+        lambda host, port, *, timeout=None: MoonrakerKlipper(
+            host, port, timeout=timeout, transport=httpx.MockTransport(server.handle)
+        ),
+    )
+    return server
+
+
+@pytest.fixture
 def mount_klipper(monkeypatch: pytest.MonkeyPatch) -> Callable[[FakeKlipper], None]:
-    """``open_klipper`` がどれも同じ fake 機体への接続を返すようにする関数を返す."""
+    """``open_klipper`` がどれも同じ fake 機体への接続を返すようにする関数を返す.
+
+    backend を組み立て経路（``open_devices`` → ``open_klipper``）ごと確かめるテスト用。
+    golden は ``Devices`` に fake 機体を注入する（tests/golden/conftest.py）。
+    """
 
     def mount(klipper: FakeKlipper) -> None:
         monkeypatch.setattr(
             "pcbasm.hal.open_klipper",
-            lambda host, port, *, timeout=None, journal=None: klipper.connection(
-                timeout=timeout
-            ),
+            lambda host, port, *, timeout=None: klipper.connection(timeout=timeout),
         )
 
     return mount
-
-
-@pytest.fixture
-def machine_klipper(mount_klipper: Callable[[FakeKlipper], None]) -> FakeKlipper:
-    """``open_klipper`` がどれも接続を返す 1 台の fake 機体（送信の記録は全接続で 1 列）."""
-    from pcbasm.hal.fake import FakeKlipper
-
-    klipper = FakeKlipper()
-    mount_klipper(klipper)
-    return klipper
 
 
 @pytest.fixture(scope="session")

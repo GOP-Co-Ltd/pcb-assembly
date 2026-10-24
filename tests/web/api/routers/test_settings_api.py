@@ -451,7 +451,7 @@ class TestCameraSettingsRebuild:
     def test_put_camera_key_rebuilds_frame_hub(
         self, fake_camera_client: TestClient, fake_camera_appstate: AppState
     ):
-        hub = fake_camera_appstate.frame_hub()
+        hub = fake_camera_appstate.devices.frame_hub()
 
         response = fake_camera_client.put(
             "/api/settings/machine",
@@ -459,12 +459,12 @@ class TestCameraSettingsRebuild:
         )
 
         assert response.status_code == 200
-        assert fake_camera_appstate.frame_hub() is not hub
+        assert fake_camera_appstate.devices.frame_hub() is not hub
 
     def test_put_without_camera_key_keeps_frame_hub(
         self, fake_camera_client: TestClient, fake_camera_appstate: AppState
     ):
-        hub = fake_camera_appstate.frame_hub()
+        hub = fake_camera_appstate.devices.frame_hub()
 
         response = fake_camera_client.put(
             "/api/settings/machine",
@@ -472,13 +472,13 @@ class TestCameraSettingsRebuild:
         )
 
         assert response.status_code == 200
-        assert fake_camera_appstate.frame_hub() is hub
+        assert fake_camera_appstate.devices.frame_hub() is hub
 
     def test_put_camera_crop_key_keeps_frame_hub(
         self, fake_camera_client: TestClient, fake_camera_appstate: AppState
     ):
         """Crop は camera.* 前置だが再構築しない（ストリーム非切断の要件）."""
-        hub = fake_camera_appstate.frame_hub()
+        hub = fake_camera_appstate.devices.frame_hub()
 
         response = fake_camera_client.put(
             "/api/settings/machine",
@@ -486,14 +486,14 @@ class TestCameraSettingsRebuild:
         )
 
         assert response.status_code == 200, response.text
-        assert fake_camera_appstate.frame_hub() is hub
+        assert fake_camera_appstate.devices.frame_hub() is hub
 
     def test_put_camera_crop_and_other_camera_key_rebuilds_frame_hub(
         self, fake_camera_client: TestClient, fake_camera_appstate: AppState
     ):
         """Camera.crop.* と他の camera.* キーが混在した PUT では再構築する（camera.crop.* 以外の
         camera.* が 1 つでも含まれていれば rebuild する境界のピン）."""
-        hub = fake_camera_appstate.frame_hub()
+        hub = fake_camera_appstate.devices.frame_hub()
 
         response = fake_camera_client.put(
             "/api/settings/machine",
@@ -501,7 +501,7 @@ class TestCameraSettingsRebuild:
         )
 
         assert response.status_code == 200, response.text
-        assert fake_camera_appstate.frame_hub() is not hub
+        assert fake_camera_appstate.devices.frame_hub() is not hub
 
 
 class TestConfigHistoryApi:
@@ -533,11 +533,11 @@ class TestConfigHistoryApi:
             "/api/settings/machine", json={"values": {"camera.fps": 20.0}}
         )
         [entry] = fake_camera_client.get("/api/settings/history").json()["entries"]
-        hub = fake_camera_appstate.frame_hub()
+        hub = fake_camera_appstate.devices.frame_hub()
 
         fake_camera_client.post(f"/api/settings/history/{entry['name']}/restore")
 
-        assert fake_camera_appstate.frame_hub() is not hub
+        assert fake_camera_appstate.devices.frame_hub() is not hub
 
     def test_unknown_snapshot_returns_404(self, client: TestClient):
         response = client.post("/api/settings/history/machine-missing.toml/restore")
