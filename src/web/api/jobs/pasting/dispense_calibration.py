@@ -357,7 +357,7 @@ def _handle_menu_loading_or_machine(
         case _:
             klipper = procedure.session.klipper
             stage = procedure.session.stage
-            if not handle_machine_command(ctx, klipper, stage, command, focus_z=None):
+            if not handle_machine_command(ctx, klipper, stage, command):
                 ctx.log(f"未知のコマンドです: {command.get('type')!r}")
 
 

@@ -180,7 +180,7 @@ def _run_reference_point_setup(ctx: JobContext) -> JobResult:
             ctx.frame(_reference_point_frame(camera, detector, machine, position))
             command = ctx.next_command(timeout=0)
             if command is not None and _dispatch_reference_command(
-                ctx, klipper, stage, calibration, position, command
+                ctx, klipper, stage, position, command
             ):
                 break
             ctx.checkpoint()
@@ -229,7 +229,6 @@ def _dispatch_reference_command(
     ctx: JobContext,
     klipper: KlipperClient,
     stage: XYZStage,
-    calibration: CalibrationResult,
     position: _CachedPosition,
     command: dict[str, Any],
 ) -> bool:
@@ -247,9 +246,7 @@ def _dispatch_reference_command(
         case {"type": "quit"}:
             ctx.log("中止しました。設定は変更していません")
             raise JobAborted()
-    if handle_machine_command(
-        ctx, klipper, stage, command, focus_z=calibration.z_position
-    ):
+    if handle_machine_command(ctx, klipper, stage, command):
         position.invalidate()
     else:
         ctx.log(f"未知のコマンドです: {command.get('type')!r}")

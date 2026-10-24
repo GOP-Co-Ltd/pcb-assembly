@@ -2,6 +2,7 @@
 
 route は実アプリ（``create_app``）に TestClient で送り、送信先は ``Devices`` に注入した 1 台の fake 機体にする。
 golden は ``routes/<名前>.gcode`` に置く。
+対話ジョブ中のマシン操作は REST と同じ golden と比べ、経路によらず同じ列を送ることを固定する。
 ファームウェア再起動は WebUI のサービスも再起動するので、UpdateSandbox のスタブの中でだけ採る。
 """
 
@@ -13,14 +14,19 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper
 from pcbasm.machine.devices import Devices
-from tests.golden.conftest import GOLDEN_DIR
+from tests.golden.conftest import GOLDEN_DIR, finish
 from tests.support import polling
 from tests.support.golden import assert_transcript
 from tests.web.api.jobs.conftest import register_synthetic
 from tests.web.update_support import make_update_sandbox
 from web.api.app import create_app
+from web.api.jobs.catalog import JobCatalog
+from web.api.jobs.context import JobContext
+from web.api.jobs.machine_commands import handle_machine_command
+from web.api.jobs.manager import JobManager
 from web.api.settings import Settings
 from web.api.state import AppState
 from web.selfupdate.runner import UpdateRunner
@@ -67,12 +73,14 @@ def client(app: FastAPI) -> Iterator[TestClient]:
 
 
 class TestMachineControl:
-    """マシン操作パネル（POST /api/machine-control）."""
+    """マシン操作パネル（POST /api/machine-control と、対話ジョブ中の command）."""
 
     @pytest.mark.parametrize(
         ("name", "body"),
         [
-            ("home_all", {"action": "home", "axes": ["x", "y", "z"]}),
+            # 全軸ホーミングのボタンは軸を指定せずに送る
+            ("home_all", {"action": "home", "axes": []}),
+            ("home_xyz", {"action": "home", "axes": ["x", "y", "z"]}),
             ("home_xy", {"action": "home", "axes": ["x", "y"]}),
             ("jog_x", {"action": "jog", "axis": "x", "distance": 1.5}),
             ("jog_z", {"action": "jog", "axis": "z", "distance": -0.1}),
@@ -93,6 +101,41 @@ class TestMachineControl:
         response = client.post("/api/machine-control", json=body)
 
         assert response.status_code == 200, response.text
+        assert_transcript(homed_klipper.sent, ROUTES / f"machine_control_{name}.gcode")
+
+    @pytest.mark.parametrize(
+        ("name", "command"),
+        [
+            ("home_all", {"type": "home", "axes": []}),
+            ("home_xyz", {"type": "home", "axes": ["x", "y", "z"]}),
+            ("home_xy", {"type": "home", "axes": ["x", "y"]}),
+            ("jog_x", {"type": "jog", "axis": "x", "dist": 1.5}),
+            ("jog_z", {"type": "jog", "axis": "z", "dist": -0.1}),
+            ("move", {"type": "move", "x": 120.0, "y": 50.0, "z": 5.0}),
+            ("relax", {"type": "relax"}),
+            ("focus_z", {"type": "focus_z"}),
+            ("move_to_cap", {"type": "move_to_cap"}),
+        ],
+    )
+    def test_job_command(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        job_state: AppState,
+        homed_klipper: FakeKlipper,
+        name: str,
+        command: dict[str, Any],
+    ):
+        """対話ジョブ中の同じ操作も、REST と同じ列を同じ timeout で送る."""
+
+        def run(ctx: JobContext) -> None:
+            # 塗布のジョブと同じく、既定の timeout を持たない接続で受ける
+            klipper = ctx.klipper()
+            assert handle_machine_command(ctx, klipper, XYZStage(klipper), command)
+
+        register_synthetic(catalog, run, name="machine_command")
+        finish(job_state, manager.start("machine_command", {}))
+
         assert_transcript(homed_klipper.sent, ROUTES / f"machine_control_{name}.gcode")
 
 

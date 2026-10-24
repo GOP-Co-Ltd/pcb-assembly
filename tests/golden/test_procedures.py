@@ -69,13 +69,8 @@ from pcbasm.posctrl import (
     RegionAlignment,
 )
 from pcbasm.vision import CalibrationResult, Image, Offset
-from tests.support import polling
 from tests.support.golden import assert_transcript
 from tests.support.paths import TESTING_DATA_DIR
-from web.api.jobs.catalog import JobCatalog, JobDefinition
-from web.api.jobs.context import JobContext
-from web.api.jobs.machine_commands import COMMAND_TIMEOUT, handle_machine_command
-from web.api.jobs.manager import JobManager, JobStatus
 from web.api.jobs.pasting.common import (
     LOADING_DEFAULT_AMOUNT,
     LOADING_DEFAULT_ROTATION_ACCEL,
@@ -565,59 +560,3 @@ class TestPasteDataset:
                 )
 
         assert_transcript(klipper.sent, PROCEDURES / "paste_dataset.gcode")
-
-
-class TestMachineCommands:
-    """ジョブモードのマシン操作パネル（jog / home / move / relax / focus_z / move_to_cap）."""
-
-    @pytest.fixture
-    def catalog(self) -> JobCatalog:
-        return JobCatalog()
-
-    @pytest.mark.parametrize(
-        ("name", "command"),
-        [
-            ("jog_x", {"type": "jog", "axis": "x", "dist": 1.5}),
-            ("jog_y", {"type": "jog", "axis": "y", "dist": -0.1}),
-            ("jog_z", {"type": "jog", "axis": "z", "dist": 10.0}),
-            ("home_all", {"type": "home", "axes": []}),
-            ("home_xy", {"type": "home", "axes": ["x", "y"]}),
-            ("move", {"type": "move", "x": 100.0, "y": 50.0, "z": 5.0}),
-            ("relax", {"type": "relax"}),
-            ("focus_z", {"type": "focus_z"}),
-            ("move_to_cap", {"type": "move_to_cap"}),
-        ],
-    )
-    def test_command(
-        self,
-        manager: JobManager,
-        catalog: JobCatalog,
-        machine_klipper: FakeKlipper,
-        name: str,
-        command: dict[str, Any],
-    ):
-        # jog は現在位置からの相対量なので、原点以外から始める
-        machine_klipper.set_status(
-            "gcode_move", "gcode_position", [100.0, 80.0, 5.0, 0.0]
-        )
-
-        def run(ctx: JobContext) -> None:
-            klipper = ctx.klipper(COMMAND_TIMEOUT)
-            stage = XYZStage(klipper)
-            assert handle_machine_command(ctx, klipper, stage, command, focus_z=FOCUS_Z)
-
-        catalog.register(
-            JobDefinition(
-                name="command",
-                label="マシン操作",
-                run=run,
-                uses_machine=False,
-            )
-        )
-        record = manager.start("command", {})
-        polling.wait_until(lambda: record.status.terminal)
-
-        assert record.status == JobStatus.SUCCEEDED
-        assert_transcript(
-            machine_klipper.sent, PROCEDURES / f"machine_command_{name}.gcode"
-        )
