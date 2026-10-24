@@ -8,8 +8,8 @@ from typing import override
 import uvicorn
 
 from web.api.app import create_app
+from web.api.env import Settings
 from web.api.preview import PreviewService
-from web.api.settings import Settings
 from web.process import setup_logging
 
 

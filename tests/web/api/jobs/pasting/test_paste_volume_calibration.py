@@ -8,16 +8,17 @@ from pathlib import Path
 import cv2
 import pytest
 
-from pcbasm.pasting.dataset.reader import DatasetSession
 from pcbasm.pasting.paste_volume.calibration import (
     CALIBRATION_SUFFIX,
     list_calibrations,
     load_calibration,
     write_calibration,
 )
+from pcbasm.pasting.paste_volume.dataset.reader import DatasetSession
 from pcbasm.pasting.paste_volume.fit import fit_session
 from tests.helpers import build_paste_volume_session
 from tests.web.api.jobs.conftest import ManagerFactory, WaitUntil, register_synthetic
+from web.api.env import Settings
 from web.api.jobs.catalog import JobCatalog, ParamSpec
 from web.api.jobs.context import JobContext, JobResult
 from web.api.jobs.manager import JobManager, JobRecord, JobStatus
@@ -30,7 +31,6 @@ from web.api.jobs.pasting.paste_volume_common import (
     DETECTION_PARAMS,
     REQUIRE_BLANK_ZERO_PARAM,
 )
-from web.api.settings import Settings
 
 
 @pytest.mark.usefixtures("unreachable_klipper")

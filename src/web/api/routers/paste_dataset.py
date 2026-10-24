@@ -1,7 +1,7 @@
 """データセット収集のレイアウト preview API（装置を動かさない読み取り専用計算）.
 
 セル配置・容量判定・量割り当て・派生カウント（総点数・撮影枚数）は
-:func:`pcbasm.pasting.dataset.plan.preview_dot_grid` が唯一の出典で、ここは
+:func:`pcbasm.pasting.paste_volume.dataset.plan.preview_dot_grid` が唯一の出典で、ここは
 ジョブ ParamSpec 名の受け取りとレスポンス変換だけを担う。
 
 配置不能な設定でも 200 で返し、理由は body の ``error`` に載せる（WebUI 側で配置図を
@@ -13,7 +13,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict
 
-from pcbasm.pasting.dataset.plan import DotGridPreview, preview_dot_grid
+from pcbasm.pasting.paste_volume.dataset.plan import DotGridPreview, preview_dot_grid
 from web.api.attrs_models import mirror_model
 from web.api.jobs.pasting.paste_volume_calibration import grid_spec_from_params
 

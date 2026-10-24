@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from pcbasm.gcode import GCode
-from pcbasm.pasting.correction import measure_correction
 from pcbasm.pasting.nozzle_clean import resolve_nozzle_clean
 from pcbasm.pasting.overrides import BoardSession
-from pcbasm.pasting.workflow import plan_paste_targets
+from pcbasm.pasting.plan import plan_paste_targets
+from pcbasm.pasting.prepare import measure_correction
 from web.api.jobs.board_ops import align_events
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import JobContext, JobResult

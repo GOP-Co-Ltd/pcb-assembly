@@ -35,7 +35,7 @@ from starlette.routing import Mount
 from starlette.types import Receive, Scope, Send
 
 from tests.support.paths import TESTING_DATA_DIR
-from web.api.settings import Settings as ApiSettings
+from web.api.env import Settings as ApiSettings
 from web.ui.machine_client import BackendGateway
 from web.ui.machines import MachineEndpoint, MachineRegistry
 from web.ui.proxy import ProxyApp

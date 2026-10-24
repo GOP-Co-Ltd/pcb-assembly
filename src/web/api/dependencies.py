@@ -8,16 +8,16 @@ from fastapi import Depends, Request
 
 from pcbasm.hal import AudioPlayer
 from pcbasm.pasting.overrides import BoardOverrides
-from pcbasm.pasting.testboard.generator import (
+from pcbasm.pasting.test_board.generator import (
     BoardGenerator,
 )
 from web.api.control import ClientIdentity, ControlLease, LeaseInfo
+from web.api.env import Settings
 from web.api.identity import get_identity
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.manager import JobManager
 from web.api.machine_config import MachineConfigFile
 from web.api.preview import PreviewService
-from web.api.settings import Settings
 from web.api.state import AppState
 from web.selfupdate.runner import UpdateRunner
 

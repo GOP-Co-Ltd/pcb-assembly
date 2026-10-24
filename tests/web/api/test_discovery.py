@@ -32,7 +32,7 @@ from web.api.discovery import (
     local_ipv4_addresses,
     select_advertise_addresses,
 )
-from web.api.settings import Settings, resolve_machine_id
+from web.api.env import Settings, resolve_machine_id
 from web.contract.discovery import API_VERSION, SERVICE_TYPE, TXT_KEY_API, TXT_KEY_ID
 
 # このホストに存在しないアドレス（TEST-NET-3）。zeroconf は bind できず OSError

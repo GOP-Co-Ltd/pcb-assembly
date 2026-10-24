@@ -32,11 +32,11 @@ from pcbasm.pasting.paste_volume.calibration import (
 from pcbasm.vision import CameraModel
 from tests.support import polling
 from tests.support.paths import TESTING_DATA_DIR
+from web.api.env import Settings
 from web.api.jobs.catalog import JobCatalog, default_catalog
 from web.api.jobs.manager import JobManager, JobRecord, JobStatus
 from web.api.machine_config import MachineConfigFile
 from web.api.preview import PreviewService
-from web.api.settings import Settings
 from web.api.state import AppState
 
 GOLDEN_DIR = Path(__file__).parent

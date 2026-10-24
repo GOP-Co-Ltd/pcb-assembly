@@ -16,8 +16,8 @@ from tests.e2e.conftest import (
 from tests.e2e.network import DelayedHttp, delayed_ui
 from tests.support.settings import make_api_settings
 from tests.web.api.conftest import CHECKERBOARD_CAMERA_IMAGE
+from web.api.env import Settings
 from web.api.machine_config import MachineConfigFile
-from web.api.settings import Settings
 
 
 @pytest.fixture

@@ -10,7 +10,10 @@
 
 from __future__ import annotations
 
-from pcbasm.pasting.dataset.reader import DatasetSession, completed_sessions
+from pcbasm.pasting.paste_volume.dataset.reader import (
+    DatasetSession,
+    completed_sessions,
+)
 from web.api.jobs.catalog import JobCatalog, JobDefinition
 from web.api.jobs.context import JobContext, JobResult, PromptSpec
 from web.api.jobs.pasting.paste_volume_common import (

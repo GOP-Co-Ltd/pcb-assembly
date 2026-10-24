@@ -9,7 +9,7 @@ from fastapi.responses import Response
 
 from web.api.backup import build_backup
 from web.api.dependencies import SettingsDep
-from web.api.settings import resolve_machine_id
+from web.api.env import resolve_machine_id
 
 router = APIRouter(prefix="/api")
 

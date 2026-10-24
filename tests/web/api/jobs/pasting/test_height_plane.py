@@ -10,10 +10,10 @@ import pytest
 from pcbasm.pasting.overrides import BoardOverrides
 from tests.web.api.conftest import decode_jpeg, jpeg_payload
 from tests.web.api.jobs.conftest import WaitUntil, answer_next_prompt
+from web.api.env import Settings
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.manager import JobManager, JobStatus
 from web.api.preview import PreviewService
-from web.api.settings import Settings
 from web.api.state import AppState
 
 

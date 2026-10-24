@@ -18,12 +18,12 @@ from pathlib import Path
 
 import cv2
 
-from pcbasm.pasting.dataset.reader import DatasetSession
 from pcbasm.pasting.paste_volume.calibration import (
     auto_calibration_path,
     calibration_path,
     write_calibration,
 )
+from pcbasm.pasting.paste_volume.dataset.reader import DatasetSession
 from pcbasm.pasting.paste_volume.detect import DotDetectionSpec, detection_mask
 from pcbasm.pasting.paste_volume.fit import CalibrationFit, CellMeasurement, fit_session
 from pcbasm.pasting.paste_volume.plot import (

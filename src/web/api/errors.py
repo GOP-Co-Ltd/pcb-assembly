@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 from pcbasm.config import ConfigError
 from pcbasm.errors import DeviceError
 from pcbasm.kicad.units import KicadError
-from pcbasm.pasting.testboard.config import BoardConfigError
+from pcbasm.pasting.test_board.config import BoardConfigError
 from web.api.control import ControlDeniedError, LeaseInfo
 from web.api.machine_config import InvalidSettingError
 from web.api.routers.common import control_payload

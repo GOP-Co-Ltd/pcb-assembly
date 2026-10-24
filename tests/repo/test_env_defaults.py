@@ -3,7 +3,7 @@
 import pytest
 
 from pcbasm.paths import PROJECT_ROOT
-from web.api.settings import Settings
+from web.api.env import Settings
 
 
 class TestBackendDirs:

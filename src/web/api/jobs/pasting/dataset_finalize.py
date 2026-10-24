@@ -2,7 +2,7 @@
 
 収集ジョブは計量質量のプロンプトの前に ``pending.json`` を残す。そこで応答できずに
 中断したセッションを、装置を動かさずに完成 dataset へ確定させる。配分規則・schema・
-確定手順は :mod:`pcbasm.pasting.dataset` 側にあり、ここは選択 UI と成果物への変換だけ
+確定手順は :mod:`pcbasm.pasting.paste_volume.dataset` 側にあり、ここは選択 UI と成果物への変換だけ
 を担う。
 """
 
@@ -12,13 +12,16 @@ import json
 import shutil
 from pathlib import Path
 
-from pcbasm.pasting.dataset.pending import (
+from pcbasm.pasting.paste_volume.dataset.pending import (
     PENDING_FILENAME,
     PasteDatasetPending,
     finalize_pending,
     parse_pending,
 )
-from pcbasm.pasting.dataset.writer import finalize_incomplete, rescuable_sessions
+from pcbasm.pasting.paste_volume.dataset.store import (
+    finalize_incomplete,
+    rescuable_sessions,
+)
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import JobContext, JobResult, PromptSpec
 

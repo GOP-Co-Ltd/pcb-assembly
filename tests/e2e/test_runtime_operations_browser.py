@@ -22,8 +22,8 @@ from tests.e2e.conftest import (
 )
 from tests.support.settings import make_ui_settings
 from web.api.app import create_app as create_api_app
+from web.api.env import Settings
 from web.api.jobs.context import JobContext
-from web.api.settings import Settings
 from web.ui.app import create_app
 from web.ui.machines import MachineEndpoint
 

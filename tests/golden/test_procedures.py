@@ -46,27 +46,27 @@ from pcbasm.kicad import load_board
 from pcbasm.kicad.build import generate_rect_pcb, save_board
 from pcbasm.machine.park import PRESENT_TIMEOUT, park
 from pcbasm.pasting.applicator import build_applicator
-from pcbasm.pasting.correction import PasteCorrection
-from pcbasm.pasting.dataset.plan import (
+from pcbasm.pasting.dispense_calibration.lines import plan_rate_sweep, plan_speed_sweep
+from pcbasm.pasting.dispense_calibration.mass import RotationsPerUlRound
+from pcbasm.pasting.dispense_calibration.params import CalibrationParams
+from pcbasm.pasting.dispense_calibration.procedure import FlowCalibrationProcedure
+from pcbasm.pasting.fill_sequence import FillSequence, MicroLineSequence
+from pcbasm.pasting.hierarchy import PadHierarchy
+from pcbasm.pasting.nozzle_clean import clean_nozzle, resolve_nozzle_clean
+from pcbasm.pasting.overrides import PasteSettingsModel
+from pcbasm.pasting.params import PasteParamsPatch
+from pcbasm.pasting.paste_volume.dataset.plan import (
     DEFAULT_PASTE_HEIGHT_MM,
     DotGridSpec,
     plan_dot_grid,
 )
-from pcbasm.pasting.fill_sequence import FillSequence, MicroLineSequence
-from pcbasm.pasting.flowcalib.flow import RotationsPerUlRound
-from pcbasm.pasting.flowcalib.lines import plan_rate_sweep, plan_speed_sweep
-from pcbasm.pasting.flowcalib.params import CalibrationParams
-from pcbasm.pasting.flowcalib.procedure import FlowCalibrationProcedure
-from pcbasm.pasting.hierarchy import PadHierarchy
-from pcbasm.pasting.nozzle_clean import clean_nozzle, resolve_nozzle_clean
-from pcbasm.pasting.params import PasteParamsPatch
+from pcbasm.pasting.plan import PasteTargets, plan_paste_targets
+from pcbasm.pasting.prepare import PasteCorrection
 from pcbasm.pasting.session import PasteSession
-from pcbasm.pasting.settings import PasteSettingsModel
 from pcbasm.pasting.toolhead_offset import (
     ToolheadOffsetProcedure,
     plan_toolhead_offset_points,
 )
-from pcbasm.pasting.workflow import PasteTargets, plan_paste_targets
 from pcbasm.vision import Image, Offset
 from tests.support.camera_model import make_camera_model
 from tests.support.golden import assert_transcript

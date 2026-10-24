@@ -6,8 +6,8 @@ import pytest
 
 from pcbasm.kicad import load_board
 from tests.web.api.jobs.conftest import WaitUntil
+from web.api.env import Settings
 from web.api.jobs.manager import JobManager, JobStatus
-from web.api.settings import Settings
 
 
 class TestGenerateRectPcb:

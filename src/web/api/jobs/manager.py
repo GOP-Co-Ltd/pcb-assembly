@@ -28,6 +28,7 @@ from pcbasm.machine.park import PRESENT_TIMEOUT, park
 from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.validators import is_finite_number
 from pcbasm.vision import Image
+from web.api.env import Settings, resolve_machine_id
 from web.api.jobs.catalog import JobCatalog, JobDefinition
 from web.api.jobs.context import (
     Answer,
@@ -40,7 +41,6 @@ from web.api.jobs.context import (
     PromptSpec,
 )
 from web.api.preview import PreviewService
-from web.api.settings import Settings, resolve_machine_id
 from web.api.state import AppState
 
 type _Event = dict[str, Any]

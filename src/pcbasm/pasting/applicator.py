@@ -176,7 +176,7 @@ class PasteApplicator:
     def adopt_rotations_per_ul(self, rotations_per_ul: float) -> None:
         """運転中に μL → 回転数の換算係数を差し替える.
 
-        運転時流量キャリブレーションが求めた係数を、残りの pad へ適用するための入口。
+        運転時補正が求めた係数を、残りの pad へ適用するための入口。
         ``with`` を抜けずに差し替えるので AirPump の OFF→ON が入らない。
         """
         logger.info(

@@ -193,7 +193,7 @@ WebUI のはんだ塗布タブの「塗布量校正の生成」（`paste_volume_
 
 ### ジョブフォームのパラメータ
 
-既定値はコア層の DTO（`pcbasm.pasting.dataset.plan`）の既定が唯一の出典である。
+既定値はコア層の DTO（`pcbasm.pasting.paste_volume.dataset.plan`）の既定が唯一の出典である。
 
 | name                           | 表示                                 | 既定              |
 | ------------------------------ | ------------------------------------ | ----------------- |
@@ -447,7 +447,7 @@ document は移行せず「未対応」として拒否する（v1・v2 からの
 ## 付録: テスト塗布基板
 
 `dot` / `line` / `area` を実基板形状で試すための KiCad 基板を生成する機能で、**データ収集には使わない**。
-塗布パラメータの目視確認やテスト塗布に使う。実装は `pcbasm.pasting.testboard`
+塗布パラメータの目視確認やテスト塗布に使う。実装は `pcbasm.pasting.test_board`
 （`config` / `catalog` / `layout` / `generator`）にある。公開名に曖昧な `calibration_board` は使わない。
 
 ### 設定と既定

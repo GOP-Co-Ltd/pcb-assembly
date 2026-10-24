@@ -23,11 +23,11 @@ from tests.support.golden import assert_transcript
 from tests.web.api.jobs.conftest import register_synthetic
 from tests.web.update_support import make_update_sandbox
 from web.api.app import create_app
+from web.api.env import Settings
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.context import JobContext
 from web.api.jobs.machine_commands import handle_machine_command
 from web.api.jobs.manager import JobManager
-from web.api.settings import Settings
 from web.api.state import AppState
 from web.selfupdate.runner import UpdateRunner
 

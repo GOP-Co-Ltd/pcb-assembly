@@ -31,7 +31,7 @@ from pcbasm.hal.fake import FakeAudioPlayer
 from tests.support.polling import before_deadline
 from tests.web.update_support import UpdateSandbox, make_update_sandbox
 from web.api.app import create_app
-from web.api.settings import Settings
+from web.api.env import Settings
 from web.api.state import AppState
 from web.selfupdate.runner import UpdateRunner
 

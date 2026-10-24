@@ -20,8 +20,8 @@ from tests.e2e.conftest import (
 )
 from tests.e2e.network import delayed_ui
 from web.api.app import create_app
+from web.api.env import Settings
 from web.api.jobs.context import JobContext
-from web.api.settings import Settings
 
 
 @pytest.fixture

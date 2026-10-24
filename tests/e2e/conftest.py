@@ -41,10 +41,10 @@ from tests.support.job_demo import register_job_demo
 from tests.support.settings import make_api_settings, make_ui_settings
 from tests.web.api.conftest import COPPER_PCB_FIXTURE
 from web.api.app import create_app
+from web.api.env import Settings
 from web.api.jobs.catalog import JobCatalog, JobDefinition
 from web.api.jobs.context import JobContext, JobResult
 from web.api.jobs.manager import JobManager
-from web.api.settings import Settings
 from web.contract.identity import SESSION_COOKIE
 from web.ui.app import create_app as create_ui_app
 from web.ui.machines import MachineEndpoint

@@ -41,7 +41,7 @@ from tests.helpers import random_service_type, skip_if_no_mdns
 from tests.support.settings import make_api_settings, make_ui_settings
 from web.api.app import create_app as create_backend_app
 from web.api.discovery import ServiceAdvertiser
-from web.api.settings import Settings
+from web.api.env import Settings
 from web.ui.discovery import MachineDiscovery
 from web.ui.machines import MachineEndpoint
 from web.ui.settings import Settings as UiSettings

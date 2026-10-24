@@ -23,8 +23,8 @@ from pcbasm.gcode import GCode
 from pcbasm.geometry import Path, Point3d
 from pcbasm.hal import PasteDispenser, XYZStage
 from pcbasm.hal.fake import FakeKlipper
+from pcbasm.pasting.dispense_calibration.mass import rate_sweep_amount_ul
 from pcbasm.pasting.fill_sequence import FillSequence, MicroLineSequence
-from pcbasm.pasting.flowcalib.flow import rate_sweep_amount_ul
 from pcbasm.pasting.params import DispenseMotion
 
 # retract_accel = factor * rate^2 / amount = 4.0 * 25 / 10 = 10.0

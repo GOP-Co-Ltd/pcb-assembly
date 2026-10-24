@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 
 from pcbasm.pasting.paste_volume.calibration import CALIBRATION_SUFFIX
 from tests.support.paths import TESTING_DATA_DIR
-from web.api.settings import Settings
+from web.api.env import Settings
 
 CALIBRATION_V1 = TESTING_DATA_DIR / "schemas" / "paste_volume_calibration_v1.json"
 

@@ -36,11 +36,11 @@ from tests.web.api.jobs.pasting.conftest import (
     paste_session,
     uniform_frame,
 )
+from web.api.env import Settings
 from web.api.jobs.catalog import JobCatalog, ParamSpec
 from web.api.jobs.context import JobContext, JobResult
 from web.api.jobs.manager import JobManager, JobRecord, JobStatus
 from web.api.jobs.pasting.purge_check import purge_with_cleaning
-from web.api.settings import Settings
 
 # クリーニング位置（マシン座標）。fake の可動域 x/y 0-300・z -5..50 の内側
 CLEAN_POSITION = Point3d(50.0, 60.0, 1.0)

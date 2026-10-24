@@ -7,7 +7,7 @@ from pathlib import Path
 
 from tests.helpers import copy_testing_config
 from tests.web.api.conftest import FAKE_CAMERA_IMAGE
-from web.api.settings import Settings
+from web.api.env import Settings
 from web.ui.machines import MachineEndpoint
 from web.ui.settings import Settings as UiSettings
 

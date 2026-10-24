@@ -30,7 +30,7 @@ from fastapi.testclient import TestClient
 
 from tests.helpers import copy_testing_config
 from web.api.app import create_app as create_backend_app
-from web.api.settings import Settings as ApiSettings
+from web.api.env import Settings as ApiSettings
 from web.ui.machines import MachineEndpoint
 from web.ui.settings import Settings
 

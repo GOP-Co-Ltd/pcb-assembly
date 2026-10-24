@@ -9,8 +9,8 @@ import pytest
 
 from tests.support.paths import PROJECT_ROOT
 from tests.web.api.jobs.conftest import WaitUntil, answer_next_prompt
+from web.api.env import Settings
 from web.api.jobs.manager import JobManager, JobStatus
-from web.api.settings import Settings
 
 
 class TestPasteDatasetFinalize:

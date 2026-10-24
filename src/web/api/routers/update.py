@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from web.api.dependencies import ControlDep, SettingsDep, StateDep, UpdateDep
-from web.api.settings import resolve_machine_id
+from web.api.env import resolve_machine_id
 from web.contract.update import UpdateRunResponse, UpdateStatusResponse
 from web.selfupdate.report import UpdatePlan, run_payload, status_payload
 from web.selfupdate.runner import UpdateRunner

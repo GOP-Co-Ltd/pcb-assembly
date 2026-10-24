@@ -35,8 +35,8 @@ import attrs
 import pytest
 
 from tests.web.api.conftest import COPPER_PCB_FIXTURE
+from web.api.env import Settings
 from web.api.machine_config import MachineConfigFile
-from web.api.settings import Settings
 from web.api.state import AppState, BusyError
 
 

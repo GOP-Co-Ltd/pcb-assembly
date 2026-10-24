@@ -3,7 +3,7 @@
 router は「machine.toml の ``solder_paste_density`` を引いて
 :meth:`pcbasm.pasting.MassFlowEstimate.estimate` へ委譲する」配線のみを持つ。
 算術・丸め・null ゲーティングの網羅は
-tests/pcbasm/pasting/flowcalib/test_flow.py::TestMassFlowEstimate が担保する。
+tests/pcbasm/pasting/dispense_calibration/test_mass.py::TestMassFlowEstimate が担保する。
 
 PCB 選択は不要（machine 設定だけを参照する）なので素の ``client`` を使う。
 """

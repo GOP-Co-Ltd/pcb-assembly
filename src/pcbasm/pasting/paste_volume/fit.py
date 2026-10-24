@@ -20,12 +20,6 @@ import attrs
 import cv2
 import numpy as np
 
-from pcbasm.pasting.dataset.metadata import (
-    DatasetCapturedView,
-    PasteDatasetBlank,
-)
-from pcbasm.pasting.dataset.reader import DatasetSession
-from pcbasm.pasting.dataset.writer import METADATA_FILENAME
 from pcbasm.pasting.paste_volume.aggregate import DotDiameter, aggregate_views
 from pcbasm.pasting.paste_volume.calibration import (
     CALIBRATION_KIND,
@@ -36,6 +30,12 @@ from pcbasm.pasting.paste_volume.calibration import (
     PasteVolumeCalibration,
     default_calibration_label,
 )
+from pcbasm.pasting.paste_volume.dataset.metadata import (
+    DatasetCapturedView,
+    PasteDatasetBlank,
+)
+from pcbasm.pasting.paste_volume.dataset.reader import DatasetSession
+from pcbasm.pasting.paste_volume.dataset.store import METADATA_FILENAME
 from pcbasm.pasting.paste_volume.detect import (
     DotDetectionSpec,
     DotMeasurement,

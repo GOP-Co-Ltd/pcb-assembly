@@ -34,7 +34,7 @@ from shapely import Polygon
 
 from pcbasm.pasting.params import PASTE_PARAM_NAMES
 from tests.web.api.conftest import COPPER_PCB_FIXTURE, REAL_PCB_FIXTURE
-from web.api.settings import Settings
+from web.api.env import Settings
 from web.api.state import AppState
 
 # selected_client が選ぶ PCB（copper_pcb_path）。PATCH の expected_pcb に添える

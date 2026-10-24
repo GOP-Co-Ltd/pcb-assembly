@@ -22,7 +22,7 @@ from pcbasm.geometry import Identity, Point2d, Shift
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FakeCamera, FakeKlipper
 from pcbasm.kicad import load_board
-from pcbasm.pasting.correction import PasteCorrection
+from pcbasm.pasting.prepare import PasteCorrection
 from pcbasm.pasting.session import PasteSession
 from pcbasm.vision import Image, Offset
 from tests.support.camera_model import make_camera_model

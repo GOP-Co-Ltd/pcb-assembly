@@ -17,9 +17,9 @@ import cv2
 import pytest
 
 from pcbasm.kicad import load_board
+from web.api.env import Settings
 from web.api.jobs.catalog import default_catalog
 from web.api.jobs.manager import JobManager, JobStatus
-from web.api.settings import Settings
 from web.api.state import AppState
 
 from .conftest import ManagerFactory, WaitUntil

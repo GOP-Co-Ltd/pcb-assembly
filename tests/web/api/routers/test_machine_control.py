@@ -29,7 +29,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from pcbasm.hal.fake import FakeKlipper
-from web.api.settings import Settings
+from web.api.env import Settings
 from web.api.state import AppState
 
 

@@ -1,6 +1,6 @@
 """吐出量キャリブレーション統合ジョブ（①②③ をメニュー駆動で回す）.
 
-数理・レイアウト・機械手順は :mod:`pcbasm.pasting.flowcalib` に置き、ここは
+数理・レイアウト・機械手順は :mod:`pcbasm.pasting.dispense_calibration` に置き、ここは
 メニュー / prompt / 進捗 / 中断とラウンドの状態機械だけを担う。
 """
 
@@ -15,20 +15,20 @@ import attrs
 
 from pcbasm.kicad import load_board
 from pcbasm.kicad.build import generate_rect_pcb, save_board
-from pcbasm.pasting.flowcalib.flow import (
+from pcbasm.pasting.dispense_calibration.lines import (
+    LineLayout,
+    plan_rate_sweep,
+    plan_speed_sweep,
+)
+from pcbasm.pasting.dispense_calibration.mass import (
     CONVERGENCE_REL_TOL,
     DispenseRateCalibration,
     RateMeasurement,
     RotationsPerUlRound,
     commanded_rotations,
 )
-from pcbasm.pasting.flowcalib.lines import (
-    LineLayout,
-    plan_rate_sweep,
-    plan_speed_sweep,
-)
-from pcbasm.pasting.flowcalib.params import CalibrationParams
-from pcbasm.pasting.flowcalib.procedure import FlowCalibrationProcedure
+from pcbasm.pasting.dispense_calibration.params import CalibrationParams
+from pcbasm.pasting.dispense_calibration.procedure import FlowCalibrationProcedure
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import (
     JobContext,
@@ -217,7 +217,7 @@ def _run_dispense_calibration(ctx: JobContext) -> JobResult:
     ① rotations_per_ul / ② max_dispense_rate / ③ max_fill_speed を順次/個別に実行する。
     各キャリブの確定値は採用時点で machine.toml へ即時反映する（中止・失敗でも失われない）。
 
-    算出/判定はすべて ``pcbasm.pasting.flowcalib`` に委譲し、ここはループ制御と入出力に徹する。
+    算出/判定はすべて ``pcbasm.pasting.dispense_calibration`` に委譲し、ここはループ制御と入出力に徹する。
     """
     params = _params(ctx)
     tolerance = float(ctx.params["tolerance"])

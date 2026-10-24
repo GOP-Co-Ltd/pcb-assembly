@@ -2,7 +2,7 @@
 
 既知量のドットを基板上へ並べて塗り、塗布前後画像から推定した体積との比で
 ``rotations_per_ul`` を補正する。
-点の配置と補正の算出は :mod:`pcbasm.pasting.paste_volume.runtime` にあり、ここは
+点の配置と補正の算出は :mod:`pcbasm.pasting.paste_volume.runtime_correction` にあり、ここは
 撮影・塗布・ログだけを担う。
 
 **補正できなくてもジョブを失敗させない。** この時点で基板の位置合わせと高さ計測が
@@ -23,16 +23,16 @@ import attrs
 
 from pcbasm.pasting.applicator import PasteApplicator
 from pcbasm.pasting.capture import PointCapturer
-from pcbasm.pasting.correction import PasteCorrection
 from pcbasm.pasting.paste_volume.estimator import (
     PasteVolumePrediction,
     load_diameter_estimator,
 )
-from pcbasm.pasting.paste_volume.runtime import (
+from pcbasm.pasting.paste_volume.runtime_correction import (
     FlowCalibrationOutcome,
     FlowCalibrationPlan,
     correct_rotations_per_ul,
 )
+from pcbasm.pasting.prepare import PasteCorrection
 from pcbasm.pasting.session import PasteSession
 from pcbasm.vision.crop import RectCrop, crop_pixel_size
 from web.api.jobs.context import JobContext

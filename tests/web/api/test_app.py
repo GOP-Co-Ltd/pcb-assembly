@@ -50,9 +50,9 @@ from pcbasm.paths import PROJECT_ROOT
 from tests.support.moonraker import FakeMoonraker
 from tests.support.polling import wait_until
 from web.api.app import create_app
+from web.api.env import Settings
 from web.api.jobs.catalog import JobDefinition
 from web.api.jobs.context import JobContext
-from web.api.settings import Settings
 from web.api.state import AppState
 
 MIGRATION_BEFORE = (

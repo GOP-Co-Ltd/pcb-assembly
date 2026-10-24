@@ -1,6 +1,6 @@
 """Pad の階層 group-by ロジック.
 
-塗布設定の override 解決（``pcbasm.pasting.settings``）と UI の表示が
+塗布設定の override 解決（``pcbasm.pasting.overrides``）と UI の表示が
 同一の階層を共有するため、装置非依存の純ロジックとしてここに集約する。
 
 階層は L0–L4 の 5 段で、下位ほど具体的になる。

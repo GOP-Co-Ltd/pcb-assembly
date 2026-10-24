@@ -24,8 +24,8 @@ import attrs
 from fastapi.testclient import TestClient
 
 from web.api.app import create_app
+from web.api.env import Settings
 from web.api.machine_config import MachineConfigFile
-from web.api.settings import Settings
 from web.api.state import AppState
 
 

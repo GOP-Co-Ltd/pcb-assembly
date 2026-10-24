@@ -36,8 +36,8 @@ from fastapi.testclient import TestClient
 from pcbasm.config.fields import setting_fields
 from tests.web.ui.conftest import BACKEND_MACHINE_ID
 from web.api.app import create_app as create_backend_app
+from web.api.env import Settings as ApiSettings
 from web.api.jobs.catalog import JobCatalog, default_catalog
-from web.api.settings import Settings as ApiSettings
 from web.api.state import AppState
 from web.ui.app import create_app as create_frontend_app
 from web.ui.layout import (

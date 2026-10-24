@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from pcbasm.pasting.dataset.reader import DatasetSession
+from pcbasm.pasting.paste_volume.dataset.reader import DatasetSession
 from pcbasm.pasting.paste_volume.detect import DotDetectionSpec
 from pcbasm.pasting.paste_volume.fit import fit_session, measure_session
 from tests.helpers import (

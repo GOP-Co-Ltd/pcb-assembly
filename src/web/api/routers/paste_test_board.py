@@ -1,6 +1,6 @@
 """テスト塗布基板の生成 API.
 
-リクエスト/レスポンスの形は ``pcbasm.pasting.testboard`` の attrs 値オブジェクトを
+リクエスト/レスポンスの形は ``pcbasm.pasting.test_board`` の attrs 値オブジェクトを
 :func:`web.api.attrs_models.mirror_model` で写す（JSON のキー名・型は attrs 側が唯一の出典）。
 ここに残す明示モデルは、複数のドメイン値を束ねるレスポンスとリクエストの封筒だけ。
 """
@@ -15,8 +15,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from pcbasm.geometry.packing import Rect
 from pcbasm.kicad.footprint import FootprintInfo
-from pcbasm.pasting.testboard.catalog import PadPattern
-from pcbasm.pasting.testboard.config import (
+from pcbasm.pasting.test_board.catalog import PadPattern
+from pcbasm.pasting.test_board.config import (
     BOARD_KIND,
     BOARD_SCHEMA_VERSION,
     CUSTOM_PAD_SHAPES,
@@ -28,12 +28,12 @@ from pcbasm.pasting.testboard.config import (
     CustomPadShape,
     parse_board_document,
 )
-from pcbasm.pasting.testboard.generator import (
+from pcbasm.pasting.test_board.generator import (
     BoardPreview,
     PatternAddition,
     ResolvedConfig,
 )
-from pcbasm.pasting.testboard.layout import (
+from pcbasm.pasting.test_board.layout import (
     LayerPolygon,
     PadLayout,
     PatternLayout,

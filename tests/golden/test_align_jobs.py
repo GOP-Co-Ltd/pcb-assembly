@@ -20,9 +20,9 @@ from tests.golden.conftest import CAMERA_MODEL, JOBS, finish, scene_camera
 from tests.golden.scenarios import Scenario, scenarios_of
 from tests.support.golden import assert_transcript
 from tests.web.api.jobs.conftest import answer_next_prompt
+from web.api.env import Settings
 from web.api.jobs.manager import JobManager, JobStatus
 from web.api.machine_config import MachineConfigFile
-from web.api.settings import Settings
 from web.api.state import AppState
 
 FOCUS_Z = CAMERA_MODEL.focus_z

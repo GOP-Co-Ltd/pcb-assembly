@@ -25,7 +25,7 @@ from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper
 from pcbasm.kicad import load_board
 from pcbasm.kicad.build import generate_rect_pcb, save_board
 from pcbasm.pasting.paste_volume.calibration import CALIBRATION_SUFFIX
-from pcbasm.pasting.paste_volume.runtime import (
+from pcbasm.pasting.paste_volume.runtime_correction import (
     FlowCalibrationOutcome,
     plan_flow_calibration,
 )
@@ -50,13 +50,13 @@ from tests.support.golden import assert_document, assert_transcript
 from tests.support.paths import TESTING_DATA_DIR
 from tests.web.api.jobs.conftest import answer_next_prompt, register_synthetic
 from tests.web.api.jobs.pasting.conftest import full_board_correction
+from web.api.env import Settings
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.context import JobContext
 from web.api.jobs.manager import JobManager, JobRecord
 from web.api.jobs.pasting.common import LOADING_STAGE
 from web.api.jobs.pasting.dispense_calibration import CALIBRATION_MENU_STAGE
 from web.api.jobs.pasting.flow_calibration import run_flow_calibration
-from web.api.settings import Settings
 from web.api.state import AppState
 
 ARTIFACTS = GOLDEN_DIR / "artifacts"

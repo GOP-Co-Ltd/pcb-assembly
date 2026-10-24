@@ -20,8 +20,8 @@ from pcbasm.config.dispenser import ToolheadConfig
 from pcbasm.geometry import Compose, HeightPlane, Identity, Point2d, Shift, Transform
 from pcbasm.hal import Camera, KlipperClient, XYZStage
 from pcbasm.pasting.applicator import PasteApplicator, build_applicator
-from pcbasm.pasting.correction import PasteCorrection
 from pcbasm.pasting.height import HeightPlaneMeasurer
+from pcbasm.pasting.prepare import PasteCorrection
 from pcbasm.pasting.probe import ProbeExecutor
 from pcbasm.vision import FrameSink
 

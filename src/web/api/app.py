@@ -14,13 +14,14 @@ from fastapi.staticfiles import StaticFiles
 from pcbasm.hal import AlsaAudioPlayer, AudioPlayer
 from pcbasm.machine.devices import Devices
 from pcbasm.pasting.overrides import BoardOverrides
-from pcbasm.pasting.testboard.generator import BoardGenerator
+from pcbasm.pasting.test_board.generator import BoardGenerator
 from web.api.control import ControlLease
 from web.api.discovery import (
     ServiceAdvertiser,
     local_ipv4_addresses,
     select_advertise_addresses,
 )
+from web.api.env import Settings, resolve_machine_id
 from web.api.errors import install_error_handlers
 from web.api.jobs.catalog import default_catalog
 from web.api.jobs.manager import JobManager
@@ -33,6 +34,7 @@ from web.api.routers import (
     control_api,
     files,
     jobs,
+    machine_config as machine_config_router,
     machine_control,
     nozzle_cap,
     paste_dataset,
@@ -41,11 +43,9 @@ from web.api.routers import (
     pasting,
     pasting_loading,
     preview as preview_router,
-    settings_api,
     system,
     update as update_router,
 )
-from web.api.settings import Settings, resolve_machine_id
 from web.api.state import AppState
 from web.selfupdate.runner import UpdateRunner
 from web.selfupdate.settings import UpdateSettings
@@ -216,7 +216,7 @@ def create_app(
     app.include_router(app_state.router)
     app.include_router(control_api.router)
     app.include_router(files.router)
-    app.include_router(settings_api.router)
+    app.include_router(machine_config_router.router)
     app.include_router(audio.router)
     app.include_router(machine_control.router)
     app.include_router(system.router)

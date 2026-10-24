@@ -11,7 +11,7 @@
 達成条件を session 総体積の誤差で見る根拠がここに残る。
 
 永続化の判断:
-    strict converter は :mod:`pcbasm.pasting.dataset.metadata` のものを共有する
+    strict converter は :mod:`pcbasm.pasting.paste_volume.dataset.metadata` のものを共有する
     （未知 key と暗黙の型変換を拒否する挙動が dataset schema と同じでよい）。
     ``schema_version`` が現版と異なる document は移行せず ``(None, 理由)`` で拒否する。
 """
@@ -28,7 +28,7 @@ from typing import Any, Literal
 import attrs
 
 from pcbasm.atomic import write_text_atomic
-from pcbasm.pasting.dataset.metadata import structure_document
+from pcbasm.pasting.paste_volume.dataset.metadata import structure_document
 from pcbasm.pasting.paste_volume.detect import DotDetectionSpec
 from pcbasm.pasting.paste_volume.model import CubicVolumeModel
 

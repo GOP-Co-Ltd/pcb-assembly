@@ -41,14 +41,14 @@ def _non_negative_int(_: object, __: attrs.Attribute, value: int) -> None:
 
 @attrs.frozen
 class VolumeCorrectionConfig:
-    """運転時流量キャリブレーション（塗布中の吐出量を画像で測って補正する）の設定.
+    """運転時補正（塗布中の吐出量を画像で測って補正する）の設定.
 
     はんだ塗布の塗布パス直前に、基板ごとに設定した測定位置へ既知量のドットを塗り、
     塗布前後画像から推定した体積の比で ``rotations_per_ul`` を補正する。
     推定には :mod:`pcbasm.pasting.paste_volume` の校正ファイルを使う。
 
     測定位置は基板ごとに違うので、ここではなく基板設定
-    （:class:`~pcbasm.pasting.settings.PasteSettingsModel`）が持つ。
+    （:class:`~pcbasm.pasting.overrides.PasteSettingsModel`）が持つ。
     塗る点数は測定位置の個数で決まり、0 個なら補正しない。
 
     1 点だけでは点ごとの吐出ばらつき（実測で相対 9〜11 %）がそのまま補正値に
@@ -57,7 +57,7 @@ class VolumeCorrectionConfig:
     ``crop_size_mm`` と測定位置の間隔の関係はここでは検証しない。
     WebUI は項目ごとに保存するので、2 つの値の一方だけが先に書き込まれる。
     ここで不正として拒否すると machine.toml 全体が読めなくなるため、判定は
-    :func:`~pcbasm.pasting.paste_volume.runtime.plan_flow_calibration` で行う。
+    :func:`~pcbasm.pasting.paste_volume.runtime_correction.plan_flow_calibration` で行う。
 
     塗り終えてすぐ撮ると、ペーストが広がりきる前の小さい円を測ることになる。
     そのため塗布後の撮影に入る前に ``settle_seconds`` だけ待つ。

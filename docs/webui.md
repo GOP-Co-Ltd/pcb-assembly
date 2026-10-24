@@ -117,7 +117,7 @@ mDNS には生存判定が無く、電源を切った機体は最大 75 分ほ�
 ファイルブラウザに表示されるのは backend プロセスのローカル FS である。
 frontend は中継するだけなので、frontend 機のファイルは見えない。**USB メモリは
 その機体の Raspberry Pi に挿す。** 閲覧を許可する場所はリポジトリ直下・`/media`・`/mnt`
-である（`src/web/api/settings.py` の `pcb_browse_allowed`）。
+である（`src/web/api/env.py` の `pcb_browse_allowed`）。
 
 一覧は Tab / Shift+Tab で移動し、Enter でフォルダーを開いたり PCB を選んだりできる。
 「上のフォルダー」で戻り、Esc または「閉じる」で選択を中断する。
@@ -181,7 +181,7 @@ backend プロセスで、ブラウザからは鳴らさない。通知音が鳴
 
 ## 環境変数
 
-backend の環境変数は次のとおり（定義元は `src/web/api/settings.py` の `Settings.from_env`）。
+backend の環境変数は次のとおり（定義元は `src/web/api/env.py` の `Settings.from_env`）。
 
 - `PCBASM_API_PORT`: 待ち受けポート（既定 8081）
 - `PCBASM_API_DATA_DIR`: 成果物・状態ファイルの保存先

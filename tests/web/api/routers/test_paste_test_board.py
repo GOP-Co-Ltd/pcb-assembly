@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from pcbasm.hal.fake import FakeAudioPlayer
 from pcbasm.kicad import load_board
 from web.api.app import create_app
-from web.api.settings import Settings
+from web.api.env import Settings
 
 _BASE = "/api/pasting/paste-test-board"
 _R0402 = "Resistor_SMD.pretty/R_0402_1005Metric#pad-0"

@@ -28,9 +28,9 @@ import pytest
 
 from pcbasm.vision import Image, ImageArray
 from tests.support.paths import TESTING_DATA_DIR
+from web.api.env import Settings
 from web.api.machine_config import MachineConfigFile
 from web.api.preview import PreviewService
-from web.api.settings import Settings
 from web.api.state import AppState
 
 from .conftest import decode_jpeg, jpeg_payload

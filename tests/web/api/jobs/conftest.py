@@ -18,11 +18,11 @@ import pytest
 from pcbasm.hal import AudioPlayer
 from pcbasm.pasting.overrides import BoardOverrides
 from tests.support import polling
+from web.api.env import Settings
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import JobContext, JobResult
 from web.api.jobs.manager import JobManager, JobRecord
 from web.api.preview import PreviewService
-from web.api.settings import Settings
 from web.api.state import AppState
 
 type WaitUntil = Callable[..., None]

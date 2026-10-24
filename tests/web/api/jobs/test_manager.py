@@ -37,6 +37,7 @@ import tomlkit
 from pcbasm.config.audio import AudioConfig
 from pcbasm.hal import AudioPlaybackError
 from pcbasm.hal.fake import FakeAudioPlayer
+from web.api.env import Settings
 from web.api.jobs.catalog import JobCatalog, ParamSpec
 from web.api.jobs.context import ApplyPayload, JobContext, JobResult, PromptSpec
 from web.api.jobs.manager import (
@@ -44,7 +45,6 @@ from web.api.jobs.manager import (
     JobStatus,
     prompt_payload,
 )
-from web.api.settings import Settings
 from web.api.state import AppState, BusyError
 
 from .conftest import (

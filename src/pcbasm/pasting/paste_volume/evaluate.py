@@ -19,11 +19,11 @@ from typing import Any
 import attrs
 import numpy as np
 
-from pcbasm.pasting.dataset.reader import DatasetSession
 from pcbasm.pasting.paste_volume.calibration import (
     PasteVolumeCalibration,
     load_calibration,
 )
+from pcbasm.pasting.paste_volume.dataset.reader import DatasetSession
 from pcbasm.pasting.paste_volume.estimator import (
     DiameterVolumeEstimator,
     PasteVolumePrediction,

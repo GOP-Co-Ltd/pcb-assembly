@@ -14,7 +14,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from web.api.settings import Settings
+from web.api.env import Settings
 
 
 def _backup(client: TestClient) -> zipfile.ZipFile:

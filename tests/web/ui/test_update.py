@@ -28,7 +28,7 @@ from pcbasm.hal.fake import FakeAudioPlayer
 from tests.support.polling import before_deadline
 from tests.web.update_support import UpdateSandbox, make_update_sandbox
 from web.api.app import create_app as create_backend_app
-from web.api.settings import Settings as ApiSettings
+from web.api.env import Settings as ApiSettings
 from web.selfupdate.runner import UpdateRunner
 from web.ui.app import create_app
 from web.ui.machines import MachineEndpoint

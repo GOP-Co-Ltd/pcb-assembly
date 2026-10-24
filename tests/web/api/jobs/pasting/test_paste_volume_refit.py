@@ -9,8 +9,8 @@ import cv2
 from pcbasm.pasting.paste_volume.calibration import list_calibrations, load_calibration
 from tests.helpers import build_paste_volume_session
 from tests.web.api.jobs.conftest import WaitUntil, answer_next_prompt
+from web.api.env import Settings
 from web.api.jobs.manager import JobManager, JobRecord, JobStatus
-from web.api.settings import Settings
 
 
 class TestPasteVolumeRefit:

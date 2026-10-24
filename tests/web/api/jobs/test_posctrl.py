@@ -63,12 +63,12 @@ import pytest
 
 from pcbasm.kicad import load_board
 from pcbasm.vision import CameraCalibration, Image
+from web.api.env import Settings
 from web.api.jobs.catalog import JobCatalog, default_catalog
 from web.api.jobs.manager import JobManager, JobStatus
 from web.api.jobs.posctrl import register_posctrl_jobs
 from web.api.machine_config import MachineConfigFile
 from web.api.preview import PreviewService
-from web.api.settings import Settings
 from web.api.state import AppState
 
 from .conftest import WaitUntil, answer_next_prompt, make_overrides

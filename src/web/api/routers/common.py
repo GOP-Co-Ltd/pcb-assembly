@@ -13,10 +13,10 @@ from pcbasm.hal import KlipperClient
 from pcbasm.pasting.nozzle_clean import clean_position_label
 from pcbasm.vision import load_focus_z
 from web.api.control import ClientIdentity, LeaseInfo
+from web.api.env import Settings, resolve_machine_id
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.manager import JobManager
 from web.api.preview import PreviewService
-from web.api.settings import Settings, resolve_machine_id
 from web.api.state import AppState
 from web.contract.discovery import API_VERSION
 from web.contract.models import (

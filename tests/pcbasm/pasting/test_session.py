@@ -14,7 +14,7 @@ from pcbasm.align import (
 )
 from pcbasm.board import Layer, Pad
 from pcbasm.geometry import HeightPlane, Point2d, Point3d, Rotation, Shift
-from pcbasm.pasting.correction import PasteCorrection
+from pcbasm.pasting.prepare import PasteCorrection
 from pcbasm.pasting.session import PasteSession
 from pcbasm.vision import Offset
 

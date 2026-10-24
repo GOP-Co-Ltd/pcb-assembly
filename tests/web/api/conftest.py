@@ -28,8 +28,8 @@ from pcbasm.vision import ImageArray
 from tests.helpers import copy_testing_config
 from tests.support.paths import TESTING_DATA_DIR
 from web.api.app import create_app
+from web.api.env import Settings
 from web.api.machine_config import MachineConfigFile
-from web.api.settings import Settings
 from web.api.state import AppState
 
 FAKE_CAMERA_IMAGE = TESTING_DATA_DIR / "webui" / "fake_camera.png"

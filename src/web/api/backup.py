@@ -17,7 +17,7 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
-from web.api.settings import Settings
+from web.api.env import Settings
 
 
 def build_backup(settings: Settings, *, machine_id: str, created_at: datetime) -> bytes:

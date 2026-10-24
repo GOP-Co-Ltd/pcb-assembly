@@ -13,11 +13,11 @@ from pathlib import Path
 import attrs
 import pytest
 
-from pcbasm.pasting.dataset.reader import DatasetSession
 from pcbasm.pasting.paste_volume.calibration import (
     PasteVolumeCalibration,
     write_calibration,
 )
+from pcbasm.pasting.paste_volume.dataset.reader import DatasetSession
 from pcbasm.pasting.paste_volume.evaluate import (
     condition_mismatch,
     evaluate_collected_session,

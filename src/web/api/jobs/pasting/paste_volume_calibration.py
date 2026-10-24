@@ -10,7 +10,7 @@ dataset を作り、計量質量を受け取って確定させ、そのまま直
 作り直せる（装置も収集も要らない）。
 
 セル配置・吐出量スイープ・view 生成・事前検証・crop・metadata は
-:mod:`pcbasm.pasting.dataset`、計測とフィットは
+:mod:`pcbasm.pasting.paste_volume.dataset`、計測とフィットは
 :mod:`pcbasm.pasting.paste_volume` に置き、ここは prompt / progress / abort /
 artifact への変換だけを担う。
 """
@@ -33,8 +33,13 @@ from pcbasm.geometry import HeightPlane, Point2d
 from pcbasm.kicad import load_board
 from pcbasm.kicad.build import generate_rect_pcb, save_board
 from pcbasm.pasting.capture import PointCapturer
-from pcbasm.pasting.dataset.metadata import DatasetView, PasteDatasetLoading
-from pcbasm.pasting.dataset.plan import (
+from pcbasm.pasting.params import PasteParams
+from pcbasm.pasting.paste_volume.calibration import calibration_path
+from pcbasm.pasting.paste_volume.dataset.metadata import (
+    DatasetView,
+    PasteDatasetLoading,
+)
+from pcbasm.pasting.paste_volume.dataset.plan import (
     DEFAULT_PASTE_HEIGHT_MM,
     DEFAULT_VIEW_COUNT,
     DEFAULT_VIEW_OFFSET_MM,
@@ -48,15 +53,13 @@ from pcbasm.pasting.dataset.plan import (
     validate_dispense_reach,
     validate_min_rotations,
 )
-from pcbasm.pasting.dataset.reader import DatasetSession
-from pcbasm.pasting.dataset.recorder import (
+from pcbasm.pasting.paste_volume.dataset.reader import DatasetSession
+from pcbasm.pasting.paste_volume.dataset.recorder import (
     DatasetRunInfo,
     PasteDatasetRecorder,
     validate_dataset_run,
 )
-from pcbasm.pasting.dataset.writer import PasteDatasetWriter
-from pcbasm.pasting.params import PasteParams
-from pcbasm.pasting.paste_volume.calibration import calibration_path
+from pcbasm.pasting.paste_volume.dataset.store import PasteDatasetWriter
 from pcbasm.pasting.paste_volume.evaluate import (
     PasteVolumeEvaluation,
     evaluate_collected_session,

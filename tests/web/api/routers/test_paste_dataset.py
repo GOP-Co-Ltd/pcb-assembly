@@ -1,10 +1,10 @@
 """`web.api.routers.paste_dataset`（データセット収集レイアウト preview API）の仕様テスト.
 
 router は「ジョブ ParamSpec と同名の値を :class:`DotGridSpec` へ写し、
-:func:`pcbasm.pasting.dataset.plan.preview_dot_grid` の結果をそのまま返す」配線だけを持つ。
+:func:`pcbasm.pasting.paste_volume.dataset.plan.preview_dot_grid` の結果をそのまま返す」配線だけを持つ。
 
 セル配置・容量判定・量割り当て・派生カウントの網羅は
-tests/pcbasm/pasting/dataset/test_plan.py が担保するので、ここでは配線と HTTP 契約
+tests/pcbasm/pasting/paste_volume/dataset/test_plan.py が担保するので、ここでは配線と HTTP 契約
 （strict な型・未知キー拒否・配置不能でも 200）だけを固める。
 
 PCB 選択も machine 操作も要らない（設定値だけを見る読み取り専用計算）ので素の

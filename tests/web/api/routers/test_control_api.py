@@ -35,8 +35,8 @@ from tests.support.polling import before_deadline
 from tests.web.api.jobs.conftest import register_synthetic
 from web.api.app import create_app
 from web.api.control import ClientIdentity
+from web.api.env import Settings
 from web.api.jobs.context import JobContext, PromptSpec
-from web.api.settings import Settings
 
 ALICE = {"X-Pcbasm-Session": "alice-session", "X-Pcbasm-Client-Name": quote("田中")}
 BOB = {"X-Pcbasm-Session": "bob-session", "X-Pcbasm-Client-Name": quote("鈴木")}
