@@ -547,7 +547,7 @@ def _calibrate_max_dispense_rate(
     Raises:
         CalibrationCancelled: レート列が空、または線が銅板に収まらない場合
     """
-    fill_speed = ctx.machine.paste_dispenser.max_fill_speed
+    fill_speed = ctx.machine.paste_dispenser.motion.max_fill_speed
     density = ctx.machine.paste_dispenser.density_mg_per_ul
     params = _params(ctx)
 
@@ -622,7 +622,7 @@ def _calibrate_max_dispense_rate(
         ctx, "採用する max_dispense_rate (uL/s) を入力", default=auto
     )
     assert chosen is not None  # cancel_label 無しの prompt は常に正数を返す
-    apply_to_machine_toml(ctx, {"paste_dispenser.max_dispense_rate": chosen})
+    apply_to_machine_toml(ctx, {"paste_dispenser.motion.max_dispense_rate": chosen})
     return attrs.evolve(results, max_dispense_rate=chosen)
 
 
@@ -649,8 +649,8 @@ def _calibrate_max_fill_speed(
 
     sweep, message = plan_speed_sweep(
         params,
-        ul_per_mm2=dispenser.ul_per_mm2,
-        bead_width=dispenser.nozzle_diameter * dispenser.bead_width_factor,
+        ul_per_mm2=dispenser.defaults.ul_per_mm2,
+        bead_width=dispenser.nozzle_diameter * dispenser.defaults.bead_width_factor,
     )
     if sweep is None:
         ctx.log(message or "")
@@ -687,7 +687,7 @@ def _calibrate_max_fill_speed(
         )
     )
     chosen = points[int(str(selection).split(":", 1)[0])].fill_speed
-    apply_to_machine_toml(ctx, {"paste_dispenser.max_fill_speed": chosen})
+    apply_to_machine_toml(ctx, {"paste_dispenser.motion.max_fill_speed": chosen})
     return attrs.evolve(results, max_fill_speed=chosen)
 
 

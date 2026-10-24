@@ -183,19 +183,19 @@ PASTE_AUTO_THRESHOLD_KEYS = (
 )
 
 # はんだ塗布ページに即保存フォームで載せる pad 逐次位置合わせ設定
-PASTE_PAD_REFINEMENT_KEYS = ("paste_dispenser.pad_align.refine_max_short_side",)
+PASTE_PAD_REFINEMENT_KEYS = ("alignment.refine_max_short_side",)
 
 # はんだ塗布ページに即保存フォームで載せる運転時流量キャリブレーション設定。
 # 測定位置だけは基板ごとの設定なので pad editor 側で編集する（表示は同じ箱に並べる）。
 PASTE_FLOW_CALIBRATION_KEYS = (
-    "paste_dispenser.flow_calibration.calibration_file",
-    "paste_dispenser.flow_calibration.amount_ul",
-    "paste_dispenser.flow_calibration.crop_size_mm",
-    "paste_dispenser.flow_calibration.settle_seconds",
+    "paste_dispenser.volume_correction.calibration_file",
+    "paste_dispenser.volume_correction.amount_ul",
+    "paste_dispenser.volume_correction.crop_size_mm",
+    "paste_dispenser.volume_correction.settle_seconds",
 )
 
 # 上のうち、保存済み校正の <select> へ差し替えるキー
-PASTE_FLOW_CALIBRATION_FILE_KEY = "paste_dispenser.flow_calibration.calibration_file"
+PASTE_FLOW_CALIBRATION_FILE_KEY = "paste_dispenser.volume_correction.calibration_file"
 
 # 空欄の保存が「未入力」ではなく「無効にする」を意味するキー。
 # 既定では空欄は保存しないので、これが無いと一度設定した値を消せない。
@@ -332,37 +332,37 @@ SETTINGS_SECTIONS: tuple[SettingsSectionSpec, ...] = (
                     "paste_dispenser.nozzle_diameter",
                     "paste_dispenser.nozzle_outer_diameter",
                     "paste_dispenser.solder_paste_density",
-                    "paste_dispenser.ul_per_mm2",
+                    "paste_dispenser.defaults.ul_per_mm2",
                 ),
             ),
             SettingsGroupSpec(
                 "吐出の速度",
                 (
-                    "paste_dispenser.max_dispense_rate",
-                    "paste_dispenser.dispense_accel",
-                    "paste_dispenser.max_fill_speed",
+                    "paste_dispenser.motion.max_dispense_rate",
+                    "paste_dispenser.motion.dispense_accel",
+                    "paste_dispenser.motion.max_fill_speed",
                 ),
             ),
             SettingsGroupSpec(
                 "リトラクト",
                 (
-                    "paste_dispenser.retract_amount",
-                    "paste_dispenser.retract_rate",
-                    "paste_dispenser.retract_accel_factor",
+                    "paste_dispenser.motion.retract_amount",
+                    "paste_dispenser.motion.retract_rate",
+                    "paste_dispenser.motion.retract_accel_factor",
                 ),
             ),
             SettingsGroupSpec(
                 "プライム・パージ",
                 (
-                    "paste_dispenser.prime_extra_delay",
+                    "paste_dispenser.defaults.prime_extra_delay",
                     "paste_dispenser.initial_purge_ul",
                 ),
             ),
             SettingsGroupSpec(
                 "塗布方式",
                 (
-                    "paste_dispenser.dispense_mode",
-                    "paste_dispenser.line_direction",
+                    "paste_dispenser.defaults.dispense_mode",
+                    "paste_dispenser.defaults.line_direction",
                     "paste_dispenser.auto_line_aspect_ratio",
                     "paste_dispenser.auto_area_short_side_factor",
                 ),
@@ -370,25 +370,25 @@ SETTINGS_SECTIONS: tuple[SettingsSectionSpec, ...] = (
             SettingsGroupSpec(
                 "塗布経路",
                 (
-                    "paste_dispenser.bead_width_factor",
-                    "paste_dispenser.overlap",
-                    "paste_dispenser.boundary_margin",
+                    "paste_dispenser.defaults.bead_width_factor",
+                    "paste_dispenser.defaults.overlap",
+                    "paste_dispenser.defaults.boundary_margin",
                 ),
             ),
             SettingsGroupSpec(
                 "微小線",
                 (
-                    "paste_dispenser.micro_line_z_start",
-                    "paste_dispenser.micro_line_z_end",
-                    "paste_dispenser.micro_line_settle_seconds",
+                    "paste_dispenser.defaults.micro_line_z_start",
+                    "paste_dispenser.defaults.micro_line_z_end",
+                    "paste_dispenser.motion.micro_line_settle_seconds",
                 ),
             ),
             SettingsGroupSpec(
                 "Z 高さ",
                 (
-                    "paste_dispenser.paste_height",
-                    "paste_dispenser.lift_height",
-                    "paste_dispenser.post_dispense_settle_seconds",
+                    "paste_dispenser.defaults.paste_height",
+                    "paste_dispenser.motion.lift_height",
+                    "paste_dispenser.motion.post_dispense_settle_seconds",
                 ),
             ),
             SettingsGroupSpec(
@@ -396,28 +396,12 @@ SETTINGS_SECTIONS: tuple[SettingsSectionSpec, ...] = (
                 ("paste_dispenser.toolhead.x", "paste_dispenser.toolhead.y"),
             ),
             SettingsGroupSpec(
-                "パッド位置合わせ",
-                (
-                    "paste_dispenser.pad_align.region_size_px",
-                    "paste_dispenser.pad_align.region_overlap",
-                    "paste_dispenser.pad_align.board_edge_margin",
-                    "paste_dispenser.pad_align.refine_max_short_side",
-                    "paste_dispenser.pad_align.search_window",
-                    "paste_dispenser.pad_align.max_correction",
-                    "paste_dispenser.pad_align.max_passes",
-                    "paste_dispenser.pad_align.converge_tolerance",
-                    "paste_dispenser.pad_align.canny_low",
-                    "paste_dispenser.pad_align.canny_high",
-                    "paste_dispenser.pad_align.blur_ksize",
-                ),
-            ),
-            SettingsGroupSpec(
                 "流量キャリブレーション",
                 (
-                    "paste_dispenser.flow_calibration.calibration_file",
-                    "paste_dispenser.flow_calibration.amount_ul",
-                    "paste_dispenser.flow_calibration.crop_size_mm",
-                    "paste_dispenser.flow_calibration.settle_seconds",
+                    "paste_dispenser.volume_correction.calibration_file",
+                    "paste_dispenser.volume_correction.amount_ul",
+                    "paste_dispenser.volume_correction.crop_size_mm",
+                    "paste_dispenser.volume_correction.settle_seconds",
                 ),
             ),
             SettingsGroupSpec(
@@ -433,6 +417,28 @@ SETTINGS_SECTIONS: tuple[SettingsSectionSpec, ...] = (
                     "paste_dispenser.nozzle_clean.stroke",
                     "paste_dispenser.nozzle_clean.passes",
                     "paste_dispenser.nozzle_clean.wipe_speed",
+                ),
+            ),
+        ),
+    ),
+    SettingsSectionSpec(
+        "alignment",
+        "パッド位置合わせ",
+        (
+            SettingsGroupSpec(
+                "パッド位置合わせ",
+                (
+                    "alignment.region_size_px",
+                    "alignment.region_overlap",
+                    "alignment.board_edge_margin",
+                    "alignment.refine_max_short_side",
+                    "alignment.search_window",
+                    "alignment.max_correction",
+                    "alignment.max_passes",
+                    "alignment.converge_tolerance",
+                    "alignment.canny_low",
+                    "alignment.canny_high",
+                    "alignment.blur_ksize",
                 ),
             ),
         ),

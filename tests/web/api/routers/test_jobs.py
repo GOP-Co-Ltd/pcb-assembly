@@ -675,7 +675,7 @@ class TestExclusionPropagation:
             assert (
                 client.put(
                     "/api/settings/machine",
-                    json={"values": {"paste_dispenser.max_fill_speed": 0.9}},
+                    json={"values": {"paste_dispenser.motion.max_fill_speed": 0.9}},
                 ).status_code
                 == 409
             )
@@ -774,9 +774,7 @@ class TestApplyDiscard:
             assert event["job"]["status"] == "succeeded"
 
         if action == "apply":
-            assert response.json()["applied"] == {
-                "paste_dispenser.pad_align.canny_low": 62.5
-            }
+            assert response.json()["applied"] == {"alignment.canny_low": 62.5}
         else:
             assert machine_file.read_bytes() == original
             assert (
@@ -804,7 +802,7 @@ class TestApplyDiscard:
 
         assert response.status_code == 200
         applied = response.json()["applied"]
-        assert applied == {"paste_dispenser.pad_align.canny_low": 61.5}
+        assert applied == {"alignment.canny_low": 61.5}
 
         toml_text = (config_dir / "machine.toml").read_text(encoding="utf-8")
         assert "61.5" in toml_text

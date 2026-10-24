@@ -478,10 +478,10 @@ class TestPastingJobPages:
     PASTE_SOLDER_SETTING_KEYS = (
         "paste_dispenser.auto_line_aspect_ratio",
         "paste_dispenser.auto_area_short_side_factor",
-        "paste_dispenser.flow_calibration.calibration_file",
-        "paste_dispenser.flow_calibration.amount_ul",
-        "paste_dispenser.flow_calibration.crop_size_mm",
-        "paste_dispenser.flow_calibration.settle_seconds",
+        "paste_dispenser.volume_correction.calibration_file",
+        "paste_dispenser.volume_correction.amount_ul",
+        "paste_dispenser.volume_correction.crop_size_mm",
+        "paste_dispenser.volume_correction.settle_seconds",
     )
 
     @pytest.mark.parametrize("setting_key", PASTE_SOLDER_SETTING_KEYS)
@@ -859,8 +859,7 @@ class TestUnsetMachineSettingsShowResolvedValues:
         assert response.status_code == 200
         assert "逐次位置合わせ対象の最大短辺" in response.text
         input_tag = re.search(
-            r'<input[^>]*name="paste_dispenser\.pad_align\.'
-            r'refine_max_short_side"[^>]*>',
+            r'<input[^>]*name="alignment\.refine_max_short_side"[^>]*>',
             response.text,
         )
         assert input_tag is not None
@@ -896,7 +895,7 @@ class TestUnresolvableMachineSettingsAreNotFabricated:
 
         assert response.status_code == 200
         fields = {field["key"]: field for field in response.json()["fields"]}
-        assert fields["paste_dispenser.pad_align.canny_low"]["resolved"] is None
+        assert fields["alignment.canny_low"]["resolved"] is None
         assert fields["probe.min_samples"]["resolved"] is None
         assert fields["paste_dispenser.rotations_per_ul"]["value"] == 45.783133
 

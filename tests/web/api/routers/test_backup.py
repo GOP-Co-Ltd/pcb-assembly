@@ -37,7 +37,7 @@ class TestBackup:
         (config_dir / "printer.cfg").symlink_to(printer_cfg)
         client.put(
             "/api/settings/machine",
-            json={"values": {"paste_dispenser.max_fill_speed": 0.9}},
+            json={"values": {"paste_dispenser.motion.max_fill_speed": 0.9}},
         )
         board_settings = webui_settings.webui_data_dir / "board_settings"
         board_settings.mkdir(parents=True)

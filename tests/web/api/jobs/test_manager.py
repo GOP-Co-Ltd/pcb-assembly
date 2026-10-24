@@ -693,7 +693,7 @@ class TestApply:
 
     _PAYLOAD = ApplyPayload(
         label="canny_low = 60.0 を設定に反映",
-        values={"paste_dispenser.pad_align.canny_low": 60.0},
+        values={"alignment.canny_low": 60.0},
     )
 
     def _run_with_payload(
@@ -719,7 +719,7 @@ class TestApply:
 
         assert record.apply_available is True
         payload = manager.apply_payload()
-        assert payload.values == {"paste_dispenser.pad_align.canny_low": 60.0}
+        assert payload.values == {"alignment.canny_low": 60.0}
 
     def test_mark_applied_consumes_payload(
         self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil

@@ -75,8 +75,8 @@
       try {
         await api("PUT", "/api/settings/machine", {
           values: {
-            "paste_dispenser.pad_align.canny_low": Number(cannyLow.value),
-            "paste_dispenser.pad_align.canny_high": Number(cannyHigh.value),
+            "alignment.canny_low": Number(cannyLow.value),
+            "alignment.canny_high": Number(cannyHigh.value),
           },
         });
         toast("エッジ検出パラメータを設定に保存しました");
