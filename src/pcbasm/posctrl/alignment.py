@@ -7,8 +7,8 @@ from collections.abc import Sequence
 import attrs
 from shapely import Polygon
 
+from pcbasm.board import Layer, Pad
 from pcbasm.geometry import Point2d, Shift, Transform
-from pcbasm.pcb import Layer, Pad
 from pcbasm.posctrl.aligner import RegionAligner, RegionAlignment
 from pcbasm.posctrl.copper import (
     CopperEdgeMatcher,

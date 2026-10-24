@@ -61,7 +61,7 @@ from pathlib import Path
 
 import pytest
 
-from pcbasm.pcb import PcbFile
+from pcbasm.kicad import PcbFile
 from pcbasm.vision import CalibrationResult, Image
 from web.api.jobs.catalog import JobCatalog, default_catalog
 from web.api.jobs.manager import JobManager, JobStatus

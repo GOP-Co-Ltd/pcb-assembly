@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 import matplotlib
@@ -13,16 +14,16 @@ from matplotlib.artist import Artist
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch, Polygon as MplPolygon
 
-from pcbasm.pcb import ComponentList, CopperList, Layer, Outline, PadList
+from pcbasm.board import Component, Copper, Layer, Outline, Pad
 
 from .patches import polygon_with_holes_patch
 
 
 def render_pcb(
     outline: Outline,
-    pads: PadList,
-    copper: CopperList,
-    components: ComponentList,
+    pads: Sequence[Pad],
+    copper: Sequence[Copper],
+    components: Sequence[Component],
     output_path: Path,
 ) -> None:
     """アウトライン・銅箔・パッド・部品位置を 1 枚の PNG に重ね描きして保存する.

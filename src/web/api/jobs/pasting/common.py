@@ -11,6 +11,7 @@ from typing import Any
 
 import attrs
 
+from pcbasm.board import Pad
 from pcbasm.hal import Klipper, XYZStage
 from pcbasm.pasting.alignment import (
     PadRefinement,
@@ -19,9 +20,9 @@ from pcbasm.pasting.alignment import (
     refinement_targets,
 )
 from pcbasm.pasting.applicator import PasteApplicator
+from pcbasm.pasting.hierarchy import PadHierarchy
 from pcbasm.pasting.session import PasteSession
 from pcbasm.pasting.settings import PasteSettingsModel
-from pcbasm.pcb import Pad, PadHierarchy
 from pcbasm.posctrl import (
     BoardAlignment,
     BoardCalibrationResult,

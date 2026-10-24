@@ -18,7 +18,7 @@ from tomlkit.items import Table
 from pcbasm.gcode import GCodeLike
 from pcbasm.hal import Camera
 from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper, StepperMove
-from pcbasm.pcb.generate import generate_rect_pcb, save_board
+from pcbasm.kicad.build import generate_rect_pcb, save_board
 from tests.golden.conftest import (
     CALIBRATION,
     DISPENSER,

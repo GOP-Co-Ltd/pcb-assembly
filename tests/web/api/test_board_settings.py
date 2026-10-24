@@ -29,11 +29,12 @@ from pathlib import Path
 import pytest
 from shapely import Polygon
 
+from pcbasm.board import Component, Layer, Pad
 from pcbasm.config.dispenser import PasteDispenserConfig, ToolheadConfig
 from pcbasm.geometry import Point2d
+from pcbasm.pasting.hierarchy import PadHierarchy
 from pcbasm.pasting.params import DispenseMotion, PasteParams, PasteParamsPatch
 from pcbasm.pasting.settings import LevelSetting, PasteSettingsModel
-from pcbasm.pcb import Component, Layer, Pad, PadHierarchy
 from web.api.board_settings import BoardSettingsStore
 
 type Mutate = Callable[[PasteSettingsModel], PasteSettingsModel]

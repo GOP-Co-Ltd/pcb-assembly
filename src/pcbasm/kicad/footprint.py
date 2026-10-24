@@ -1,7 +1,4 @@
-"""KiCad footprint ライブラリの検索・読込と、footprint / pad の幾何ユーティリティ.
-
-``pcbasm.pcb`` からは re-export しないので、このモジュールを直接 import する。
-"""
+"""KiCad footprint ライブラリの検索・読込と、footprint / pad の幾何ユーティリティ."""
 
 from __future__ import annotations
 
@@ -15,7 +12,7 @@ import attrs
 import pcbnew
 
 from pcbasm.geometry import Point2d
-from pcbasm.pcb.units import (
+from pcbasm.kicad.units import (
     KICAD_COORD_MAX_NM,
     KICAD_COORD_MIN_NM,
     KicadCoordinateError,
@@ -27,7 +24,13 @@ from pcbasm.pcb.units import (
 DEFAULT_KICAD9_FOOTPRINT_DIR = Path("/usr/share/kicad/footprints")
 FOOTPRINT_ROOT_ENV = "KICAD9_FOOTPRINT_DIR"
 
-FRONT_PAD_LAYERS: tuple[int, ...] = (pcbnew.F_Cu, pcbnew.F_Paste)
+# pcbnew を import しない利用側が注釈に使う
+Footprint = pcbnew.FOOTPRINT
+
+FRONT_PAD_LAYERS: tuple[tuple[Literal["F.Cu", "F.Paste"], int], ...] = (
+    ("F.Cu", pcbnew.F_Cu),
+    ("F.Paste", pcbnew.F_Paste),
+)
 
 PadShapeName = Literal["circle", "rectangle", "roundrect", "oval"]
 _PAD_SHAPES: dict[PadShapeName, int] = {
@@ -84,7 +87,7 @@ class FootprintEnvelope:
         placed.SetOrientationDegrees(angle)
         bounds: list[tuple[float, float, float, float]] = []
         for pad in placed.Pads():
-            for layer in FRONT_PAD_LAYERS:
+            for _, layer in FRONT_PAD_LAYERS:
                 if not pad.GetLayerSet().Contains(layer):
                     continue
                 shape = effective_pad_polygon(pad, layer)

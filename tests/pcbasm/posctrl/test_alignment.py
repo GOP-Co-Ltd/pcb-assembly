@@ -4,8 +4,8 @@ import pytest
 import shapely
 from shapely.affinity import rotate
 
+from pcbasm.board import Layer, Pad
 from pcbasm.geometry import Point2d
-from pcbasm.pcb import Layer, Pad
 from pcbasm.posctrl import (
     AlignmentRegion,
     BoardAlignment,

@@ -28,4 +28,4 @@
 
 - 塗布・位置合わせなどのドメイン知識を含まない計算幾何だけをここに置く
 - ドメイン知識を含む計算は各ドメインパッケージ（`pasting` / `posctrl`）に置く
-- KiCad に固有の処理は `pcbasm.pcb` に置く
+- 基板データは `pcbasm.board`、KiCad に固有の処理は `pcbasm.kicad` に置く

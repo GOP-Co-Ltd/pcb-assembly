@@ -6,6 +6,7 @@ from enum import Enum, auto
 
 import numpy as np
 
+from pcbasm.board import Outline
 from pcbasm.config.reference_point import CornerOffsetsConfig, ReferencePointConfig
 from pcbasm.gcode import GCode
 from pcbasm.geometry import (
@@ -15,7 +16,6 @@ from pcbasm.geometry import (
     Shift,
 )
 from pcbasm.hal import Klipper, Speed, XYZStage
-from pcbasm.pcb import Outline
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ class BoardTransformMeasurer:
     4 つの reference point の実測位置から affine 変換を最小二乗推定する。
 
     Example:
-        from pcbasm.pcb import PcbFile
+        from pcbasm.kicad import PcbFile
 
         pcb = PcbFile(pcb_file)
         measurer = BoardTransformMeasurer(

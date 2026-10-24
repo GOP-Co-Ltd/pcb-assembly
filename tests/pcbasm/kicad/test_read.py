@@ -4,7 +4,8 @@ import pcbnew
 import pytest
 from shapely.geometry import Point as ShapelyPoint
 
-from pcbasm.pcb import Layer, PcbFile
+from pcbasm.board import Layer
+from pcbasm.kicad import PcbFile
 from tests.support.paths import TESTING_DATA_DIR
 
 LED_BLINKER_PCB = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"

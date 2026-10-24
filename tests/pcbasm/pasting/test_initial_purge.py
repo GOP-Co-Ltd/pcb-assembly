@@ -6,6 +6,7 @@
 import pytest
 from shapely import Polygon
 
+from pcbasm.board import Layer, Pad
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.initial_purge import (
     ResolvedInitialPurge,
@@ -14,7 +15,6 @@ from pcbasm.pasting.initial_purge import (
     resolve_initial_purge_for,
     validate_initial_purge,
 )
-from pcbasm.pcb import Layer, Pad
 
 
 def _outline(size: float = 20.0) -> Polygon:

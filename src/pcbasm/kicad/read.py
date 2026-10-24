@@ -20,19 +20,9 @@ from shapely import Point as ShapelyPoint, Polygon, get_parts
 from shapely.affinity import translate
 from shapely.ops import unary_union
 
+from pcbasm.board import Component, Copper, Layer, Outline, Pad
 from pcbasm.geometry.polygon import merge_islands
 from pcbasm.geometry.transform import Point2d
-
-from .board import (
-    Component,
-    ComponentList,
-    Copper,
-    CopperList,
-    Layer,
-    Outline,
-    Pad,
-    PadList,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -84,13 +74,13 @@ class PcbFile:
         return Outline(normalized_polygon)
 
     @cached_property
-    def components(self) -> ComponentList:
+    def components(self) -> list[Component]:
         """部品情報のリスト（左上原点に正規化済み）.
 
         position は footprint 原点、rotation は KiCad の footprint 向き [度].
         """
         origin_x, origin_y = self._origin
-        components = ComponentList()
+        components: list[Component] = []
 
         for footprint in self._board.GetFootprints():
             if footprint.IsDNP():
@@ -122,7 +112,7 @@ class PcbFile:
         return components
 
     @cached_property
-    def pads(self) -> PadList:
+    def pads(self) -> list[Pad]:
         """パッド情報のリスト（左上原点に正規化済み）.
 
         F.Paste / B.Paste を持つ pad だけを含める（ペーストを塗らない pad は除く）.
@@ -132,7 +122,7 @@ class PcbFile:
         そのため同じ ``(designator, pad_number)`` の Pad が複数できることがある.
         """
         origin_x, origin_y = self._origin
-        pads = PadList()
+        pads: list[Pad] = []
 
         for footprint in self._board.GetFootprints():
             if footprint.IsDNP():
@@ -178,7 +168,7 @@ class PcbFile:
         return pads
 
     @cached_property
-    def copper(self) -> CopperList:
+    def copper(self) -> list[Copper]:
         """電気的・物理的に接続された銅箔島のリスト（左上原点に正規化済み）.
 
         各レイヤー（Top/Bottom）について、塗りつぶし済みゾーン・トラック・ビア （pcbnew では Track
@@ -196,7 +186,7 @@ class PcbFile:
 
         origin_x, origin_y = self._origin
         max_error = self._board.GetDesignSettings().m_MaxError
-        coppers = CopperList()
+        coppers: list[Copper] = []
 
         def to_polys(sps: pcbnew.SHAPE_POLY_SET) -> list[Polygon]:
             return _shape_poly_set_to_polygons(sps, origin_x, origin_y)

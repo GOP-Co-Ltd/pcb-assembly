@@ -5,6 +5,7 @@ from collections.abc import Iterable
 
 from shapely.geometry import Polygon
 
+from pcbasm.board import Copper
 from pcbasm.config.probe import ProbeConfig
 from pcbasm.gcode import GCode
 from pcbasm.geometry import (
@@ -17,7 +18,6 @@ from pcbasm.geometry import (
 )
 from pcbasm.hal import Klipper, Speed, XYZStage
 from pcbasm.pasting.probe import ProbeExecutor
-from pcbasm.pcb import Copper
 
 logger = logging.getLogger(__name__)
 

@@ -1,11 +1,10 @@
-"""開発用のジョブ定義（PCB 抽出 / 塗布カバレッジ PCB 生成）.
-
-pcbnew に依存するジョブは関数内で遅延 import する（KiCAD 未導入環境でも webui 自体は起動できるようにするため）。
-"""
+"""開発用のジョブ定義（PCB 抽出 / 塗布カバレッジ PCB 生成）."""
 
 from __future__ import annotations
 
-from pcbasm.pcb import PcbFile
+from pcbasm.board.export import save_copper, save_outline, save_pads, save_pnp_csv
+from pcbasm.kicad import PcbFile
+from pcbasm.kicad.build import build_fill_coverage_board, save_board
 from pcbasm.visualization import render_pcb
 from web.api.jobs.catalog import JobCatalog, JobDefinition
 from web.api.jobs.context import JobContext, JobResult
@@ -44,18 +43,18 @@ def _run_extract_pcb(ctx: JobContext) -> JobResult:
     ctx.progress("抽出", 30.0)
     outline = pcb.outline
     ctx.log(f"サイズ: {outline.width:.2f} x {outline.height:.2f} mm")
-    outline.save(ctx.artifacts_dir / "outline.json")
+    save_outline(outline, ctx.artifacts_dir / "outline.json")
 
     components = pcb.components
-    components.save(ctx.artifacts_dir / "pnp.csv")
+    save_pnp_csv(components, ctx.artifacts_dir / "pnp.csv")
     ctx.log(f"{len(components)} 部品 -> pnp.csv")
 
     pads = pcb.pads
-    pads.save(ctx.artifacts_dir / "pads.json")
+    save_pads(pads, ctx.artifacts_dir / "pads.json")
     ctx.log(f"{len(pads)} パッド -> pads.json")
 
     copper = pcb.copper
-    copper.save(ctx.artifacts_dir / "copper.json")
+    save_copper(copper, ctx.artifacts_dir / "copper.json")
     ctx.log(f"{len(copper)} 銅箔島 -> copper.json")
 
     ctx.checkpoint()
@@ -82,9 +81,6 @@ def _run_extract_pcb(ctx: JobContext) -> JobResult:
 
 def _run_make_fill_coverage_pcb(ctx: JobContext) -> JobResult:
     """Fill 要件網羅フィクスチャ PCB を生成する."""
-    # pcbnew 依存はジョブ実行時のみ（KiCAD 未導入でも webui は起動可）
-    from pcbasm.pcb.generate import build_fill_coverage_board, save_board
-
     ctx.progress("生成")
     filename = "fill_coverage.kicad_pcb"
     save_board(build_fill_coverage_board(), ctx.artifacts_dir / filename)

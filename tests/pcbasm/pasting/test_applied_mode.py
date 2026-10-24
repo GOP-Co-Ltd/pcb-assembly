@@ -12,17 +12,17 @@ from collections.abc import Mapping
 
 from shapely import Polygon
 
+from pcbasm.board import Component, Layer, Pad
 from pcbasm.config.dispenser import PasteDispenserConfig, ToolheadConfig
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.applied_mode import AppliedModeSummary, applied_mode_summaries
+from pcbasm.pasting.hierarchy import HierKey, PadHierarchy
 from pcbasm.pasting.params import DispenseMotion, PasteParams, PasteParamValue
 from pcbasm.pasting.settings import (
     PasteSettingsModel,
     resolve_node_settings,
     resolve_pad_settings,
 )
-from pcbasm.pcb import Component, Layer, Pad
-from pcbasm.pcb.grouping import HierKey, PadHierarchy
 
 
 def _rect(cx: float, cy: float, w: float, h: float) -> Polygon:

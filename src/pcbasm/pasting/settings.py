@@ -19,16 +19,16 @@ from typing import Self
 
 import attrs
 
+from pcbasm.board import Pad
 from pcbasm.config.dispenser import PasteDispenserConfig
 from pcbasm.geometry import Point2d
+from pcbasm.pasting.hierarchy import HierKey, PadHierarchy, PadHierarchyNode, PadRef
 from pcbasm.pasting.params import (
     PASTE_PARAM_NAMES,
     PasteParams,
     PasteParamsPatch,
     PasteParamValue,
 )
-from pcbasm.pcb.board import Pad
-from pcbasm.pcb.grouping import HierKey, PadHierarchy, PadHierarchyNode, PadRef
 
 
 @attrs.frozen

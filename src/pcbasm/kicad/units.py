@@ -1,7 +1,4 @@
-"""KiCad 内部単位（nm、signed 32-bit）と mm の変換.
-
-``pcbasm.pcb`` からは re-export しないので、このモジュールを直接 import する。
-"""
+"""KiCad 内部単位（nm、signed 32-bit）と mm の変換."""
 
 from __future__ import annotations
 

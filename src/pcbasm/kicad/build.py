@@ -1,11 +1,5 @@
 """Pcbnew によるテスト用 PCB の生成（矩形 / グリッド / fill 網羅フィクスチャ）.
 
-モジュールレベルで ``pcbnew``（KiCAD の Python API）を import するため、
-KiCAD 未導入環境では import できない。
-
-``pcbasm.pcb`` パッケージからは re-export しないので、``pcbasm.pcb.generate`` を
-直接 import する。
-
 生成する基板の座標は KiCad 座標 [mm] で、外形の左上が (0, 0)。
 """
 
@@ -15,7 +9,10 @@ from pathlib import Path
 
 import pcbnew
 
-from pcbasm.pcb.units import from_mm, vector
+from pcbasm.kicad.units import from_mm, vector
+
+# pcbnew を import しない利用側が注釈に使う
+KicadBoard = pcbnew.BOARD
 
 
 def save_board(board: pcbnew.BOARD, output: Path) -> None:
@@ -155,6 +152,34 @@ def build_fill_coverage_board() -> pcbnew.BOARD:
     _add_rect_pad(board, "DOT_TINY", x=50.0, y=22.0, w=0.2, h=0.2)
 
     return board
+
+
+def add_smd_pad(
+    board: pcbnew.BOARD,
+    reference: str,
+    value: str,
+    *,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+) -> None:
+    """中心 (x, y) に矩形の SMD pad を 1 つ持つ footprint を置く（参照名と値は隠す）."""
+    footprint = pcbnew.FOOTPRINT(board)
+    footprint.SetReference(reference)
+    footprint.SetValue(value)
+    footprint.SetPosition(vector(x, y))
+    footprint.Reference().SetVisible(False)
+    footprint.Value().SetVisible(False)
+    pad = pcbnew.PAD(footprint)
+    pad.SetNumber("1")
+    pad.SetAttribute(pcbnew.PAD_ATTRIB_SMD)
+    pad.SetShape(pcbnew.PAD_SHAPE_RECTANGLE)
+    pad.SetSize(vector(width, height))
+    pad.SetPosition(vector(x, y))
+    pad.SetLayerSet(pad.SMDMask())
+    footprint.Add(pad)
+    board.Add(footprint)
 
 
 def _add_footprint(

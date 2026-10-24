@@ -80,7 +80,7 @@ class TestRenderPcb:
     """render_pcb（extract_pcb スクリプトから昇格）."""
 
     def test_renders_real_pcb_to_readable_png(self, tmp_path):
-        from pcbasm.pcb import PcbFile
+        from pcbasm.kicad import PcbFile
         from pcbasm.visualization import render_pcb
 
         pcb = PcbFile(FILL_COVERAGE_PCB)
@@ -109,7 +109,7 @@ class TestHeightRender:
     から昇格）."""
 
     def test_render_planned_points_outputs_readable_png(self, tmp_path):
-        from pcbasm.pcb import PcbFile
+        from pcbasm.kicad import PcbFile
         from pcbasm.visualization import render_planned_points
 
         pcb = PcbFile(LED_BLINKER_PCB)
@@ -127,7 +127,7 @@ class TestHeightRender:
 
     def test_render_planned_points_accepts_fewer_than_hull_points(self, tmp_path):
         """凸包が成立しない 2 点でも描画できる（境界ケース）."""
-        from pcbasm.pcb import PcbFile
+        from pcbasm.kicad import PcbFile
         from pcbasm.visualization import render_planned_points
 
         pcb = PcbFile(LED_BLINKER_PCB)
@@ -142,7 +142,7 @@ class TestHeightRender:
 
     def test_render_height_plane_outputs_readable_png(self, tmp_path):
         from pcbasm.geometry import HeightPlane, Point3d
-        from pcbasm.pcb import PcbFile
+        from pcbasm.kicad import PcbFile
         from pcbasm.visualization import render_height_plane
 
         pcb = PcbFile(LED_BLINKER_PCB)
@@ -169,7 +169,7 @@ class TestHeightRender:
 
     def test_render_height_plane_accepts_pcb_to_plane_frame(self, tmp_path):
         from pcbasm.geometry import HeightPlane, Point3d, Shift
-        from pcbasm.pcb import PcbFile
+        from pcbasm.kicad import PcbFile
         from pcbasm.visualization import render_height_plane
 
         pcb = PcbFile(LED_BLINKER_PCB)

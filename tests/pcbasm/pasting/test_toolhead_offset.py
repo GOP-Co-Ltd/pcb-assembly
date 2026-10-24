@@ -16,6 +16,7 @@ from pcbasm.config import load_machine
 from pcbasm.geometry import Identity, Point2d, Shift
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FakeCamera, FakeKlipper
+from pcbasm.kicad import PcbFile
 from pcbasm.pasting.toolhead_offset import (
     MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT,
     ToolheadOffsetDiagnostics,
@@ -25,7 +26,6 @@ from pcbasm.pasting.toolhead_offset import (
     ToolheadOffsetSample,
     plan_toolhead_offset_points,
 )
-from pcbasm.pcb import PcbFile
 from pcbasm.posctrl import BoardCalibrationResult
 from pcbasm.vision import Image
 from pcbasm.vision.calibration import CalibrationResult

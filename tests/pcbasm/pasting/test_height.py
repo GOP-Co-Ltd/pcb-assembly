@@ -3,6 +3,7 @@
 import pytest
 from shapely.geometry import Point as ShapelyPoint, Polygon
 
+from pcbasm.board import Copper, Layer
 from pcbasm.config.probe import ProbeConfig
 from pcbasm.gcode import GCode
 from pcbasm.geometry import (
@@ -15,7 +16,6 @@ from pcbasm.geometry import (
     sort_by_nearest,
 )
 from pcbasm.pasting.height import HeightPlaneMeasurer, plan_probe_points
-from pcbasm.pcb import Copper, Layer
 
 _SAMPLING_KWARGS = {"min_radius": 1.5, "min_samples": 3, "max_samples": 9}
 _BOARD_EDGE_MARGIN = 2.5

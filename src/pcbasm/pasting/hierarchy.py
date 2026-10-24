@@ -25,8 +25,8 @@ from typing import Self
 
 import attrs
 
+from pcbasm.board import Component, Pad
 from pcbasm.geometry import oriented_bbox
-from pcbasm.pcb.board import Component, Pad
 
 # 階層ノードのキー（例 ("L3", "U1", "0.50x0.90mm")）
 HierKey = tuple[str, ...]

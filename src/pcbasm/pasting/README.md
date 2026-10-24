@@ -9,6 +9,7 @@
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `params.py`              | 塗布パラメータ 10 項目の単一ソース（`[paste_dispenser.defaults]` の型）。`PasteParams` / `PasteParamsPatch` / `PASTE_PARAM_FIELDS`（UI 列順・ラベル・入力種別・描く列）/ `validate_param_values` / `DispenseMotion`（`[paste_dispenser.motion]`）                                                                                                                                                                                    |
 | `settings.py`            | 基板別の階層 override（L0–L4）。`PasteSettingsModel` / `resolve_pad_settings` / `select_enabled_pads` / override 集計                                                                                                                                                                                                                                                                                                                |
+| `hierarchy.py`           | pad の L0–L4 階層・形状キー・基板の署名。`PadHierarchy` / `PadShapeKey` / `HierKey` / `PadRef`                                                                                                                                                                                                                                                                                                                                       |
 | `persist.py`             | 基板別 override JSON の codec（schema v1）                                                                                                                                                                                                                                                                                                                                                                                           |
 | `fill_path.py`           | pad 1 枚の塗布経路生成（面・線・微小線・点）。`FillPlan` / `FillPlan.build` / `FillPlan.for_pad` / `FillPlan.mode_for_pad`（経路を作らず実際の方式だけを判定） / `micro_line_auto_height`（微小線の自動高さ）                                                                                                                                                                                                                        |
 | `applied_mode.py`        | 階層ノードごとの実際の塗布方式（auto 判定・フォールバック後）の集計と表示文字列 `applied_mode_summaries`（pad 編集表の「塗布方式」列の補足表示）                                                                                                                                                                                                                                                                                     |
@@ -48,15 +49,15 @@
 ```
 web/api/jobs/pasting/*  →  pasting.{session,workflow,alignment,flowcalib.procedure,dataset.*,toolhead_offset}
                               ↓
-                       pasting.{applicator,fill_path,fill_sequence,params,settings,route,height,
-                                nozzle_clean}
+                       pasting.{applicator,fill_path,fill_sequence,params,settings,hierarchy,route,
+                                height,nozzle_clean}
                               ↓
-                       pcbasm.{config,geometry,pcb,posctrl,vision,hal}
+                       pcbasm.{config,geometry,board,kicad,posctrl,vision,hal}
 ```
 
 - `nozzle_clean` だけはジョブ以外に `web/api/routers/nozzle_cap.py`（テスト実行 API）からも呼ぶ。
     `PasteSession` を介さず `Klipper` / `XYZStage` / `PasteApplicator` だけで完結させてあるため
-- 汎用の計算幾何は `pcbasm.geometry`、KiCad 汎用処理は `pcbasm.pcb`（`units` / `footprint`）に置く
+- 汎用の計算幾何は `pcbasm.geometry`、KiCad 汎用処理は `pcbasm.kicad`（`units` / `footprint` / `build`）に置く
 - 永続 JSON（基板別 override / dataset metadata / テスト塗布基板 document）は `schema_version` で分岐し、
     旧版は純関数 `_migrate_vN` で新版 dict へ写してから structure する。形状を変えない限り版は上げない
 

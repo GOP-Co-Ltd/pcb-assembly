@@ -5,16 +5,17 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 import attrs
-import pcbnew
 
 from pcbasm.geometry import Point2d
 from pcbasm.geometry.packing import Rect, pack_rects
-from pcbasm.pcb.footprint import (
+from pcbasm.kicad.footprint import (
+    FRONT_PAD_LAYERS,
+    Footprint,
     FootprintEnvelope,
     duplicate_footprint,
     footprint_polygons,
 )
-from pcbasm.pcb.units import vector
+from pcbasm.kicad.units import vector
 
 from .catalog import ResolvedPadPattern
 from .config import BoardConfig, BoardSpec, PreviewLayer
@@ -337,16 +338,10 @@ def _stack_pads_for_overflow_preview(
     return placements
 
 
-_LAYERS: tuple[tuple[PreviewLayer, int], ...] = (
-    ("F.Cu", pcbnew.F_Cu),
-    ("F.Paste", pcbnew.F_Paste),
-)
-
-
-def _footprint_polygons(footprint: pcbnew.FOOTPRINT) -> tuple[LayerPolygon, ...]:
+def _footprint_polygons(footprint: Footprint) -> tuple[LayerPolygon, ...]:
     return tuple(
         LayerPolygon(layer_name, tuple(Point2d(p.x, p.y) for p in points))
-        for layer_name, points in footprint_polygons(footprint, _LAYERS)
+        for layer_name, points in footprint_polygons(footprint, FRONT_PAD_LAYERS)
     )
 
 

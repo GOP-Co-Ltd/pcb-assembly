@@ -11,13 +11,14 @@ import numpy as np
 import pytest
 import shapely
 
+from pcbasm.board import Copper, Layer
 from pcbasm.config import MachineConfig, load_machine
 from pcbasm.geometry import Identity, Point2d, Shift
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FakeCamera, FakeKlipper
+from pcbasm.kicad import PcbFile
 from pcbasm.pasting.capture import PointCapturer
 from pcbasm.pasting.session import PasteSession
-from pcbasm.pcb import Copper, Layer, PcbFile
 from pcbasm.posctrl import BoardCalibrationResult
 from pcbasm.vision import Image
 from pcbasm.vision.calibration import CalibrationResult

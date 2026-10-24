@@ -5,10 +5,10 @@ from typing import Any
 import pytest
 import shapely
 
+from pcbasm.board import Layer, Pad
 from pcbasm.geometry import HeightPlane, Point2d, Point3d, Rotation, Shift
 from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.session import PasteSession
-from pcbasm.pcb import Layer, Pad
 from pcbasm.posctrl import AlignmentRegion, BoardAlignment, EdgeMatch, RegionAlignment
 from pcbasm.vision import Offset
 

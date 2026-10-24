@@ -9,11 +9,10 @@ from pathlib import Path
 from threading import Lock
 
 import attrs
-import pcbnew
 
-from pcbasm.pcb.footprint import FootprintInfo, duplicate_footprint
-from pcbasm.pcb.generate import generate_rect_pcb, save_board
-from pcbasm.pcb.units import vector
+from pcbasm.kicad.build import KicadBoard, add_smd_pad, generate_rect_pcb, save_board
+from pcbasm.kicad.footprint import FootprintInfo, duplicate_footprint
+from pcbasm.kicad.units import vector
 
 from .catalog import PadCatalog, PadPattern, ResolvedPadPattern
 from .config import (
@@ -21,7 +20,7 @@ from .config import (
     CustomPadDraft,
     PatternSpec,
 )
-from .layout import BoardLayout, Rect, build_board_layout, preview_board_layout
+from .layout import BoardLayout, build_board_layout, preview_board_layout
 
 
 @attrs.frozen
@@ -203,16 +202,23 @@ class BoardGenerator:
         )
         return _Plan(normalized, catalog, resolved)
 
-    def _build_board(
-        self, config: BoardConfig
-    ) -> tuple[pcbnew.BOARD | None, str | None]:
+    def _build_board(self, config: BoardConfig) -> tuple[KicadBoard | None, str | None]:
         """解決済み layout と同じ位置へ単一パッド footprint を置く（収まらなければ ``(None, 理由)``）."""
         plan = self._resolve_plan(config)
         layout, overflow_message = build_board_layout(plan.config, plan.resolved)
         if layout is None:
             return None, overflow_message
         board = generate_rect_pcb(layout.board.width_mm, layout.board.height_mm)
-        _add_purge_pad(board, layout.purge_pad)
+        purge = layout.purge_pad
+        add_smd_pad(
+            board,
+            "PURGE",
+            "Paste purge",
+            x=purge.x + purge.width / 2.0,
+            y=purge.y + purge.height / 2.0,
+            width=purge.width,
+            height=purge.height,
+        )
         for pad_layout in layout.pads:
             resolved = plan.resolved[pad_layout.catalog_id]
             footprint = duplicate_footprint(resolved.template)
@@ -224,23 +230,3 @@ class BoardGenerator:
             footprint.Value().SetVisible(False)
             board.Add(footprint)
         return board, None
-
-
-def _add_purge_pad(board: pcbnew.BOARD, bounds: Rect) -> None:
-    center_x = bounds.x + bounds.width / 2.0
-    center_y = bounds.y + bounds.height / 2.0
-    footprint = pcbnew.FOOTPRINT(board)
-    footprint.SetReference("PURGE")
-    footprint.SetValue("Paste purge")
-    footprint.SetPosition(vector(center_x, center_y))
-    footprint.Reference().SetVisible(False)
-    footprint.Value().SetVisible(False)
-    pad = pcbnew.PAD(footprint)
-    pad.SetNumber("1")
-    pad.SetAttribute(pcbnew.PAD_ATTRIB_SMD)
-    pad.SetShape(pcbnew.PAD_SHAPE_RECTANGLE)
-    pad.SetSize(vector(bounds.width, bounds.height))
-    pad.SetPosition(vector(center_x, center_y))
-    pad.SetLayerSet(pad.SMDMask())
-    footprint.Add(pad)
-    board.Add(footprint)

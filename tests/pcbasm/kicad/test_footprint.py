@@ -1,11 +1,11 @@
-"""pcbasm.pcb.footprint のテスト（実 ``*.pretty`` library と実 pcbnew を使う）."""
+"""pcbasm.kicad.footprint のテスト（実 ``*.pretty`` library と実 pcbnew を使う）."""
 
 from pathlib import Path
 
 import pcbnew
 import pytest
 
-from pcbasm.pcb.footprint import (
+from pcbasm.kicad.footprint import (
     FRONT_PAD_LAYERS,
     FootprintEnvelope,
     FootprintLibrary,
@@ -136,16 +136,14 @@ class TestPadGeometry:
 
     def test_footprint_polygons_expose_front_layers(self):
         footprint = smd_pad_footprint("rectangle", 1.0, 1.0)
-        polygons = footprint_polygons(
-            footprint, (("F.Cu", pcbnew.F_Cu), ("F.Paste", pcbnew.F_Paste))
-        )
+        polygons = footprint_polygons(footprint, FRONT_PAD_LAYERS)
         assert {name for name, _ in polygons} == {"F.Cu", "F.Paste"}
         assert all(len(points) >= 4 for _, points in polygons)
 
     def test_pad_on_any_layer(self):
         footprint = smd_pad_footprint("circle", 1.0, 1.0)
         pad = next(iter(footprint.Pads()))
-        assert pad_on_any_layer(pad, FRONT_PAD_LAYERS) is True
+        assert pad_on_any_layer(pad, (pcbnew.F_Cu,)) is True
         assert pad_on_any_layer(pad, (pcbnew.B_Cu,)) is False
 
     def test_duplicate_footprint_is_independent(self):

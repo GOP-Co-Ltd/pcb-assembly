@@ -1,4 +1,4 @@
-"""`pcbasm.pcb.generate` の仕様テスト.
+"""`pcbasm.kicad.build` の仕様テスト.
 
 計画書 webui-phase3.md「pcbasm 昇格」節が契約:
 
@@ -12,8 +12,8 @@
 import pytest
 from shapely import Polygon
 
-from pcbasm.pcb import PcbFile
-from pcbasm.pcb.generate import (
+from pcbasm.kicad import PcbFile
+from pcbasm.kicad.build import (
     build_fill_coverage_board,
     generate_grid_pcb,
     generate_rect_pcb,

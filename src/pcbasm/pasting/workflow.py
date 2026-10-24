@@ -10,7 +10,10 @@ from collections.abc import Mapping
 
 import attrs
 
+from pcbasm.board import Layer, Pad
 from pcbasm.config.dispenser import VolumeCorrectionConfig
+from pcbasm.kicad import PcbFile
+from pcbasm.pasting.hierarchy import PadHierarchy, PadRef
 from pcbasm.pasting.initial_purge import (
     ResolvedInitialPurge,
     resolve_initial_purge,
@@ -27,7 +30,6 @@ from pcbasm.pasting.settings import (
     resolve_pad_settings,
     select_enabled_pads,
 )
-from pcbasm.pcb import Layer, Pad, PadHierarchy, PadRef, PcbFile
 
 
 @attrs.frozen

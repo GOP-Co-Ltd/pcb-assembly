@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from pcbasm.kicad import PcbFile
 from pcbasm.paths import PROJECT_ROOT
-from pcbasm.pcb import PcbFile
 
 
 class TestPasteTestBoardAssets:

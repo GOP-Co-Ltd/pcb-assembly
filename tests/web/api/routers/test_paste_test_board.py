@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from pcbasm.hal.fake import FakeAudioPlayer
-from pcbasm.pcb import PcbFile
+from pcbasm.kicad import PcbFile
 from web.api.app import create_app
 from web.api.settings import Settings
 

@@ -27,8 +27,10 @@ from pathlib import Path
 
 import attrs
 
+from pcbasm.board import Copper, Layer
 from pcbasm.gcode import GCode
 from pcbasm.geometry import HeightPlane, Point2d
+from pcbasm.kicad.build import generate_rect_pcb, save_board
 from pcbasm.pasting.capture import PointCapturer
 from pcbasm.pasting.dataset.metadata import DatasetView, PasteDatasetLoading
 from pcbasm.pasting.dataset.plan import (
@@ -61,7 +63,6 @@ from pcbasm.pasting.paste_volume.evaluate import (
     evaluation_lines,
 )
 from pcbasm.pasting.session import PasteSession
-from pcbasm.pcb import Copper, Layer
 from pcbasm.vision import CalibrationResult
 from pcbasm.vision.crop import RectCrop, crop_pixel_size
 from pcbasm.visualization.paste_volume_render import (
@@ -481,9 +482,6 @@ def _confirm_dataset_collection(ctx: JobContext) -> None:
 
 def _generate_plate(ctx: JobContext, width: float, height: float) -> Path:
     """収集用の外形だけ矩形銅板を artifacts へ生成し、そのパスを返す."""
-    # pcbnew 依存はジョブ実行時のみ（KiCAD 未導入でも webui は起動可）
-    from pcbasm.pcb.generate import generate_rect_pcb, save_board
-
     filename = f"paste_dataset_plate_{width:g}x{height:g}.kicad_pcb"
     path = ctx.artifacts_dir / filename
     save_board(generate_rect_pcb(width, height), path)

@@ -11,11 +11,12 @@ import attrs
 import cv2
 
 from pcbasm import hal
+from pcbasm.board import Layer, Pad
 from pcbasm.config import MachineConfig
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d, Point3d, Shift, sort_by_nearest
 from pcbasm.hal import Camera, Klipper, Speed, XYZStage
-from pcbasm.pcb import Layer, Pad
+from pcbasm.kicad.build import generate_grid_pcb
 from pcbasm.posctrl import (
     AlignmentRegion,
     BoardAlignment,
@@ -615,9 +616,6 @@ def _run_orthogonality_test(ctx: JobContext) -> JobResult:
 
 def _run_generate_grid_pcb(ctx: JobContext) -> JobResult:
     """直行性テスト用グリッド PCB を生成する（装置・カメラ不要）."""
-    # pcbnew 依存はジョブ実行時のみ（KiCAD 未導入でも webui は起動可）
-    from pcbasm.pcb.generate import generate_grid_pcb
-
     size = float(ctx.params["size"])
     divisions = int(ctx.params["divisions"])
     pad_size = float(ctx.params["pad_size"])

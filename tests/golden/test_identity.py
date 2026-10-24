@@ -10,7 +10,8 @@ from pathlib import Path
 import pytest
 
 from pcbasm.config import load_machine
-from pcbasm.pcb import PadHierarchy, PcbFile
+from pcbasm.kicad import PcbFile
+from pcbasm.pasting.hierarchy import PadHierarchy
 from tests.support.paths import TESTING_DATA_DIR
 from web.api.board_settings import BoardSettingsStore
 

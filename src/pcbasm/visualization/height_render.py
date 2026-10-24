@@ -15,6 +15,7 @@ from matplotlib.axes import Axes
 from matplotlib.patches import Polygon as MplPolygon
 from shapely.geometry import MultiPoint, Polygon as ShapelyPolygon
 
+from pcbasm.board import Layer
 from pcbasm.geometry import (
     HeightPlane,
     Identity,
@@ -23,7 +24,7 @@ from pcbasm.geometry import (
     Transform,
     transform_polygon,
 )
-from pcbasm.pcb import Layer, PcbFile
+from pcbasm.kicad import PcbFile
 
 from .patches import polygon_with_holes_patch
 

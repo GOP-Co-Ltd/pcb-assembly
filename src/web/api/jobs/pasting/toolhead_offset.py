@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from pcbasm.gcode import GCode
+from pcbasm.kicad import PcbFile
 from pcbasm.pasting.toolhead_offset import (
     MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT,
     ProbedPoint,
@@ -15,7 +16,6 @@ from pcbasm.pasting.toolhead_offset import (
     ToolheadOffsetSample,
     plan_toolhead_offset_points,
 )
-from pcbasm.pcb import PcbFile
 from pcbasm.vision import validate_paste_diameters
 from web.api.jobs.board_ops import setup_board
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec

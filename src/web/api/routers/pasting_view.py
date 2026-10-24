@@ -1,9 +1,7 @@
 """Pad-config API の契約モデルとビュー構築ヘルパ.
 
 選択中の基板について、pad ジオメトリ・階層ツリー・解決済み塗布設定・
-疎な override をレスポンス形式へ変換する。pcbnew 依存は ``PcbFile`` が
-関数内 import するため、本モジュール自体は KiCAD 未導入環境でも import
-できる。エンドポイント定義は :mod:`web.api.routers.pasting` に置く。
+疎な override をレスポンス形式へ変換する。エンドポイント定義は :mod:`web.api.routers.pasting` に置く。
 
 node_id 規約（フロントと共有する契約）:
 
@@ -22,10 +20,13 @@ import attrs
 from fastapi import HTTPException
 from pydantic import BaseModel
 
+from pcbasm.board import Layer, Pad
 from pcbasm.config.dispenser import PasteDispenserConfig, VolumeCorrectionConfig
 from pcbasm.geometry import Point2d, display_rings
+from pcbasm.kicad import PcbFile
 from pcbasm.pasting.applied_mode import AppliedModeSummary, applied_mode_summaries
 from pcbasm.pasting.fill_path import FillPlan
+from pcbasm.pasting.hierarchy import PadHierarchy, PadHierarchyNode
 from pcbasm.pasting.initial_purge import (
     purge_point_label,
     resolve_initial_purge_for,
@@ -45,13 +46,6 @@ from pcbasm.pasting.settings import (
     resolve_node_settings,
     resolve_pad_settings,
     select_enabled_pads,
-)
-from pcbasm.pcb import (
-    Layer,
-    Pad,
-    PadHierarchy,
-    PadHierarchyNode,
-    PcbFile,
 )
 from web.api.board_settings import BoardSettingsStore
 from web.api.settings import Settings
