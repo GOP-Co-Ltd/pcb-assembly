@@ -40,7 +40,7 @@ FEATURE_GROUPS: dict[str, tuple[tuple[str, str, tuple[str, ...]], ...]] = {
         (
             "ノズル・プローブ設定",
             "機体を使い始めるときや工具を交換したときの調整。",
-            ("nozzle_cap", "toolhead_offset", "probe_guide"),
+            ("nozzle_cap", "nozzle_clean_test", "toolhead_offset", "probe_guide"),
         ),
         (
             "吐出・塗布量の校正",
@@ -138,6 +138,7 @@ FEATURE_TEMPLATES: dict[tuple[str, str], str] = {
     ("pasting", "toolhead_offset"): "pasting/job.html",
     ("pasting", "probe_guide"): "pasting/probe_guide.html",
     ("pasting", "nozzle_cap"): "pasting/nozzle_cap.html",
+    ("pasting", "nozzle_clean_test"): "pasting/job.html",
     ("posctrl", "camera_preview"): "posctrl/camera_preview.html",
     ("posctrl", "copper_detection"): "posctrl/copper_detection.html",
     ("posctrl", "camera_calibration"): "posctrl/camera_calibration.html",

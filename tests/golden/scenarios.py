@@ -61,6 +61,9 @@ SCENARIOS = (
     Scenario("height_plane", "success"),
     Scenario("toolhead_offset", "success"),
     Scenario("loading", "commands"),
+    # 開始時に全軸ホーミング済みか（前回のテストの終了時の駐機で脱力していれば未ホーミング）
+    Scenario("nozzle_clean_test", "homed"),
+    Scenario("nozzle_clean_test", "unhomed"),
     Scenario("dispense_calibration", "all"),
     Scenario("paste_volume_calibration", "small_grid"),
     Scenario("machine_check", "all_ok"),

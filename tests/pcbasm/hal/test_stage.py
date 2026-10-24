@@ -30,6 +30,15 @@ class TestXYZStage:
         assert stage.max_velocity == 300.0
 
     @pytest.mark.parametrize(
+        ("homed_axes", "expected"), [("", False), ("xy", False), ("xyz", True)]
+    )
+    def test_is_homed_requires_all_axes(self, homed_axes: str, expected: bool):
+        klipper = FakeKlipper(_CONFIG)
+        klipper.set_status("toolhead", "homed_axes", homed_axes)
+
+        assert XYZStage(klipper).is_homed() is expected
+
+    @pytest.mark.parametrize(
         ("config", "message"),
         [
             (

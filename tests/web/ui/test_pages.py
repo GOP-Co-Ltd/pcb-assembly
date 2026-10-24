@@ -720,6 +720,9 @@ class TestNozzleCapPage:
         assert 'data-testid="nozzle-clean-current"' in response.text
         assert 'data-testid="nozzle-clean-record"' in response.text
         assert 'data-testid="nozzle-clean-test"' in response.text
+        # 試運転はジョブなので、同じページで経過を見て中止できる
+        assert 'data-job-name="nozzle_clean_test"' in response.text
+        assert 'data-job-names="nozzle_clean_test"' in response.text
         assert 'data-testid="nozzle-clean-settings"' in response.text
         assert 'name="paste_dispenser.nozzle_clean.press_depth"' in response.text
         # 座標は記録ボタンの管轄なので手打ち欄を並べない

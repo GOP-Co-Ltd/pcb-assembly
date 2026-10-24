@@ -9,21 +9,13 @@
   - 409: machine_lock 取得失敗（detail に owner）
   - 502: Moonraker 不達（テスト用 config の port 7126 への実接続で検証、モック不使用）
 
-`POST /api/pasting/nozzle/clean/test` は記録ではなく装置を動かすので、上に加えて
-「位置が未記録なら Klipper に触れる前に 400」「可動域外ならプライムも含めて何も送らずに 400」を契約に持つ。
-
-実機系（記録の永続化・relax 後の 400・実クリーニング動作）は受け入れ試験（docs/acceptance.md の A2）で確かめる。
+実機系（記録の永続化・relax 後の 400）は受け入れ試験（docs/acceptance.md の A2）で確かめる。
 """
-
-from collections.abc import Callable
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeKlipper
 from web.api.backend import Backend
-from web.api.env import Env
 
 
 class TestRecordNozzleCap:
@@ -63,138 +55,6 @@ class TestRecordNozzleClean:
     ):
         with backend.lock.hold("pytest-job"):
             response = client.post("/api/pasting/nozzle/clean/record")
-
-        assert response.status_code == 409
-        assert "pytest-job" in response.text
-
-
-class TestNozzleCleanTestRun:
-    """クリーニング動作のテスト実行エンドポイント.
-
-    記録と違って装置を動かすので、検査の順序そのものが契約になる。未記録は Klipper に
-    触れる前に 400 で断り（`Devices.klipper` は接続しないので 502 に化けない）、記録済み
-    なら homed_axes の取得まで進んでテスト用 config の Klipper（port 7126 非リッスン）で
-    502 になる = 位置の検証を通過した証明。
-    """
-
-    def test_unrecorded_clean_returns_400(self, client: TestClient):
-        response = client.post("/api/pasting/nozzle/clean/test")
-
-        assert response.status_code == 400
-        assert response.json()["detail"] == "ノズルクリーニング位置が未記録です"
-
-    def test_partially_recorded_clean_returns_400(
-        self, partial_nozzle_clean: Path, client: TestClient
-    ):
-        """動作値だけ保存された座標無しのテーブルは「未記録」として断る."""
-        response = client.post("/api/pasting/nozzle/clean/test")
-
-        assert response.status_code == 400
-        assert response.json()["detail"] == "ノズルクリーニング位置が未記録です"
-
-    @pytest.mark.usefixtures("unreachable_klipper")
-    def test_recorded_clean_passes_validation_and_returns_502(
-        self, config_dir: Path, client: TestClient
-    ):
-        path = config_dir / "machine.toml"
-        with path.open("a", encoding="utf-8") as machine_toml:
-            machine_toml.write(
-                "\n[paste_dispenser.nozzle_clean]\n"
-                "x = 10.0\ny = 20.0\nz = -30.0\npress_depth = 0.4\n"
-            )
-
-        response = client.post("/api/pasting/nozzle/clean/test")
-
-        assert response.status_code == 502
-
-    def test_out_of_reach_returns_400_without_sending(
-        self,
-        config_dir: Path,
-        mount_klipper: Callable[[FakeKlipper], None],
-        client: TestClient,
-    ):
-        """クリーニング G-code を組む段で可動域外と分かるので、プライムも送らない."""
-        klipper = FakeKlipper()
-        klipper.set_status("toolhead", "homed_axes", "xyz")
-        mount_klipper(klipper)
-        path = config_dir / "machine.toml"
-        with path.open("a", encoding="utf-8") as machine_toml:
-            machine_toml.write(
-                "\n[paste_dispenser.nozzle_clean]\nx = 299.0\ny = 20.0\nz = -3.0\n"
-            )
-
-        response = client.post("/api/pasting/nozzle/clean/test")
-
-        assert response.status_code == 400
-        assert "可動域外" in response.json()["detail"]
-        assert klipper.sent == ()
-
-    @pytest.mark.parametrize(
-        ("cap", "last_message"),
-        [
-            pytest.param(
-                "", "ノズルキャップ位置が未記録のため退避しません", id="unrecorded-cap"
-            ),
-            pytest.param(
-                "\n[paste_dispenser.nozzle_cap]\nx = 30.0\ny = 40.0\nz = 3.0\n",
-                "ノズルキャップ位置へ戻しました",
-                id="recorded-cap",
-            ),
-        ],
-    )
-    def test_message_ends_with_whether_the_nozzle_returned_to_cap(
-        self,
-        config_dir: Path,
-        mount_klipper: Callable[[FakeKlipper], None],
-        client: TestClient,
-        cap: str,
-        last_message: str,
-    ):
-        """クリーニングは済んだので 200 で返し、最後の文でキャップへ戻したかを伝える."""
-        klipper = FakeKlipper()
-        klipper.set_status("toolhead", "homed_axes", "xyz")
-        mount_klipper(klipper)
-        path = config_dir / "machine.toml"
-        with path.open("a", encoding="utf-8") as machine_toml:
-            machine_toml.write(
-                "\n[paste_dispenser.nozzle_clean]\nx = 10.0\ny = 20.0\nz = 3.0\n" + cap
-            )
-
-        response = client.post("/api/pasting/nozzle/clean/test")
-
-        assert response.status_code == 200, response.text
-        assert response.json()["message"].split(" / ")[-1] == last_message
-
-    def test_missing_air_pump_section_returns_502_with_the_reason(
-        self,
-        config_dir: Path,
-        mount_klipper: Callable[[FakeKlipper], None],
-        client: TestClient,
-    ):
-        """printer.cfg の不備は、どの節が足りないかを添えて 502 で返す."""
-        config = {
-            k: v for k, v in FAKE_PRINTER_CONFIG.items() if k != "output_pin air_pump"
-        }
-        klipper = FakeKlipper(config)
-        klipper.set_status("toolhead", "homed_axes", "xyz")
-        mount_klipper(klipper)
-        path = config_dir / "machine.toml"
-        with path.open("a", encoding="utf-8") as machine_toml:
-            machine_toml.write(
-                "\n[paste_dispenser.nozzle_clean]\nx = 10.0\ny = 20.0\nz = 3.0\n"
-            )
-
-        response = client.post("/api/pasting/nozzle/clean/test")
-
-        assert response.status_code == 502
-        assert "printer.cfgに[output_pin air_pump]" in response.json()["detail"]
-
-    def test_busy_returns_409_with_owner_in_detail(
-        self, client: TestClient, backend: Backend
-    ):
-        """ジョブ実行中は「未記録」より先に「使用中」を返す（装置排他が優先）."""
-        with backend.lock.hold("pytest-job"):
-            response = client.post("/api/pasting/nozzle/clean/test")
 
         assert response.status_code == 409
         assert "pytest-job" in response.text

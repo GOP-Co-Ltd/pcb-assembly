@@ -1,8 +1,9 @@
-"""ノズル保守位置（キャップ / クリーニング）の記録 API とクリーニングのテスト実行.
+"""ノズル保守位置（キャップ / クリーニング）の記録 API.
 
 記録はどちらも「全軸ホーミング済みの現在のマシン座標を machine.toml へ保存する」点が
 同じで、運転者から見ても同じ作業（ジョグで先端を当てて記録）なので 1 つの router に置く。
-クリーニングのテスト実行も同じ画面で位置と押し込み量を詰めて調整するための操作なのでここに置く。
+
+クリーニングのテスト実行はジョブ nozzle_clean_test が行う。
 """
 
 from __future__ import annotations
@@ -11,11 +12,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from pcbasm.geometry import Point3d
-from pcbasm.hal import KlipperClient, XYZStage
+from pcbasm.hal import XYZStage
 from pcbasm.machine.devices import Devices
-from pcbasm.machine.park import park
-from pcbasm.pasting.applicator import build_applicator
-from pcbasm.pasting.nozzle_clean import clean_nozzle, plan_nozzle_clean
 from web.api.deps import ControlDep, DevicesDep, LockDep, MachineConfigDep
 from web.api.errors import hal_errors_to_502
 from web.api.lock import MachineLock
@@ -24,10 +22,6 @@ from web.api.routers.session import nozzle_clean_payload
 from web.contract.models import NozzleCleanInfo
 
 STATUS_TIMEOUT = 10.0  # 位置・homed_axes の読み取りのみ（移動なし）
-
-# パージ（retract_rate での押出）と十字往復の M400 待ちを含むので長め。
-# frontend の proxy_read_timeout（120 秒）より短くして、backend 側が先に打ち切るようにする
-CLEAN_TIMEOUT = 90.0
 
 router = APIRouter(prefix="/api/pasting/nozzle")
 
@@ -38,26 +32,6 @@ class NozzleCapPosition(BaseModel):
     z: float
 
 
-class NozzleCleanTestResult(BaseModel):
-    """テスト実行の結果（実施内容の 1 行。組み立てはサーバー側）."""
-
-    message: str
-
-
-def _require_all_axes_homed(klipper: KlipperClient, detail: str) -> None:
-    """全軸ホーミング済みでなければ ``detail`` を添えて 400 で断る.
-
-    M84 後の座標は stale なので、記録すれば誤った位置が残り、絶対移動を送れば
-    意図しない場所へ動く。
-
-    Raises:
-        HTTPException: xyz のいずれかが未ホーミングの場合（400）
-    """
-    homed_axes = klipper.get_status("toolhead", "homed_axes")
-    if not all(axis in homed_axes for axis in "xyz"):
-        raise HTTPException(status_code=400, detail=detail)
-
-
 def _record_current_position(
     lock: MachineLock,
     devices: Devices,
@@ -66,12 +40,21 @@ def _record_current_position(
     owner: str,
     prefix: str,
 ) -> Point3d:
-    """全軸ホーミングを検査し、現在位置を 3 桁丸めで ``prefix`` のテーブルへ書く."""
+    """全軸ホーミングを検査し、現在位置を 3 桁丸めで ``prefix`` のテーブルへ書く.
+
+    M84 後の座標は stale なので、未ホーミングのまま記録すると誤った位置が残る。
+
+    Raises:
+        HTTPException: xyz のいずれかが未ホーミングの場合（400）
+    """
     with lock.hold(owner):
         with hal_errors_to_502():
-            klipper = devices.klipper(STATUS_TIMEOUT)
-            _require_all_axes_homed(klipper, "全軸ホーミング後に記録してください")
-            position = XYZStage(klipper).get_position()
+            stage = XYZStage(devices.klipper(STATUS_TIMEOUT))
+            if not stage.is_homed():
+                raise HTTPException(
+                    status_code=400, detail="全軸ホーミング後に記録してください"
+                )
+            position = stage.get_position()
         saved = Point3d(
             round(position.x, 3), round(position.y, 3), round(position.z, 3)
         )
@@ -118,55 +101,3 @@ def record_nozzle_clean(
         prefix="paste_dispenser.nozzle_clean",
     )
     return nozzle_clean_payload(saved)
-
-
-@router.post("/clean/test")
-def run_nozzle_clean_test(
-    lock: LockDep,
-    devices: DevicesDep,
-    machine_config: MachineConfigDep,
-    _control: ControlDep,
-) -> NozzleCleanTestResult:
-    """記録済みの設定でクリーニング動作を 1 回実行する（ブロッキング）.
-
-    塗布ジョブが行うのと同じ手順（prime → 接近 → パージ → 十字往復 → 退避 →
-    リトラクト）を走らせる。ジョブは直前のパージがリトラクトして終わった状態から
-    prime して掃除するので、ここでも同じ順序にしないと同じ設定で出る量が食い違う。
-
-    最後にノズルキャップ位置へ戻す。ジョブと違って次の工程が続かないので、先端を
-    クリーナーの上に置いたままにすると乾いてしまう。
-
-    Raises:
-        HTTPException: 位置が未記録・未ホーミング・可動域外（400）、Klipper 不達（502）
-    """
-    # 装置排他を先に取る。設定を読むだけの検査より「他が使用中」を先に返すほうが運転者が対処しやすい
-    with lock.hold("nozzle-clean-test"):
-        dispenser = machine_config.machine().paste_dispenser
-        clean = dispenser.nozzle_clean
-        if clean.position is None:
-            raise HTTPException(
-                status_code=400, detail="ノズルクリーニング位置が未記録です"
-            )
-        messages: list[str] = []
-        try:
-            with hal_errors_to_502():
-                klipper = devices.klipper(CLEAN_TIMEOUT)
-                _require_all_axes_homed(klipper, "全軸ホーミング後に実行してください")
-                stage = XYZStage(klipper)
-                plan = plan_nozzle_clean(stage, clean.position, clean)
-                with build_applicator(klipper, stage, dispenser) as applicator:
-                    applicator.prime()
-                    clean_nozzle(klipper, applicator, plan, log=messages.append)
-                    applicator.retract()
-                # ディスペンサーを止めてから戻す（塗布ジョブの駐機と同じ順序）。
-                # 続けてもう一度テストできるよう脱力せず、戻せなくてもクリーニングは済んでいるので失敗にしない
-                cap = dispenser.nozzle_cap.position
-                if cap is None:
-                    messages.append("ノズルキャップ位置が未記録のため退避しません")
-                elif park(klipper, stage, cap, relax=False, warn=messages.append):
-                    messages.append("ノズルキャップ位置へ戻しました")
-        except ValueError as exc:
-            # 可動域外などの不正な設定値。plan_nozzle_clean は何も送る前に
-            # 可動域を検証するので、この経路では装置は動いていない
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return NozzleCleanTestResult(message=" / ".join(messages))

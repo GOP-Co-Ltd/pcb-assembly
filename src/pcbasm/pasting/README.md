@@ -67,7 +67,7 @@ web/api/jobs/pasting/*  →  pasting.{plan,purge_check,dispense_calibration.proc
 
 - 矢印は `pasting` の中の import の向き。ジョブは `session` / `overrides` / `prepare` / `plate` などの下の段も直接使う
 - `dot_capture` は撮る view の型 `DatasetView` を `paste_volume.dataset.metadata` から借りる（dataset は撮った view をそのまま記録する）
-- `nozzle_clean` はジョブ以外に `web/api/routers/pasting/nozzle.py`（テスト実行 API）からも呼ぶ。
+- `nozzle_clean` は塗布ジョブのほかに、基板を使わないテストジョブ（`web/api/jobs/pasting/nozzle_clean_test.py`）からも呼ぶ。
     `PasteSession` を介さず `Klipper` / `XYZStage` / `PasteApplicator` だけで完結させてあるため
 - `overrides` と `plan` / `pad_editor` はジョブ以外に pad 編集 API（`web/api/routers/pasting/board.py`）からも使う。
     `BoardOverrides` は backend のプロセスで 1 つを共有する（pad PATCH をそのロックで直列化するため）

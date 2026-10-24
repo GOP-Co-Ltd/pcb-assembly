@@ -291,3 +291,23 @@ class TestLoading:
         finish(job_backend, record)
 
         assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")
+
+
+class TestNozzleCleanTest:
+    @pytest.mark.parametrize(
+        "scenario", scenarios_of("nozzle_clean_test"), ids=lambda s: s.name
+    )
+    def test_cleans_once(
+        self,
+        manager: JobManager,
+        job_backend: Backend,
+        machine_klipper: FakeKlipper,
+        scenario: Scenario,
+    ):
+        """（未ホーミングならホーミング →）プライム → 接近 → パージ → 十字往復 → 退避 → リトラクト → キャップで脱力."""
+        if scenario.branch == "homed":
+            machine_klipper.set_status("toolhead", "homed_axes", "xyz")
+
+        finish(job_backend, manager.start("nozzle_clean_test", {}))
+
+        assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")

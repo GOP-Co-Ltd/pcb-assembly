@@ -30,38 +30,25 @@ def park(
     stage: XYZStage,
     cap: Point3d | None,
     *,
-    relax: bool,
     warn: Callable[[str], None] = logger.warning,
-) -> bool:
-    """ノズルキャップへ移動して到達を待ち、relax なら続けて脱力する（M84）.
+) -> None:
+    """ノズルキャップへ移動して到達を待ち、脱力する（M84）.
 
-    relax しないのは、続けて装置を動かすためにホーミング状態を保つとき（ノズルクリーニングのテスト）。
-
-    キャップへ行けないときは理由を warn へ渡して False を返す。
-    relax なら代わりに PRESENT（マクロが無ければ M84）へ退避する。
+    キャップへ行けないときは理由を warn へ渡し、代わりに PRESENT（マクロが無ければ M84）へ退避する。
     片付けの経路なので可動域外や printer.cfg の不備は例外にしない。接続の失敗は退避先でも失敗するだけなので伝える。
-
-    Returns:
-        キャップへ移動したら True
     """
     if cap is None:
         reason = "ノズルキャップ位置が未記録です"
     else:
         try:
-            commands = stage.travel_to(cap) + GCode.wait_for_done()
+            commands = stage.travel_to(cap) + GCode.wait_for_done() + GCode.relax()
         except (ValueError, KeyError) as exc:
             reason = f"ノズルキャップへ移動できません: {exc}"
         else:
-            if relax:
-                commands += GCode.relax()
             klipper.send_gcode(commands)
-            return True
-    if relax:
-        warn(f"{reason}。PRESENT / relax (M84) にフォールバックします")
-        _present_or_relax(klipper, warn)
-    else:
-        warn(reason)
-    return False
+            return
+    warn(f"{reason}。PRESENT / relax (M84) にフォールバックします")
+    _present_or_relax(klipper, warn)
 
 
 def _present_or_relax(klipper: KlipperClient, warn: Callable[[str], None]) -> None:

@@ -18,6 +18,7 @@ from web.api.jobs.pasting import (
     dispense_calibration,
     height_plane,
     loading,
+    nozzle_clean_test,
     paste_dataset_finalize,
     paste_solder,
     paste_volume_calibration,
@@ -34,6 +35,7 @@ def default_catalog(stores: PasteStores) -> JobCatalog:
     loading.register(catalog)
     height_plane.register(catalog)
     toolhead_offset.register(catalog)
+    nozzle_clean_test.register(catalog)
     dispense_calibration.register(catalog)
     paste_volume_calibration.register(catalog, stores)
     paste_volume_refit.register(catalog, stores)

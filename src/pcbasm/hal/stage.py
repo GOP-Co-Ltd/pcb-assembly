@@ -167,6 +167,11 @@ class XYZStage:
         pos = self._klipper.get_status("gcode_move", "gcode_position")
         return Point3d(x=pos[0], y=pos[1], z=pos[2])
 
+    def is_homed(self) -> bool:
+        """X・Y・Z の全軸がホーミング済みか（M84 で脱力すると外れる）."""
+        homed_axes = self._klipper.get_status("toolhead", "homed_axes")
+        return all(axis in homed_axes for axis in "xyz")
+
     @cached_property
     def limits(self) -> Limits:
         """各軸の可動域.

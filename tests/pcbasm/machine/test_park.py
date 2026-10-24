@@ -2,11 +2,10 @@
 
 `park` の分岐契約:
 
-- キャップ記録済み → キャップへの退避移動（`XYZStage.travel_to`）+ M400 を **1 回の send_gcode** で送る。
-  relax なら M84 も同じ送信に付け、しないならホーミング状態を保つ
-- キャップ未記録・可動域外（ValueError）・printer.cfg の limits 設定不備（KeyError）→ 理由を warn して False。
+- キャップ記録済み → キャップへの退避移動（`XYZStage.travel_to`）+ M400 + M84 を **1 回の send_gcode** で送る
+- キャップ未記録・可動域外（ValueError）・printer.cfg の limits 設定不備（KeyError）→ 理由を warn する。
   片付けの経路なので例外にしない
-- 行けないとき relax なら PRESENT マクロ、無いか確かめられなければ warn + M84 に退避する。relax しないなら何も送らない
+- 行けないときは PRESENT マクロ、無いか確かめられなければ warn + M84 に退避する
 
 Klipper は FakeKlipper を使う（マクロ確認の失敗だけ MockTransport の Moonraker）。
 """
@@ -40,29 +39,21 @@ _TRAVEL = [
 ]
 
 
-def _park(
-    klipper: KlipperClient, cap: Point3d | None, *, relax: bool
-) -> tuple[bool, list[str]]:
+def _park(klipper: KlipperClient, cap: Point3d | None) -> list[str]:
     warnings: list[str] = []
-    parked = park(klipper, XYZStage(klipper), cap, relax=relax, warn=warnings.append)
-    return parked, warnings
+    park(klipper, XYZStage(klipper), cap, warn=warnings.append)
+    return warnings
 
 
 class TestPark:
     """`park` の分岐契約."""
 
-    @pytest.mark.parametrize(
-        ("relax", "lines"), [(True, [*_TRAVEL, "M84"]), (False, _TRAVEL)]
-    )
-    def test_recorded_cap_is_sent_in_single_send_gcode(
-        self, relax: bool, lines: list[str]
-    ):
+    def test_recorded_cap_is_sent_in_single_send_gcode(self):
         klipper = FakeKlipper(_LIMITS_CONFIG, timeout=12.5)
 
-        parked, warnings = _park(klipper, _CAP, relax=relax)
+        warnings = _park(klipper, _CAP)
 
-        assert parked
-        assert klipper.sent == (SentGCode(GCode(lines), 12.5),)
+        assert klipper.sent == (SentGCode(GCode([*_TRAVEL, "M84"]), 12.5),)
         assert warnings == []
 
     @pytest.mark.parametrize(
@@ -74,31 +65,20 @@ class TestPark:
         ],
         ids=["unrecorded", "out-of-limits", "missing-limits"],
     )
-    def test_unreachable_cap_falls_back_to_present_when_relaxing(
+    def test_unreachable_cap_falls_back_to_present(
         self, cap: Point3d | None, config: dict, reason: str
     ):
         klipper = FakeKlipper({**config, **_PRESENT_MACRO})
 
-        parked, warnings = _park(klipper, cap, relax=True)
+        warnings = _park(klipper, cap)
 
-        assert not parked
         assert klipper.sent_lines == ["PRESENT"]
         assert reason in warnings[0]
-
-    def test_unreachable_cap_sends_nothing_without_relaxing(self):
-        """ホーミング状態を保つ駐機は、行けなければ動かずに理由だけを返す."""
-        klipper = FakeKlipper({**_LIMITS_CONFIG, **_PRESENT_MACRO})
-
-        parked, warnings = _park(klipper, None, relax=False)
-
-        assert not parked
-        assert klipper.sent == ()
-        assert warnings == ["ノズルキャップ位置が未記録です"]
 
     def test_falls_back_to_relax_without_present_macro(self):
         klipper = FakeKlipper(_LIMITS_CONFIG)
 
-        _, warnings = _park(klipper, None, relax=True)
+        warnings = _park(klipper, None)
 
         assert klipper.sent_lines == ["M84"]
         assert "PRESENT マクロが見つかりません" in warnings[-1]
@@ -117,7 +97,7 @@ class TestPark:
             "moonraker", 7125, transport=httpx.MockTransport(moonraker)
         )
 
-        _, warnings = _park(klipper, None, relax=True)
+        warnings = _park(klipper, None)
 
         assert scripts == ["M84"]
         assert "確認に失敗しました" in warnings[-1]

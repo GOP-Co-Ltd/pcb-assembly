@@ -127,7 +127,7 @@ class TestMachineControl:
 
 
 class TestNozzleMaintenance:
-    """ノズルキャップとクリーニング位置の記録、クリーニングのテスト実行."""
+    """ノズルキャップとクリーニング位置の記録."""
 
     @pytest.mark.parametrize(
         ("path", "table"),
@@ -153,13 +153,6 @@ class TestNozzleMaintenance:
         ).position
         assert (position.x, position.y, position.z) == tuple(START_POSITION[:3])
         assert homed_klipper.sent == ()
-
-    def test_clean_test(self, client: TestClient, homed_klipper: FakeKlipper):
-        """プライム → 接近 → パージ → 十字往復 → 退避 → リトラクト → キャップへ戻る."""
-        response = client.post("/api/pasting/nozzle/clean/test")
-
-        assert response.status_code == 200, response.text
-        assert_transcript(homed_klipper.sent, ROUTES / "nozzle_clean_test.gcode")
 
 
 class TestEmergencyStop:

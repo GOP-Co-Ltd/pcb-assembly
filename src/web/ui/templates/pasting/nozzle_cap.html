@@ -65,13 +65,17 @@
           data-requires-control>現在位置を記録</button>
   <h4>テスト実行</h4>
   <p>
-    記録した位置と下の動作設定で、はんだ塗布の開始時と同じ手順を 1 回だけ実行し、
-    最後にノズルキャップ位置へ戻す（接近 → パージ → 十字往復 → 退避 → キャップ）。
+    記録した位置と下の動作設定で、はんだ塗布と同じクリーニングを 1 回だけ行うジョブを実行する
+    （接近 → パージ → 十字往復 → 退避）。未ホーミングなら先にホーミングし、終了時はほかのジョブと同じくキャップへ駐機して脱力する。
     押し込み量とこすり幅は結果を見て追い込む値なので、塗布を 1 枚通さずに
     ここで効き具合を確かめられる。
   </p>
-  <button id="ncl-test" data-testid="nozzle-clean-test"
-          data-requires-control>クリーニング動作をテスト</button>
+  <form class="job-form" data-job-name="nozzle_clean_test" data-requires-control>
+    <button type="submit" data-testid="nozzle-clean-test">クリーニング動作をテスト</button>
+  </form>
+  {% with job_name = "nozzle_clean_test" %}
+  {% include "partials/job_console.html" %}
+  {% endwith %}
   {% if nozzle_clean_fields %}
   <h4>動作設定</h4>
   {# 入力後は即保存する。押し込み量とこすり幅は結果を見ながら調整する値なので、記録と同じ画面に置く。 #}

@@ -517,12 +517,12 @@ class TestNozzlePositionsOverBrowser:
 
         assert not button.evaluate(is_inert)
 
-    def test_clean_test_button_reports_failure_and_recovers(
+    def test_clean_test_runs_as_job_on_the_same_page(
         self, live_ui: LiveUi, browser_page
     ):
-        """テスト実行はエラーでもボタンを押せる状態へ戻す.
+        """テスト実行はジョブとして始まり、経過と結果を同じページのコンソールに出す.
 
-        E2E の backend は位置が未記録なので 400 が返る。無効化が片道だと 1 回の失敗で押せなくなる。
+        E2E の backend は位置が未記録なのでジョブは失敗する。終われば同じボタンでもう一度始められる。
         """
         browser_page.goto(
             f"{live_ui.base_url}/pasting/nozzle_cap", wait_until="domcontentloaded"
@@ -533,10 +533,13 @@ class TestNozzlePositionsOverBrowser:
 
         button.click()
 
-        browser_page.locator("#toasts .toast.error").wait_for(
-            state="visible", timeout=10_000
+        expect(browser_page.locator("#jc-status")).to_have_attribute(
+            "data-status", "failed", timeout=60_000
         )
-        assert not button.evaluate("(el) => el.disabled")
+        expect(browser_page.locator("#jc-log")).to_contain_text(
+            "ノズルクリーニング位置が未記録です"
+        )
+        expect(button).to_be_enabled()
 
     def test_clean_setting_autosave_from_the_feature_page(
         self, live_server: LiveServer, live_ui: LiveUi, browser_page

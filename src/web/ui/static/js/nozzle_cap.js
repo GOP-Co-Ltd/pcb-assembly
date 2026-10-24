@@ -1,6 +1,7 @@
 "use strict";
 
 // ノズル位置の設定ページ。記録ボタン → POST → 返却値で表示を更新する処理だけを持つ。
+// クリーニングのテストはジョブなので、開始と経過の表示は job_console.js が受け持つ。
 
 (() => {
   const { toast, api } = window.webui;
@@ -39,21 +40,4 @@
     (recorded) => recorded.label,
     "ノズルクリーニング位置を記録しました",
   );
-
-  // テスト実行は完了まで十数秒かかる。連打による多重実行が装置排他で拒否されないよう、
-  // 押している間だけ無効化する（成功・失敗のどちらでも必ず戻す）。
-  const testButton = document.getElementById("ncl-test");
-  if (testButton) {
-    testButton.addEventListener("click", async () => {
-      testButton.disabled = true;
-      try {
-        const result = await api("POST", "/api/pasting/nozzle/clean/test");
-        toast(result.message);
-      } catch (err) {
-        toast(err.message, false);
-      } finally {
-        testButton.disabled = false;
-      }
-    });
-  }
 })();

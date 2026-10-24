@@ -28,7 +28,6 @@ def park_after_job(ctx: JobContext) -> None:
             klipper,
             XYZStage(klipper),
             ctx.machine.paste_dispenser.nozzle_cap.position,
-            relax=True,
             warn=ctx.log,
         )
     except Exception as exc:

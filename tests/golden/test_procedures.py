@@ -348,7 +348,7 @@ def _park(klipper: FakeKlipper, machine: MachineConfig) -> None:
     """ジョブの終了時と同じく、駐機の timeout の接続で脱力まで駐機する."""
     connection = klipper.connection(timeout=PRESENT_TIMEOUT)
     cap = machine.paste_dispenser.nozzle_cap.position
-    park(connection, XYZStage(connection), cap, relax=True, warn=lambda message: None)
+    park(connection, XYZStage(connection), cap, warn=lambda message: None)
 
 
 class TestParking:
