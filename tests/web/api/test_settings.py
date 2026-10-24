@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from pcbasm.utils import PROJECT_ROOT
+from pcbasm.paths import PROJECT_ROOT
 from web.api.app import create_app
 from web.api.settings import Settings
 

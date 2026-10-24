@@ -45,9 +45,9 @@ from web.api.jobs.catalog import JobCatalog, JobDefinition
 from web.api.jobs.context import JobContext, JobResult
 from web.api.jobs.manager import JobManager
 from web.api.settings import Settings
+from web.contract.identity import SESSION_COOKIE
 from web.ui.app import create_app as create_ui_app
 from web.ui.machines import MachineEndpoint
-from web.ui.proxy import SESSION_COOKIE
 
 _STARTUP_TIMEOUT = 10.0
 _HTTP_TIMEOUT = 10.0

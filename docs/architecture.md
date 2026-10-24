@@ -31,10 +31,14 @@ flowchart TD
 | `src/web/ui/`                       | マシン探索・選択、SSR ページ、backend への中継               |
 | `src/web/ui/templates/` / `static/` | HTML、CSS、DOM 操作、API 応答の表示                          |
 | `src/web/selfupdate/`               | backend / frontend 共通の Git 更新とサービス再起動手順       |
+| `src/web/contract/`                 | backend・frontend・自己更新が共有する応答モデルとワイヤ定数  |
+| `src/web/process.py`                | backend / frontend 共通の env 読み取りと logging の初期化    |
 | `scripts/`                          | ホストのセットアップとサービス運用                           |
 
 `pcbasm` は `web` を import しない。ジョブの画面や API が変わっても、
 位置合わせや塗布計画の計算はコア層で検証できるようにする。
+`web.ui` と `web.selfupdate` は `web.api` を import せず、共有するものは `web.contract` に置く。
+層の規則は `tests/test_architecture.py` が import を解析して検査する。
 塗布ドメイン内の詳細は [pasting の構成](../src/pcbasm/pasting/README.md) を参照する。
 
 ## リクエストとジョブ
@@ -64,7 +68,7 @@ UI のボタン無効化だけに依存しない。
 1. `src/web/api/routers/` に router を書く。パスは `/api/` で始める。
 2. `src/web/api/app.py` の `include_router` に router を登録する。
 3. 装置や設定を変える endpoint には `ControlDep` を付ける。操作権のない要求は 423 になる。
-4. 応答は `src/web/api/models.py` の pydantic モデルで返す。
+4. 応答は `src/web/contract/models.py` の pydantic モデルで返す。
 
 frontend 側の変更は要らない。`proxy.py` が `/m/{machine_id}/api/**` をそのまま backend の `/api/**` へ中継する。
 JS からは `static/js/app.js` の `api()` か `fetchApi()` に `/api/…` のパスを渡す。

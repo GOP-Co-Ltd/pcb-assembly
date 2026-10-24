@@ -16,7 +16,7 @@ from playwright.sync_api import expect
 
 from pcbasm.hal.fake import FAKE_AUDIO_DEVICES
 from pcbasm.pasting.paste_volume.calibration import CALIBRATION_SUFFIX
-from pcbasm.utils import PROJECT_ROOT
+from pcbasm.paths import PROJECT_ROOT
 from tests.e2e.conftest import (
     E2E_MACHINE_ID as _E2E_MACHINE_ID,
     TERMINAL as _TERMINAL,

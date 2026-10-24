@@ -21,7 +21,7 @@ from typing import Any
 import attrs
 
 from pcbasm.atomic import write_text_atomic
-from web.api.models import (
+from web.contract.update import (
     UpdateRepositoryInfo,
     UpdateRunInfo,
     UpdateStatusResponse,

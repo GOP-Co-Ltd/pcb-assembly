@@ -34,8 +34,7 @@ from tests.support.settings import make_api_settings, make_ui_settings
 from tests.web.api.jobs.conftest import register_gated
 from tests.web.update_support import UpdateSandbox, make_update_sandbox
 from web.api.app import create_app
-from web.api.discovery import TXT_KEY_API, TXT_KEY_ID
-from web.api.models import API_VERSION
+from web.contract.discovery import API_VERSION, TXT_KEY_API, TXT_KEY_ID
 from web.selfupdate.runner import UpdateRunner
 from web.ui.app import create_app as create_ui_app
 from web.ui.machines import MachineEndpoint

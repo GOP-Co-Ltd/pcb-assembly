@@ -26,7 +26,7 @@ from pcbasm.config import (
     resolve_paste_height,
 )
 from pcbasm.geometry import Point2d, Point3d
-from pcbasm.utils import PROJECT_ROOT
+from pcbasm.paths import PROJECT_ROOT
 from tests.support.paths import TESTING_DATA_DIR
 
 

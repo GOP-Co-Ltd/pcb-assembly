@@ -1,8 +1,6 @@
-"""Backend WebAPI の mDNS (DNS-SD) 広告と、探索側と共有するワイヤ定数.
+"""Backend WebAPI の mDNS (DNS-SD) 広告.
 
-frontend（`web.ui.discovery`）はここの ``SERVICE_TYPE`` と TXT キーを import して
-探索する（ワイヤ定数の定義箇所を 1 つにするため）。``API_VERSION`` は
-`web.api.models` の定数をそのまま広告に載せる（二重定義を作らない）。
+ワイヤ定数と ``API_VERSION`` は探索側（`web.ui.discovery`）と共有する `web.contract.discovery` に置く。
 
 広告は装置操作の前提ではない。マルチキャストが使えない環境（コンテナ・AP の
 マルチキャスト抑制）では WARNING を出して広告なしで動き続ける。
@@ -17,16 +15,9 @@ import ifaddr
 from zeroconf import Error as ZeroconfError, InterfaceChoice, IPVersion, ServiceInfo
 from zeroconf.asyncio import AsyncZeroconf
 
-from web.api.models import API_VERSION
+from web.contract.discovery import API_VERSION, SERVICE_TYPE, TXT_KEY_API, TXT_KEY_ID
 
 logger = logging.getLogger(__name__)
-
-# DNS-SD のサービス型（広告側・探索側で共有する）
-SERVICE_TYPE = "_pcbasm._tcp.local."
-
-# TXT レコードのキー（値は UTF-8 bytes で載る）
-TXT_KEY_ID = "id"
-TXT_KEY_API = "api"
 
 # 広告に載せないアドレスの prefix（loopback と APIPA のリンクローカル）。
 # 他ホストから到達できないアドレスを載せると frontend が到達不能な URL を組む

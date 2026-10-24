@@ -27,16 +27,13 @@ from zeroconf import ServiceInfo
 from tests.helpers import random_service_type
 from web.api.app import create_app
 from web.api.discovery import (
-    SERVICE_TYPE,
-    TXT_KEY_API,
-    TXT_KEY_ID,
     ServiceAdvertiser,
     build_service_info,
     local_ipv4_addresses,
     select_advertise_addresses,
 )
-from web.api.models import API_VERSION
 from web.api.settings import Settings, resolve_machine_id
+from web.contract.discovery import API_VERSION, SERVICE_TYPE, TXT_KEY_API, TXT_KEY_ID
 
 # このホストに存在しないアドレス（TEST-NET-3）。zeroconf は bind できず OSError
 UNUSABLE_INTERFACE = "203.0.113.9"

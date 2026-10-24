@@ -15,8 +15,8 @@ from pcbasm.hal.fake import FakeCamera
 from pcbasm.machine.journal import Journal
 from pcbasm.vision import Image
 from web.api.config_store import ConfigStore
-from web.api.models import MachineSettingValue
 from web.api.settings import Settings
+from web.contract.models import MachineSettingValue
 
 _STATE_FILENAME = "webui_state.json"
 type StoredJobParamValue = bool | float | int | str

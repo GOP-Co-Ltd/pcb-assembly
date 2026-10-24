@@ -21,9 +21,9 @@ from web.api.dependencies import (
     SettingsDep,
     StateDep,
 )
-from web.api.models import StateResponse
 from web.api.routers.common import build_state_response
 from web.api.settings import Settings
+from web.contract.models import StateResponse
 
 router = APIRouter(prefix="/api")
 

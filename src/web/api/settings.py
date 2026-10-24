@@ -9,19 +9,9 @@ from pathlib import Path
 import attrs
 
 from pcbasm.config import get_config_dir
-from pcbasm.utils import PROJECT_ROOT
-from web.api.discovery import SERVICE_TYPE
-
-
-def _env_path(name: str, default: Path) -> Path:
-    value = os.environ.get(name)
-    return Path(value) if value else default
-
-
-def _env_words(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
-    """空白区切りの env を argv 断片として読む（未設定なら既定）."""
-    value = os.environ.get(name)
-    return tuple(value.split()) if value else default
+from pcbasm.paths import PROJECT_ROOT
+from web.contract.discovery import SERVICE_TYPE
+from web.process import env_path, env_words
 
 
 @attrs.frozen
@@ -67,10 +57,10 @@ class Settings:
     # 素の `uv sync` は dependency group を削除し、lock がずれると uv.lock を書き換える
     # （web.selfupdate.settings のコメント参照）。機体ごとに増やせるよう env に出す
     update_uv_sync_args: tuple[str, ...] = ("--locked", "--inexact")
-    # None ならリポジトリ直下の data/selfupdate。data_dir からは導出しない。
+    # 自己更新の report と単一実行ロックの置き場所。data_dir からは導出しない。
     # ロックが守る対象は worktree なので、同居機の api と ui が
     # PCBASM_API_DATA_DIR の設定に関係なく同じロックを使う必要がある
-    update_state_dir: Path | None = None
+    update_state_dir: Path = PROJECT_ROOT / "data" / "selfupdate"
 
     @property
     def webui_data_dir(self) -> Path:
@@ -99,15 +89,6 @@ class Settings:
         は特定 directory だけを除外しており、ここは対象外）。
         """
         return self.data_dir / "paste-volume-calibrations"
-
-    @property
-    def update_dir(self) -> Path:
-        """自己更新の report と単一実行ロックの置き場所.
-
-        既定はリポジトリ直下（`data_dir` 由来ではない）。ロックは worktree を
-        守るものなので、同居機の backend と UI frontend が必ず同じファイルを使う。
-        """
-        return self.update_state_dir or PROJECT_ROOT / "data" / "selfupdate"
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -143,7 +124,7 @@ class Settings:
         pcb_root_env = os.environ.get("PCBASM_API_PCB_ROOT")
         pcb_browse_root = Path(pcb_root_env) if pcb_root_env else base.pcb_browse_root
         return cls(
-            data_dir=_env_path("PCBASM_API_DATA_DIR", base.data_dir),
+            data_dir=env_path("PCBASM_API_DATA_DIR", base.data_dir),
             pcb_browse_root=pcb_browse_root,
             pcb_browse_allowed=(
                 (*base.pcb_browse_allowed, pcb_browse_root)
@@ -153,18 +134,16 @@ class Settings:
             mainsail_url=os.environ.get("PCBASM_MAINSAIL_URL", base.mainsail_url),
             port=int(port_env) if port_env else base.port,
             fake_camera=os.environ.get("PCBASM_API_FAKE_CAMERA") == "1",
-            fake_camera_image=_env_path(
+            fake_camera_image=env_path(
                 "PCBASM_API_FAKE_CAMERA_IMAGE", base.fake_camera_image
             ),
             discovery_enabled=os.environ.get("PCBASM_API_DISCOVERY_ENABLED") != "0",
             update_enabled=os.environ.get("PCBASM_API_UPDATE_ENABLED") != "0",
-            update_uv_sync_args=_env_words(
+            update_uv_sync_args=env_words(
                 "PCBASM_API_UPDATE_UV_SYNC_ARGS", base.update_uv_sync_args
             ),
-            update_state_dir=(
-                Path(state_dir)
-                if (state_dir := os.environ.get("PCBASM_API_UPDATE_STATE_DIR"))
-                else base.update_state_dir
+            update_state_dir=env_path(
+                "PCBASM_API_UPDATE_STATE_DIR", base.update_state_dir
             ),
         )
 

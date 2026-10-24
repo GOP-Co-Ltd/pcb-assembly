@@ -1,18 +1,8 @@
-"""`web.api.models` の依存境界の回帰テスト.
+"""`web.contract` の依存境界と、契約モデルが backend の定義を手で複製している既定値.
 
-計画書 docs/plans/web-api-ui-split.md「MR2」節が契約:
-
-- `web/api/models.py` は API 境界の contract を集約し、**pydantic と標準ライブラリのみ**を
-  import する。frontend を別プロセス（`web.ui`）へ分離したあとも、そのまま import できる
-  唯一の contract モジュールに保つため
-
-依存境界の判定は import 文の静的検査（AST）で行う。実際に import して `sys.modules` を
-覗く形では、他テストが先に読み込んだモジュールと区別できない。
-
-この制約の代償として `JobSpecInfo` は `JobDefinition` のフィールド既定値を**手で複製**
-している（`web.api.jobs.catalog` を import できないため）。片方だけ書き換わると
-`/api/jobs` が値を埋める現在は無害でも、frontend が `JobSpecInfo` を直接構築する
-MR4/MR5 で契約がずれるので、同期を `TestJobSpecInfoMirrorsJobDefinition` でピンする。
+`web.contract` は pydantic と標準ライブラリだけを import する（frontend の `web.ui` がそのまま import できるように）。
+その代償として `JobSpecInfo` は `JobDefinition` の既定値を書き写している。
+片方だけ書き換わると、frontend が `JobSpecInfo` を省略形で構築したときに契約がずれる。
 """
 
 import ast
@@ -22,11 +12,11 @@ from pathlib import Path
 import attrs
 import pytest
 
-import web.api.models
+import web.contract
 from web.api.jobs.catalog import JobDefinition
-from web.api.models import JobSpecInfo
+from web.contract.models import JobSpecInfo
 
-_ALLOWED_THIRD_PARTY = frozenset({"pydantic"})
+_ALLOWED_ROOTS = frozenset({"pydantic"}) | sys.stdlib_module_names
 
 # JobSpecInfo と JobDefinition で共有する名前のうち、既定値の一致を要求しないもの
 _NOT_MIRRORED = frozenset({"params"})  # ParamSpec / ParamSpecInfo で型が別
@@ -73,25 +63,29 @@ def _imported_roots(source: str) -> set[str]:
 
 
 class TestContractModuleDependencies:
-    """分割後も frontend からそのまま import できる依存関係を保つ."""
+    """Frontend からそのまま import できる依存関係を保つ."""
 
-    def test_models_imports_only_pydantic_and_stdlib(self):
-        source = Path(web.api.models.__file__).read_text(encoding="utf-8")
+    def test_contract_imports_only_pydantic_and_stdlib(self):
+        package = Path(web.contract.__file__).parent
 
-        roots = _imported_roots(source)
+        roots = set().union(
+            *(
+                _imported_roots(path.read_text(encoding="utf-8"))
+                for path in package.glob("*.py")
+            )
+        )
 
         # 検査対象が消えていないこと（空集合で無条件に通るのを防ぐ）
         assert "pydantic" in roots
-        allowed = _ALLOWED_THIRD_PARTY | sys.stdlib_module_names
-        assert roots <= allowed, f"contract 外の依存が入りました: {roots - allowed}"
+        assert (
+            roots <= _ALLOWED_ROOTS
+        ), f"契約外の依存が入りました: {roots - _ALLOWED_ROOTS}"
 
 
 class TestJobSpecInfoMirrorsJobDefinition:
     """手で複製している既定値が `JobDefinition` と一致し続ける.
 
-    `models.py` は `web.api.jobs.catalog` を import できない（上の依存境界）ため、
-    `JobSpecInfo` は `JobDefinition` の既定値を書き写している。省略時に見える値が
-    ずれていないことを、両者の最小構築インスタンスで確認する。
+    省略時に見える値がずれていないことを、両者の最小構築インスタンスで確認する。
     """
 
     def test_mirrored_field_names_are_not_empty(self):

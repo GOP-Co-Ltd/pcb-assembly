@@ -18,13 +18,13 @@ from pcbasm.pasting.applicator import build_applicator
 from pcbasm.pasting.nozzle_clean import clean_nozzle, plan_nozzle_clean
 from web.api.config_store import ConfigStore
 from web.api.dependencies import ControlDep, JobsDep, StateDep, StoreDep
-from web.api.models import NozzleCleanInfo
 from web.api.routers.common import (
     create_klipper,
     klipper_errors_to_502,
     nozzle_clean_payload,
 )
 from web.api.state import AppState
+from web.contract.models import NozzleCleanInfo
 
 STATUS_TIMEOUT = 10.0  # 位置・homed_axes の読み取りのみ（移動なし）
 

@@ -20,7 +20,7 @@ import pytest
 from web.api.config_store import MACHINE_FIELDS
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.pasting import register_pasting_jobs
-from web.api.models import SettingsField
+from web.contract.models import SettingsField
 from web.ui import layout
 from web.ui.layout import (
     DISPENSE_CALIBRATION_PARAM_GROUPS,

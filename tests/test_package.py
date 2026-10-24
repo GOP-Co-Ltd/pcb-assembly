@@ -7,7 +7,7 @@ import tomllib
 import pytest
 
 import pcbasm
-from pcbasm.utils import PROJECT_ROOT
+from pcbasm.paths import PROJECT_ROOT
 
 
 def _imported_heavy_modules(target: str) -> str:

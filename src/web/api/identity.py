@@ -18,14 +18,12 @@ import attrs
 from starlette.requests import HTTPConnection
 
 from web.api.control import ClientIdentity
-
-# ヘッダは proxy が注入する（表示名は latin-1 制約を避けるため quote 済みで届く）
-SESSION_HEADER = "X-Pcbasm-Session"
-NAME_HEADER = "X-Pcbasm-Client-Name"
-
-# cookie は frontend が HTML ページレスポンスで発行する
-SESSION_COOKIE = "pcbasm_session"
-NAME_COOKIE = "pcbasm_name"
+from web.contract.identity import (
+    NAME_COOKIE,
+    NAME_HEADER,
+    SESSION_COOKIE,
+    SESSION_HEADER,
+)
 
 # セッションを名乗らないクライアント（curl や cookie 無効なブラウザ）の共有セッション
 ANONYMOUS_SESSION = "anonymous"

@@ -1,6 +1,6 @@
 """UI frontend 自身が返す JSON の pydantic モデル.
 
-backend の値を中継するモデルは `web.api.models` を使う。ここに置くのは frontend が
+backend の値を中継するモデルは `web.contract.models` を使う。ここに置くのは frontend が
 持つ情報（マシン登録一覧）だけ。
 """
 

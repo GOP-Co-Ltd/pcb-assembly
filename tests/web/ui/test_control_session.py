@@ -28,7 +28,7 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.types import Receive, Scope, Send
 
-from web.ui.proxy import NAME_COOKIE, SESSION_COOKIE
+from web.contract.identity import NAME_COOKIE, SESSION_COOKIE
 from web.ui.settings import Settings
 
 # tests/web/ui/conftest.py の静的登録 1 台と同じ id

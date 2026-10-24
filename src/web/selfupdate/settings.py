@@ -14,7 +14,7 @@ from pathlib import Path
 
 import attrs
 
-from pcbasm.utils import PROJECT_ROOT
+from pcbasm.paths import PROJECT_ROOT
 
 
 def _which(name: str, fallback: str) -> str:

@@ -20,7 +20,9 @@ from web.api.dependencies import (
 from web.api.identity import get_identity
 from web.api.jobs.catalog import JobCatalog, JobDefinition
 from web.api.jobs.manager import JobManager, JobRecord, prompt_payload
-from web.api.models import (
+from web.api.routers.common import param_specs_with_saved_defaults
+from web.api.state import AppState
+from web.contract.models import (
     ApplyInfo,
     ArtifactInfo,
     JobCatalogResponse,
@@ -31,8 +33,6 @@ from web.api.models import (
     ParamSpecInfo,
     PromptInfo,
 )
-from web.api.routers.common import param_specs_with_saved_defaults
-from web.api.state import AppState
 
 router = APIRouter(prefix="/api")
 

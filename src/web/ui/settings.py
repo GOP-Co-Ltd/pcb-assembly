@@ -7,20 +7,10 @@ from pathlib import Path
 
 import attrs
 
-from pcbasm.utils import PROJECT_ROOT
-from web.api.discovery import SERVICE_TYPE
+from pcbasm.paths import PROJECT_ROOT
+from web.contract.discovery import SERVICE_TYPE
+from web.process import env_path, env_words
 from web.ui.machines import DEFAULT_BACKEND_PORT, MachineEndpoint
-
-
-def _env_path(name: str, default: Path) -> Path:
-    value = os.environ.get(name)
-    return Path(value) if value else default
-
-
-def _env_words(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
-    """空白区切りの env を argv 断片として読む（未設定なら既定）."""
-    value = os.environ.get(name)
-    return tuple(value.split()) if value else default
 
 
 @attrs.frozen
@@ -57,7 +47,7 @@ class Settings:
     update_enabled: bool = True
     update_uv_sync_args: tuple[str, ...] = ("--locked", "--inexact")
     # リポジトリ直下に固定する。ロックで保護する対象は worktree なので、同居機の backend
-    # （`web.api.settings.Settings.update_dir`）と必ず同じロックファイルを使う
+    # （`web.api.settings.Settings.update_state_dir`）と必ず同じロックファイルを使う
     update_state_dir: Path = PROJECT_ROOT / "data" / "selfupdate"
 
     @classmethod
@@ -88,7 +78,7 @@ class Settings:
         return cls(
             host=os.environ.get("PCBASM_UI_HOST", base.host),
             port=int(port) if port else base.port,
-            machines_file=_env_path("PCBASM_UI_MACHINES_FILE", base.machines_file),
+            machines_file=env_path("PCBASM_UI_MACHINES_FILE", base.machines_file),
             ssr_timeout=float(ssr_timeout) if ssr_timeout else base.ssr_timeout,
             backend_connect_timeout=(
                 float(connect_timeout)
@@ -103,10 +93,10 @@ class Settings:
             ),
             discovery_enabled=os.environ.get("PCBASM_UI_DISCOVERY_ENABLED") != "0",
             update_enabled=os.environ.get("PCBASM_UI_UPDATE_ENABLED") != "0",
-            update_uv_sync_args=_env_words(
+            update_uv_sync_args=env_words(
                 "PCBASM_UI_UPDATE_UV_SYNC_ARGS", base.update_uv_sync_args
             ),
-            update_state_dir=_env_path(
+            update_state_dir=env_path(
                 "PCBASM_UI_UPDATE_STATE_DIR", base.update_state_dir
             ),
         )

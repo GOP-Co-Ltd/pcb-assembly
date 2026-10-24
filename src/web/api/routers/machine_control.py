@@ -12,13 +12,13 @@ from pcbasm.hal import XYZStage
 from pcbasm.parking import move_to_cap
 from pcbasm.vision import load_focus_z
 from web.api.dependencies import ControlDep, StateDep
-from web.api.models import KlipperStatus
 from web.api.routers.common import (
     create_klipper,
     fetch_status,
     klipper_errors_to_502,
 )
 from web.api.state import AppState
+from web.contract.models import KlipperStatus
 
 MOVE_TIMEOUT = 60.0  # wait_for_done (M400) を含むため長め
 

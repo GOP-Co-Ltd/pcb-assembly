@@ -6,7 +6,7 @@
 import ast
 from pathlib import Path
 
-from pcbasm.utils import PROJECT_ROOT
+from pcbasm.paths import PROJECT_ROOT
 
 SRC_DIR = PROJECT_ROOT / "src"
 

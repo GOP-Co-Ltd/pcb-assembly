@@ -38,7 +38,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
-from web.api.models import (
+from web.contract.identity import SESSION_COOKIE
+from web.contract.models import (
     JobCatalogResponse,
     JobSpecInfo,
     MachineInfo,
@@ -68,7 +69,6 @@ from web.ui.layout import (
 )
 from web.ui.machine_client import BackendGateway, BackendUnavailable, MachineClient
 from web.ui.machines import MachineEndpoint, MachineRegistry
-from web.ui.proxy import SESSION_COOKIE
 
 # machine を指定しない URL で開くタブ
 DEFAULT_TAB = "posctrl"

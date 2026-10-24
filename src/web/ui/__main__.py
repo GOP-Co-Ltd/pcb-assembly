@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-import logging
-
 import uvicorn
 
-from pcbasm.utils import setup_logging
+from web.process import setup_logging
 from web.ui.app import create_app
 from web.ui.settings import Settings
 
 
 def main() -> None:
-    setup_logging(logging.INFO, namespaces=("pcbasm", "web"))
+    setup_logging()
     settings = Settings.from_env()
     config = uvicorn.Config(
         create_app(settings),
