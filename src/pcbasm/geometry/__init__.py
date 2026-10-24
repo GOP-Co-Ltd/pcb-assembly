@@ -15,6 +15,7 @@ from .sampling import (
     sampling_diagnostics,
 )
 from .transform import (
+    Affine2d,
     Compose,
     HeightPlane,
     Identity,
@@ -28,6 +29,7 @@ from .transform import (
 )
 
 __all__ = [
+    "Affine2d",
     "Compose",
     "HeightPlane",
     "Identity",

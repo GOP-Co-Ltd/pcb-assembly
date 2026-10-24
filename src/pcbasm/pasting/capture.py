@@ -61,7 +61,7 @@ class PointCapturer:
             session.stage.move_settled(
                 x=stage_xy.x,
                 y=stage_xy.y,
-                z=session.board_frame.calibration.z_position,
+                z=session.board_frame.camera_model.focus_z,
                 settle_sec=self._settle_sec,
             )
         )
@@ -73,11 +73,9 @@ class PointCapturer:
             if correction is None
             else self._projector.with_correction(correction)
         )
-        matrix, translation = projector.board_to_pixel_affine(stage_xy)
         return crop_centered(
             image,
             center,
-            matrix,
-            translation,
+            projector.board_to_pixel(stage_xy),
             pixel_size=self._crop_size_px,
         )

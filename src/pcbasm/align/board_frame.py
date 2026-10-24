@@ -27,7 +27,7 @@ from pcbasm.geometry import (
 )
 from pcbasm.hal import Camera, KlipperClient, Speed, XYZStage
 from pcbasm.vision import (
-    CameraCalibration,
+    CameraModel,
     CircleDetector,
     FrameSink,
     safe_move_distance,
@@ -242,12 +242,11 @@ class BoardFrame:
     """計測した基板の位置関係（値）.
 
     装置（Klipper・ステージ・カメラ）は持たない。使う側が別に受け取る。
-    offset_transform と board_transform の意味は :mod:`pcbasm.align` の冒頭を参照。
+    camera_model と board_transform の意味は :mod:`pcbasm.align` の冒頭を参照。
     """
 
     board: Board
-    calibration: CameraCalibration
-    offset_transform: Transform
+    camera_model: CameraModel
     board_transform: Transform
 
 
@@ -293,13 +292,13 @@ def measure_board_frame(
 
     # キャリブレーション結果読み込み
     logger.info("=== キャリブレーション読み込み ===")
-    calibration = CameraCalibration.load(cam_config.calibration_file)
-    logger.info("pixel/mm: %.2f", calibration.pixel_per_mm)
+    camera_model = CameraModel.load(cam_config.calibration_file)
+    logger.info("pixel/mm: %.2f", camera_model.pixel_per_mm)
 
     # 円検出器初期化
     ref_config = machine.reference_point
     detector = CircleDetector(
-        pixel_per_mm=calibration.pixel_per_mm,
+        pixel_per_mm=camera_model.pixel_per_mm,
         target_diameter_mm=ref_config.target_diameter,
         crop_size=cam_config.crop.size,
         diameter_tolerance_mm=0.5,
@@ -313,14 +312,13 @@ def measure_board_frame(
     # Reference Point へ移動
     logger.info("=== Reference Point (top left) へ移動 ===")
     logger.info("目標位置: (%s, %s)", ref_config.x, ref_config.y)
-    if calibration.z_position is not None:
-        logger.info("キャリブレーションZ位置: %.3f mm", calibration.z_position)
+    logger.info("キャリブレーションZ位置: %.3f mm", camera_model.focus_z)
     settle = machine.settle
     klipper.send_gcode(
         stage.move_settled(
             x=ref_config.x,
             y=ref_config.y,
-            z=calibration.z_position,
+            z=camera_model.focus_z,
             settle_sec=settle.move_sec,
         )
     )
@@ -330,6 +328,7 @@ def measure_board_frame(
     observer = OffsetObserver(
         detector=detector,
         camera=camera,
+        camera_model=camera_model,
         crop_size=cam_config.crop.size,
         frame_sink=frame_sink,
         sample_count=machine.detection.sample_count,
@@ -343,7 +342,7 @@ def measure_board_frame(
     # カメラ回転角の計測（2 点法）
     logger.info("=== カメラ回転角の計測 ===")
     move_distance = (
-        safe_move_distance(cam_config.crop.size, margin=0.3) / calibration.pixel_per_mm
+        safe_move_distance(cam_config.crop.size, margin=0.3) / camera_model.pixel_per_mm
     )
     camera_rotation_measurer = CameraRotationMeasurer(
         observe=observer.observe,
@@ -352,14 +351,14 @@ def measure_board_frame(
         move_distance=move_distance,
         settle_sec=settle.move_sec,
     )
-    offset_transform = camera_rotation_measurer.measure()
+    camera_model = camera_model.with_rotation(camera_rotation_measurer.measure())
 
     # 位置補正を行い最終座標を返す関数を定義
     position_adjustor = XYPositionAdjustor(
         observe=observer.observe,
         klipper=klipper,
         stage=stage,
-        offset_transform=offset_transform,
+        camera_model=camera_model,
         tolerance=tolerance,
         settle_sec=settle.move_sec,
     )
@@ -377,8 +376,5 @@ def measure_board_frame(
     board_transform = board_transform_measurer.measure()
 
     return BoardFrame(
-        board=board,
-        calibration=calibration,
-        offset_transform=offset_transform,
-        board_transform=board_transform,
+        board=board, camera_model=camera_model, board_transform=board_transform
     )

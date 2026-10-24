@@ -4,8 +4,8 @@
 「posctrl/position.py（変更 — 破壊変更）」に基づく。
 
 新契約: observe() -> Transform（カメラ mm 空間・想定→観測）。ループ内で
-offset = offset_transform.apply(observe().apply(Point2d(0, 0))) として変位へ
-縮約し、補正式 target = pos − offset（(A4) アンカー）は従来と不変。
+o = observe().apply(Point2d(0, 0)) として変位へ縮約し、補正式
+target = pos − R(o)（(A4) アンカー、CameraModel.observed_to_machine_offset）は従来と不変。
 klipper は FakeKlipper、stage はその上の実 XYZStage を使う（移動するとステージの位置も変わる）。
 """
 
@@ -25,12 +25,18 @@ from pcbasm.geometry import (
 )
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FakeKlipper
+from pcbasm.vision import CameraModel
+from tests.support.camera_model import make_camera_model
 
 
 def _sequence(transforms: Iterable[Transform]) -> Callable[[], Transform]:
     """呼び出しごとに transforms を先頭から順に返す observe 関数を作る."""
     iterator = iter(transforms)
     return lambda: next(iterator)
+
+
+def _camera_model(rotation: Transform) -> CameraModel:
+    return make_camera_model(10.0, (200, 200), rotation=rotation)
 
 
 class TestXYPositionAdjustor:
@@ -59,7 +65,7 @@ class TestXYPositionAdjustor:
             observe=observe,
             klipper=klipper,
             stage=stage,
-            offset_transform=Identity(),
+            camera_model=_camera_model(Identity()),
             tolerance=0.1,
             settle_sec=0.0,
         )
@@ -73,10 +79,10 @@ class TestXYPositionAdjustor:
         ]
         assert len(klipper.sent) == 1
 
-    def test_offset_transform_rotates_observed_displacement_into_machine_space(
+    def test_camera_rotation_rotates_observed_displacement_into_machine_space(
         self, klipper, stage
     ):
-        """符号ピン: 観測 (1,0)mm + offset_transform=Rotation(90) → 補正 −(0,1).
+        """符号ピン: 観測 (1,0)mm + カメラの回転 Rotation(90) → 補正 −(0,1).
 
         offset = R(o) = (0,1)、target = pos − offset = (10, 19)。 R⁻¹
         を適用する実装はここで割れる。2回目は (10, 19) で収束する。
@@ -86,7 +92,7 @@ class TestXYPositionAdjustor:
             observe=observe,
             klipper=klipper,
             stage=stage,
-            offset_transform=Rotation(90.0),
+            camera_model=_camera_model(Rotation(90.0)),
             tolerance=0.1,
             settle_sec=0.0,
         )
@@ -117,7 +123,7 @@ class TestXYPositionAdjustor:
             observe=observe,
             klipper=klipper,
             stage=stage,
-            offset_transform=Identity(),
+            camera_model=_camera_model(Identity()),
             tolerance=0.1,
             settle_sec=0.0,
         )
@@ -136,7 +142,7 @@ class TestXYPositionAdjustor:
             observe=lambda: Shift(1.0, 0.0),
             klipper=klipper,
             stage=stage,
-            offset_transform=Identity(),
+            camera_model=_camera_model(Identity()),
             tolerance=0.1,
             settle_sec=0.0,
             max_iterations=3,

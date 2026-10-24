@@ -32,8 +32,8 @@ from pcbasm.pasting.dataset.recorder import (
 )
 from pcbasm.pasting.dataset.writer import PasteDatasetWriter
 from pcbasm.pasting.params import DispenseMotion, PasteParams
-from pcbasm.vision.calibration import CameraCalibration
 from pcbasm.vision.crop import RectCrop
+from tests.support.camera_model import make_camera_model
 from tests.support.paths import TESTING_DATA_DIR
 
 METADATA_V3 = TESTING_DATA_DIR / "schemas" / "paste_dataset_metadata_v3.json"
@@ -125,16 +125,7 @@ def _run_info() -> DatasetRunInfo:
         loading=LOADING,
         started_at=STARTED_AT,
         dispenser=_dispenser(),
-        calibration=CameraCalibration(
-            pixel_per_mm=120.5,
-            square_size_mm=1.0,
-            mean_distance_px=120.5,
-            std_distance_px=0.1,
-            resolution=(1280, 720),
-            crop_size=(600, 600),
-            calibrated_at=datetime(2026, 8, 20, 12, 0, 0, tzinfo=UTC),
-            z_position=12.0,
-        ),
+        camera_model=make_camera_model(120.5, (1280, 720), focus_z=12.0),
     )
 
 

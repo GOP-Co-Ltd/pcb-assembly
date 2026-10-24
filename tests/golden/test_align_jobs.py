@@ -15,15 +15,17 @@ from shapely import Point, Polygon
 from pcbasm.geometry import Point2d
 from pcbasm.hal import Camera
 from pcbasm.hal.fake import Checkerboard, FakeKlipper
-from pcbasm.vision import CameraCalibration
-from tests.golden.conftest import CALIBRATION, JOBS, finish, scene_camera
+from pcbasm.vision import CameraCalibration, CameraModel, safe_move_distance
+from tests.golden.conftest import CAMERA_MODEL, JOBS, finish, scene_camera
 from tests.golden.scenarios import Scenario, scenarios_of
 from tests.support.golden import assert_transcript
 from tests.web.api.jobs.conftest import answer_next_prompt
-from web.api.jobs.manager import JobManager
+from web.api.jobs.manager import JobManager, JobStatus
+from web.api.machine_config import MachineConfigFile
+from web.api.settings import Settings
 from web.api.state import AppState
 
-FOCUS_Z = CALIBRATION.z_position
+FOCUS_Z = CAMERA_MODEL.focus_z
 
 
 class TestReferencePointSetup:
@@ -83,9 +85,88 @@ class TestCameraCalibration:
 
         (file,) = manager.apply_payload().files
         result = CameraCalibration.from_dict(json.loads(file.content))
-        assert result.pixel_per_mm == pytest.approx(CALIBRATION.pixel_per_mm, rel=1e-3)
+        assert result.pixel_per_mm == pytest.approx(CAMERA_MODEL.pixel_per_mm, rel=1e-3)
         assert result.z_position == FOCUS_Z
         assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")
+
+    def test_applied_calibration_is_used_by_the_next_job_without_restart(
+        self,
+        manager: JobManager,
+        job_state: AppState,
+        job_settings: Settings,
+        machine_klipper: FakeKlipper,
+        mount_camera: Callable[[Camera], None],
+        grid_shapes: list[Polygon],
+    ):
+        """倍率が変わったカメラで校正して反映すると、次のジョブは新しい pixel/mm で動く.
+
+        基板計測の回転測定は ``safe_move_distance / pixel_per_mm`` だけ X へ動くので、その距離で確かめる。
+        """
+        machine_klipper.set_status(
+            "gcode_move", "gcode_position", [100.0, 80.0, FOCUS_Z, 0.0]
+        )
+        mount_camera(
+            scene_camera(
+                machine_klipper,
+                0.0,
+                shapes=grid_shapes,
+                checkerboard=Checkerboard(center=Point2d(100.0, 80.0), square=1.5),
+                pixel_per_mm=CAMERA_MODEL.pixel_per_mm * 1.25,
+            )
+        )
+        record = manager.start("camera_calibration", {"square_size": 1.5})
+        answer_next_prompt(record, manager, True, set())
+        finish(job_state, record)
+        payload = manager.apply_payload()
+        MachineConfigFile(job_settings.config_dir).write(
+            payload.values,
+            files={file.filename: file.content for file in payload.files},
+        )
+        manager.mark_applied()
+        machine = job_state.machine()
+        applied = CameraModel.load(machine.camera.calibration_file)
+        assert applied.pixel_per_mm == pytest.approx(
+            CAMERA_MODEL.pixel_per_mm * 1.25, rel=1e-2
+        )
+
+        machine_klipper.clear_sent()
+        finish(job_state, manager.start("board_tour", {"tolerance": 0.1}))
+
+        reference, rotation_probe = machine_klipper.g1_moves()[:2]
+        assert rotation_probe["x"] - reference["x"] == pytest.approx(
+            safe_move_distance(machine.camera.crop.size, margin=0.3)
+            / applied.pixel_per_mm
+        )
+
+
+class TestCalibrationWithoutFocusZ:
+    @pytest.mark.parametrize(
+        ("job", "params"),
+        [("reference_point_setup", {}), ("board_tour", {"tolerance": 0.1})],
+    )
+    def test_job_fails_before_homing(
+        self,
+        manager: JobManager,
+        job_state: AppState,
+        job_settings: Settings,
+        machine_klipper: FakeKlipper,
+        mount_camera: Callable[[Camera], None],
+        grid_shapes: list[Polygon],
+        job: str,
+        params: dict[str, float],
+    ):
+        """焦点 Z の無い校正では、Z を動かさずに進まず、開始時に理由を示して失敗する."""
+        path = job_settings.config_dir / "camera_calibration.json"
+        calibration = json.loads(path.read_text(encoding="utf-8"))
+        del calibration["z_position"]
+        path.write_text(json.dumps(calibration), encoding="utf-8")
+        mount_camera(scene_camera(machine_klipper, 0.0, shapes=grid_shapes))
+
+        record = manager.start(job, params)
+        finish(job_state, record, JobStatus.FAILED)
+
+        assert "z_position" in str(record.error)
+        assert "G28 X Y Z" not in machine_klipper.sent_lines
 
 
 class TestBoardTour:

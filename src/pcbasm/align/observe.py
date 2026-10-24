@@ -8,7 +8,7 @@ import time
 
 from pcbasm.geometry import Shift, Transform
 from pcbasm.hal import Camera
-from pcbasm.vision import CenterOffsetDetector, FrameSink, draw_overlay
+from pcbasm.vision import CameraModel, CenterOffsetDetector, FrameSink, draw_overlay
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,7 @@ class OffsetObserver:
         self,
         detector: CenterOffsetDetector,
         camera: Camera,
+        camera_model: CameraModel,
         crop_size: tuple[int, int],
         *,
         frame_sink: FrameSink | None = None,
@@ -47,6 +48,7 @@ class OffsetObserver:
             detector: 検出器（Hough の :class:`~pcbasm.vision.CircleDetector` や
                 塗布痕用の :class:`~pcbasm.vision.PasteDotDetector`）
             camera: カメラ
+            camera_model: 検出した pixel のずれをカメラ mm へ写すカメラの写像
             crop_size: 関心領域サイズ (width, height)
             frame_sink: 検出成功時に注釈画像を送る sink。None の場合は送らない
             sample_count: 統計検出に使うフレーム数（``machine.detection.sample_count``）
@@ -89,6 +91,7 @@ class OffsetObserver:
 
         self._detector = detector
         self._camera = camera
+        self._camera_model = camera_model
         self._crop_size = crop_size
         self._frame_sink = frame_sink
         self._sample_count = sample_count
@@ -110,14 +113,15 @@ class OffsetObserver:
                 minimum_sample_count=self._minimum_sample_count,
             )
             if result is not None:
-                std_mm = result.std_mm
+                mean_mm = self._camera_model.pixel_offset_to_camera(result.mean)
+                std_mm = self._camera_model.pixel_offset_to_camera(result.std)
                 if (
                     self._max_standard_deviation_mm is None
                     or max(std_mm.x, std_mm.y) <= self._max_standard_deviation_mm
                 ):
                     if self._frame_sink is not None:
                         display = draw_overlay(
-                            self._camera.capture(), self._crop_size, result.mean_mm
+                            self._camera.capture(), self._crop_size, mean_mm
                         )
                         self._frame_sink(display)
 
@@ -129,7 +133,7 @@ class OffsetObserver:
                         std_mm.x,
                         std_mm.y,
                     )
-                    return Shift(result.mean_mm.x, result.mean_mm.y)
+                    return Shift(mean_mm.x, mean_mm.y)
                 failure_reason = (
                     "検出位置の標準偏差が上限を超えました"
                     f"（X={std_mm.x:.4f}, Y={std_mm.y:.4f} mm / "

@@ -5,8 +5,6 @@
 渡さない場合は ``board_transform`` だけでカメラ位置と board→pixel affine が決まる。
 """
 
-from datetime import UTC, datetime
-
 import numpy as np
 import pytest
 import shapely
@@ -21,7 +19,7 @@ from pcbasm.kicad import load_board
 from pcbasm.pasting.capture import PointCapturer
 from pcbasm.pasting.session import PasteSession
 from pcbasm.vision import Image
-from pcbasm.vision.calibration import CameraCalibration
+from tests.support.camera_model import make_camera_model
 from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR
 
 LED_BLINKER = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
@@ -50,17 +48,7 @@ def _session(
 ) -> PasteSession:
     board_frame = BoardFrame(
         board=load_board(LED_BLINKER),
-        calibration=CameraCalibration(
-            pixel_per_mm=PPM,
-            square_size_mm=1.0,
-            mean_distance_px=PPM,
-            std_distance_px=0.0,
-            resolution=RESOLUTION,
-            crop_size=(400, 400),
-            calibrated_at=datetime(2026, 8, 20, 12, 0, 0, tzinfo=UTC),
-            z_position=FOCUS_Z,
-        ),
-        offset_transform=Identity(),
+        camera_model=make_camera_model(PPM, RESOLUTION, focus_z=FOCUS_Z),
         board_transform=Shift(BOARD_SHIFT.x, BOARD_SHIFT.y),
     )
     return PasteSession.from_board_frame(

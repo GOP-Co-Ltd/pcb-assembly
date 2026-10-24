@@ -48,8 +48,7 @@ def _session(klipper: FakeKlipper) -> PasteSession:
         camera=unused,
         board_frame=BoardFrame(
             board=unused,
-            calibration=unused,
-            offset_transform=unused,
+            camera_model=unused,
             board_transform=Identity(),
         ),
         toolhead_offset=Identity(),

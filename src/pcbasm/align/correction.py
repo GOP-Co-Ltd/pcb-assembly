@@ -2,26 +2,20 @@
 
 符号規約は、実機で検証済みの次のアンカーに従う。
 
-- (A2) ``R = Rotation.from_points(Δs, Δo)`` (offset.py)
+- (A2) ``R = Rotation.from_points(Δs, Δo)`` (camera_rotation.py)
 - (A4) 補正式 ``target = pos − R.apply(o_mm)`` (position.py)
 
-camera→machine 写像 ψ はアンカー位置 a に対し ``ψ_a(o) = a − R(o)``。
+camera→machine 写像 ψ はアンカー位置 a に対し ``ψ_a(o) = a − R(o)``（:meth:`CameraModel.observed_to_machine_offset`）。
 (A4) を再現するよう R をそのまま使う（厳密幾何の R⁻¹ に修正しない）。
 """
 
-from pcbasm.geometry import Compose, Point2d, Scale, Shift, Transform
-
-
-def _psi(offset_transform: Transform, anchor: Point2d) -> Transform:
-    """Camera→machine 写像 ψ_a(o) = a − R(o) を構成する."""
-    return Compose(
-        [offset_transform, Scale.flip(x=True, y=True), Shift.from_point(anchor)]
-    )
+from pcbasm.geometry import Compose, Point2d, Transform
+from pcbasm.vision import CameraModel
 
 
 def to_machine_transform(
     camera_transform: Transform,
-    offset_transform: Transform,
+    camera_model: CameraModel,
     projection_anchor: Point2d,
     observed_at: Point2d,
 ) -> Transform:
@@ -32,7 +26,7 @@ def to_machine_transform(
 
     Args:
         camera_transform: 想定→観測の Transform（カメラ mm 空間、原点=画像中心）
-        offset_transform: 観測オフセット系から機械座標系への変換 R
+        camera_model: カメラの写像（回転 R を持つ）
         projection_anchor: 投影アンカーの機械座標 s0（mm）
         observed_at: 最終観測時のステージ位置（機械座標、mm）
 
@@ -41,8 +35,8 @@ def to_machine_transform(
     """
     return Compose(
         [
-            _psi(offset_transform, projection_anchor).inverse(),
+            camera_model.observed_to_machine_offset(projection_anchor).inverse(),
             camera_transform,
-            _psi(offset_transform, observed_at),
+            camera_model.observed_to_machine_offset(observed_at),
         ]
     )

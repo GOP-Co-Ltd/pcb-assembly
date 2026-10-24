@@ -7,7 +7,7 @@ import math
 import attrs
 import numpy as np
 
-from pcbasm.geometry import Point2d
+from pcbasm.geometry import Affine2d, Point2d
 from pcbasm.validators import is_finite_number
 from pcbasm.vision.image import Image, ImageArray, PixelRect
 
@@ -44,25 +44,24 @@ def crop_pixel_size(
 def crop_centered(
     image: Image | ImageArray,
     center: Point2d,
-    matrix: ImageArray,
-    shift: ImageArray,
+    board_to_pixel: Affine2d,
     *,
     pixel_size: int,
 ) -> tuple[RectCrop | None, str | None]:
     """Board 座標の中心を board→pixel affine で射影し、その周りを固定寸法で切り出す.
 
-    ``matrix`` / ``shift`` は
-    :meth:`pcbasm.align.CopperProjector.board_to_pixel_affine` の戻り値をそのまま
-    受け取る。crop が frame 外へ出る場合は padding せず ``(None, 理由)`` を返す。
+    ``board_to_pixel`` は :meth:`pcbasm.vision.CameraModel.board_to_pixel` の戻り値をそのまま受け取る。
+
+    crop が frame 外へ出る場合は padding せず ``(None, 理由)`` を返す。
     """
     source = image.numpy() if isinstance(image, Image) else np.asarray(image)
-    affine = np.asarray(matrix, dtype=np.float64)
-    translation = np.asarray(shift, dtype=np.float64)
-    if not np.isfinite(affine).all() or not np.isfinite(translation).all():
+    if (
+        not np.isfinite(board_to_pixel.matrix).all()
+        or not np.isfinite(board_to_pixel.shift).all()
+    ):
         return None, "board→pixel affineには有限値が必要です"
 
-    projected = np.asarray([center.x, center.y], dtype=np.float64) @ affine.T
-    projected = projected + translation
+    projected = board_to_pixel.map(np.asarray([center.x, center.y], dtype=np.float64))
     center_x = float(projected[0])
     center_y = float(projected[1])
     if not math.isfinite(center_x) or not math.isfinite(center_y):

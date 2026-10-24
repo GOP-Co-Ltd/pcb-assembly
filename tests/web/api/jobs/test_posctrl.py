@@ -206,7 +206,8 @@ class TestCameraCalibrationJob:
 
         - prompt(confirm) に True 応答で撮影 → 検出成功
         - Z は best-effort: Klipper 不通（port 7126）でも続行し z_position=None、
-          summary に「未取得」（ユーザー決定 2026-06-12）
+          summary に「未取得」（ユーザー決定 2026-06-12）。
+          焦点 Z の無い校正ではジョブが開始時に止まるので、そのことも summary で伝える
         - artifacts: コーナー描画 PNG（image）+ calibration JSON（file）。
           JSON は CameraCalibration.load で読め、数値が素材と整合する
         - apply: values は camera.calibration_file のみ、files に JSON 1 件
@@ -221,6 +222,7 @@ class TestCameraCalibrationJob:
         assert result is not None
         assert result.summary is not None
         assert "未取得" in result.summary  # Z best-effort 失敗の明示
+        assert "校正を使うジョブは開始時に止まります" in result.summary
 
         kinds = {artifact.kind for artifact in result.artifacts}
         assert kinds == {"image", "file"}

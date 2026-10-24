@@ -32,7 +32,7 @@ from pcbasm.pasting.paste_volume.runtime import (
 from pcbasm.pasting.session import PasteSession
 from tests.golden.conftest import (
     BOARD_PLACEMENT,
-    CALIBRATION,
+    CAMERA_MODEL,
     FLOW_POINTS,
     GOLDEN_DIR,
     JOBS,
@@ -226,8 +226,7 @@ class TestFlowCalibration:
                 session = PasteSession.from_board_frame(
                     BoardFrame(
                         board=pcb,
-                        calibration=CALIBRATION,
-                        offset_transform=Identity(),
+                        camera_model=CAMERA_MODEL,
                         board_transform=BOARD_PLACEMENT,
                     ),
                     ctx.machine,

@@ -17,6 +17,7 @@ from pcbasm.geometry import Identity, Point2d, Point3d
 from pcbasm.hal import Camera, XYZStage
 from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeCamera, FakeKlipper
 from pcbasm.vision import CopperEdgeDetector, Image
+from tests.support.camera_model import make_camera_model
 
 PPM = 100.0
 IMAGE_SIZE = (200, 200)
@@ -76,21 +77,21 @@ def _aligner(
     *,
     max_passes: int,
     converge_tolerance_mm: float,
-    focus_z: float | None = None,
+    focus_z: float = 0.0,
     klipper: FakeKlipper | None = None,
     camera: Camera | None = None,
 ) -> RegionAligner:
     klipper = klipper or FakeKlipper(PRINTER_CONFIG)
     stage = XYZStage(klipper)
+    camera_model = make_camera_model(PPM, IMAGE_SIZE, focus_z=focus_z)
     projector = CopperProjector(
         polygons=[shapely.box(-0.4, -0.4, 0.4, 0.4)],
         board_transform=Identity(),
-        offset_transform=Identity(),
-        pixel_per_mm=PPM,
-        image_size=IMAGE_SIZE,
+        camera_model=camera_model,
     )
     return RegionAligner(
         camera=camera or FakeCamera([_image(x, y) for x, y in shifts]),
+        camera_model=camera_model,
         klipper=klipper,
         stage=stage,
         projector=projector,
@@ -99,8 +100,6 @@ def _aligner(
             search_window_mm=0.5,
         ),
         edge_detector=CopperEdgeDetector(),
-        offset_transform=Identity(),
-        focus_z=focus_z,
         max_correction_mm=1.0,
         max_passes=max_passes,
         converge_tolerance_mm=converge_tolerance_mm,

@@ -108,7 +108,7 @@ def _make_capturer(
 ) -> tuple[PointCapturer | None, str | None]:
     """パージ点の撮影器を組む（撮れないなら理由を返す）."""
     crop_size_px, error = crop_pixel_size(
-        PURGE_CROP_SIZE_MM, session.board_frame.calibration.pixel_per_mm
+        PURGE_CROP_SIZE_MM, session.board_frame.camera_model.pixel_per_mm
     )
     if crop_size_px is None:
         return None, f"crop 寸法を決められない（{error}）"
@@ -129,9 +129,8 @@ def _camera_reach_error(
     撮影で可動域外の例外を出して塗布ジョブを失敗させるより、確かめずに進むほうがよい。
     """
     target = session.camera_point_target(point, correction=point_correction)
-    # ピント Z が未記録のキャリブレーションでは Z を動かさないので見なくてよい（None は見ない）
     outside = session.stage.limits.outside(
-        x=target.x, y=target.y, z=session.board_frame.calibration.z_position
+        x=target.x, y=target.y, z=session.board_frame.camera_model.focus_z
     )
     if outside:
         return f"カメラを撮影位置へ置けない（可動域外: {', '.join(outside)}）"
@@ -164,7 +163,7 @@ def _purge_and_detect(
     measurement, error = measure_dot(
         baseline.image,
         post.image,
-        pixel_per_mm=session.board_frame.calibration.pixel_per_mm,
+        pixel_per_mm=session.board_frame.camera_model.pixel_per_mm,
     )
     if measurement is None:
         ctx.log(f"パージ確認: 計測できないので確かめません: {error}")

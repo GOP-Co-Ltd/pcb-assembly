@@ -20,7 +20,7 @@ from pcbasm.hal import Camera
 from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper, StepperMove
 from pcbasm.kicad.build import generate_rect_pcb, save_board
 from tests.golden.conftest import (
-    CALIBRATION,
+    CAMERA_MODEL,
     DISPENSER,
     JOBS,
     LED_BLINKER,
@@ -235,7 +235,7 @@ class TestToolheadOffset:
 
         # SceneCamera は machine.toml の toolhead だけずらして塗布痕を描くので、1 画素以内でそれを測り返す
         values = manager.apply_payload().values
-        pixel = 1.0 / CALIBRATION.pixel_per_mm
+        pixel = 1.0 / CAMERA_MODEL.pixel_per_mm
         assert values["paste_dispenser.toolhead.x"] == pytest.approx(
             DISPENSER.toolhead.x, abs=pixel
         )

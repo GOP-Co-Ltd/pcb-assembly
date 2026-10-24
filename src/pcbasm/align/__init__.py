@@ -7,10 +7,10 @@
 - カメラ mm 空間: 原点が画像中心。軸の向きは画像と同じ（+x 右、+y 下）
 - pixel 座標: 全画面の画素位置。原点は画像左上
 
-変換は次の 2 つで、:class:`BoardFrame` が値として持つ（:func:`measure_board_frame` が計測する）。
+次の 2 つを :class:`BoardFrame` が値として持つ（:func:`measure_board_frame` が計測する）。
 
 - ``board_transform``: board 座標 → 機械座標（:class:`BoardTransformMeasurer`）
-- ``offset_transform``: カメラと機械の軸の回転ずれ（:class:`CameraRotationMeasurer`）
+- ``camera_model``: カメラの写像 :class:`~pcbasm.vision.CameraModel`。回転 R はカメラと機械の軸のずれ（:class:`CameraRotationMeasurer`）
 
 ``observe()`` 関数は、想定→観測の Transform（カメラ mm 空間）を返す契約とする。
 
@@ -34,8 +34,6 @@ from .copper import (
     CopperProjection,
     CopperProjector,
     EdgeMatch,
-    PixelRect,
-    centered_roi,
 )
 from .correction import to_machine_transform
 from .observe import (
@@ -65,12 +63,10 @@ __all__ = [
     "CameraRotationMeasurer",
     "OrthogonalityMetrics",
     "PadResultRenderer",
-    "PixelRect",
     "RegionAligner",
     "RegionFit",
     "RegionAlignmentSession",
     "XYPositionAdjustor",
-    "centered_roi",
     "is_pad_refinement_target",
     "measure_board_frame",
     "plan_alignment_regions",

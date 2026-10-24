@@ -6,7 +6,6 @@ golden は現状の送信列そのものなので、手続きを意図して変�
 """
 
 import math
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -68,7 +67,8 @@ from pcbasm.pasting.toolhead_offset import (
     plan_toolhead_offset_points,
 )
 from pcbasm.pasting.workflow import PasteTargets, plan_paste_targets
-from pcbasm.vision import CameraCalibration, Image, Offset
+from pcbasm.vision import Image, Offset
+from tests.support.camera_model import make_camera_model
 from tests.support.golden import assert_transcript
 from tests.support.paths import TESTING_DATA_DIR
 from web.api.jobs.pasting.common import (
@@ -107,7 +107,7 @@ def _region(index: int, area: Polygon, displacement: Point2d) -> RegionFit:
             board_area=area,
         ),
         match=EdgeMatch(
-            offset=Offset(px=Point2d(0.0, 0.0), pixel_per_mm=20.0),
+            offset=Offset(px=Point2d(0.0, 0.0)),
             rms_distance_px=0.0,
         ),
         displacement=displacement,
@@ -154,17 +154,7 @@ def _blank_camera() -> FakeCamera:
 def _board_frame(pcb: Path) -> BoardFrame:
     return BoardFrame(
         board=load_board(pcb),
-        calibration=CameraCalibration(
-            pixel_per_mm=20.0,
-            square_size_mm=1.0,
-            mean_distance_px=20.0,
-            std_distance_px=0.0,
-            resolution=(640, 480),
-            crop_size=(400, 400),
-            calibrated_at=datetime(2026, 10, 23, tzinfo=UTC),
-            z_position=FOCUS_Z,
-        ),
-        offset_transform=Identity(),
+        camera_model=make_camera_model(20.0, (640, 480), focus_z=FOCUS_Z),
         board_transform=BOARD_TRANSFORM,
     )
 

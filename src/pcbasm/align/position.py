@@ -5,6 +5,7 @@ from collections.abc import Callable
 
 from pcbasm.geometry import Point2d, Transform
 from pcbasm.hal import KlipperClient, Speed, XYZStage
+from pcbasm.vision import CameraModel
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ class XYPositionAdjustor:
             observe=observer.observe,
             klipper=klipper,
             stage=stage,
-            offset_transform=offset_transform,
+            camera_model=camera_model,
             tolerance=0.01,
             settle_sec=machine.settle.move_sec,
         )
@@ -33,7 +34,7 @@ class XYPositionAdjustor:
         observe: Callable[[], Transform],
         klipper: KlipperClient,
         stage: XYZStage,
-        offset_transform: Transform,
+        camera_model: CameraModel,
         tolerance: float = 0.1,
         max_iterations: int = 10,
         move_velocity_ratio: float = 0.5,
@@ -46,7 +47,7 @@ class XYPositionAdjustor:
             observe: 想定→観測の Transform（カメラ mm 空間）を返す関数
             klipper: Klipper クライアント
             stage: XYZ ステージ
-            offset_transform: 観測オフセット系から機械座標系への変換
+            camera_model: カメラの写像（観測オフセットを機械座標へ写す）
             tolerance: 許容誤差 (mm)
             max_iterations: 最大反復回数
             move_velocity_ratio: 最大速度に対する移動速度の割合 (0.0-1.0)
@@ -55,7 +56,7 @@ class XYPositionAdjustor:
         self._observe = observe
         self._klipper = klipper
         self._stage = stage
-        self._offset_transform = offset_transform
+        self._camera_model = camera_model
         self._tolerance = tolerance
         self._max_iterations = max_iterations
         self._move_velocity_ratio = move_velocity_ratio
@@ -64,8 +65,7 @@ class XYPositionAdjustor:
     def adjust(self) -> Point2d:
         """位置を反復的に補正する.
 
-        毎回「現在位置 − 機械座標へ変換したオフセット」へ移動し、オフセットが
-        ``tolerance`` 未満になったら終える。
+        毎回、観測オフセットを :meth:`CameraModel.observed_to_machine_offset` で写した位置へ移動し、現在位置との差が ``tolerance`` 未満になったら終える。
 
         収束した回は移動しない。
 
@@ -81,17 +81,17 @@ class XYPositionAdjustor:
         move_velocity = self._stage.max_velocity * self._move_velocity_ratio
         offset = Point2d(x=0.0, y=0.0)
         for iteration in range(self._max_iterations):
-            offset = self._offset_transform.apply(
-                self._observe().apply(Point2d(0.0, 0.0))
+            observed = self._observe().apply(Point2d(0.0, 0.0))
+            pos = self._stage.get_position()
+            target = self._camera_model.observed_to_machine_offset(pos.to2d()).apply(
+                observed
             )
+            offset = pos.to2d() - target
             logger.info(
                 f"試行 {iteration + 1}/{self._max_iterations}: "
                 f"オフセット ({offset.x:.4f}, {offset.y:.4f}) mm, "
                 f"距離 {offset.norm:.4f} mm"
             )
-
-            pos = self._stage.get_position()
-            target = pos.to2d() - offset
 
             if offset.norm < self._tolerance:
                 logger.info(

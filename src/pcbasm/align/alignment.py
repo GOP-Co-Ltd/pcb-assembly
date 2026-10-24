@@ -9,18 +9,13 @@ from shapely import Polygon
 
 from pcbasm.align.aligner import RegionAligner, RegionFit
 from pcbasm.align.board_frame import BoardFrame
-from pcbasm.align.copper import (
-    CopperEdgeMatcher,
-    CopperProjector,
-    PixelRect,
-    centered_roi,
-)
+from pcbasm.align.copper import CopperEdgeMatcher, CopperProjector
 from pcbasm.align.region import AlignmentRegion, plan_alignment_regions
 from pcbasm.board import Layer, Pad
 from pcbasm.config import MachineConfig
 from pcbasm.geometry import Point2d, Shift, Transform
 from pcbasm.hal import Camera, KlipperClient, XYZStage
-from pcbasm.vision import CopperEdgeDetector, FrameSink
+from pcbasm.vision import CopperEdgeDetector, FrameSink, PixelRect
 
 logger = logging.getLogger(__name__)
 
@@ -135,19 +130,20 @@ class RegionAlignmentSession:
         self._stage = stage
         self._alignment = alignment
         self._board_transform = board_frame.board_transform
-        self._image_size = board_frame.calibration.resolution
+        camera_model = board_frame.camera_model
         self._projector = CopperProjector.from_board_frame(board_frame, layer=Layer.TOP)
         matcher = CopperEdgeMatcher(
-            pixel_per_mm=board_frame.calibration.pixel_per_mm,
+            pixel_per_mm=camera_model.pixel_per_mm,
             search_window_mm=alignment.search_window,
         )
         required = alignment.region_size_px + 2 * matcher.window_px
-        if required > min(self._image_size):
+        if required > min(camera_model.image_size):
             raise ValueError(
                 f"region_size_px {alignment.region_size_px} px + 探索窓 "
                 f"{matcher.window_px} px x2 = {required} px が"
-                f"キャリブレーション解像度 {self._image_size} に収まりません"
+                f"キャリブレーション解像度 {camera_model.image_size} に収まりません"
             )
+        self._region_roi = camera_model.centered_roi(alignment.region_size_px)
         self._edge_detector = CopperEdgeDetector(
             canny_low=alignment.canny_low,
             canny_high=alignment.canny_high,
@@ -155,13 +151,12 @@ class RegionAlignmentSession:
         )
         self._aligner = RegionAligner(
             camera=camera,
+            camera_model=camera_model,
             klipper=klipper,
             stage=stage,
             projector=self._projector,
             matcher=matcher,
             edge_detector=self._edge_detector,
-            offset_transform=board_frame.offset_transform,
-            focus_z=board_frame.calibration.z_position,
             max_correction_mm=alignment.max_correction,
             max_passes=alignment.max_passes,
             converge_tolerance_mm=alignment.converge_tolerance,
@@ -181,9 +176,8 @@ class RegionAlignmentSession:
             safe_area=self._pcb.outline.polygon.buffer(
                 -self._alignment.board_edge_margin
             ),
-            region_size_px=self._alignment.region_size_px,
+            roi=self._region_roi,
             overlap=self._alignment.region_overlap,
-            image_size=self._image_size,
             tour_start=self._stage.get_position().to2d(),
         )
 
@@ -246,4 +240,4 @@ class RegionAlignmentSession:
     @property
     def region_roi(self) -> PixelRect:
         """全領域共通の画像中心 ROI."""
-        return centered_roi(self._image_size, self._alignment.region_size_px)
+        return self._region_roi

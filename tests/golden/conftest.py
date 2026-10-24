@@ -29,7 +29,7 @@ from pcbasm.pasting.paste_volume.calibration import (
     parse_calibration,
     write_calibration,
 )
-from pcbasm.vision import CameraCalibration
+from pcbasm.vision import CameraModel
 from tests.support import polling
 from tests.support.paths import TESTING_DATA_DIR
 from web.api.jobs.catalog import JobCatalog, default_catalog
@@ -42,7 +42,7 @@ from web.api.state import AppState
 GOLDEN_DIR = Path(__file__).parent
 JOBS = GOLDEN_DIR / "jobs"
 CONFIG_FILES = (GOLDEN_DIR / "machine.toml", GOLDEN_DIR / "camera_calibration.json")
-CALIBRATION = CameraCalibration.load(GOLDEN_DIR / "camera_calibration.json")
+CAMERA_MODEL = CameraModel.load(GOLDEN_DIR / "camera_calibration.json")
 DISPENSER = load_machine(GOLDEN_DIR / "machine.toml").paste_dispenser
 LED_BLINKER = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
 CALIBRATION_PIN = TESTING_DATA_DIR / "schemas" / "paste_volume_calibration_v1.json"
@@ -71,15 +71,19 @@ def scene_camera(
     *,
     shapes: Sequence[Polygon] = (),
     checkerboard: Checkerboard | None = None,
+    pixel_per_mm: float = CAMERA_MODEL.pixel_per_mm,
 ) -> SceneCamera:
-    """校正ファイルと machine.toml のとおりに、klipper の位置から見える画像を描くカメラ."""
+    """校正ファイルと machine.toml のとおりに、klipper の位置から見える画像を描くカメラ.
+
+    ``pixel_per_mm`` を校正と変えると、校正の後でカメラの倍率が変わった機体を模せる。
+    """
     return SceneCamera(
         klipper,
-        pixel_per_mm=CALIBRATION.pixel_per_mm,
+        pixel_per_mm=pixel_per_mm,
         toolhead=Point2d(DISPENSER.toolhead.x, DISPENSER.toolhead.y),
         rotations_per_ul=DISPENSER.rotations_per_ul,
         rotation=rotation,
-        size=CALIBRATION.resolution,
+        size=CAMERA_MODEL.image_size,
         shapes=shapes,
         checkerboard=checkerboard,
     )
