@@ -5,7 +5,7 @@ from collections.abc import Iterable
 
 from shapely.geometry import Polygon
 
-from pcbasm.config import Probe
+from pcbasm.config.probe import ProbeConfig
 from pcbasm.gcode import GCode
 from pcbasm.geometry import (
     HeightPlane,
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def plan_probe_points(
-    coppers: Iterable[Copper], outline: Polygon | None, *, config: Probe
+    coppers: Iterable[Copper], outline: Polygon | None, *, config: ProbeConfig
 ) -> list[Point2d]:
     """Machine の probe 設定で計測点（銅箔島内・外形マージン内）を計画する（装置不要）."""
     return _sample_points(

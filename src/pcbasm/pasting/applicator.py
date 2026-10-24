@@ -22,7 +22,7 @@ from typing import Literal, Self
 import attrs
 from shapely import Polygon
 
-from pcbasm.config import PasteDispenser as PasteDispenserConfig
+from pcbasm.config.dispenser import PasteDispenserConfig
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Path, Point2d, Transform
 from pcbasm.hal import Klipper, PasteDispenser, Speed, XYZStage
@@ -106,7 +106,7 @@ def build_applicator(
     Args:
         klipper: Klipper クライアント
         stage: XYZ ステージ
-        config: ``Machine.paste_dispenser``
+        config: ``MachineConfig.paste_dispenser``
         rotations_per_ul: μL → 回転数の係数 [rev/μL] の上書き（キャリブ検証ループで
             新値を反映した applicator を作り直す経路）。``None`` で config の値
         lift_height: 塗布後の上昇高さ [mm] の上書き。``None`` で config の値
@@ -152,7 +152,7 @@ class PasteApplicator:
         *,
         lift_height: float | None = None,
     ) -> None:
-        """設定は検証済みの ``Machine.paste_dispenser`` から写す（ここでは再検証しない）."""
+        """設定は検証済みの ``MachineConfig.paste_dispenser`` から写す（ここでは再検証しない）."""
         self._klipper = klipper
         self._dispenser = dispenser
         self._stage = stage

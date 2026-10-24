@@ -8,7 +8,7 @@
 疑い）。判断とパージのやり直しは
 :func:`~web.api.jobs.pasting.purge_check.purge_with_cleaning` が持つ。
 
-位置は :class:`~pcbasm.config.NozzleClean` の ``position`` がマシン座標で持ち、基板とは
+位置は :class:`~pcbasm.config.dispenser.NozzleCleanConfig` の ``position`` がマシン座標で持ち、基板とは
 無関係なので board 補正を通さない。移動 G-code を組む関数は :func:`~pcbasm.parking.move_to_cap` と
 同じく ``M400`` / ``M84`` を含めない。ジョブの開始時に :func:`resolve_nozzle_clean` が組んで可動域を確かめ、
 送信は :func:`clean_nozzle` が行う。
@@ -21,7 +21,8 @@ from collections.abc import Callable
 
 import attrs
 
-from pcbasm.config import Machine, NozzleClean
+from pcbasm.config import MachineConfig
+from pcbasm.config.dispenser import NozzleCleanConfig
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Path, Point3d
 from pcbasm.hal import Klipper, Speed, XYZStage
@@ -39,12 +40,12 @@ TRAVEL_Z = 0.0
 _NOT_RECORDED = "ノズルクリーニング: 位置が未記録のためスキップします"
 
 
-def _press_point(position: Point3d, clean: NozzleClean) -> Point3d:
+def _press_point(position: Point3d, clean: NozzleCleanConfig) -> Point3d:
     """クリーニング面から ``press_depth`` だけ押し込んだ点（Z は 0 が上・負が下）."""
     return Point3d(position.x, position.y, position.z - clean.press_depth)
 
 
-def wipe_points(position: Point3d, clean: NozzleClean) -> Path:
+def wipe_points(position: Point3d, clean: NozzleCleanConfig) -> Path:
     """十字往復の点列を返す（マシン座標、全点が押し込み Z）.
 
     中心から X 方向へ ``±stroke`` 往復し、続いて Y 方向へ ``±stroke`` 往復する。これを
@@ -90,7 +91,7 @@ def approach_gcode(stage: XYZStage, position: Point3d) -> GCode:
     )
 
 
-def wipe_gcode(stage: XYZStage, position: Point3d, clean: NozzleClean) -> GCode:
+def wipe_gcode(stage: XYZStage, position: Point3d, clean: NozzleCleanConfig) -> GCode:
     """面 Z から押し込んで十字往復する移動コマンドを生成する.
 
     押し込みの下降だけは travel 速度で行う（こすり速度とは独立に保つ）。こすりは
@@ -126,13 +127,13 @@ class NozzleCleanPlan:
     """
 
     position: Point3d
-    clean: NozzleClean
+    clean: NozzleCleanConfig
     approach: GCode
     wipe: GCode
 
 
 def plan_nozzle_clean(
-    stage: XYZStage, position: Point3d, clean: NozzleClean
+    stage: XYZStage, position: Point3d, clean: NozzleCleanConfig
 ) -> NozzleCleanPlan:
     """接近・こすり・退避の G-code を組む（各移動の可動域は stage が検証する）.
 
@@ -152,7 +153,7 @@ def plan_nozzle_clean(
 
 
 def resolve_nozzle_clean(
-    machine: Machine,
+    machine: MachineConfig,
     stage: XYZStage,
     *,
     log: Callable[[str], None] | None = None,

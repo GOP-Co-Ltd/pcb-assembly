@@ -77,7 +77,9 @@ def test_audio(
     """
     audio = state.machine().audio
     try:
-        audio_player.play(body.sound, audio).result(timeout=_PLAYBACK_TIMEOUT)
+        audio_player.play(body.sound, audio.device, audio.volume).result(
+            timeout=_PLAYBACK_TIMEOUT
+        )
     except (AudioPlaybackError, TimeoutError) as exc:
         raise HTTPException(
             status_code=502, detail=f"通知音を再生できませんでした: {exc}"

@@ -19,11 +19,7 @@ from shapely import LineString, Polygon
 from shapely.affinity import rotate
 from shapely.geometry import Point as ShapelyPoint
 
-from pcbasm.config import (
-    DISPENSE_MODES,
-    PasteDispenser as PasteDispenserConfig,
-    Toolhead,
-)
+from pcbasm.config.dispenser import DISPENSE_MODES, PasteDispenserConfig, ToolheadConfig
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.fill_path import FillPlan, micro_line_auto_height
 from pcbasm.pasting.params import PasteParams
@@ -61,7 +57,7 @@ def _config(nozzle_diameter: float) -> PasteDispenserConfig:
         retract_amount=10.0,
         retract_rate=10.0,
         retract_accel_factor=2.0,
-        toolhead=Toolhead(x=0.0, y=0.0),
+        toolhead=ToolheadConfig(x=0.0, y=0.0),
         paste_height=0.5,
         ul_per_mm2=0.05,
         auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,

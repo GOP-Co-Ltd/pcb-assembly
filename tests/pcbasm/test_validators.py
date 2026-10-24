@@ -1,6 +1,6 @@
 import pytest
 
-from pcbasm.utils import is_finite_number
+from pcbasm.validators import is_finite_number
 
 
 class TestIsFiniteNumber:

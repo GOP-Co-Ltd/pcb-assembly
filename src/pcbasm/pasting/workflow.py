@@ -10,7 +10,7 @@ from collections.abc import Mapping
 
 import attrs
 
-from pcbasm.config import FlowCalibration
+from pcbasm.config.dispenser import FlowCalibrationConfig
 from pcbasm.pasting.initial_purge import (
     ResolvedInitialPurge,
     resolve_initial_purge,
@@ -68,7 +68,7 @@ def plan_paste_targets(
     model: PasteSettingsModel,
     *,
     initial_purge_ul: float,
-    flow_calibration: FlowCalibration,
+    flow_calibration: FlowCalibrationConfig,
     layer: Layer = Layer.TOP,
 ) -> tuple[PasteTargets | None, str | None]:
     """基板設定から通常塗布の対象 pad・順路・初回パージ・流量キャリブを解決する.

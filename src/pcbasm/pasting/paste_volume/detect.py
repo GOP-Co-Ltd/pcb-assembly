@@ -22,7 +22,7 @@ import math
 import attrs
 import numpy as np
 
-from pcbasm.utils import is_finite_number
+from pcbasm.validators import is_finite_number
 from pcbasm.vision.dot import (
     DotDetectionSpec,
     dark_spots,

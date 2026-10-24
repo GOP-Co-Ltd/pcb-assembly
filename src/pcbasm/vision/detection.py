@@ -9,7 +9,7 @@ import attrs
 import cv2
 
 from pcbasm.geometry import Point2d
-from pcbasm.utils import is_finite_number
+from pcbasm.validators import is_finite_number
 
 from .dot import (
     DarkSpot,

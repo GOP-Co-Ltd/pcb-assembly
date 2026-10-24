@@ -8,10 +8,10 @@ from pytest_mock import MockerFixture
 from shapely import Polygon
 
 from pcbasm import gcode
-from pcbasm.config import CornerOffsets, ReferencePoint
+from pcbasm.config.reference_point import CornerOffsetsConfig, ReferencePointConfig
 from pcbasm.geometry import Compose, Matrix2d, Point2d, Shift
 from pcbasm.pcb import Outline
-from pcbasm.posctrl.board import BoardTransformMeasurer
+from pcbasm.posctrl.board import BoardTransformMeasurer, Corner, corner_offset
 
 
 def _sequence(
@@ -27,6 +27,29 @@ def _sequence(
         return point
 
     return observe, observed
+
+
+class TestCornerOffset:
+    """設定のオフセットからコーナーごとの Point2d を引く."""
+
+    @pytest.mark.parametrize(
+        ("corner", "expected"),
+        [
+            (Corner.TOP_LEFT, Point2d(1.0, -2.0)),
+            (Corner.TOP_RIGHT, Point2d(3.0, -4.0)),
+            (Corner.BOTTOM_LEFT, Point2d(5.0, 5.0)),
+            (Corner.BOTTOM_RIGHT, Point2d(-5.0, 5.0)),
+        ],
+    )
+    def test_returns_each_corner_as_point2d(self, corner: Corner, expected: Point2d):
+        offsets = CornerOffsetsConfig(
+            top_left=(1.0, -2.0),
+            top_right=(3.0, -4.0),
+            bottom_left=(5.0, 5.0),
+            bottom_right=(-5.0, 5.0),
+        )
+
+        assert corner_offset(offsets, corner) == expected
 
 
 class TestBoardTransformMeasurer:
@@ -50,11 +73,11 @@ class TestBoardTransformMeasurer:
         outline = Outline(
             Polygon([(0.0, 0.0), (100.0, 0.0), (100.0, 50.0), (0.0, 50.0)])
         )
-        reference_point = ReferencePoint(
+        reference_point = ReferencePointConfig(
             x=10.0,
             y=20.0,
             target_diameter=3.0,
-            offsets=CornerOffsets(
+            offsets=CornerOffsetsConfig(
                 top_left=(1.0, -2.0),
                 top_right=(3.0, -4.0),
                 bottom_left=(5.0, 5.0),
@@ -116,11 +139,11 @@ class TestBoardTransformMeasurer:
     ):
         """どの1点だけに誤差があっても4点最小二乗結果へ等しく寄与する."""
         outline = Outline(Polygon([(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]))
-        reference_point = ReferencePoint(
+        reference_point = ReferencePointConfig(
             x=0.0,
             y=0.0,
             target_diameter=3.0,
-            offsets=CornerOffsets(
+            offsets=CornerOffsetsConfig(
                 top_left=(0.0, 0.0),
                 top_right=(0.0, 0.0),
                 bottom_left=(0.0, 0.0),

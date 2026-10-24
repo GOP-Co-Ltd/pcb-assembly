@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 import attrs
 
-from pcbasm.utils import is_finite_number
+from pcbasm.validators import is_finite_number
 from web.api.jobs.context import JobContext, JobResult, ParamValue
 
 

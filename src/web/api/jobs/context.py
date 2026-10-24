@@ -10,7 +10,7 @@ from typing import Any, Literal, Protocol
 
 import attrs
 
-from pcbasm.config import Machine
+from pcbasm.config import MachineConfig
 from pcbasm.hal import Camera, FrameHub
 from pcbasm.machine.journal import Journal
 from pcbasm.vision import Image
@@ -137,7 +137,7 @@ class JobContext:
         bridge: JobBridge,
         *,
         pcb_path: Path | None,
-        machine: Machine,
+        machine: MachineConfig,
         artifacts_dir: Path,
         journal: Journal,
         machine_id: str,
@@ -173,7 +173,7 @@ class JobContext:
         return self._pcb_path
 
     @property
-    def machine(self) -> Machine:
+    def machine(self) -> MachineConfig:
         """選択マシンの設定（ジョブ開始時に 1 回ロード済み）."""
         return self._machine
 

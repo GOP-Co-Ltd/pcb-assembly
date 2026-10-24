@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from shapely import Point, Polygon
 
-from pcbasm.config import Corner, Machine, load_machine
+from pcbasm.config import MachineConfig, load_machine
 from pcbasm.geometry import Compose, Point2d, Rotation, Shift, transform_polygon
 from pcbasm.hal import Camera
 from pcbasm.hal.fake import Checkerboard, FakeAudioPlayer, FakeKlipper, SceneCamera
@@ -24,6 +24,7 @@ from pcbasm.pasting.paste_volume.calibration import (
 )
 from pcbasm.pcb import Layer, PadHierarchy, PcbFile
 from pcbasm.pcb.generate import generate_grid_pcb
+from pcbasm.posctrl.board import Corner, corner_offset
 from pcbasm.vision import CalibrationResult
 from tests.support import polling
 from tests.support.paths import TESTING_DATA_DIR
@@ -52,7 +53,7 @@ BOARD_PLACEMENT = Compose([Rotation(0.3), Shift(6.2, 10.5)])
 COPPER_OFFSET = Shift(0.04, -0.03)
 
 
-def board_shapes(pcb: PcbFile, machine: Machine) -> list[Polygon]:
+def board_shapes(pcb: PcbFile, machine: MachineConfig) -> list[Polygon]:
     """基板を BOARD_PLACEMENT に置いたときの、4 隅の基準円と TOP 銅箔を機械座標で返す."""
     reference = machine.reference_point
     width, height = pcb.outline.width, pcb.outline.height
@@ -63,7 +64,7 @@ def board_shapes(pcb: PcbFile, machine: Machine) -> list[Polygon]:
         Corner.BOTTOM_LEFT: Point2d(0.0, height),
     }
     markers = [
-        BOARD_PLACEMENT.apply(corner + reference.offsets.get(name))
+        BOARD_PLACEMENT.apply(corner + corner_offset(reference.offsets, name))
         for name, corner in corners.items()
     ]
     copper = Compose([BOARD_PLACEMENT, COPPER_OFFSET])
@@ -116,7 +117,7 @@ def wait_operator(
     """``stage`` にいて、ジョブ開始からの入力待ち音が通算 ``calls`` 回鳴る（入口で滞留コマンドを捨て終える）まで待つ."""
     polling.wait_until(
         lambda: record.progress_stage == stage
-        and sum(sound == "prompt" for sound, _ in audio_player.played) >= calls,
+        and sum(sound == "prompt" for sound, *_ in audio_player.played) >= calls,
         timeout=60.0,
     )
 

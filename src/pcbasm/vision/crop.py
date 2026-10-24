@@ -8,7 +8,7 @@ import attrs
 import numpy as np
 
 from pcbasm.geometry import Point2d
-from pcbasm.utils import is_finite_number
+from pcbasm.validators import is_finite_number
 from pcbasm.vision.image import Image, ImageArray, PixelRect
 
 

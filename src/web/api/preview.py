@@ -10,7 +10,7 @@ from typing import Literal
 
 import cv2
 
-from pcbasm.config import Machine
+from pcbasm.config import MachineConfig
 from pcbasm.hal import FrameHub
 from pcbasm.vision import (
     CalibrationResult,
@@ -290,7 +290,7 @@ class PreviewService:
                 )
                 return _CopperRenderer(detector, low, high, detect_interval)
 
-    def _build_circle_detector(self, machine: Machine) -> CircleDetector | None:
+    def _build_circle_detector(self, machine: MachineConfig) -> CircleDetector | None:
         """円検出器を構築する（calibration が読めなければ None）."""
         try:
             calibration = CalibrationResult.load(machine.camera.calibration_file)

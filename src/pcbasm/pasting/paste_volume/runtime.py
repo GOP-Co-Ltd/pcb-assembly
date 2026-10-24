@@ -19,10 +19,10 @@ from collections.abc import Sequence
 import attrs
 from shapely import Point, Polygon
 
-from pcbasm.config import FlowCalibration
+from pcbasm.config.dispenser import FlowCalibrationConfig
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.paste_volume.estimator import PasteVolumePrediction
-from pcbasm.utils import is_finite_number
+from pcbasm.validators import is_finite_number
 
 # 1 回の補正で許す ``rotations_per_ul`` の変化幅。
 # 画像の取り違え・ノズル詰まり・校正の条件違いは極端な比として現れるので、
@@ -82,7 +82,7 @@ class FlowCalibrationOutcome:
 
 def plan_flow_calibration(
     *,
-    config: FlowCalibration,
+    config: FlowCalibrationConfig,
     points: Sequence[Point2d],
     outline: Polygon,
 ) -> tuple[FlowCalibrationPlan | None, str | None]:

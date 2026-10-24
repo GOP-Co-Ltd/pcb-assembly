@@ -22,7 +22,7 @@ import cv2
 import numpy as np
 
 from pcbasm.geometry import Point2d
-from pcbasm.utils import is_finite_number
+from pcbasm.validators import is_finite_number
 from pcbasm.vision.image import ImageArray
 
 # open カーネルの上限 [px]。crop より大きい値は塗布痕ごと消すため意味を持たない一方、

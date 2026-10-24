@@ -16,7 +16,8 @@ from collections.abc import Callable
 
 import pytest
 
-from pcbasm.config import NozzleClean, load_machine
+from pcbasm.config import load_machine
+from pcbasm.config.dispenser import NozzleCleanConfig
 from pcbasm.geometry import Point2d, Point3d
 from pcbasm.hal.fake import FakeCamera, FakeKlipper
 from pcbasm.pasting.initial_purge import ResolvedInitialPurge, purge_point_label
@@ -43,7 +44,7 @@ from web.api.settings import Settings
 
 # クリーニング位置（マシン座標）。fake の可動域 x/y 0-300・z -5..50 の内側
 CLEAN_POSITION = Point3d(50.0, 60.0, 1.0)
-CLEAN = NozzleClean(position=CLEAN_POSITION)
+CLEAN = NozzleCleanConfig(position=CLEAN_POSITION)
 # パージ点（board 座標）。board_transform=Shift(100, 50) でマシン (110, 62)
 PURGE_POINT = Point2d(10.0, 12.0)
 # カメラだけが可動域外になる点。撮影はマシン Y = board Y + 50、塗布はさらに

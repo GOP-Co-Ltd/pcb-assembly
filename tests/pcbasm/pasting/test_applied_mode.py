@@ -12,7 +12,7 @@ from collections.abc import Mapping
 
 from shapely import Polygon
 
-from pcbasm.config import PasteDispenser, Toolhead
+from pcbasm.config.dispenser import PasteDispenserConfig, ToolheadConfig
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.applied_mode import AppliedModeSummary, applied_mode_summaries
 from pcbasm.pasting.params import PasteParams, PasteParamValue
@@ -58,8 +58,8 @@ def _pad(designator: str, pad_number: str, polygon: Polygon) -> Pad:
     )
 
 
-def _config() -> PasteDispenser:
-    return PasteDispenser(
+def _config() -> PasteDispenserConfig:
+    return PasteDispenserConfig(
         rotations_per_ul=45.0,
         nozzle_diameter=1.0,
         max_fill_speed=2.0,
@@ -68,7 +68,7 @@ def _config() -> PasteDispenser:
         retract_amount=10.0,
         retract_rate=10.0,
         retract_accel_factor=2.0,
-        toolhead=Toolhead(x=0.0, y=0.0),
+        toolhead=ToolheadConfig(x=0.0, y=0.0),
         paste_height=0.5,
         ul_per_mm2=0.05,
         auto_line_aspect_ratio=1.618,

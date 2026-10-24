@@ -1,4 +1,4 @@
-"""pcbasm.pasting.params のテスト（実 PasteDispenser config を使う）."""
+"""pcbasm.pasting.params のテスト（実 PasteDispenserConfig を使う）."""
 
 import attrs
 import pytest

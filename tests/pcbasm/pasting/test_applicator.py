@@ -20,7 +20,7 @@ import attrs
 import pytest
 from shapely import Polygon, box
 
-from pcbasm.config import PasteDispenser as PasteDispenserConfig, Toolhead
+from pcbasm.config.dispenser import PasteDispenserConfig, ToolheadConfig
 from pcbasm.geometry import Compose, HeightPlane, Identity, Point2d, Point3d, Shift
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeKlipper
@@ -74,7 +74,7 @@ def _machine_height_plane():
 
 
 def _config(**overrides: object) -> PasteDispenserConfig:
-    """テスト既定の PasteDispenser 設定（実 ``Machine.paste_dispenser`` と同型）."""
+    """テスト既定の PasteDispenserConfig（実 ``MachineConfig.paste_dispenser`` と同型）."""
     config = PasteDispenserConfig(
         rotations_per_ul=ROTATIONS_PER_UL,
         nozzle_diameter=0.34,
@@ -84,7 +84,7 @@ def _config(**overrides: object) -> PasteDispenserConfig:
         retract_amount=RETRACT_AMOUNT,
         retract_rate=10.0,
         retract_accel_factor=2.0,
-        toolhead=Toolhead(x=0.0, y=0.0),
+        toolhead=ToolheadConfig(x=0.0, y=0.0),
         paste_height=0.5,
         lift_height=5.0,
         ul_per_mm2=0.05,

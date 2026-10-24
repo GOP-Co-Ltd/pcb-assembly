@@ -13,7 +13,7 @@ from collections.abc import Mapping
 
 import attrs
 
-from pcbasm.config import PasteDispenser
+from pcbasm.config.dispenser import PasteDispenserConfig
 from pcbasm.pasting.fill_path import FillPlan
 from pcbasm.pasting.params import PASTE_PARAM_FIELDS
 from pcbasm.pasting.settings import ResolvedSetting
@@ -47,7 +47,7 @@ def applied_mode_summaries(
     hierarchy: PadHierarchy,
     pad_settings: Mapping[PadRef, ResolvedSetting],
     node_settings: Mapping[HierKey, ResolvedSetting],
-    config: PasteDispenser,
+    config: PasteDispenserConfig,
 ) -> dict[HierKey, AppliedModeSummary]:
     """選択値から実際の方式が読み取れないノードについて、配下の有効 pad の方式を集計する.
 
@@ -62,7 +62,7 @@ def applied_mode_summaries(
         hierarchy: 基板の pad 階層
         pad_settings: :func:`~pcbasm.pasting.settings.resolve_pad_settings` の結果
         node_settings: :func:`~pcbasm.pasting.settings.resolve_node_settings` の結果
-        config: ``Machine.paste_dispenser``（ノズル径と auto 判定の閾値）
+        config: ``MachineConfig.paste_dispenser``（ノズル径と auto 判定の閾値）
     """
     counts: dict[HierKey, Counter[str]] = {}
     for pad in hierarchy.iter_pads():

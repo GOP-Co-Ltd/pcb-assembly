@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
-from pcbasm.config import Machine
+from pcbasm.config import MachineConfig
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Point3d
 from pcbasm.hal import Klipper, Speed, XYZStage
@@ -51,7 +51,7 @@ def move_to_cap(stage: XYZStage, cap: Point3d) -> GCode:
 
 def park_or_present(
     klipper: Klipper,
-    machine: Machine,
+    machine: MachineConfig,
     *,
     warn: Callable[[str], None] | None = None,
     timeout: float = PRESENT_TIMEOUT,

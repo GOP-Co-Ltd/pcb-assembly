@@ -2,10 +2,11 @@
 
 import logging
 from collections.abc import Callable
+from enum import Enum, auto
 
 import numpy as np
 
-from pcbasm.config import Corner, ReferencePoint
+from pcbasm.config.reference_point import CornerOffsetsConfig, ReferencePointConfig
 from pcbasm.gcode import GCode
 from pcbasm.geometry import (
     Compose,
@@ -17,6 +18,43 @@ from pcbasm.hal import Klipper, Speed, XYZStage
 from pcbasm.pcb import Outline
 
 logger = logging.getLogger(__name__)
+
+
+class Corner(Enum):
+    """ボードのコーナーを表す列挙型."""
+
+    TOP_LEFT = auto()
+    TOP_RIGHT = auto()
+    BOTTOM_LEFT = auto()
+    BOTTOM_RIGHT = auto()
+
+
+def corner_offset(offsets: CornerOffsetsConfig, corner: Corner) -> Point2d:
+    """指定コーナーのボード端から基準点マーカーへのオフセットを Point2d で返す."""
+    match corner:
+        case Corner.TOP_LEFT:
+            offset = offsets.top_left
+        case Corner.TOP_RIGHT:
+            offset = offsets.top_right
+        case Corner.BOTTOM_LEFT:
+            offset = offsets.bottom_left
+        case Corner.BOTTOM_RIGHT:
+            offset = offsets.bottom_right
+
+    return Point2d(x=offset[0], y=offset[1])
+
+
+def _board_corner(outline: Outline, corner: Corner) -> Point2d:
+    """指定コーナーの board 座標."""
+    match corner:
+        case Corner.TOP_LEFT:
+            return Point2d(0.0, 0.0)
+        case Corner.TOP_RIGHT:
+            return Point2d(outline.width, 0.0)
+        case Corner.BOTTOM_LEFT:
+            return Point2d(0.0, outline.height)
+        case Corner.BOTTOM_RIGHT:
+            return Point2d(outline.width, outline.height)
 
 
 class BoardTransformMeasurer:
@@ -46,7 +84,7 @@ class BoardTransformMeasurer:
         klipper: Klipper,
         stage: XYZStage,
         outline: Outline,
-        reference_point: ReferencePoint,
+        reference_point: ReferencePointConfig,
         move_velocity_ratio: float = 0.9,
         *,
         settle_sec: float,
@@ -99,13 +137,10 @@ class BoardTransformMeasurer:
             self._measure_corner(corner, move_velocity) for corner in corners
         ]
 
-        offsets = self._ref_point.offsets
-        board_points = (
-            offsets.get(Corner.TOP_LEFT),
-            Point2d(self._outline.width, 0.0) + offsets.get(Corner.TOP_RIGHT),
-            Point2d(self._outline.width, self._outline.height)
-            + offsets.get(Corner.BOTTOM_RIGHT),
-            Point2d(0.0, self._outline.height) + offsets.get(Corner.BOTTOM_LEFT),
+        board_points = tuple(
+            _board_corner(self._outline, corner)
+            + corner_offset(self._ref_point.offsets, corner)
+            for corner in corners
         )
         design = np.array(
             [[point.x, point.y, 1.0] for point in board_points],
@@ -144,11 +179,7 @@ class BoardTransformMeasurer:
         move_velocity: float,
     ) -> Point2d:
         """指定コーナーへ移動し、位置補正した座標を返す."""
-        ref_pos = self._ref_point.get_reference_position(
-            corner,
-            board_width=self._outline.width,
-            board_height=self._outline.height,
-        )
+        ref_pos = self._approximate_position(corner)
 
         logger.info(f"=== {corner.name} Reference Pointへ移動 ===")
         logger.info(f"目標位置: ({ref_pos.x:.3f}, {ref_pos.y:.3f})")
@@ -162,6 +193,23 @@ class BoardTransformMeasurer:
         pos = self._adjust_reference()
         logger.info(f"{corner.name}位置: ({pos.x:.4f}, {pos.y:.4f})")
         return pos
+
+    def _approximate_position(self, corner: Corner) -> Point2d:
+        """指定コーナーの基準点マーカーへ移動するための概略マシン座標を返す.
+
+        ボード左上コーナーの概略位置 = 左上基準点の概略位置 - 左上のオフセット。
+        各コーナーの概略位置 = ボード左上コーナーの概略位置 + コーナーの board 座標 + そのコーナーのオフセット。
+        """
+        ref = self._ref_point
+        top_left = Point2d(ref.x, ref.y)
+        if corner == Corner.TOP_LEFT:
+            return top_left
+        board_origin = top_left - corner_offset(ref.offsets, Corner.TOP_LEFT)
+        return (
+            board_origin
+            + _board_corner(self._outline, corner)
+            + corner_offset(ref.offsets, corner)
+        )
 
     def _move_to(self, move_gcode: GCode) -> None:
         """指定座標に移動し、安定を待つ."""

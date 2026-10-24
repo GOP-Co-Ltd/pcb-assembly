@@ -19,7 +19,7 @@ from typing import Self
 
 import attrs
 
-from pcbasm.config import PasteDispenser
+from pcbasm.config.dispenser import PasteDispenserConfig
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.params import (
     PASTE_PARAM_NAMES,
@@ -76,7 +76,7 @@ class PasteSettingsModel:
     levels: tuple[LevelSetting, ...] = ()
 
     @classmethod
-    def from_config(cls, config: PasteDispenser) -> Self:
+    def from_config(cls, config: PasteDispenserConfig) -> Self:
         """Override の無い初期モデル（machine.toml デフォルトのみ）."""
         return cls(base=PasteParams.from_config(config))
 

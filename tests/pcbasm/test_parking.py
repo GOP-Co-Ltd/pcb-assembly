@@ -25,7 +25,7 @@ from pathlib import Path
 import pytest
 from pytest_mock import MockerFixture
 
-from pcbasm.config import Machine, load_machine
+from pcbasm.config import MachineConfig, load_machine
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Point3d
 from pcbasm.hal import XYZStage
@@ -45,7 +45,7 @@ _LIMITS_CONFIG = {
 }
 
 
-def _machine(tmp_path: Path, extra: str = "") -> Machine:
+def _machine(tmp_path: Path, extra: str = "") -> MachineConfig:
     """検証用 machine.toml の末尾に ``extra`` を足して読む."""
     source = (TESTING_DATA_DIR / "machine.toml").read_text()
     path = tmp_path / "machine.toml"

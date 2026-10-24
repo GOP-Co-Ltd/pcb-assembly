@@ -15,7 +15,7 @@ from typing import Any, Protocol
 import attrs
 import httpx
 
-from pcbasm.config import Klipper as KlipperConfig
+from pcbasm.config.klipper import KlipperConfig
 from pcbasm.gcode import PRESENT_MACRO, GCode, GCodeLike
 
 logger = logging.getLogger(__name__)

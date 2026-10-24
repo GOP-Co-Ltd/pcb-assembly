@@ -36,7 +36,7 @@ import attrs
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.params import PasteParams, PasteParamsPatch
 from pcbasm.pasting.settings import LevelSetting, PasteSettingsModel
-from pcbasm.utils import is_finite_number
+from pcbasm.validators import is_finite_number
 
 BOARD_SETTINGS_SCHEMA_VERSION = 1
 

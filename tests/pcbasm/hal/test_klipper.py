@@ -5,7 +5,7 @@ import httpx
 import pytest
 from pytest_mock import MockerFixture
 
-from pcbasm.config import Klipper as KlipperConfig
+from pcbasm.config.klipper import KlipperConfig
 from pcbasm.gcode import PRESENT_MACRO, GCode
 from pcbasm.hal.fake import FakeKlipper
 from pcbasm.hal.klipper import GCodeMacro, Klipper, open_klipper

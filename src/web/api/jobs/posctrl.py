@@ -11,7 +11,7 @@ import attrs
 import cv2
 
 from pcbasm import hal
-from pcbasm.config import Machine
+from pcbasm.config import MachineConfig
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d, Point3d, Shift, sort_by_nearest
 from pcbasm.hal import Camera, Klipper, Speed, XYZStage
@@ -201,7 +201,7 @@ def _run_reference_point_setup(ctx: JobContext) -> JobResult:
 def _reference_point_frame(
     camera: Camera,
     detector: CircleDetector,
-    machine: Machine,
+    machine: MachineConfig,
     position: _CachedPosition,
 ) -> Image:
     """円検出注釈 + 現在位置テキスト入りのプレビューフレームを合成する."""

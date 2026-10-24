@@ -189,7 +189,7 @@ class TestPromptPositiveNumberNotification:
 
         assert record.status == JobStatus.SUCCEEDED, record.error
         assert answers == [110.5]
-        assert [sound for sound, _ in player.played] == ["prompt", "prompt"]
+        assert [sound for sound, *_ in player.played] == ["prompt", "prompt"]
 
 
 class TestLoadingLoopNotification:
@@ -234,4 +234,4 @@ class TestLoadingLoopNotification:
         assert record.status == JobStatus.SUCCEEDED, record.error
         assert totals == [LoadingTotals(amount_ul=0.5, rotations=0.0)]
         # 押出コマンドを挟んでも入口の 1 回きり
-        assert [sound for sound, _ in player.played] == ["prompt"]
+        assert [sound for sound, *_ in player.played] == ["prompt"]

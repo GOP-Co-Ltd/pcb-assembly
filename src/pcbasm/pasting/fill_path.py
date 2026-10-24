@@ -27,10 +27,7 @@ import attrs
 from shapely import Polygon
 from shapely.geometry import LineString
 
-from pcbasm.config import (
-    DispenseMode,
-    PasteDispenser as PasteDispenserConfig,
-)
+from pcbasm.config.dispenser import DispenseMode, PasteDispenserConfig
 from pcbasm.geometry import (
     Point2d,
     clip_segment,
@@ -82,7 +79,7 @@ class FillPlan:
         （``nozzle_diameter > 0``、``0 <= overlap < 1``、``boundary_margin`` は有限値、
         ``bead_width_factor > 0``、``auto_line_aspect_ratio > 1``、
         ``auto_area_short_side_factor > 0``、``nozzle_outer_diameter >= nozzle_diameter``。
-        検証は ``PasteDispenser`` 読込と
+        検証は ``PasteDispenserConfig`` 読込と
         :func:`pcbasm.pasting.params.validate_param_values` が担う）。
 
         数式::
@@ -172,7 +169,7 @@ class FillPlan:
 
         Args:
             polygon: pad のポリゴン（board 座標 [mm]）
-            config: ``Machine.paste_dispenser``（ノズル内径・外径と auto 判定の閾値を使う）
+            config: ``MachineConfig.paste_dispenser``（ノズル内径・外径と auto 判定の閾値を使う）
             params: この pad の解決済み塗布パラメータ
             line_reference: 部品位置（board 座標）。outward は部品位置から遠ざかる向き、inward は近づく向きに線を引く
         """

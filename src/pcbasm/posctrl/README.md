@@ -28,7 +28,7 @@ Board / オフセット調整用の観測は `observe() -> Transform`
 
 ## 銅箔位置合わせの仕様
 
-以下の既定値は machine 設定 `[paste_dispenser.pad_align]`（`pcbasm.config.PadAlign`）で変えられる。
+以下の既定値は machine 設定 `[paste_dispenser.pad_align]`（`pcbasm.config.alignment.AlignmentConfig`）で変えられる。
 
 銅箔位置合わせでは、基板 outline を既定 0.5 mm inset した safe area 内に、
 既定 100 px・overlap 0.5 の grid を左上から計画する。対象 pad の所属は中心点で

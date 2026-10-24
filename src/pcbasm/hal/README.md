@@ -31,6 +31,6 @@ Hardware Abstraction Layer: カメラ・Klipper（Moonraker 経由）・音声�
 ## 変更時の注意
 
 - 新しいデバイスを足すときも、上の流れに合わせて「`ReadonlyKlipper` で設定を読み、`GCode` を返す」形にする
-- 機械設定（TOML）から HAL を組み立てるのは呼び出し側（`web/api/`、`posctrl.setup`、`pasting.applicator.build_applicator`）。HAL は `pcbasm.config` を読まない（例外は `audio.py`）
+- 機械設定（TOML）から HAL を組み立てるのは呼び出し側（`web/api/`、`posctrl.setup`、`pasting.applicator.build_applicator`）。HAL は `pcbasm.config` を読まない（例外は `open_klipper` が受け取る `KlipperConfig`。通知音の出力先と音量は値で受け取る）
 - fake は `fake.py` に 1 系統だけ置く。テスト用に別の fake を作らず、足りない模擬はここへ足す
 - テストは実機に触れない。実機での確認は [実機受け入れ試験](../../../docs/acceptance.md) に書く

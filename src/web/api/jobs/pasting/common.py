@@ -27,7 +27,7 @@ from pcbasm.posctrl import (
     BoardCalibrationResult,
     RegionAlignmentSession,
 )
-from pcbasm.utils import is_finite_number
+from pcbasm.validators import is_finite_number
 from web.api.jobs.board_ops import align_regions
 from web.api.jobs.context import JobContext, PromptSpec
 from web.api.jobs.machine_commands import handle_machine_command
