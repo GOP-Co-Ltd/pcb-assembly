@@ -9,7 +9,7 @@ from collections.abc import Callable
 from typing import override
 
 from pcbasm.hal.camera import Camera, CameraInfo, Resolution
-from pcbasm.vision import Image
+from pcbasm.vision.image import Image
 
 logger = logging.getLogger(__name__)
 

@@ -24,12 +24,11 @@ from typing import Literal, override
 import attrs
 import numpy as np
 
-from pcbasm.config import DEFAULT_AUDIO_DEVICE, Audio
-
 Sound = Literal["success", "failure", "prompt"]
 
 _APLAY_TIMEOUT = 30.0
 _APLAY_LIST_TIMEOUT = 5.0
+_DEFAULT_DEVICE = "default"  # ALSA のシステム既定 PCM
 _DEFAULT_DEVICE_LABEL = "システム既定"
 _SOUNDS_DIR = Path(__file__).with_name("sounds")
 _SOUND_PATHS: dict[Sound, Path] = {
@@ -58,7 +57,7 @@ def parse_aplay_devices(output: str) -> tuple[AudioDevice, ...]:
     ``plughw:CARD=<card>,DEV=0`` を出力順に返す。ラベルは記述行の 1 行目をそのまま
     使う。
     """
-    devices = [AudioDevice(DEFAULT_AUDIO_DEVICE, _DEFAULT_DEVICE_LABEL)]
+    devices = [AudioDevice(_DEFAULT_DEVICE, _DEFAULT_DEVICE_LABEL)]
     pending: str | None = None
     for line in output.splitlines():
         if not line.strip():
@@ -94,8 +93,8 @@ class AudioPlayer(ABC):
         """選択できる出力デバイスを列挙する."""
 
     @abstractmethod
-    def play(self, sound: Sound, config: Audio) -> Future[None]:
-        """通知音を非同期に再生する."""
+    def play(self, sound: Sound, device: str, volume: float) -> Future[None]:
+        """通知音を ALSA PCM ``device`` へ音量 ``volume``（0〜1）で非同期に再生する."""
 
     @abstractmethod
     def close(self) -> None:
@@ -128,10 +127,10 @@ class AlsaAudioPlayer(AudioPlayer):
         return parse_aplay_devices(result.stdout)
 
     @override
-    def play(self, sound: Sound, config: Audio) -> Future[None]:
+    def play(self, sound: Sound, device: str, volume: float) -> Future[None]:
         if not self._closed:
             try:
-                return self._executor.submit(self._play, sound, config)
+                return self._executor.submit(self._play, sound, device, volume)
             except RuntimeError:
                 # close() と競合して executor が停止済み。契約どおり Future で返す
                 pass
@@ -145,15 +144,15 @@ class AlsaAudioPlayer(AudioPlayer):
         self._executor.shutdown(wait=True)
 
     @staticmethod
-    def _play(sound: Sound, config: Audio) -> None:
+    def _play(sound: Sound, device: str, volume: float) -> None:
         try:
-            wav_data = _wav_with_gain(_SOUND_PATHS[sound], config.volume)
+            wav_data = _wav_with_gain(_SOUND_PATHS[sound], volume)
         except (OSError, ValueError, wave.Error) as exc:
             raise AudioPlaybackError(f"通知音を読み込めません: {exc}") from exc
 
         try:
             subprocess.run(
-                ["aplay", "-q", "-D", config.device],
+                ["aplay", "-q", "-D", device],
                 input=wav_data,
                 capture_output=True,
                 check=True,

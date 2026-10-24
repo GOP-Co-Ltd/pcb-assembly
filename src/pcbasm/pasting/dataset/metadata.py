@@ -25,7 +25,7 @@ from pcbasm.geometry import Point2d
 from pcbasm.geometry.packing import Rect
 from pcbasm.pasting.dispense import DispenseSummary
 from pcbasm.pasting.fill_path import AppliedDispenseMode
-from pcbasm.utils import is_finite_number
+from pcbasm.validators import is_finite_number
 from pcbasm.vision.image import PixelRect
 
 type CapturePhase = Literal["pre", "post"]

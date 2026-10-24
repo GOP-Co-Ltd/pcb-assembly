@@ -14,23 +14,23 @@ import tomlkit
 from tomlkit.items import Item, Table
 
 from pcbasm.atomic import write_bytes_atomic, write_text_atomic
-from pcbasm.config import (
+from pcbasm.config import ConfigError, parse_machine
+from pcbasm.config.alignment import validate_region_overlap
+from pcbasm.config.audio import validate_audio_device, validate_audio_volume
+from pcbasm.config.detection import DetectionConfig
+from pcbasm.config.dispenser import (
     DISPENSE_MODES,
     LINE_DIRECTIONS,
-    ConfigError,
-    Detection,
-    PasteDispenser,
-    parse_machine,
-    validate_audio_device,
-    validate_audio_volume,
-    validate_non_negative_number,
+    PasteDispenserConfig,
     validate_paste_lift_height,
+)
+from pcbasm.config.probe import validate_probe_board_edge_margin
+from pcbasm.validators import (
+    is_finite_number,
+    validate_non_negative_number,
     validate_positive_number,
     validate_positive_odd_integer,
-    validate_probe_board_edge_margin,
-    validate_region_overlap,
 )
-from pcbasm.utils import is_finite_number
 from web.api.history import ConfigHistory
 from web.contract.models import MachineSettingValue, SettingValueType
 
@@ -454,7 +454,7 @@ class ConfigStore:
             for key, value in coerced.items()
             if key.startswith("paste_dispenser.") and key.count(".") == 1
         }
-        if error := PasteDispenser.validate_values(paste_values):
+        if error := PasteDispenserConfig.validate_values(paste_values):
             raise UnknownFieldError(error)
         path = self.machine_toml_path()
         for filename in files or ():
@@ -514,7 +514,7 @@ def _validate_detection_counts(
     """`[detection]` の相互制約（有効検出数 <= フレーム数）を書き込み後の値で確かめる.
 
     片方だけ編集できるので、TOML に残る値とマージしてから検証する。ここで拒否しないと、
-    保存はできるのに ``Machine.detection`` が読めない machine.toml ができあがる。
+    保存はできるのに ``MachineConfig.detection`` が読めない machine.toml ができあがる。
 
     Raises:
         UnknownFieldError: 書き込み後の値が制約を満たさない場合
@@ -522,7 +522,7 @@ def _validate_detection_counts(
     if not any(key.startswith("detection.") for key in coerced):
         return
     section = doc.get("detection", {})
-    defaults = Detection()
+    defaults = DetectionConfig()
 
     def resolved(name: str) -> int:
         value = coerced.get(f"detection.{name}", section.get(name))
@@ -541,7 +541,7 @@ def _validate_nozzle_diameters(
 
     片方だけ編集できるので、TOML に残る値とマージしてから検証する。外径が未記載なら
     内径と同じとみなすので制約は成り立つ。ここで拒否しないと、保存はできるのに
-    ``Machine.paste_dispenser`` が読めない machine.toml ができあがる。
+    ``MachineConfig.paste_dispenser`` が読めない machine.toml ができあがる。
 
     Raises:
         UnknownFieldError: 書き込み後の値が制約を満たさない場合

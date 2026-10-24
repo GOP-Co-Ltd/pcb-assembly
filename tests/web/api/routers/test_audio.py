@@ -19,7 +19,7 @@ MR6（操作権リース）が追記契約:
 import pytest
 from fastapi.testclient import TestClient
 
-from pcbasm.config import DEFAULT_AUDIO_DEVICE, DEFAULT_AUDIO_VOLUME, Audio
+from pcbasm.config.audio import DEFAULT_AUDIO_DEVICE, DEFAULT_AUDIO_VOLUME
 from pcbasm.hal import AudioPlaybackError
 from pcbasm.hal.fake import FAKE_AUDIO_DEVICES, FakeAudioPlayer
 from web.api.app import create_app
@@ -87,7 +87,9 @@ class TestAudioTestApi:
 
         assert response.status_code == 200
         assert response.json() == {"played": True, "device": DEFAULT_AUDIO_DEVICE}
-        assert audio_player.played == ((sound, Audio()),)
+        assert audio_player.played == (
+            (sound, DEFAULT_AUDIO_DEVICE, DEFAULT_AUDIO_VOLUME),
+        )
 
     def test_returns_502_when_playback_fails(self, webui_settings: Settings):
         player = FakeAudioPlayer(

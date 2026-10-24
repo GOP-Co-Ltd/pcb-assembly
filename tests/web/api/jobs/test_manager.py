@@ -34,7 +34,7 @@ from pathlib import Path
 import pytest
 import tomlkit
 
-from pcbasm.config import Audio
+from pcbasm.config.audio import AudioConfig
 from pcbasm.hal import AudioPlaybackError
 from pcbasm.hal.fake import FakeAudioPlayer
 from web.api.jobs.catalog import JobCatalog, ParamSpec
@@ -56,9 +56,9 @@ from .conftest import (
 )
 
 
-def _configure_audio(config_dir: Path) -> Audio:
+def _configure_audio(config_dir: Path) -> AudioConfig:
     """machine.toml へ `[audio]` を書き、書いた設定を返す."""
-    config = Audio(device="test-speaker", volume=0.3)
+    config = AudioConfig(device="test-speaker", volume=0.3)
     path = config_dir / "machine.toml"
     document = tomlkit.parse(path.read_text(encoding="utf-8"))
     document["audio"] = {"device": config.device, "volume": config.volume}
@@ -1192,7 +1192,7 @@ class TestAudioCompletionNotification:
     - 手動中止（ABORTED）は鳴らさない
     - `uses_machine=False` の即終了ジョブは成功・失敗とも鳴らさない。ブラウザ完了
       通知の `notify_on_completion` とは独立で、フラグを立てても鳴らない
-    - `[audio]` 未設定でも既定値（Machine.audio）で鳴る
+    - `[audio]` 未設定でも既定値（MachineConfig.audio）で鳴る
     - 再生失敗は warning のみでジョブ status に影響しない
     """
 
@@ -1213,7 +1213,7 @@ class TestAudioCompletionNotification:
         wait_until(lambda: len(player.played) == 1)
 
         assert record.status == JobStatus.SUCCEEDED
-        assert player.played == (("success", config),)
+        assert player.played == (("success", config.device, config.volume),)
 
     def test_failure_plays_failure_sound_once(
         self,
@@ -1235,7 +1235,7 @@ class TestAudioCompletionNotification:
         wait_until(lambda: len(player.played) == 1)
 
         assert record.status == JobStatus.FAILED
-        assert player.played == (("failure", config),)
+        assert player.played == (("failure", config.device, config.volume),)
 
     def test_aborted_job_does_not_play(
         self,
@@ -1294,7 +1294,7 @@ class TestAudioCompletionNotification:
         wait_until(lambda: len(player.played) == 1)
 
         assert record.status == JobStatus.SUCCEEDED
-        assert player.played == (("success", Audio()),)
+        assert player.played == (("success", "default", 0.75),)
 
     def test_playback_failure_warns_without_changing_job_status(
         self,
@@ -1370,7 +1370,10 @@ class TestAudioOperatorNotification:
 
         assert record.status == JobStatus.SUCCEEDED, record.error
         assert answers == [True, 110.5]
-        assert player.played == (("prompt", config), ("prompt", config))
+        assert player.played == (
+            ("prompt", config.device, config.volume),
+            ("prompt", config.device, config.volume),
+        )
 
     def test_notify_operator_plays_the_input_sound(
         self,
@@ -1394,7 +1397,7 @@ class TestAudioOperatorNotification:
         wait_until(lambda: len(player.played) == 1)
 
         assert record.status == JobStatus.SUCCEEDED, record.error
-        assert player.played == (("prompt", config),)
+        assert player.played == (("prompt", config.device, config.volume),)
 
     def test_notify_operator_stays_silent_after_abort(
         self,

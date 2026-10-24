@@ -17,7 +17,7 @@ from pcbasm.geometry import Point2d, Transform
 from pcbasm.geometry.packing import Rect
 from pcbasm.pasting.dataset.metadata import DatasetView
 from pcbasm.pasting.sweep import sweep_schedule
-from pcbasm.utils import is_finite_number
+from pcbasm.validators import is_finite_number
 
 # 「ちょうど収まる」寸法が浮動小数点誤差で 1 行/1 列失われないための微小許容
 _GRID_EPSILON = 1e-9

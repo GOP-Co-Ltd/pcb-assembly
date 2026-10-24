@@ -29,7 +29,7 @@ import pytest
 import tomlkit
 from fastapi.testclient import TestClient
 
-from pcbasm.config import Machine, load_machine
+from pcbasm.config import MachineConfig, load_machine
 from web.api.config_store import MACHINE_FIELDS
 from web.api.state import AppState
 
@@ -237,7 +237,7 @@ class TestMachineSettingsApi:
     ):
         """外径と内径は片方ずつ編集できるので、TOML に残る値と合わせて相互制約を見る.
 
-        ここで拒否しないと、保存はできるのに ``Machine.paste_dispenser`` が読めない machine.toml になる。
+        ここで拒否しないと、保存はできるのに ``MachineConfig.paste_dispenser`` が読めない machine.toml になる。
         """
         *accepted, rejected = steps
         for values in accepted:

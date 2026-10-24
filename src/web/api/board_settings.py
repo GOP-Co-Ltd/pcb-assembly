@@ -21,7 +21,7 @@ from pathlib import Path
 from shapely import Point, Polygon
 
 from pcbasm.atomic import write_text_atomic
-from pcbasm.config import PasteDispenser
+from pcbasm.config.dispenser import PasteDispenserConfig
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.params import PasteParams
 from pcbasm.pasting.persist import (
@@ -63,7 +63,7 @@ class BoardSettingsStore:
     def load_or_init(
         self,
         source_pcb: str,
-        base_config: PasteDispenser,
+        base_config: PasteDispenserConfig,
         *,
         board_signature: str | None = None,
     ) -> PasteSettingsModel:
@@ -100,7 +100,7 @@ class BoardSettingsStore:
     def model_from_doc(
         self,
         doc: dict,
-        base_config: PasteDispenser,
+        base_config: PasteDispenserConfig,
         *,
         board_signature: str | None = None,
         expected_source_pcb: str | None = None,
@@ -144,7 +144,7 @@ class BoardSettingsStore:
     def update(
         self,
         source_pcb: str,
-        base_config: PasteDispenser,
+        base_config: PasteDispenserConfig,
         *,
         board_signature: str | None = None,
         mutate: Callable[[PasteSettingsModel], PasteSettingsModel],
@@ -189,7 +189,7 @@ class BoardSettingsStore:
         return pruned
 
     def _decode(
-        self, doc: dict, base_config: PasteDispenser, *, where: str
+        self, doc: dict, base_config: PasteDispenserConfig, *, where: str
     ) -> DecodedBoardSettings:
         decoded, error = decode_board_settings(
             doc, base=PasteParams.from_config(base_config)

@@ -3,7 +3,7 @@
 import pytest
 from shapely.geometry import Point as ShapelyPoint, Polygon
 
-from pcbasm.config import Probe
+from pcbasm.config.probe import ProbeConfig
 from pcbasm.gcode import GCode
 from pcbasm.geometry import (
     Compose,
@@ -192,7 +192,7 @@ class TestPlanProbePoints:
 
     def test_points_stay_inside_copper_and_board_margin(self):
         copper = self._copper()
-        config = Probe(
+        config = ProbeConfig(
             min_radius=1.5, board_edge_margin=2.5, min_samples=6, max_samples=9
         )
 
@@ -212,4 +212,4 @@ class TestPlanProbePoints:
         outline = Polygon([(-10.0, -10.0), (10.0, -10.0), (10.0, 10.0), (-10.0, 10.0)])
 
         with pytest.raises(ValueError, match="min_samples"):
-            plan_probe_points([tiny], outline, config=Probe(min_radius=1.5))
+            plan_probe_points([tiny], outline, config=ProbeConfig(min_radius=1.5))

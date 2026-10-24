@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 import shapely
 
-from pcbasm.config import Machine, load_machine
+from pcbasm.config import MachineConfig, load_machine
 from pcbasm.geometry import Identity, Point2d, Shift
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FakeCamera, FakeKlipper
@@ -65,7 +65,7 @@ def dot_frame(diameter_px: int) -> Image:
 
 
 def paste_session(
-    camera: FakeCamera, klipper: FakeKlipper, machine: Machine | None = None
+    camera: FakeCamera, klipper: FakeKlipper, machine: MachineConfig | None = None
 ) -> PasteSession:
     """計測済みの `PasteSession`（board は原点から (100, 50) へ載っている）.
 

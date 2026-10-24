@@ -54,7 +54,7 @@ def plan_alignment_regions(
 
     巡回順は ``tour_start``（機械座標）からの最近傍順とする。
 
-    ``region_size_px`` と ``overlap`` は設定（:class:`~pcbasm.config.PadAlign`）と照合器の組み立てで検証済みとする。
+    ``region_size_px`` と ``overlap`` は設定（:class:`~pcbasm.config.alignment.AlignmentConfig`）と照合器の組み立てで検証済みとする。
 
     Returns:
         領域のリスト。銅箔・pad・安全領域のどれかが空、または領域が収まらなければ空リスト

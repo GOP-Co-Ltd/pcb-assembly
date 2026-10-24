@@ -8,7 +8,7 @@ import subprocess
 import pytest
 
 from pcbasm import hal
-from pcbasm.config import Klipper as KlipperConfig
+from pcbasm.config.klipper import KlipperConfig
 from web.selfupdate.settings import UpdateSettings
 
 

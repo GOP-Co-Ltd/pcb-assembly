@@ -21,6 +21,7 @@ from pcbasm.geometry import Identity, Point2d
 from pcbasm.pasting.applicator import PasteApplicator, build_applicator
 from pcbasm.pasting.params import PasteParamsPatch
 from pcbasm.pasting.probe import ProbeExecutor
+from pcbasm.pasting.session import toolhead_transform
 from pcbasm.posctrl import (
     DETECTION_MAX_ATTEMPTS,
     DETECTION_RETRY_SEC,
@@ -365,7 +366,7 @@ class ToolheadOffsetProcedure:
         self._calibration = result.calibration
         self._board_transform = result.board_transform
         self._dispenser_config = machine.paste_dispenser
-        self._toolhead_transform = machine.paste_dispenser.toolhead.to_transform()
+        self._toolhead_transform = toolhead_transform(machine.paste_dispenser.toolhead)
         self._lift_height = lift_height
         # 静定・サンプリングは機体設定の値を使う（他の計測と同じ現象・同じ検出器）
         self._settle_sec = machine.settle.move_sec

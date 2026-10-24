@@ -8,7 +8,7 @@ from shapely import Point, Polygon
 
 from pcbasm.geometry import Point2d
 from pcbasm.pcb import Pad, PadShapeKey
-from pcbasm.utils import is_finite_number
+from pcbasm.validators import is_finite_number
 
 PurgeSource = Literal["explicit", "default"]
 

@@ -13,8 +13,9 @@ from typing import Self
 
 import attrs
 
-from pcbasm.config import Machine
-from pcbasm.geometry import Compose, HeightPlane, Identity, Point2d, Transform
+from pcbasm.config import MachineConfig
+from pcbasm.config.dispenser import ToolheadConfig
+from pcbasm.geometry import Compose, HeightPlane, Identity, Point2d, Shift, Transform
 from pcbasm.hal import Camera, Klipper, XYZStage
 from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.applicator import PasteApplicator, build_applicator
@@ -23,6 +24,11 @@ from pcbasm.pasting.probe import ProbeExecutor
 from pcbasm.pcb import Copper, Layer, Pad, PcbFile
 from pcbasm.posctrl import BoardCalibrationResult, RegionAlignmentSession
 from pcbasm.vision import CalibrationResult, FrameSink
+
+
+def toolhead_transform(toolhead: ToolheadConfig) -> Transform:
+    """Toolhead の位置に xy 平行移動する Transform を返す."""
+    return Shift(x=toolhead.x, y=toolhead.y)
 
 
 @attrs.frozen
@@ -42,7 +48,7 @@ class PasteSession:
     :attr:`board_to_machine` は補正も高さ面も含まないので、塗布には使わない。
     """
 
-    machine: Machine
+    machine: MachineConfig
     klipper: Klipper
     stage: XYZStage
     camera: Camera
@@ -86,7 +92,7 @@ class PasteSession:
             calibration_result=result,
             board_transform=result.board_transform,
             offset_transform=result.offset_transform,
-            toolhead_offset=machine.paste_dispenser.toolhead.to_transform(),
+            toolhead_offset=toolhead_transform(machine.paste_dispenser.toolhead),
             pcb=result.pcb,
             probe_executor=probe_executor,
             height_measurer=height_measurer,

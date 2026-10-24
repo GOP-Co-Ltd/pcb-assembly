@@ -17,7 +17,7 @@ import shapely
 from shapely import Polygon
 
 from pcbasm import geometry, hal
-from pcbasm.config import Machine, load_machine
+from pcbasm.config import MachineConfig, load_machine
 from pcbasm.gcode import GCode
 from pcbasm.geometry import (
     Compose,
@@ -141,7 +141,7 @@ CORRECTION = PasteCorrection(
 
 
 @pytest.fixture
-def machine() -> Machine:
+def machine() -> MachineConfig:
     return load_machine(MACHINE_TOML)
 
 
@@ -153,7 +153,7 @@ def klipper() -> FakeKlipper:
 
 
 def _result(
-    klipper: FakeKlipper, machine: Machine, pcb: Path
+    klipper: FakeKlipper, machine: MachineConfig, pcb: Path
 ) -> BoardCalibrationResult:
     blank = Image(np.zeros((480, 640, 3), dtype=np.uint8))
     return BoardCalibrationResult(
@@ -177,7 +177,7 @@ def _result(
     )
 
 
-def _session(klipper: FakeKlipper, machine: Machine, pcb: Path) -> PasteSession:
+def _session(klipper: FakeKlipper, machine: MachineConfig, pcb: Path) -> PasteSession:
     return PasteSession.from_calibration(_result(klipper, machine, pcb))
 
 
@@ -206,7 +206,7 @@ class TestApplicator:
     """塗布ジョブの pad ループ（リトラクト → 順路どおりに apply）を方式ごとに固定する."""
 
     @pytest.mark.parametrize("mode", ["dot", "line", "area", "micro_line", "auto"])
-    def test_routed_pads(self, klipper: FakeKlipper, machine: Machine, mode: str):
+    def test_routed_pads(self, klipper: FakeKlipper, machine: MachineConfig, mode: str):
         session = _session(klipper, machine, LED_BLINKER)
         targets = _targets(session)
 
@@ -248,7 +248,7 @@ class TestFillPathFallback:
     def test_pad(
         self,
         klipper: FakeKlipper,
-        machine: Machine,
+        machine: MachineConfig,
         name: str,
         designator: str,
         values: dict[str, Any],
@@ -272,7 +272,7 @@ class TestFillPathFallback:
 
 
 class TestFillSequence:
-    def test_variants(self, klipper: FakeKlipper, machine: Machine):
+    def test_variants(self, klipper: FakeKlipper, machine: MachineConfig):
         """移動律速・吐出レート律速・点とプライム後の追加遅延・微小線を 1 本ずつ送る."""
         stage = XYZStage(klipper.readonly)
         dispenser = hal.PasteDispenser(
@@ -305,7 +305,7 @@ class TestFillSequence:
 
 
 class TestInitialPurge:
-    def test_retract_then_purge(self, klipper: FakeKlipper, machine: Machine):
+    def test_retract_then_purge(self, klipper: FakeKlipper, machine: MachineConfig):
         """塗布ジョブの先頭と同じく、リトラクトしてから面積最大の pad の中心へパージする."""
         session = _session(klipper, machine, LED_BLINKER)
         purge = _targets(session).initial_purge
@@ -323,7 +323,7 @@ class TestInitialPurge:
 
 
 class TestNozzleClean:
-    def test_prime_clean_retract(self, klipper: FakeKlipper, machine: Machine):
+    def test_prime_clean_retract(self, klipper: FakeKlipper, machine: MachineConfig):
         """パージが写らなかったときのクリーニング（prime → パージとこすり → retract）."""
         stage = XYZStage(klipper.readonly)
         plan = resolve_nozzle_clean(machine, stage)
@@ -351,7 +351,7 @@ class TestNozzleClean:
 
 
 class TestParking:
-    def test_nozzle_cap(self, klipper: FakeKlipper, machine: Machine):
+    def test_nozzle_cap(self, klipper: FakeKlipper, machine: MachineConfig):
         park_or_present(klipper, machine)
 
         assert_transcript(klipper.sent, PROCEDURES / "park_nozzle_cap.gcode")
@@ -382,7 +382,9 @@ class TestParking:
 
 
 class TestLoading:
-    def test_extrude_suck_and_rotate(self, klipper: FakeKlipper, machine: Machine):
+    def test_extrude_suck_and_rotate(
+        self, klipper: FakeKlipper, machine: MachineConfig
+    ):
         """ローディング画面の押出・吸引・回転（引き戻し付き）."""
         stage = XYZStage(klipper.readonly)
 
@@ -400,7 +402,7 @@ class TestLoading:
 
 
 class TestToolheadOffset:
-    def test_probe_then_deposit(self, klipper: FakeKlipper, machine: Machine):
+    def test_probe_then_deposit(self, klipper: FakeKlipper, machine: MachineConfig):
         """全点をプローブしてから、表面 Z + 塗布高さで全点に点塗布する."""
         result = _result(klipper, machine, LED_BLINKER)
         points, error = plan_toolhead_offset_points(
@@ -430,7 +432,7 @@ class TestToolheadOffset:
 
 
 class TestHeightPlane:
-    def test_probes_top_copper(self, klipper: FakeKlipper, machine: Machine):
+    def test_probes_top_copper(self, klipper: FakeKlipper, machine: MachineConfig):
         _session(klipper, machine, LED_BLINKER).measure_height_plane()
 
         assert_transcript(klipper.sent, PROCEDURES / "height_plane.gcode")
@@ -448,7 +450,7 @@ class TestFlowCalibration:
         self,
         tmp_path: Path,
         klipper: FakeKlipper,
-        machine: Machine,
+        machine: MachineConfig,
         params: CalibrationParams,
     ) -> BoardCalibrationResult:
         plate = _plate(tmp_path, params.board_width, params.board_height)
@@ -457,7 +459,7 @@ class TestFlowCalibration:
     def test_rotations_per_ul(
         self,
         klipper: FakeKlipper,
-        machine: Machine,
+        machine: MachineConfig,
         params: CalibrationParams,
         result: BoardCalibrationResult,
     ):
@@ -484,7 +486,7 @@ class TestFlowCalibration:
     def test_max_dispense_rate(
         self,
         klipper: FakeKlipper,
-        machine: Machine,
+        machine: MachineConfig,
         params: CalibrationParams,
         result: BoardCalibrationResult,
     ):
@@ -512,7 +514,7 @@ class TestFlowCalibration:
     def test_max_fill_speed(
         self,
         klipper: FakeKlipper,
-        machine: Machine,
+        machine: MachineConfig,
         params: CalibrationParams,
         result: BoardCalibrationResult,
     ):
@@ -537,7 +539,9 @@ class TestFlowCalibration:
 
 
 class TestPasteDataset:
-    def test_dot_grid(self, tmp_path: Path, klipper: FakeKlipper, machine: Machine):
+    def test_dot_grid(
+        self, tmp_path: Path, klipper: FakeKlipper, machine: MachineConfig
+    ):
         """塗布量データセットの収集で、銅板の高さを測ってからセルへ点塗布する."""
         spec = DotGridSpec()
         plan, error = plan_dot_grid(spec)

@@ -2,7 +2,7 @@
 
 単位は ``pcbasm.<名前>`` と ``web.<名前>``。単位の中の import と標準ライブラリはいつでもよい。
 pcbasm の単位は L0 の単位を常に import してよく、それより上は ``_RULES`` に挙げた単位だけを import してよい。
-L0 の葉（atomic、paths、utils）は標準ライブラリだけに依存する。
+L0 の葉（atomic、paths、validators）は標準ライブラリだけに依存する。
 web.ui と web.selfupdate が import してよい pcbasm は、葉のうち atomic と paths に限る。
 pcbnew を import してよいのは kicad だけ。web.contract と web.process は使う 3rd-party を限る。
 
@@ -35,11 +35,11 @@ _L0 = frozenset(
         "atomic",
         "paths",
         "plotting",
-        "utils",
+        "validators",
     )
 )
-# 標準ライブラリだけに依存する L0 の葉（utils は is_finite_number だけを持つ）
-_LEAVES = frozenset({"pcbasm.atomic", "pcbasm.paths", "pcbasm.utils"})
+# 標準ライブラリだけに依存する L0 の葉
+_LEAVES = frozenset({"pcbasm.atomic", "pcbasm.paths", "pcbasm.validators"})
 # web.ui と web.selfupdate が import してよい pcbasm
 _WEB_LEAVES = frozenset({"pcbasm.atomic", "pcbasm.paths"})
 _ALIGN = frozenset(
@@ -79,9 +79,8 @@ _THIRD_PARTY_OWNER = {"pcbnew": "pcbasm.kicad"}
 
 # まだ残っている違反（import する単位, import される単位か 3rd-party）
 _ALLOWED_VIOLATIONS = {
+    # open_klipper が KlipperConfig を受け取る
     ("pcbasm.hal", "pcbasm.config"),
-    # Image を pcbasm.vision.image でなく pcbasm.vision から import している
-    ("pcbasm.hal", "pcbasm.vision"),
     ("pcbasm.pasting", "pcbnew"),
     ("pcbasm.pcb", "pcbnew"),
     ("pcbasm.visualization", "pcbasm.pasting"),

@@ -10,7 +10,7 @@ from pathlib import Path
 import attrs
 
 from pcbasm import hal
-from pcbasm.config import Machine
+from pcbasm.config import MachineConfig
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Shift, Transform
 from pcbasm.hal import Camera, Klipper, XYZStage, create_camera
@@ -180,7 +180,7 @@ class BoardCalibrationResult:
     offset_transform と board_transform の意味は :mod:`pcbasm.posctrl` の冒頭を参照。
     """
 
-    machine: Machine
+    machine: MachineConfig
     klipper: Klipper
     stage: XYZStage
     camera: Camera
@@ -191,7 +191,7 @@ class BoardCalibrationResult:
 
 
 def setup_board_calibration(
-    machine: Machine,
+    machine: MachineConfig,
     pcb_file_path: Path,
     tolerance: float = 0.1,
     *,

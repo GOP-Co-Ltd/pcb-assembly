@@ -17,7 +17,7 @@ from typing import Self
 
 import attrs
 
-from pcbasm.utils import is_finite_number
+from pcbasm.validators import is_finite_number
 
 # ① 収束判定の相対許容（採用→再計測ループの収束ヒント表示用）
 CONVERGENCE_REL_TOL = 0.02

@@ -22,7 +22,7 @@ import attrs
 from fastapi import HTTPException
 from pydantic import BaseModel
 
-from pcbasm.config import FlowCalibration, PasteDispenser
+from pcbasm.config.dispenser import FlowCalibrationConfig, PasteDispenserConfig
 from pcbasm.geometry import Point2d, display_rings
 from pcbasm.pasting.applied_mode import AppliedModeSummary, applied_mode_summaries
 from pcbasm.pasting.fill_path import FillPlan
@@ -518,7 +518,7 @@ def build_flow_calibration(loaded: Loaded) -> FlowCalibrationInfo:
 
 
 def _flow_calibration_label(
-    config: FlowCalibration,
+    config: FlowCalibrationConfig,
     points: Sequence[Point2d],
     plan: FlowCalibrationPlan | None,
     error: str | None,
@@ -574,7 +574,7 @@ def pad_info(
 @attrs.frozen
 class Loaded:
     source_pcb: str
-    base_config: PasteDispenser
+    base_config: PasteDispenserConfig
     pcb: PcbFile
     hierarchy: PadHierarchy
     board_signature: str

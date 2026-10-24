@@ -3,10 +3,10 @@
 pad 単位で上書きできる 10 項目を :class:`PasteParams`（全項目確定）と
 :class:`PasteParamsPatch`（差分、``None`` = 継承）の 2 型で表す。項目の一覧・
 表示順・UI メタデータは :data:`PASTE_PARAM_FIELDS` が唯一の出典で、
-``machine.toml``（:class:`pcbasm.config.PasteDispenser`）からの写しは
+``machine.toml``（:class:`~pcbasm.config.dispenser.PasteDispenserConfig`）からの写しは
 ``attrs.fields`` で同名フィールドを機械的に行う。
 
-値の制約は ``PasteDispenser.validate_values`` を共用する。
+値の制約は ``PasteDispenserConfig.validate_values`` を共用する。
 HTTP 境界の :func:`validate_param_values` は上書き可能な項目名も確認し、
 ここから先の計算層は検証済みの値を受け取る前提で再検証しない。
 
@@ -21,12 +21,11 @@ from typing import Any, Literal, Self, cast
 
 import attrs
 
-from pcbasm.config import (
+from pcbasm.config.dispenser import (
     DispenseMode,
     LineDirection,
-    PasteDispenser,
+    PasteDispenserConfig,
     PasteHeight,
-    resolve_paste_height,
 )
 
 PasteParamValue = float | str
@@ -92,14 +91,19 @@ class PasteParams:
     micro_line_z_end: PasteHeight
 
     @classmethod
-    def from_config(cls, config: PasteDispenser) -> Self:
+    def from_config(cls, config: PasteDispenserConfig) -> Self:
         """``machine.toml`` の ``[paste_dispenser]`` から同名フィールドを写す."""
         return cls(**{name: getattr(config, name) for name in PASTE_PARAM_NAMES})
 
     @property
     def paste_height_mm(self) -> float:
-        """基板表面からのノズル高さ [mm]（``auto`` は ``ul_per_mm2`` を膜厚として解決）."""
-        return resolve_paste_height(self.paste_height, self.ul_per_mm2)
+        """基板表面からのノズル高さ [mm]（``auto`` は ``ul_per_mm2`` を膜厚として解決）.
+
+        ``ul_per_mm2`` は μL/mm² = mm³/mm² = mm なので、目標膜厚をそのまま基板表面からのクリアランスに使う。
+        """
+        if self.paste_height == "auto":
+            return self.ul_per_mm2
+        return self.paste_height
 
     @property
     def height_fields(self) -> tuple[str, ...]:
@@ -218,7 +222,7 @@ def validate_param_values(values: Mapping[str, object]) -> str | None:
     """HTTP 境界で受けた塗布パラメータ値を検証し、不正なら日本語エラー文を返す."""
     if (message := validate_field_names(values)) is not None:
         return message
-    return PasteDispenser.validate_values(values)
+    return PasteDispenserConfig.validate_values(values)
 
 
 @attrs.frozen
@@ -254,7 +258,7 @@ class DispenseSettings:
 
     @classmethod
     def from_config(
-        cls, config: PasteDispenser, *, lift_height: float | None = None
+        cls, config: PasteDispenserConfig, *, lift_height: float | None = None
     ) -> Self:
         return cls(
             max_fill_speed=config.max_fill_speed,

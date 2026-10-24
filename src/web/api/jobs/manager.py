@@ -20,13 +20,14 @@ from typing import Any, override
 import attrs
 
 from pcbasm import hal
-from pcbasm.config import Audio, Machine
+from pcbasm.config import MachineConfig
+from pcbasm.config.audio import AudioConfig
 from pcbasm.hal import AudioPlayer, FrameHub
 from pcbasm.hal.audio import Sound
 from pcbasm.hal.klipper import PRESENT_TIMEOUT
 from pcbasm.machine.journal import Journal
 from pcbasm.parking import park_or_present
-from pcbasm.utils import is_finite_number
+from pcbasm.validators import is_finite_number
 from pcbasm.vision import Image
 from web.api.board_settings import BoardSettingsStore
 from web.api.jobs.catalog import JobCatalog, JobDefinition
@@ -795,7 +796,7 @@ class JobManager:
             path = journal.path.relative_to(self._artifacts_root).as_posix()
             record.add_artifact(Artifact("G-code ジャーナル", path, "file"))
 
-    def _operator_notifier(self, machine: Machine) -> Callable[[], None]:
+    def _operator_notifier(self, machine: MachineConfig) -> Callable[[], None]:
         """オペレータ待ちで鳴らす入力待ち音の再生関数を作る.
 
         再生完了を待たずに戻り、再生失敗は warning のみ（待ちをブロックしない）。
@@ -806,11 +807,11 @@ class JobManager:
         return lambda: self._play_sound(player, "prompt", machine.audio, "入力待ち音")
 
     def _play_sound(
-        self, player: AudioPlayer, sound: Sound, audio: Audio, label: str
+        self, player: AudioPlayer, sound: Sound, audio: AudioConfig, label: str
     ) -> None:
         """通知音を非同期に開始する（開始・再生の失敗はいずれも warning のみ）."""
         try:
-            future = player.play(sound, audio)
+            future = player.play(sound, audio.device, audio.volume)
         except Exception:
             _logger.warning("%sを開始できませんでした", label, exc_info=True)
             return

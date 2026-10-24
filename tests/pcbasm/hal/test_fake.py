@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 from shapely import Point
 
-from pcbasm.config import Audio
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d, Point3d
 from pcbasm.hal import FrameHub, ManualStepper, XYZStage
@@ -325,16 +324,14 @@ class TestFakeAudioPlayer:
 
     def test_records_played_sounds(self):
         player = FakeAudioPlayer()
-        config = Audio()
-
-        player.play("success", config).result()
+        player.play("success", "default", 0.75).result()
         player.close()
 
-        assert player.played == (("success", config),)
+        assert player.played == (("success", "default", 0.75),)
         assert player.close_calls == 1
 
     def test_playback_error_fails_future(self):
         player = FakeAudioPlayer(playback_error=RuntimeError("no device"))
 
         with pytest.raises(RuntimeError, match="no device"):
-            player.play("failure", Audio()).result()
+            player.play("failure", "default", 0.75).result()

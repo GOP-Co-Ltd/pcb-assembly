@@ -16,7 +16,8 @@ from pathlib import Path
 
 import pytest
 
-from pcbasm.config import FlowCalibration, Machine, load_machine
+from pcbasm.config import MachineConfig, load_machine
+from pcbasm.config.dispenser import FlowCalibrationConfig
 from pcbasm.geometry import Point2d
 from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeCamera, FakeKlipper
 from pcbasm.pasting.paste_volume.calibration import (
@@ -71,8 +72,8 @@ def _dispense_amounts_ul(klipper: FakeKlipper, rotations_per_ul: float) -> list[
     return amounts
 
 
-def _machine_with_prime_extra_delay(tmp_path: Path, delay: float) -> Machine:
-    """Testing の machine.toml に ``prime_extra_delay`` を足した Machine."""
+def _machine_with_prime_extra_delay(tmp_path: Path, delay: float) -> MachineConfig:
+    """Testing の machine.toml に ``prime_extra_delay`` を足した MachineConfig."""
     text = (TESTING_CONFIG_DIR / "machine.toml").read_text(encoding="utf-8")
     text = re.sub(
         r"^prime_extra_delay = .*$",
@@ -155,7 +156,7 @@ class TestRunFlowCalibration:
         def run(ctx: JobContext) -> JobResult:
             klipper = FakeKlipper()
             session = paste_session(FakeCamera([uniform_frame()]), klipper, machine)
-            config = FlowCalibration(
+            config = FlowCalibrationConfig(
                 calibration_file=str(ctx.params["calibration_file"]),
                 settle_seconds=float(ctx.params["settle_seconds"]),
             )
@@ -298,5 +299,5 @@ class TestRunFlowCalibration:
         retract_ul = load_machine(
             TESTING_CONFIG_DIR / "machine.toml"
         ).paste_dispenser.retract_amount
-        expected = retract_ul + FlowCalibration().amount_ul
+        expected = retract_ul + FlowCalibrationConfig().amount_ul
         assert dispensed == pytest.approx([expected] * len(POINTS))

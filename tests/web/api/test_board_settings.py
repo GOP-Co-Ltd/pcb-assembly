@@ -29,7 +29,7 @@ from pathlib import Path
 import pytest
 from shapely import Polygon
 
-from pcbasm.config import PasteDispenser, Toolhead
+from pcbasm.config.dispenser import PasteDispenserConfig, ToolheadConfig
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.params import PasteParamsPatch
 from pcbasm.pasting.settings import LevelSetting, PasteSettingsModel
@@ -39,9 +39,9 @@ from web.api.board_settings import BoardSettingsStore
 type Mutate = Callable[[PasteSettingsModel], PasteSettingsModel]
 
 
-def _base_config() -> PasteDispenser:
-    """テスト用の最小 PasteDispenser（override 項目 + 装置値）."""
-    return PasteDispenser(
+def _base_config() -> PasteDispenserConfig:
+    """テスト用の最小 PasteDispenserConfig（override 項目 + 装置値）."""
+    return PasteDispenserConfig(
         rotations_per_ul=10.0,
         nozzle_diameter=0.4,
         max_fill_speed=0.8,
@@ -50,7 +50,7 @@ def _base_config() -> PasteDispenser:
         retract_amount=0.1,
         retract_rate=1.0,
         retract_accel_factor=2.0,
-        toolhead=Toolhead(x=0.0, y=0.0),
+        toolhead=ToolheadConfig(x=0.0, y=0.0),
         paste_height="auto",
         ul_per_mm2=0.05,
         dispense_mode="auto",

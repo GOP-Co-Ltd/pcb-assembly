@@ -36,12 +36,11 @@ from pathlib import Path
 import attrs
 import pytest
 
-from pcbasm.config import (
-    Machine,
-    NozzleClean,
-    PasteDispenser as PasteDispenserConfig,
-    Toolhead,
-    load_machine,
+from pcbasm.config import MachineConfig, load_machine
+from pcbasm.config.dispenser import (
+    NozzleCleanConfig,
+    PasteDispenserConfig,
+    ToolheadConfig,
 )
 from pcbasm.geometry import Point3d
 from pcbasm.hal import XYZStage
@@ -81,7 +80,7 @@ def _position(**overrides: float) -> Point3d:
     return attrs.evolve(POSITION, **overrides)
 
 
-def _clean(**overrides) -> NozzleClean:
+def _clean(**overrides) -> NozzleCleanConfig:
     values = {
         "position": POSITION,
         "press_depth": 0.5,
@@ -90,7 +89,7 @@ def _clean(**overrides) -> NozzleClean:
         "passes": 1,
         "wipe_speed": 10.0,
     }
-    return NozzleClean(**(values | overrides))
+    return NozzleCleanConfig(**(values | overrides))
 
 
 def _plan(stage: XYZStage, **overrides) -> NozzleCleanPlan:
@@ -123,7 +122,7 @@ def applicator(klipper: FakeKlipper) -> Iterator[PasteApplicator]:
         retract_amount=10.0,
         retract_rate=10.0,
         retract_accel_factor=2.0,
-        toolhead=Toolhead(x=0.0, y=0.0),
+        toolhead=ToolheadConfig(x=0.0, y=0.0),
         paste_height=0.5,
         lift_height=5.0,
         ul_per_mm2=0.05,
@@ -389,7 +388,7 @@ class TestCleanNozzle:
 class TestResolveNozzleClean:
     """ジョブの開始時の確かめ（未教示はスキップを残し、届かない設定は例外）."""
 
-    def _machine(self, tmp_path: Path, extra: str) -> Machine:
+    def _machine(self, tmp_path: Path, extra: str) -> MachineConfig:
         path = tmp_path / "machine.toml"
         source = (TESTING_DATA_DIR / "machine.toml").read_text()
         path.write_text(f"{source}\n{extra}", encoding="utf-8")

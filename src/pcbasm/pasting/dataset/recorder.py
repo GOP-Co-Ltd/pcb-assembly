@@ -8,7 +8,7 @@ from pathlib import Path
 
 import attrs
 
-from pcbasm.config import PasteDispenser
+from pcbasm.config.dispenser import PasteDispenserConfig
 from pcbasm.pasting.applicator import PasteApplicationResult
 from pcbasm.pasting.dataset.metadata import (
     CAPTURE_ORDER,
@@ -35,7 +35,7 @@ from pcbasm.pasting.dataset.pending import (
 )
 from pcbasm.pasting.dataset.plan import DotCell, DotGridPlan, DotTarget
 from pcbasm.pasting.dataset.writer import PasteDatasetWriter
-from pcbasm.utils import is_finite_number
+from pcbasm.validators import is_finite_number
 from pcbasm.vision.calibration import CalibrationResult
 from pcbasm.vision.crop import RectCrop
 
@@ -72,7 +72,7 @@ class DatasetRunInfo:
     crop_size_px: int
     loading: PasteDatasetLoading
     started_at: datetime
-    dispenser: PasteDispenser
+    dispenser: PasteDispenserConfig
     calibration: CalibrationResult
 
 

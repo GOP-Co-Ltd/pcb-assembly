@@ -3,29 +3,27 @@ from pathlib import Path
 import pytest
 
 from pcbasm.config import (
-    Audio,
-    Camera,
-    CameraCrop,
     ConfigError,
-    Corner,
-    CornerOffsets,
-    Detection,
-    FlowCalibration,
-    Klipper,
-    Machine,
-    NozzleClean,
-    PadAlign,
-    PasteDispenser,
-    Probe,
-    ReferencePoint,
-    Settle,
-    Toolhead,
+    MachineConfig,
     get_config_dir,
     load_klipper,
     load_machine,
-    resolve_paste_height,
 )
-from pcbasm.geometry import Point2d, Point3d
+from pcbasm.config.alignment import AlignmentConfig
+from pcbasm.config.audio import AudioConfig
+from pcbasm.config.camera import CameraConfig, CameraCropConfig
+from pcbasm.config.detection import DetectionConfig
+from pcbasm.config.dispenser import (
+    FlowCalibrationConfig,
+    NozzleCleanConfig,
+    PasteDispenserConfig,
+    ToolheadConfig,
+)
+from pcbasm.config.klipper import KlipperConfig
+from pcbasm.config.probe import ProbeConfig
+from pcbasm.config.reference_point import CornerOffsetsConfig, ReferencePointConfig
+from pcbasm.config.settle import SettleConfig
+from pcbasm.geometry import Point3d
 from pcbasm.paths import PROJECT_ROOT
 from tests.support.paths import TESTING_DATA_DIR
 
@@ -41,8 +39,8 @@ def _write_with(tmp_path: Path, extra: str = "", **replace: str) -> Path:
     return path
 
 
-def _machine_with(tmp_path: Path, extra: str) -> Machine:
-    """検証用 machine.toml の末尾に ``extra`` を足した Machine を作る."""
+def _machine_with(tmp_path: Path, extra: str) -> MachineConfig:
+    """検証用 machine.toml の末尾に ``extra`` を足した MachineConfig を作る."""
     return load_machine(_write_with(tmp_path, extra))
 
 
@@ -56,7 +54,7 @@ def _paste_dispenser(**overrides):
         "retract_amount": 10.0,
         "retract_rate": 50.0,
         "retract_accel_factor": 2.0,
-        "toolhead": Toolhead(x=13.2, y=54.7),
+        "toolhead": ToolheadConfig(x=13.2, y=54.7),
         "paste_height": "auto",
         "ul_per_mm2": 0.2,
         "solder_paste_density": 3.78,
@@ -64,7 +62,7 @@ def _paste_dispenser(**overrides):
         "auto_line_aspect_ratio": 1.618,
     }
     values.update(overrides)
-    return PasteDispenser(**values)
+    return PasteDispenserConfig(**values)
 
 
 class TestMachine:
@@ -73,8 +71,8 @@ class TestMachine:
     def test_load_config(self):
         machine = load_machine(TESTING_DATA_DIR / "machine.toml")
 
-        assert machine.klipper == Klipper(host="192.168.1.100", port=7125)
-        assert machine.paste_dispenser == PasteDispenser(
+        assert machine.klipper == KlipperConfig(host="192.168.1.100", port=7125)
+        assert machine.paste_dispenser == PasteDispenserConfig(
             rotations_per_ul=1.0,
             nozzle_diameter=0.21,
             max_fill_speed=2.0,
@@ -83,7 +81,7 @@ class TestMachine:
             retract_amount=10.0,
             retract_rate=50.0,
             retract_accel_factor=2.0,
-            toolhead=Toolhead(x=13.2, y=54.7),
+            toolhead=ToolheadConfig(x=13.2, y=54.7),
             paste_height="auto",
             lift_height=3.0,
             ul_per_mm2=0.2,
@@ -92,20 +90,20 @@ class TestMachine:
             auto_line_aspect_ratio=1.618,
         )
         assert machine.paste_dispenser.line_direction == "unconstrained"
-        assert machine.camera == Camera(
+        assert machine.camera == CameraConfig(
             device_id=0,
             width=640,
             height=480,
             fps=30.0,
             format="YUYV",
-            crop=CameraCrop(width=400, height=400),
+            crop=CameraCropConfig(width=400, height=400),
             calibration_file=TESTING_DATA_DIR / "calibration.json",
         )
-        assert machine.reference_point == ReferencePoint(
+        assert machine.reference_point == ReferencePointConfig(
             x=23.1,
             y=8.3,
             target_diameter=3.0,
-            offsets=CornerOffsets(
+            offsets=CornerOffsetsConfig(
                 top_left=(0.0, -5.0),
                 top_right=(0.0, -5.0),
                 bottom_left=(5.0, 5.0),
@@ -130,7 +128,7 @@ class TestMachine:
     def test_pad_align_defaults_when_section_absent(self):
         machine = load_machine(TESTING_DATA_DIR / "machine.toml")
 
-        assert machine.paste_dispenser.pad_align == PadAlign()
+        assert machine.paste_dispenser.pad_align == AlignmentConfig()
         assert machine.paste_dispenser.pad_align.region_size_px == 100
         assert machine.paste_dispenser.pad_align.refine_max_short_side == pytest.approx(
             0.4
@@ -327,7 +325,7 @@ class TestLoadKlipper:
     def test_reads_klipper_even_when_the_rest_is_invalid(self, tmp_path):
         path = _write_with(tmp_path, **{"lift_height = 3.0": "lift_height = 0.0"})
 
-        assert load_klipper(path) == Klipper(host="192.168.1.100", port=7125)
+        assert load_klipper(path) == KlipperConfig(host="192.168.1.100", port=7125)
 
     def test_missing_section_is_a_config_error(self, tmp_path):
         path = tmp_path / "machine.toml"
@@ -341,16 +339,18 @@ class TestAudio:
     """Raspberry Pi 本体から再生する通知音の出力設定."""
 
     def test_defaults_to_system_default_device_and_75_percent(self):
-        assert Audio() == Audio("default", 0.75)
+        assert AudioConfig() == AudioConfig("default", 0.75)
 
     def test_strips_device(self):
-        assert Audio(device="  plughw:CARD=Audio,DEV=0  ") == Audio(
+        assert AudioConfig(device="  plughw:CARD=Audio,DEV=0  ") == AudioConfig(
             device="plughw:CARD=Audio,DEV=0"
         )
 
     @pytest.mark.parametrize("volume", [0.0, 0.25, 1.0])
     def test_accepts_volume_in_closed_unit_interval(self, volume: float):
-        assert Audio(device="default", volume=volume).volume == pytest.approx(volume)
+        assert AudioConfig(device="default", volume=volume).volume == pytest.approx(
+            volume
+        )
 
     @pytest.mark.parametrize(
         "volume",
@@ -359,31 +359,31 @@ class TestAudio:
     )
     def test_rejects_invalid_volume(self, volume: object):
         with pytest.raises(ValueError, match="volume"):
-            Audio(device="default", volume=volume)  # type: ignore[arg-type]
+            AudioConfig(device="default", volume=volume)  # type: ignore[arg-type]
 
     @pytest.mark.parametrize("device", ["", " ", "\t\n"])
     def test_rejects_blank_device(self, device: str):
         with pytest.raises(ValueError, match="device"):
-            Audio(device=device)
+            AudioConfig(device=device)
 
 
 class TestMachineAudio:
-    """Machine.audio の任意 [audio] section 読み込み（欠落は既定値）."""
+    """MachineConfig.audio の任意 [audio] section 読み込み（欠落は既定値）."""
 
     def test_reads_audio_section(self, tmp_path: Path):
         machine = _machine_with(
             tmp_path, '[audio]\ndevice = "  hw:0,0  "\nvolume = 0.35\n'
         )
 
-        assert machine.audio == Audio(device="hw:0,0", volume=0.35)
+        assert machine.audio == AudioConfig(device="hw:0,0", volume=0.35)
 
     def test_defaults_volume_when_omitted(self, tmp_path: Path):
         machine = _machine_with(tmp_path, '[audio]\ndevice = "plughw:CARD=X,DEV=0"\n')
 
-        assert machine.audio == Audio(device="plughw:CARD=X,DEV=0", volume=0.75)
+        assert machine.audio == AudioConfig(device="plughw:CARD=X,DEV=0", volume=0.75)
 
     def test_defaults_whole_config_when_section_is_absent(self):
-        assert load_machine(TESTING_DATA_DIR / "machine.toml").audio == Audio()
+        assert load_machine(TESTING_DATA_DIR / "machine.toml").audio == AudioConfig()
 
 
 class TestPadAlignRegionSettings:
@@ -391,7 +391,7 @@ class TestPadAlignRegionSettings:
 
     @pytest.mark.parametrize("threshold", [0.0, 0.25])
     def test_accepts_nonnegative_refinement_threshold(self, threshold: float):
-        pad_align = PadAlign(refine_max_short_side=threshold)
+        pad_align = AlignmentConfig(refine_max_short_side=threshold)
 
         assert pad_align.refine_max_short_side == pytest.approx(threshold)
 
@@ -402,7 +402,7 @@ class TestPadAlignRegionSettings:
     )
     def test_rejects_invalid_refinement_threshold(self, threshold):
         with pytest.raises(ValueError, match="refine_max_short_side"):
-            PadAlign(refine_max_short_side=threshold)
+            AlignmentConfig(refine_max_short_side=threshold)
 
     @pytest.mark.parametrize(
         ("key", "value"),
@@ -419,16 +419,18 @@ class TestPadAlignRegionSettings:
     )
     def test_rejects_non_positive_dimensions_and_counts(self, key, value):
         with pytest.raises(ValueError, match=key):
-            PadAlign(**{key: value})
+            AlignmentConfig(**{key: value})
 
     @pytest.mark.parametrize("overlap", [-0.01, 1.0, 1.01])
     def test_rejects_overlap_outside_half_open_unit_interval(self, overlap):
         with pytest.raises(ValueError, match="region_overlap"):
-            PadAlign(region_overlap=overlap)
+            AlignmentConfig(region_overlap=overlap)
 
     @pytest.mark.parametrize("overlap", [0.0, 0.5, 0.999])
     def test_accepts_overlap_inside_half_open_unit_interval(self, overlap):
-        assert PadAlign(region_overlap=overlap).region_overlap == pytest.approx(overlap)
+        assert AlignmentConfig(region_overlap=overlap).region_overlap == pytest.approx(
+            overlap
+        )
 
     @pytest.mark.parametrize(
         ("key", "value"),
@@ -441,7 +443,7 @@ class TestPadAlignRegionSettings:
     )
     def test_rejects_invalid_distance_settings(self, key, value):
         with pytest.raises(ValueError, match=key):
-            PadAlign(**{key: value})
+            AlignmentConfig(**{key: value})
 
     @pytest.mark.parametrize(
         "blur_ksize",
@@ -450,11 +452,11 @@ class TestPadAlignRegionSettings:
     )
     def test_rejects_blur_kernel_that_is_not_a_positive_odd_integer(self, blur_ksize):
         with pytest.raises(ValueError, match="blur_ksize"):
-            PadAlign(blur_ksize=blur_ksize)
+            AlignmentConfig(blur_ksize=blur_ksize)
 
     @pytest.mark.parametrize("blur_ksize", [1, 3, 7])
     def test_accepts_valid_blur_kernel(self, blur_ksize: int):
-        pad_align = PadAlign(blur_ksize=blur_ksize)
+        pad_align = AlignmentConfig(blur_ksize=blur_ksize)
 
         assert pad_align.blur_ksize == blur_ksize
 
@@ -464,8 +466,8 @@ class TestFlowCalibration:
 
     def test_is_enabled_by_the_calibration_file_alone(self):
         """測定位置は基板ごとの設定なので、machine 側は校正ファイルだけで決まる."""
-        assert FlowCalibration(calibration_file="c.json").enabled is True
-        assert FlowCalibration().enabled is False
+        assert FlowCalibrationConfig(calibration_file="c.json").enabled is True
+        assert FlowCalibrationConfig().enabled is False
 
     @pytest.mark.parametrize(
         ("key", "value"),
@@ -481,10 +483,10 @@ class TestFlowCalibration:
     )
     def test_rejects_invalid_values(self, key, value):
         with pytest.raises(ValueError, match=key):
-            FlowCalibration(**{key: value})
+            FlowCalibrationConfig(**{key: value})
 
     def test_accepts_zero_settle_seconds_to_skip_the_wait(self):
-        assert FlowCalibration(settle_seconds=0.0).settle_seconds == 0.0
+        assert FlowCalibrationConfig(settle_seconds=0.0).settle_seconds == 0.0
 
 
 class TestMachinePasteDispenserFlowCalibration:
@@ -493,7 +495,7 @@ class TestMachinePasteDispenserFlowCalibration:
     def test_defaults_when_the_section_is_absent(self, tmp_path):
         machine = _machine_with(tmp_path, "")
 
-        assert machine.paste_dispenser.flow_calibration == FlowCalibration()
+        assert machine.paste_dispenser.flow_calibration == FlowCalibrationConfig()
 
     def test_reads_the_section_when_present(self, tmp_path):
         machine = _machine_with(
@@ -562,7 +564,9 @@ class TestNozzleClean:
             tmp_path, "[paste_dispenser.nozzle_clean]\npress_depth = 0.4\n"
         )
 
-        assert machine.paste_dispenser.nozzle_clean == NozzleClean(press_depth=0.4)
+        assert machine.paste_dispenser.nozzle_clean == NozzleCleanConfig(
+            press_depth=0.4
+        )
 
     def test_reads_recorded_values(self, tmp_path: Path):
         machine = _machine_with(
@@ -573,7 +577,7 @@ class TestNozzleClean:
             "stroke = 1.5\npasses = 3\nwipe_speed = 8.0\n",
         )
 
-        assert machine.paste_dispenser.nozzle_clean == NozzleClean(
+        assert machine.paste_dispenser.nozzle_clean == NozzleCleanConfig(
             position=Point3d(10.0, 20.0, -30.0),
             press_depth=0.4,
             purge_ul=0.3,
@@ -597,7 +601,7 @@ class TestNozzleClean:
     )
     def test_rejects_invalid_values(self, key, value):
         with pytest.raises(ValueError, match=key):
-            NozzleClean(**{key: value})
+            NozzleCleanConfig(**{key: value})
 
     @pytest.mark.parametrize(
         ("key", "value"),
@@ -607,155 +611,18 @@ class TestNozzleClean:
         coordinates = {"x": 10.0, "y": 20.0, "z": -30.0, key: value}
 
         with pytest.raises(ValueError, match=key):
-            NozzleClean(position=Point3d(**coordinates))
+            NozzleCleanConfig(position=Point3d(**coordinates))
 
     @pytest.mark.parametrize("passes", [0, 1])
     def test_accepts_zero_and_one_pass(self, passes):
         """こすり回数 0 はこすり無効として受理する."""
-        assert NozzleClean(passes=passes).passes == passes
+        assert NozzleCleanConfig(passes=passes).passes == passes
 
     def test_accepts_zero_for_optional_steps(self):
         """0 は「その工程を行わない」を意味するので受理する."""
-        assert NozzleClean(press_depth=0.0).press_depth == 0.0
-        assert NozzleClean(purge_ul=0.0).purge_ul == 0.0
-        assert NozzleClean(stroke=0.0).stroke == 0.0
-
-
-class TestCornerOffsets:
-    """CornerOffsetsクラスのテスト."""
-
-    @pytest.mark.parametrize(
-        ("corner", "expected"),
-        [
-            (Corner.TOP_LEFT, Point2d(1.0, -2.0)),
-            (Corner.TOP_RIGHT, Point2d(3.0, -4.0)),
-            (Corner.BOTTOM_LEFT, Point2d(5.0, 5.0)),
-            (Corner.BOTTOM_RIGHT, Point2d(-5.0, 5.0)),
-        ],
-    )
-    def test_get_returns_each_corner_as_point2d(
-        self, corner: Corner, expected: Point2d
-    ):
-        offsets = CornerOffsets(
-            top_left=(1.0, -2.0),
-            top_right=(3.0, -4.0),
-            bottom_left=(5.0, 5.0),
-            bottom_right=(-5.0, 5.0),
-        )
-
-        assert offsets.get(corner) == expected
-
-
-class TestReferencePoint:
-    """ReferencePointクラスのテスト."""
-
-    def test_get_reference_position_default_is_top_left(self):
-        ref = ReferencePoint(
-            x=10.0,
-            y=20.0,
-            target_diameter=3.0,
-            offsets=CornerOffsets(
-                top_left=(1.0, -2.0),
-                top_right=(1.0, -2.0),
-                bottom_left=(5.0, 5.0),
-                bottom_right=(-5.0, 5.0),
-            ),
-        )
-
-        assert ref.get_reference_position() == Point2d(10.0, 20.0)
-
-    def test_get_reference_position_top_right(self):
-        # ref = (10, 20), offset_top_left = (1, -2)
-        # board_origin = (10, 20) - (1, -2) = (9, 22)
-        # board_top_right = (9 + 100, 22) = (109, 22)
-        # ref_top_right = (109, 22) + (3, -4) = (112, 18)
-        ref = ReferencePoint(
-            x=10.0,
-            y=20.0,
-            target_diameter=3.0,
-            offsets=CornerOffsets(
-                top_left=(1.0, -2.0),
-                top_right=(3.0, -4.0),
-                bottom_left=(5.0, 5.0),
-                bottom_right=(-5.0, 5.0),
-            ),
-        )
-
-        assert ref.get_reference_position(
-            Corner.TOP_RIGHT, board_width=100.0
-        ) == Point2d(112.0, 18.0)
-
-    def test_get_reference_position_top_right_requires_board_width(self):
-        ref = ReferencePoint(
-            x=10.0,
-            y=20.0,
-            target_diameter=3.0,
-            offsets=CornerOffsets(
-                top_left=(1.0, -2.0),
-                top_right=(1.0, -2.0),
-                bottom_left=(5.0, 5.0),
-                bottom_right=(-5.0, 5.0),
-            ),
-        )
-
-        with pytest.raises(ValueError, match="board_widthが必要"):
-            ref.get_reference_position(Corner.TOP_RIGHT)
-
-    def test_get_reference_position_bottom_left(self):
-        # board_origin = (10, 20) - (1, -2) = (9, 22)
-        # board_bottom_left = (9, 22 + 50) = (9, 72)
-        # ref_bottom_left = (9, 72) + (5, 5) = (14, 77)
-        ref = ReferencePoint(
-            x=10.0,
-            y=20.0,
-            target_diameter=3.0,
-            offsets=CornerOffsets(
-                top_left=(1.0, -2.0),
-                top_right=(1.0, -2.0),
-                bottom_left=(5.0, 5.0),
-                bottom_right=(-5.0, 5.0),
-            ),
-        )
-
-        assert ref.get_reference_position(
-            Corner.BOTTOM_LEFT, board_height=50.0
-        ) == Point2d(14.0, 77.0)
-
-    def test_get_reference_position_bottom_left_requires_board_height(self):
-        ref = ReferencePoint(
-            x=10.0,
-            y=20.0,
-            target_diameter=3.0,
-            offsets=CornerOffsets(
-                top_left=(1.0, -2.0),
-                top_right=(1.0, -2.0),
-                bottom_left=(5.0, 5.0),
-                bottom_right=(-5.0, 5.0),
-            ),
-        )
-
-        with pytest.raises(ValueError, match="board_heightが必要"):
-            ref.get_reference_position(Corner.BOTTOM_LEFT)
-
-    def test_get_reference_position_bottom_right(self):
-        # board_origin = (10, 20) - (1, -2) = (9, 22)
-        # board_bottom_right = (9 + 100, 22 + 50) = (109, 72)
-        # ref_bottom_right = (109, 72) + (-5, 5) = (104, 77)
-        ref = ReferencePoint(
-            x=10.0,
-            y=20.0,
-            target_diameter=3.0,
-            offsets=CornerOffsets(
-                top_left=(1.0, -2.0),
-                top_right=(1.0, -2.0),
-                bottom_left=(5.0, 5.0),
-                bottom_right=(-5.0, 5.0),
-            ),
-        )
-
-        assert ref.get_reference_position(
-            Corner.BOTTOM_RIGHT, board_width=100.0, board_height=50.0
-        ) == Point2d(104.0, 77.0)
+        assert NozzleCleanConfig(press_depth=0.0).press_depth == 0.0
+        assert NozzleCleanConfig(purge_ul=0.0).purge_ul == 0.0
+        assert NozzleCleanConfig(stroke=0.0).stroke == 0.0
 
 
 class TestProbe:
@@ -764,22 +631,22 @@ class TestProbe:
     def test_min_samples_less_than_6_raises(self):
         # 2次曲面フィットには6点以上が必要なため min_samples < 6 は弾かれる。
         with pytest.raises(ValueError, match="min_samplesは6以上"):
-            Probe(min_radius=1.5, min_samples=5)
+            ProbeConfig(min_radius=1.5, min_samples=5)
 
     def test_min_samples_greater_than_max_samples_raises(self):
         # min/max とも6以上にして順序ガードのみを検証する。
         with pytest.raises(ValueError, match="min_samplesはmax_samples以下"):
-            Probe(min_radius=1.5, min_samples=8, max_samples=6)
+            ProbeConfig(min_radius=1.5, min_samples=8, max_samples=6)
 
     @pytest.mark.parametrize("min_radius", [0.0, -1.0])
     def test_min_radius_not_positive_raises(self, min_radius):
         with pytest.raises(ValueError, match="min_radiusは正の値"):
-            Probe(min_radius=min_radius)
+            ProbeConfig(min_radius=min_radius)
 
     @pytest.mark.parametrize("board_edge_margin", [0.0, -1.0])
     def test_board_edge_margin_not_positive_raises(self, board_edge_margin):
         with pytest.raises(ValueError, match="board_edge_marginは正の値"):
-            Probe(min_radius=1.5, board_edge_margin=board_edge_margin)
+            ProbeConfig(min_radius=1.5, board_edge_margin=board_edge_margin)
 
 
 class TestGetConfigDir:
@@ -799,38 +666,28 @@ class TestGetConfigDir:
         assert get_config_dir() == tmp_path / "config"
 
 
-class TestResolvePasteHeight:
-    """resolve_paste_height: auto は ul_per_mm2（膜厚 [mm]）を、数値はその値を返す。"""
-
-    def test_auto_returns_ul_per_mm2(self):
-        assert resolve_paste_height("auto", 0.08) == pytest.approx(0.08)
-
-    def test_numeric_returns_value(self):
-        assert resolve_paste_height(0.2, 0.08) == pytest.approx(0.2)
-
-
 class TestMachineSettle:
     """`[settle]`: 装置の静定待ち（セクションごと省略可）."""
 
     def test_defaults_whole_section_when_absent(self):
         machine = load_machine(TESTING_DATA_DIR / "machine.toml")
 
-        assert machine.settle == Settle()
+        assert machine.settle == SettleConfig()
 
     def test_reads_section(self, tmp_path):
         machine = _machine_with(tmp_path, "[settle]\nmove_sec = 0.8\nprobe_sec = 0.2\n")
 
-        assert machine.settle == Settle(move_sec=0.8, probe_sec=0.2)
+        assert machine.settle == SettleConfig(move_sec=0.8, probe_sec=0.2)
 
     def test_accepts_zero(self):
-        assert Settle(move_sec=0.0, probe_sec=0.0).move_sec == 0.0
+        assert SettleConfig(move_sec=0.0, probe_sec=0.0).move_sec == 0.0
 
     @pytest.mark.parametrize(
         ("key", "value"), [("move_sec", -0.1), ("probe_sec", -1.0)]
     )
     def test_rejects_negative(self, key, value):
         with pytest.raises(ValueError, match=key):
-            Settle(**{key: value})
+            SettleConfig(**{key: value})
 
 
 class TestMachineDetection:
@@ -839,14 +696,16 @@ class TestMachineDetection:
     def test_defaults_whole_section_when_absent(self):
         machine = load_machine(TESTING_DATA_DIR / "machine.toml")
 
-        assert machine.detection == Detection()
+        assert machine.detection == DetectionConfig()
 
     def test_reads_section(self, tmp_path):
         machine = _machine_with(
             tmp_path, "[detection]\nsample_count = 20\nminimum_sample_count = 8\n"
         )
 
-        assert machine.detection == Detection(sample_count=20, minimum_sample_count=8)
+        assert machine.detection == DetectionConfig(
+            sample_count=20, minimum_sample_count=8
+        )
 
     @pytest.mark.parametrize(
         ("key", "value"),
@@ -858,9 +717,9 @@ class TestMachineDetection:
     )
     def test_rejects_invalid_counts(self, key, value):
         with pytest.raises(ValueError, match=key):
-            Detection(**{key: value})
+            DetectionConfig(**{key: value})
 
     def test_rejects_minimum_above_sample_count(self):
         # 有効検出の下限が撮る枚数を超えたら、その観測は決して成立しない
         with pytest.raises(ValueError, match="minimum_sample_count"):
-            Detection(sample_count=4, minimum_sample_count=5)
+            DetectionConfig(sample_count=4, minimum_sample_count=5)

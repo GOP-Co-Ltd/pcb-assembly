@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pcbasm.config import PasteDispenser as PasteDispenserConfig, Toolhead
+from pcbasm.config.dispenser import PasteDispenserConfig, ToolheadConfig
 from pcbasm.pasting.applicator import DispenseExecution, PasteApplicationResult
 from pcbasm.pasting.dataset.metadata import (
     DatasetView,
@@ -102,7 +102,7 @@ def _dispenser() -> PasteDispenserConfig:
         retract_amount=10.0,
         retract_rate=10.0,
         retract_accel_factor=2.0,
-        toolhead=Toolhead(x=0.0, y=0.0),
+        toolhead=ToolheadConfig(x=0.0, y=0.0),
         paste_height=0.5,
         prime_extra_delay=0.8,
         ul_per_mm2=0.05,

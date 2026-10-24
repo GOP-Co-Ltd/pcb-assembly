@@ -15,7 +15,7 @@ from pcbasm.pcb.units import (
     KICAD_MAX_COORD_MM,
     is_kicad_length,
 )
-from pcbasm.utils import is_finite_number
+from pcbasm.validators import is_finite_number
 
 BoardKind: TypeAlias = Literal["paste_test_board"]
 BoardSchemaVersion: TypeAlias = Literal[1]

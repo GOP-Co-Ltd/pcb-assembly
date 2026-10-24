@@ -14,7 +14,7 @@ import httpx
 from fastapi import HTTPException
 
 from pcbasm import hal
-from pcbasm.config import Machine
+from pcbasm.config import MachineConfig
 from pcbasm.geometry import Point3d
 from pcbasm.hal import Klipper
 from pcbasm.pasting.nozzle_clean import clean_position_label
@@ -251,8 +251,8 @@ def machine_settings_fields(store: ConfigStore, state: AppState) -> list[Setting
     return _fields(MACHINE_FIELDS, store.read_machine_settings(), resolved)
 
 
-def _resolved_value(machine: Machine, key: str) -> MachineSettingValue | None:
-    """ドット区切りキーを `Machine` から辿って実効値を読む（未設定の任意項目は None）."""
+def _resolved_value(machine: MachineConfig, key: str) -> MachineSettingValue | None:
+    """ドット区切りキーを `MachineConfig` から辿って実効値を読む（未設定の任意項目は None）."""
     node: object = machine
     for part in key.split("."):
         node = getattr(node, part)
@@ -262,7 +262,7 @@ def _resolved_value(machine: Machine, key: str) -> MachineSettingValue | None:
 
 
 def _as_setting_value(value: object) -> MachineSettingValue | None:
-    """`Machine` の値を API の設定値表現へ変換する（表現できないものは None）."""
+    """`MachineConfig` の値を API の設定値表現へ変換する（表現できないものは None）."""
     if isinstance(value, Path):
         return value.as_posix()
     if isinstance(value, tuple):

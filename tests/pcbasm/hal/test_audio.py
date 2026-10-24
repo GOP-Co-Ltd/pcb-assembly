@@ -6,7 +6,7 @@ from typing import get_args
 
 import pytest
 
-from pcbasm.config import Audio
+from pcbasm.config.audio import AudioConfig
 from pcbasm.hal import audio as audio_module
 from pcbasm.hal.audio import (
     AlsaAudioPlayer,
@@ -126,9 +126,10 @@ class TestSelectableDevices:
         )
 
     def test_keeps_list_when_selected_is_default(self):
+        """設定の既定デバイスは列挙の先頭と同じ名前で、末尾へ補完されない."""
         devices = parse_aplay_devices("")
 
-        assert selectable_devices(devices, "default") == devices
+        assert selectable_devices(devices, AudioConfig().device) == devices
 
     def test_appends_missing_selected_device_as_undetected(self):
         devices = parse_aplay_devices("")
@@ -162,7 +163,7 @@ class TestAlsaAudioPlayer:
         for _ in range(close_count):
             player.close()
 
-        future = player.play("success", Audio())
+        future = player.play("success", "default", 0.75)
 
         with pytest.raises(AudioPlaybackError, match="終了済み"):
             future.result(timeout=1.0)
@@ -180,6 +181,6 @@ class TestAlsaAudioPlayer:
 
         try:
             with pytest.raises(AudioPlaybackError, match="16-bit PCM"):
-                player.play("success", Audio()).result(timeout=5.0)
+                player.play("success", "default", 0.75).result(timeout=5.0)
         finally:
             player.close()

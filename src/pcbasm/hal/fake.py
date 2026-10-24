@@ -21,10 +21,9 @@ import cv2
 import numpy as np
 from shapely import Polygon
 
-from pcbasm.config import Audio
 from pcbasm.gcode import GCode, GCodeLike
 from pcbasm.geometry import Point2d
-from pcbasm.vision import Image, ImageArray
+from pcbasm.vision.image import Image, ImageArray
 
 from .audio import AudioDevice, AudioPlayer, Sound
 from .camera import Camera, CameraInfo, Resolution
@@ -545,12 +544,12 @@ class FakeAudioPlayer(AudioPlayer):
     ) -> None:
         self._devices = FAKE_AUDIO_DEVICES if devices is None else tuple(devices)
         self._playback_error = playback_error
-        self._played: list[tuple[Sound, Audio]] = []
+        self._played: list[tuple[Sound, str, float]] = []
         self._close_calls = 0
 
     @property
-    def played(self) -> tuple[tuple[Sound, Audio], ...]:
-        """再生を要求された (音種, 設定) を呼び出し順に返す."""
+    def played(self) -> tuple[tuple[Sound, str, float], ...]:
+        """再生を要求された (音種, デバイス, 音量) を呼び出し順に返す."""
         return tuple(self._played)
 
     @property
@@ -563,8 +562,8 @@ class FakeAudioPlayer(AudioPlayer):
         return self._devices
 
     @override
-    def play(self, sound: Sound, config: Audio) -> Future[None]:
-        self._played.append((sound, config))
+    def play(self, sound: Sound, device: str, volume: float) -> Future[None]:
+        self._played.append((sound, device, volume))
         future: Future[None] = Future()
         if self._playback_error is None:
             future.set_result(None)

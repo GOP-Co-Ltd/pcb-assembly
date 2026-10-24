@@ -45,7 +45,7 @@ from pcbasm.pasting.dataset.metadata import (
     structure_document,
 )
 from pcbasm.pasting.dispense import DispenseSummary
-from pcbasm.utils import is_finite_number
+from pcbasm.validators import is_finite_number
 
 # 未完了 session に残す pending doc のファイル名
 PENDING_FILENAME = "pending.json"
