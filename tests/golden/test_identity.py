@@ -12,8 +12,8 @@ import pytest
 from pcbasm.config import load_machine
 from pcbasm.kicad import load_board
 from pcbasm.pasting.hierarchy import PadHierarchy
+from pcbasm.pasting.overrides import BoardOverrides
 from tests.support.paths import TESTING_DATA_DIR
-from web.api.board_settings import BoardSettingsStore
 
 GOLDEN_DIR = Path(__file__).parent
 BOARD_SETTINGS = GOLDEN_DIR / "board_settings_v1.json"
@@ -42,7 +42,7 @@ class TestBoardIdentity:
         assert _hierarchy(name).signature() == signature
 
     def test_board_id(self, tmp_path: Path):
-        store = BoardSettingsStore(tmp_path)
+        store = BoardOverrides(tmp_path)
 
         assert store.board_id("real/led_blinker.kicad_pcb") == "d5b32394f1e1ba21"
 
@@ -56,7 +56,7 @@ class TestBoardSettingsV1:
         signature = hierarchy.signature()
         source_pcb = doc["source_pcb"]
         base = load_machine(GOLDEN_DIR / "machine.toml").paste_dispenser
-        store = BoardSettingsStore(tmp_path)
+        store = BoardOverrides(tmp_path)
 
         model = store.model_from_doc(
             doc, base, board_signature=signature, expected_source_pcb=source_pcb

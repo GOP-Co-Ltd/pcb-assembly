@@ -68,6 +68,9 @@
   {{ config_notice }}（<a href="{{ base }}/dev/config_history">設定履歴</a>）
 </div>
 {% endif %}
+{% if pcb_notice %}
+<div class="config-notice" role="status" data-testid="pcb-notice">{{ pcb_notice }}</div>
+{% endif %}
 <main class="layout {% block layout_class %}{% endblock %}">
 {% block content %}{% endblock %}
 </main>

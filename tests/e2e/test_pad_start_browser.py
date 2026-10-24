@@ -29,10 +29,8 @@ def live_server(e2e_settings: Settings) -> Iterator[LiveServer]:
     app = create_app(e2e_settings, audio_player=FakeAudioPlayer())
 
     def run(ctx: JobContext) -> None:
-        assert ctx.board_store is not None and ctx.source_pcb is not None
-        model = ctx.board_store.load_or_init(
-            ctx.source_pcb, ctx.machine.paste_dispenser
-        )
+        assert ctx.source_pcb is not None
+        model = ctx.overrides.load_or_init(ctx.source_pcb, ctx.machine.paste_dispenser)
         ctx.log(f"started with:{model.levels[0].patch.to_dict()['ul_per_mm2']}")
         ctx.log(f"purge:{ctx.machine.paste_dispenser.initial_purge_ul}")
         ctx.log(f"disabled:{any(level.enabled is False for level in model.levels)}")

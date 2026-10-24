@@ -9,7 +9,7 @@
 - 解決時は各 pad で L0→L4 を辿り、非 ``None`` 項目で上書きする（最も具体的な階層の値を採用する）。
   ``enabled`` も同じ規則で、明示の無い pad は有効
 
-永続化（JSON 変換）は :mod:`pcbasm.pasting.persist`。
+保存（JSON 変換）は :mod:`pcbasm.pasting.overrides`。
 """
 
 from __future__ import annotations

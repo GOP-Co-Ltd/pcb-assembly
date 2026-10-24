@@ -18,6 +18,7 @@ from pcbasm.machine.journal import Journal
 from pcbasm.migrate.machine_toml import NAME, MigrationError, migrate_machine_toml
 from pcbasm.vision import Image
 from web.api.machine_config import MachineConfigFile
+from web.api.selection import BoardCache
 from web.api.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,7 @@ class BusyError(RuntimeError):
 
 
 class AppState:
-    """選択 PCB の保持・永続化と装置排他ロックを担うクラス.
+    """選択 PCB の保持・永続化（とその Board のキャッシュ）と装置排他ロックを担うクラス.
 
     ロック順序は ``machine_lock`` → ``_persist_lock`` に固定する
     （``_persist_lock`` 保持中に装置排他ロックを取る経路を作らない）。
@@ -53,6 +54,8 @@ class AppState:
         """AppState を初期化する.
 
         webui_data_dir/webui_state.json から選択状態を復元する。
+        選択していた PCB が無くなっていれば選択を解除し、:attr:`pcb_notice` で知らせる。
+        解除は保存しないので、後からマウントされるファイルなら次の起動で選択が戻る。
 
         Args:
             settings: WebUI 設定
@@ -70,17 +73,34 @@ class AppState:
         self._persist_lock = threading.Lock()
         self._config_notice: str | None = None
         self._migration_error: str | None = None
+        self._boards = BoardCache()
+        self._pcb_notice: str | None = None
 
         persisted = self._load_persisted()
-        self._selected_pcb = self._resolve_pcb(persisted.get("pcb_file"))
         self._job_param_defaults = self._resolve_job_param_defaults(
             persisted.get("job_param_defaults")
         )
+        pcb_file = persisted.get("pcb_file")
+        self._selected_pcb = self._resolve_pcb(pcb_file)
+        if isinstance(pcb_file, str) and self._selected_pcb is None:
+            self._pcb_notice = (
+                f"選択していた PCB {pcb_file} が見つからないため、選択を解除しました"
+            )
 
     @property
     def selected_pcb(self) -> Path | None:
         """選択中の PCB ファイル（pcb_browse_root からの相対パス）."""
         return self._selected_pcb
+
+    @property
+    def pcb_notice(self) -> str | None:
+        """起動時に選択を解除したときの知らせ（PCB を選び直すまで出す）."""
+        return self._pcb_notice
+
+    @property
+    def boards(self) -> BoardCache:
+        """選択中の PCB の Board のキャッシュ（選び直すと次の取得で必ず読み直す）."""
+        return self._boards
 
     @property
     def busy_owner(self) -> str | None:
@@ -111,6 +131,8 @@ class AppState:
             with self._persist_lock:
                 self._persist(relative, self._job_param_defaults)
                 self._selected_pcb = relative
+            self._pcb_notice = None
+            self._boards.forget()
 
     @property
     def machine_config(self) -> MachineConfigFile:

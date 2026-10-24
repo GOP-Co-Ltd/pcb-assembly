@@ -7,10 +7,10 @@ from typing import Annotated
 from fastapi import Depends, Request
 
 from pcbasm.hal import AudioPlayer
+from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.pasting.testboard.generator import (
     BoardGenerator,
 )
-from web.api.board_settings import BoardSettingsStore
 from web.api.control import ClientIdentity, ControlLease, LeaseInfo
 from web.api.identity import get_identity
 from web.api.jobs.catalog import JobCatalog
@@ -50,8 +50,8 @@ def get_catalog(request: Request) -> JobCatalog:
     return request.app.state.catalog
 
 
-def get_board_store(request: Request) -> BoardSettingsStore:
-    return request.app.state.board_store
+def get_overrides(request: Request) -> BoardOverrides:
+    return request.app.state.overrides
 
 
 def get_paste_test_board_generator(
@@ -91,7 +91,7 @@ PreviewDep = Annotated[PreviewService, Depends(get_preview)]
 JobsDep = Annotated[JobManager, Depends(get_jobs)]
 AudioPlayerDep = Annotated[AudioPlayer, Depends(get_audio_player)]
 CatalogDep = Annotated[JobCatalog, Depends(get_catalog)]
-BoardStoreDep = Annotated[BoardSettingsStore, Depends(get_board_store)]
+OverridesDep = Annotated[BoardOverrides, Depends(get_overrides)]
 BoardGeneratorDep = Annotated[
     BoardGenerator,
     Depends(get_paste_test_board_generator),

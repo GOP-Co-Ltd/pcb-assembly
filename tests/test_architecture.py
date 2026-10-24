@@ -85,8 +85,6 @@ _THIRD_PARTY_OWNER = {"pcbnew": "pcbasm.kicad"}
 _ALLOWED_VIOLATIONS = {
     # open_klipper が KlipperConfig を受け取る
     ("pcbasm.hal", "pcbasm.config"),
-    # setup_board_calibration が PCB ファイルを読む
-    ("pcbasm.posctrl", "pcbasm.kicad"),
 }
 
 

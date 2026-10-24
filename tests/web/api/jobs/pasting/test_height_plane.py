@@ -7,9 +7,9 @@ from pathlib import Path
 import cv2
 import pytest
 
+from pcbasm.pasting.overrides import BoardOverrides
 from tests.web.api.conftest import decode_jpeg, jpeg_payload
 from tests.web.api.jobs.conftest import WaitUntil, answer_next_prompt
-from web.api.board_settings import BoardSettingsStore
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.manager import JobManager, JobStatus
 from web.api.preview import PreviewService
@@ -86,13 +86,13 @@ class TestHeightPlaneFrontFlow:
         catalog: JobCatalog,
         state: AppState,
         fake_camera_settings: Settings,
-        board_store: BoardSettingsStore,
+        overrides: BoardOverrides,
         copper_pcb_path: Path,
         wait_until: WaitUntil,
     ):
         """Confirm 待ち中は planned_points プレビューを TTL で生カメラに戻さない."""
         preview = PreviewService(state, override_ttl=0.0)
-        manager = JobManager(state, preview, catalog, fake_camera_settings, board_store)
+        manager = JobManager(state, preview, catalog, fake_camera_settings, overrides)
         state.select_pcb(copper_pcb_path)
         record = manager.start("height_plane", {})
         try:

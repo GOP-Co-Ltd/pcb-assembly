@@ -71,7 +71,7 @@ from web.api.preview import PreviewService
 from web.api.settings import Settings
 from web.api.state import AppState
 
-from .conftest import WaitUntil, answer_next_prompt, make_board_store
+from .conftest import WaitUntil, answer_next_prompt, make_overrides
 
 POSCTRL_JOBS = (
     "reference_point_setup",
@@ -122,7 +122,7 @@ def checkerboard_manager(
         PreviewService(checkerboard_state),
         catalog,
         checkerboard_camera_settings,
-        make_board_store(checkerboard_camera_settings),
+        make_overrides(checkerboard_camera_settings),
     )
     yield manager
     manager.shutdown()

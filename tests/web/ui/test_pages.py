@@ -21,6 +21,7 @@
 Settings を差し替える検証は、その backend を上流に挿した frontend を組む（`_frontend_over`）。
 """
 
+import json
 import re
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -33,6 +34,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from pcbasm.config.fields import setting_fields
+from tests.web.ui.conftest import BACKEND_MACHINE_ID
 from web.api.app import create_app as create_backend_app
 from web.api.jobs.catalog import JobCatalog, default_catalog
 from web.api.settings import Settings as ApiSettings
@@ -743,6 +745,34 @@ class TestNozzleCapPage:
 
         # 同じページの設定ラベルに当たらないよう、label 文字列そのものを見る
         assert "(10.00, 20.00, -30.00) mm" in response.text
+
+
+class TestMissingSelectionNotice:
+    """起動時に選択していた PCB が無ければ、選択を解除したことを全ページに出す."""
+
+    @pytest.fixture
+    def missing_selection(self, backend_settings: ApiSettings) -> None:
+        """Backend 起動前に、もう無い PCB を選択済みとして残す."""
+        state_file = backend_settings.webui_data_dir / "webui_state.json"
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+        state_file.write_text(
+            json.dumps({"pcb_file": "boards/gone.kicad_pcb"}), encoding="utf-8"
+        )
+
+    def test_notice_is_shown_until_a_pcb_is_selected(
+        self, missing_selection: None, client: TestClient
+    ):
+        page = client.get("/posctrl").text
+        assert 'data-testid="pcb-notice"' in page
+        assert "boards/gone.kicad_pcb" in page
+
+        response = client.put(
+            f"/m/{BACKEND_MACHINE_ID}/api/pcb-file",
+            json={"path": "boards/sample.kicad_pcb"},
+        )
+        assert response.status_code == 200, response.text
+
+        assert 'data-testid="pcb-notice"' not in client.get("/posctrl").text
 
 
 class TestBrokenMachineTomlPages:

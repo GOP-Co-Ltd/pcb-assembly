@@ -30,6 +30,7 @@ import attrs
 from pcbasm.board import Copper, Layer
 from pcbasm.gcode import GCode
 from pcbasm.geometry import HeightPlane, Point2d
+from pcbasm.kicad import load_board
 from pcbasm.kicad.build import generate_rect_pcb, save_board
 from pcbasm.pasting.capture import PointCapturer
 from pcbasm.pasting.dataset.metadata import DatasetView, PasteDatasetLoading
@@ -610,7 +611,7 @@ def _run_paste_volume_calibration(ctx: JobContext) -> JobResult:
 
     with ctx.open_camera() as camera:
         plate_path = _generate_plate(ctx, spec.plate_width_mm, spec.plate_height_mm)
-        result = setup_board(ctx, camera, pcb_path=plate_path)
+        result = setup_board(ctx, camera, board=load_board(plate_path))
         session = PasteSession.from_calibration(result)
         _check_reach(session, plan, views)
         ctx.progress("高さ計測")

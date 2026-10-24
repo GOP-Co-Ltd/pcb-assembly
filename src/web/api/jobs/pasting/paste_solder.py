@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from pcbasm.gcode import GCode
-from pcbasm.pasting.hierarchy import PadHierarchy
 from pcbasm.pasting.nozzle_clean import resolve_nozzle_clean
+from pcbasm.pasting.overrides import BoardSession
 from pcbasm.pasting.workflow import plan_paste_targets
 from web.api.jobs.board_ops import setup_board
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
@@ -13,7 +13,6 @@ from web.api.jobs.pasting.common import (
     LOADING_DEFAULT_AMOUNT,
     LoadingTotals,
     prepare_paste_workflow,
-    resolve_paste_model,
     run_loading_loop,
 )
 from web.api.jobs.pasting.flow_calibration import run_flow_calibration, summary_line
@@ -63,12 +62,14 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
         nozzle_clean = resolve_nozzle_clean(result.machine, result.stage, log=ctx.log)
 
         # pad 階層 + 基板ごとの塗布設定（装置不要・前段で解決）
-        hierarchy = PadHierarchy.build(result.pcb.components, result.pcb.pads)
-        model = resolve_paste_model(ctx, hierarchy)
+        assert ctx.source_pcb is not None  # requires_pcb=True
+        loaded = BoardSession.load(
+            ctx.overrides, ctx.source_pcb, result.pcb, ctx.machine.paste_dispenser
+        )
         targets, error = plan_paste_targets(
-            result.pcb,
-            hierarchy,
-            model,
+            loaded.board,
+            loaded.hierarchy,
+            loaded.model,
             initial_purge_ul=result.machine.paste_dispenser.initial_purge_ul,
             flow_calibration=result.machine.paste_dispenser.volume_correction,
         )

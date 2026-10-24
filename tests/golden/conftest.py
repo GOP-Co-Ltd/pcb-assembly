@@ -21,6 +21,7 @@ from pcbasm.hal.fake import Checkerboard, FakeAudioPlayer, FakeKlipper, SceneCam
 from pcbasm.kicad import load_board
 from pcbasm.kicad.build import generate_grid_pcb
 from pcbasm.pasting.hierarchy import PadHierarchy
+from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.pasting.paste_volume.calibration import (
     CALIBRATION_SUFFIX,
     parse_calibration,
@@ -31,7 +32,6 @@ from pcbasm.vision import CalibrationResult
 from tests.support import polling
 from tests.support.paths import TESTING_DATA_DIR
 from web.api import state as state_module
-from web.api.board_settings import BoardSettingsStore
 from web.api.jobs.catalog import JobCatalog, default_catalog
 from web.api.jobs.manager import JobManager, JobRecord, JobStatus
 from web.api.machine_config import MachineConfigFile
@@ -139,7 +139,7 @@ def enable_flow_calibration(settings: Settings, state: AppState, pcb: Path) -> N
         }
     )
     board = load_board(pcb)
-    store = BoardSettingsStore(settings.webui_data_dir)
+    store = BoardOverrides(settings.webui_data_dir)
     model = store.load_or_init(pcb.name, state.machine().paste_dispenser)
     store.save(
         pcb.name,
@@ -247,7 +247,7 @@ def manager(
         PreviewService(job_state),
         catalog,
         job_settings,
-        BoardSettingsStore(job_settings.webui_data_dir),
+        BoardOverrides(job_settings.webui_data_dir),
         audio_player=audio_player,
     )
     yield manager

@@ -21,10 +21,9 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 from shapely import Polygon
 
-from pcbasm.board import Board, Layer, Pad
+from pcbasm.board import Layer, Pad
 from pcbasm.config.dispenser import PasteDispenserConfig, VolumeCorrectionConfig
 from pcbasm.geometry import Point2d
-from pcbasm.kicad import load_board as read_board
 from pcbasm.pasting.applied_mode import AppliedModeSummary, applied_mode_summaries
 from pcbasm.pasting.fill_path import FillPlan
 from pcbasm.pasting.hierarchy import PadHierarchy, PadHierarchyNode
@@ -32,6 +31,7 @@ from pcbasm.pasting.initial_purge import (
     purge_point_label,
     resolve_initial_purge_for,
 )
+from pcbasm.pasting.overrides import BoardOverrides, BoardSession
 from pcbasm.pasting.params import PASTE_PARAM_FIELDS, PasteParamValue
 from pcbasm.pasting.paste_volume.runtime import (
     FlowCalibrationPlan,
@@ -48,7 +48,6 @@ from pcbasm.pasting.settings import (
     resolve_pad_settings,
     select_enabled_pads,
 )
-from web.api.board_settings import BoardSettingsStore
 from web.api.settings import Settings
 from web.api.state import AppState
 
@@ -420,7 +419,7 @@ def resolved_default(model: PasteSettingsModel) -> ResolvedSettings:
     return ResolvedSettings(enabled=True, **model.base.to_dict())
 
 
-def layer_pads(loaded: Loaded, layer: Layer) -> Iterator[Pad]:
+def layer_pads(loaded: BoardSession, layer: Layer) -> Iterator[Pad]:
     """指定 layer の全 pad（有効/無効問わず）を返す."""
     return (pad for pad in loaded.hierarchy.iter_pads() if pad.layer is layer)
 
@@ -443,7 +442,7 @@ def param_fields() -> list[ParamFieldInfo]:
     ]
 
 
-def build_initial_purge(loaded: Loaded) -> InitialPurgeInfo:
+def build_initial_purge(loaded: BoardSession) -> InitialPurgeInfo:
     """ロード済みコンテキストから初回パージ設定の解決結果を返す.
 
     設定が不正（保存済みの座標が基板外など）でもここでは 400 にしない。
@@ -460,7 +459,7 @@ def build_initial_purge(loaded: Loaded) -> InitialPurgeInfo:
         amount_ul=loaded.base_config.initial_purge_ul,
         point=point,
         routed_pads=routed,
-        outline=loaded.pcb.outline.polygon,
+        outline=loaded.board.outline.polygon,
     )
     resolved, default_point, error = (
         resolution.resolved,
@@ -488,7 +487,7 @@ def build_initial_purge(loaded: Loaded) -> InitialPurgeInfo:
     )
 
 
-def build_flow_calibration(loaded: Loaded) -> FlowCalibrationInfo:
+def build_flow_calibration(loaded: BoardSession) -> FlowCalibrationInfo:
     """ロード済みコンテキストから流量キャリブレーションの解決結果を返す.
 
     設定が不正（測定位置が基板外・撮影範囲どうしが重なる）でもここでは 400 にしない。
@@ -498,7 +497,7 @@ def build_flow_calibration(loaded: Loaded) -> FlowCalibrationInfo:
     config = loaded.base_config.volume_correction
     points = loaded.model.flow_calibration_points
     plan, error = plan_flow_calibration(
-        config=config, points=points, outline=loaded.pcb.outline.polygon
+        config=config, points=points, outline=loaded.board.outline.polygon
     )
     return FlowCalibrationInfo(
         enabled=config.enabled,
@@ -565,20 +564,12 @@ def pad_info(
 # --------------------------------------------------------------------------- #
 # 共通: PCB / 階層 / モデルのロード
 # --------------------------------------------------------------------------- #
-@attrs.frozen
-class Loaded:
-    source_pcb: str
-    base_config: PasteDispenserConfig
-    pcb: Board
-    hierarchy: PadHierarchy
-    board_signature: str
-    model: PasteSettingsModel
-
-
-def load_board(
-    state: AppState, settings: Settings, board_store: BoardSettingsStore
-) -> Loaded:
+def load_session(
+    state: AppState, settings: Settings, overrides: BoardOverrides
+) -> BoardSession:
     """選択中基板の Board / 階層 / 保存済みモデルをまとめてロードする.
+
+    Board はファイルが変わっていなければキャッシュを使い、差し替わっていれば読み直す。
 
     Raises:
         HTTPException: PCB 未選択（409）の場合
@@ -586,26 +577,17 @@ def load_board(
     pcb_rel = state.selected_pcb
     if pcb_rel is None:
         raise HTTPException(status_code=409, detail="PCB が選択されていません")
-    source_pcb = pcb_rel.as_posix()
-    abs_path = settings.pcb_browse_root / pcb_rel
-    pcb = read_board(abs_path)
-    base_config = state.machine().paste_dispenser
-    hierarchy = PadHierarchy.build(pcb.components, pcb.pads)
-    signature = hierarchy.signature()
-    model = board_store.load_or_init(source_pcb, base_config, board_signature=signature)
-    return Loaded(
-        source_pcb=source_pcb,
-        base_config=base_config,
-        pcb=pcb,
-        hierarchy=hierarchy,
-        board_signature=signature,
-        model=model,
+    return BoardSession.load(
+        overrides,
+        pcb_rel.as_posix(),
+        state.boards.get(settings.pcb_browse_root / pcb_rel),
+        state.machine().paste_dispenser,
     )
 
 
-def build_pad_config(loaded: Loaded) -> PadConfigResponse:
+def build_pad_config(loaded: BoardSession) -> PadConfigResponse:
     """ロード済みコンテキストから GET 形式のレスポンスを構築する."""
-    pcb = loaded.pcb
+    pcb = loaded.board
     hierarchy = loaded.hierarchy
     model = loaded.model
 
@@ -646,11 +628,11 @@ def build_pad_config(loaded: Loaded) -> PadConfigResponse:
     )
 
 
-def build_copper(loaded: Loaded) -> PadConfigCopperResponse:
+def build_copper(loaded: BoardSession) -> PadConfigCopperResponse:
     """銅箔島を表示用に簡略化して返す（pad 編集ごとには取り直さない前提）."""
     islands = [
         CopperIslandInfo(layer=copper.layer.value, rings=rings)
-        for copper in loaded.pcb.copper
+        for copper in loaded.board.copper
         if (rings := _display_rings(copper.polygon))
     ]
     return PadConfigCopperResponse(
@@ -674,7 +656,7 @@ def _display_rings(polygon: Polygon) -> list[list[list[float]]]:
     ]
 
 
-def build_route(loaded: Loaded, layer: Layer) -> PasteRouteResponse:
+def build_route(loaded: BoardSession, layer: Layer) -> PasteRouteResponse:
     """ロード済みコンテキストから有効 pad の順路レスポンスを構築する."""
     route = [
         PasteRoutePad(
@@ -693,12 +675,13 @@ def build_route(loaded: Loaded, layer: Layer) -> PasteRouteResponse:
     return PasteRouteResponse(layer=layer.value, pads=route)
 
 
-def build_fill_path(loaded: Loaded, layer: Layer) -> PasteFillPathResponse:
+def build_fill_path(loaded: BoardSession, layer: Layer) -> PasteFillPathResponse:
     """ロード済みコンテキストから有効 pad の塗布パスを構築する."""
     nozzle_diameter = loaded.base_config.nozzle_diameter
     resolved = resolve_pad_settings(loaded.hierarchy, loaded.model)
     component_positions = {
-        component.designator: component.position for component in loaded.pcb.components
+        component.designator: component.position
+        for component in loaded.board.components
     }
     pads: list[PasteFillPathPad] = []
     for pad in loaded.hierarchy.iter_pads():
@@ -728,19 +711,23 @@ def build_fill_path(loaded: Loaded, layer: Layer) -> PasteFillPathResponse:
     )
 
 
-def affected_pads(node: str, loaded: Loaded) -> list[AffectedPad]:
+def affected_pads(node: str, loaded: BoardSession) -> list[AffectedPad]:
     """指定ノード配下の全 pad を再解決して返す."""
     key = key_from_node_id(node)
     return _affected(loaded, lambda pad: key in loaded.hierarchy.node_keys_for_pad(pad))
 
 
-def affected_pads_for_ids(ids: Iterable[str], loaded: Loaded) -> list[AffectedPad]:
+def affected_pads_for_ids(
+    ids: Iterable[str], loaded: BoardSession
+) -> list[AffectedPad]:
     """指定 pad id 群を再解決して返す."""
     id_set = set(ids)
     return _affected(loaded, lambda pad: pad.ref in id_set)
 
 
-def _affected(loaded: Loaded, include: Callable[[Pad], bool]) -> list[AffectedPad]:
+def _affected(
+    loaded: BoardSession, include: Callable[[Pad], bool]
+) -> list[AffectedPad]:
     resolved = resolve_pad_settings(loaded.hierarchy, loaded.model)
     return [
         AffectedPad(

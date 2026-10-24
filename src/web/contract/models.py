@@ -156,6 +156,8 @@ class StateResponse(BaseModel):
     config_error: str | None
     # 起動時に machine.toml を移行したときの知らせ（次の再起動まで出す）
     config_notice: str | None
+    # 起動時に選択していた PCB が無く、選択を解除したときの知らせ（選び直すまで出す）
+    pcb_notice: str | None
 
 
 class SettingChoice(BaseModel):

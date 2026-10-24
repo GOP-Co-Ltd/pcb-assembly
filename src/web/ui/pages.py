@@ -235,6 +235,7 @@ def _chrome_context(
         "update_only": False,
         "config_error": None,
         "config_notice": None,
+        "pcb_notice": None,
     }
 
 
@@ -258,6 +259,7 @@ def _base_context(
         focus_z=state.focus_z,
         config_error=state.config_error,
         config_notice=state.config_notice,
+        pcb_notice=state.pcb_notice,
     )
     return context
 

@@ -15,9 +15,9 @@ from fastapi.staticfiles import StaticFiles
 from pcbasm.config import ConfigError
 from pcbasm.hal import AlsaAudioPlayer, AudioPlayer
 from pcbasm.kicad.units import KicadError
+from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.pasting.testboard.config import BoardConfigError
 from pcbasm.pasting.testboard.generator import BoardGenerator
-from web.api.board_settings import BoardSettingsStore
 from web.api.control import ControlDeniedError, ControlLease, LeaseInfo
 from web.api.discovery import (
     ServiceAdvertiser,
@@ -193,10 +193,10 @@ def create_app(
     app.state.paste_test_board_generator = BoardGenerator(
         paste_test_board_footprint_root
     )
-    board_store = BoardSettingsStore(settings.webui_data_dir)
-    app.state.board_store = board_store
+    overrides = BoardOverrides(settings.webui_data_dir)
+    app.state.overrides = overrides
     app.state.jobs = JobManager(
-        state, preview, catalog, settings, board_store, audio_player=audio_player
+        state, preview, catalog, settings, overrides, audio_player=audio_player
     )
     # 広告の開始は lifespan（AsyncZeroconf が running loop を要求する）
     app.state.advertiser = (

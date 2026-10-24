@@ -4,6 +4,7 @@
 
 - 初期化で webui_state.json から復元、不正値は既定値へフォールバック
 - select_pcb は成功で永続化、busy 中は BusyError
+- 起動時に選択していた PCB が無ければ選択を解除し、pcb_notice で知らせる（解除は永続化しない）
 - machine_lock は非ブロッキング取得、失敗時 BusyError(現 owner)
 - focus_z は calibration JSON の z_position（ファイル欠落等は None）
 
@@ -126,6 +127,62 @@ class TestPcbSelection:
         assert not list(pcb_root.glob(".occupied.kicad_pcb.*.tmp"))
         with state.machine_lock("after-failed-upload"):
             pass
+
+
+class TestMissingSelectionAtStartup:
+    """起動時に選択していた PCB が無ければ選択を解除し、選び直すまで知らせる."""
+
+    def _restart_after_removing(
+        self, state: AppState, webui_settings: Settings, pcb: Path
+    ) -> AppState:
+        state.select_pcb(pcb)
+        (webui_settings.pcb_browse_root / pcb).unlink()
+        return AppState(webui_settings, state.machine_config)
+
+    def test_missing_pcb_is_deselected_with_a_notice(
+        self, state: AppState, webui_settings: Settings
+    ):
+        restarted = self._restart_after_removing(
+            state, webui_settings, Path("boards/sample.kicad_pcb")
+        )
+
+        assert restarted.selected_pcb is None
+        assert restarted.pcb_notice is not None
+        assert "boards/sample.kicad_pcb" in restarted.pcb_notice
+
+    def test_pcb_that_reappears_is_selected_again_on_next_startup(
+        self, state: AppState, webui_settings: Settings
+    ):
+        pcb = Path("boards/sample.kicad_pcb")
+        content = (webui_settings.pcb_browse_root / pcb).read_bytes()
+        self._restart_after_removing(state, webui_settings, pcb)
+        (webui_settings.pcb_browse_root / pcb).write_bytes(content)
+
+        restarted = AppState(webui_settings, state.machine_config)
+
+        assert restarted.selected_pcb == pcb
+        assert restarted.pcb_notice is None
+
+    def test_selecting_again_clears_the_notice(
+        self, state: AppState, webui_settings: Settings
+    ):
+        restarted = self._restart_after_removing(
+            state, webui_settings, Path("boards/sample.kicad_pcb")
+        )
+
+        restarted.select_pcb(Path("top.kicad_pcb"))
+
+        assert restarted.pcb_notice is None
+
+    def test_existing_pcb_stays_selected_without_notice(
+        self, state: AppState, webui_settings: Settings
+    ):
+        state.select_pcb(Path("boards/sample.kicad_pcb"))
+
+        restarted = AppState(webui_settings, state.machine_config)
+
+        assert restarted.selected_pcb == Path("boards/sample.kicad_pcb")
+        assert restarted.pcb_notice is None
 
 
 class TestJobParamDefaults:
