@@ -23,7 +23,7 @@ from shapely import Polygon
 
 from pcbasm.gcode import GCode, GCodeLike
 from pcbasm.geometry import Point2d
-from pcbasm.vision import Image, ImageArray
+from pcbasm.vision.image import Image, ImageArray
 
 from .audio import AudioDevice, AudioPlayer, Sound
 from .camera import Camera, CameraInfo, Resolution

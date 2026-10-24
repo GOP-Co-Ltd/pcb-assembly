@@ -81,8 +81,6 @@ _THIRD_PARTY_OWNER = {"pcbnew": "pcbasm.kicad"}
 _ALLOWED_VIOLATIONS = {
     # open_klipper が KlipperConfig を受け取る
     ("pcbasm.hal", "pcbasm.config"),
-    # Image を pcbasm.vision.image でなく pcbasm.vision から import している
-    ("pcbasm.hal", "pcbasm.vision"),
     ("pcbasm.pasting", "pcbnew"),
     ("pcbasm.pcb", "pcbnew"),
     ("pcbasm.visualization", "pcbasm.pasting"),
