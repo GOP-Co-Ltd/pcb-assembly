@@ -7,7 +7,7 @@ from enum import Enum, auto
 import attrs
 import numpy as np
 
-from pcbasm.align.camera_rotation import OffsetTransformMeasurer
+from pcbasm.align.camera_rotation import CameraRotationMeasurer
 from pcbasm.align.observe import (
     DETECTION_MAX_ATTEMPTS,
     DETECTION_RETRY_SEC,
@@ -27,7 +27,7 @@ from pcbasm.geometry import (
 )
 from pcbasm.hal import Camera, KlipperClient, Speed, XYZStage
 from pcbasm.vision import (
-    CalibrationResult,
+    CameraCalibration,
     CircleDetector,
     FrameSink,
     safe_move_distance,
@@ -246,7 +246,7 @@ class BoardFrame:
     """
 
     board: Board
-    calibration: CalibrationResult
+    calibration: CameraCalibration
     offset_transform: Transform
     board_transform: Transform
 
@@ -293,7 +293,7 @@ def measure_board_frame(
 
     # キャリブレーション結果読み込み
     logger.info("=== キャリブレーション読み込み ===")
-    calibration = CalibrationResult.load(cam_config.calibration_file)
+    calibration = CameraCalibration.load(cam_config.calibration_file)
     logger.info("pixel/mm: %.2f", calibration.pixel_per_mm)
 
     # 円検出器初期化
@@ -345,14 +345,14 @@ def measure_board_frame(
     move_distance = (
         safe_move_distance(cam_config.crop.size, margin=0.3) / calibration.pixel_per_mm
     )
-    offset_transform_measurer = OffsetTransformMeasurer(
+    camera_rotation_measurer = CameraRotationMeasurer(
         observe=observer.observe,
         klipper=klipper,
         stage=stage,
         move_distance=move_distance,
         settle_sec=settle.move_sec,
     )
-    offset_transform = offset_transform_measurer.measure()
+    offset_transform = camera_rotation_measurer.measure()
 
     # 位置補正を行い最終座標を返す関数を定義
     position_adjustor = XYPositionAdjustor(

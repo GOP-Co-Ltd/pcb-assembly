@@ -29,7 +29,7 @@ from pcbasm.hal import Camera, KlipperClient, Speed, XYZStage
 from pcbasm.kicad.build import generate_grid_pcb
 from pcbasm.machine.commands import COMMAND_TIMEOUT
 from pcbasm.vision import (
-    CalibrationResult,
+    CameraCalibration,
     CheckerboardCalibrator,
     CircleDetector,
     Image,
@@ -154,7 +154,7 @@ def _run_reference_point_setup(ctx: JobContext) -> JobResult:
     stage = XYZStage(klipper)
     cam_config = machine.camera
     try:
-        calibration = CalibrationResult.load(cam_config.calibration_file)
+        calibration = CameraCalibration.load(cam_config.calibration_file)
     except Exception as exc:
         raise RuntimeError(f"カメラキャリブレーションが読み込めません: {exc}") from exc
     detector = CircleDetector(

@@ -12,7 +12,7 @@ from pcbasm.vision import CopperEdgeDetector, FrameSink
 
 
 @attrs.frozen
-class RegionAlignment:
+class RegionFit:
     """収束した 1 領域の照合結果.
 
     Attributes:
@@ -76,7 +76,7 @@ class RegionAligner:
         region: AlignmentRegion,
         *,
         initial_displacement: Point2d | None = None,
-    ) -> RegionAlignment:
+    ) -> RegionFit:
         """累積変位を投影へ反映し、収束した結果だけを返す.
 
         各パスでステージを ``region.anchor + 累積変位``（Z は focus_z）へ動かして撮像する。
@@ -130,7 +130,7 @@ class RegionAligner:
                     f"{self._max_correction_mm} mm を超過しました"
                 )
             if increment.norm <= self._converge_tolerance_mm:
-                return RegionAlignment(
+                return RegionFit(
                     region=region,
                     match=match,
                     displacement=cumulative,

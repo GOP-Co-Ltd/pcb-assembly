@@ -1,4 +1,4 @@
-from .calibration import CalibrationResult, CheckerboardCalibrator, load_focus_z
+from .calibration import CameraCalibration, CheckerboardCalibrator, load_focus_z
 from .copper import CopperEdgeDetection, CopperEdgeDetector
 from .detection import (
     CenterOffsetDetector,
@@ -13,7 +13,7 @@ from .image import FrameSink, Image, ImageArray, safe_move_distance
 from .overlay import draw_crosshair, draw_detected_circle, draw_overlay
 
 __all__ = [
-    "CalibrationResult",
+    "CameraCalibration",
     "CenterOffsetDetector",
     "CheckerboardCalibrator",
     "CircleDetector",

@@ -62,7 +62,7 @@ from pathlib import Path
 import pytest
 
 from pcbasm.kicad import load_board
-from pcbasm.vision import CalibrationResult, Image
+from pcbasm.vision import CameraCalibration, Image
 from web.api.jobs.catalog import JobCatalog, default_catalog
 from web.api.jobs.manager import JobManager, JobStatus
 from web.api.jobs.posctrl import register_posctrl_jobs
@@ -208,7 +208,7 @@ class TestCameraCalibrationJob:
         - Z は best-effort: Klipper 不通（port 7126）でも続行し z_position=None、
           summary に「未取得」（ユーザー決定 2026-06-12）
         - artifacts: コーナー描画 PNG（image）+ calibration JSON（file）。
-          JSON は CalibrationResult.load で読め、数値が素材と整合する
+          JSON は CameraCalibration.load で読め、数値が素材と整合する
         - apply: values は camera.calibration_file のみ、files に JSON 1 件
         """
         record = checkerboard_manager.start("camera_calibration", CHECKERBOARD_PARAMS)
@@ -228,7 +228,7 @@ class TestCameraCalibrationJob:
         png_artifact = next(a for a in result.artifacts if a.kind == "image")
         json_artifact = next(a for a in result.artifacts if a.kind == "file")
         Image.load(artifacts_root / png_artifact.path)  # 読めなければ例外
-        loaded = CalibrationResult.load(artifacts_root / json_artifact.path)
+        loaded = CameraCalibration.load(artifacts_root / json_artifact.path)
         assert loaded.pixel_per_mm == pytest.approx(CHECKERBOARD_PIXEL_PER_MM, rel=0.01)
         assert loaded.z_position is None  # Klipper 不通 → 記録なし
         # crop は machine.toml 由来（checkerboard_state fixture が書いた 400x400）

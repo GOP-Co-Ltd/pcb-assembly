@@ -28,7 +28,7 @@ from pcbasm.pasting.toolhead_offset import (
     plan_toolhead_offset_points,
 )
 from pcbasm.vision import Image
-from pcbasm.vision.calibration import CalibrationResult
+from pcbasm.vision.calibration import CameraCalibration
 from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR
 
 CALIBRATED_AT = datetime(2026, 7, 17, 12, 0, 0)
@@ -357,7 +357,7 @@ def _procedure(
 ) -> ToolheadOffsetProcedure:
     board_frame = BoardFrame(
         board=load_board(LED_BLINKER),
-        calibration=CalibrationResult(
+        calibration=CameraCalibration(
             pixel_per_mm=PPM,
             square_size_mm=1.0,
             mean_distance_px=PPM,

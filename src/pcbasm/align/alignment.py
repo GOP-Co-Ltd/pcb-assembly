@@ -7,7 +7,7 @@ from collections.abc import Sequence
 import attrs
 from shapely import Polygon
 
-from pcbasm.align.aligner import RegionAligner, RegionAlignment
+from pcbasm.align.aligner import RegionAligner, RegionFit
 from pcbasm.align.board_frame import BoardFrame
 from pcbasm.align.copper import (
     CopperEdgeMatcher,
@@ -59,8 +59,8 @@ class BoardAlignment:
         fallback_results: results で点を覆えないときに使う成功結果（領域照合の結果）
     """
 
-    results: tuple[RegionAlignment, ...]
-    fallback_results: tuple[RegionAlignment, ...] = ()
+    results: tuple[RegionFit, ...]
+    fallback_results: tuple[RegionFit, ...] = ()
 
     def correction_for(
         self, board_point: Point2d, *, designator: str | None = None
@@ -187,7 +187,7 @@ class RegionAlignmentSession:
             tour_start=self._stage.get_position().to2d(),
         )
 
-    def align(self, region: AlignmentRegion) -> RegionAlignment | None:
+    def align(self, region: AlignmentRegion) -> RegionFit | None:
         """領域を照合し、失敗または非収束なら None を返す（例外を送出しない）."""
         try:
             return self._aligner.measure(region)
@@ -200,7 +200,7 @@ class RegionAlignmentSession:
         board_point: Point2d,
         initial_correction: Transform,
         board_area: Polygon,
-    ) -> RegionAlignment | None:
+    ) -> RegionFit | None:
         """領域補正を初期値にして、pad 中心で銅箔照合を収束させる.
 
         Args:

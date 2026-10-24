@@ -10,7 +10,7 @@
 変換は次の 2 つで、:class:`BoardFrame` が値として持つ（:func:`measure_board_frame` が計測する）。
 
 - ``board_transform``: board 座標 → 機械座標（:class:`BoardTransformMeasurer`）
-- ``offset_transform``: カメラと機械の軸の回転ずれ（:class:`OffsetTransformMeasurer`）
+- ``offset_transform``: カメラと機械の軸の回転ずれ（:class:`CameraRotationMeasurer`）
 
 ``observe()`` 関数は、想定→観測の Transform（カメラ mm 空間）を返す契約とする。
 
@@ -21,14 +21,14 @@
 ``RegionAlignmentSession`` の ``align`` / ``refine`` だけは失敗を None で返す。
 """
 
-from .aligner import RegionAligner, RegionAlignment
+from .aligner import RegionAligner, RegionFit
 from .alignment import (
     BoardAlignment,
     RegionAlignmentSession,
     is_pad_refinement_target,
 )
 from .board_frame import BoardFrame, BoardTransformMeasurer, measure_board_frame
-from .camera_rotation import OffsetTransformMeasurer
+from .camera_rotation import CameraRotationMeasurer
 from .copper import (
     CopperEdgeMatcher,
     CopperProjection,
@@ -62,12 +62,12 @@ __all__ = [
     "CopperProjector",
     "EdgeMatch",
     "OffsetObserver",
-    "OffsetTransformMeasurer",
+    "CameraRotationMeasurer",
     "OrthogonalityMetrics",
     "PadResultRenderer",
     "PixelRect",
     "RegionAligner",
-    "RegionAlignment",
+    "RegionFit",
     "RegionAlignmentSession",
     "XYPositionAdjustor",
     "centered_roi",

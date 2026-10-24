@@ -21,7 +21,7 @@ from pcbasm.kicad import load_board
 from pcbasm.pasting.capture import PointCapturer
 from pcbasm.pasting.session import PasteSession
 from pcbasm.vision import Image
-from pcbasm.vision.calibration import CalibrationResult
+from pcbasm.vision.calibration import CameraCalibration
 from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR
 
 LED_BLINKER = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
@@ -50,7 +50,7 @@ def _session(
 ) -> PasteSession:
     board_frame = BoardFrame(
         board=load_board(LED_BLINKER),
-        calibration=CalibrationResult(
+        calibration=CameraCalibration(
             pixel_per_mm=PPM,
             square_size_mm=1.0,
             mean_distance_px=PPM,

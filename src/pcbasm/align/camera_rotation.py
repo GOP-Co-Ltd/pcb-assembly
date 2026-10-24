@@ -1,4 +1,4 @@
-"""オフセット値を補正する."""
+"""カメラの回転（観測座標 → 機械座標）を 2 点法で計測する."""
 
 import logging
 from collections.abc import Callable
@@ -9,7 +9,7 @@ from pcbasm.hal import KlipperClient, Speed, XYZStage
 logger = logging.getLogger(__name__)
 
 
-class OffsetTransformMeasurer:
+class CameraRotationMeasurer:
     """観測座標系から機械座標系への変換を計測するクラス.
 
     2 点法を用いて、機械座標系での移動ベクトルと観測座標系での
@@ -19,7 +19,7 @@ class OffsetTransformMeasurer:
         from pcbasm.vision import safe_move_distance
 
         move_distance = safe_move_distance(roi_size_mm)
-        measurer = OffsetTransformMeasurer(
+        measurer = CameraRotationMeasurer(
             observe=observer.observe,
             klipper=klipper,
             stage=stage,
@@ -40,7 +40,7 @@ class OffsetTransformMeasurer:
         *,
         settle_sec: float,
     ) -> None:
-        """OffsetTransformMeasurer を初期化する.
+        """CameraRotationMeasurer を初期化する.
 
         Args:
             observe: 想定→観測の Transform（カメラ mm 空間）を返す関数

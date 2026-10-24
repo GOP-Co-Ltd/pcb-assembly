@@ -22,7 +22,7 @@ from pcbasm.align import (
     BoardAlignment,
     BoardFrame,
     EdgeMatch,
-    RegionAlignment,
+    RegionFit,
 )
 from pcbasm.board import Copper, Layer
 from pcbasm.config import MachineConfig, load_machine
@@ -68,7 +68,7 @@ from pcbasm.pasting.toolhead_offset import (
     plan_toolhead_offset_points,
 )
 from pcbasm.pasting.workflow import PasteTargets, plan_paste_targets
-from pcbasm.vision import CalibrationResult, Image, Offset
+from pcbasm.vision import CameraCalibration, Image, Offset
 from tests.support.golden import assert_transcript
 from tests.support.paths import TESTING_DATA_DIR
 from web.api.jobs.pasting.common import (
@@ -96,9 +96,9 @@ def _surface_z(x: float, y: float) -> float:
     return 0.2 + 0.004 * x - 0.003 * y + 0.0002 * x * x - 0.0001 * x * y
 
 
-def _region(index: int, area: Polygon, displacement: Point2d) -> RegionAlignment:
+def _region(index: int, area: Polygon, displacement: Point2d) -> RegionFit:
     center = Point2d(area.centroid.x, area.centroid.y)
-    return RegionAlignment(
+    return RegionFit(
         region=AlignmentRegion(
             index=index,
             board_center=center,
@@ -154,7 +154,7 @@ def _blank_camera() -> FakeCamera:
 def _board_frame(pcb: Path) -> BoardFrame:
     return BoardFrame(
         board=load_board(pcb),
-        calibration=CalibrationResult(
+        calibration=CameraCalibration(
             pixel_per_mm=20.0,
             square_size_mm=1.0,
             mean_distance_px=20.0,

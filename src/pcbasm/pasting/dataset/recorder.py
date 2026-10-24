@@ -36,7 +36,7 @@ from pcbasm.pasting.dataset.pending import (
 from pcbasm.pasting.dataset.plan import DotCell, DotGridPlan, DotTarget
 from pcbasm.pasting.dataset.writer import PasteDatasetWriter
 from pcbasm.validators import is_finite_number
-from pcbasm.vision.calibration import CalibrationResult
+from pcbasm.vision.calibration import CameraCalibration
 from pcbasm.vision.crop import RectCrop
 
 
@@ -73,7 +73,7 @@ class DatasetRunInfo:
     loading: PasteDatasetLoading
     started_at: datetime
     dispenser: PasteDispenserConfig
-    calibration: CalibrationResult
+    calibration: CameraCalibration
 
 
 def validate_dataset_run(

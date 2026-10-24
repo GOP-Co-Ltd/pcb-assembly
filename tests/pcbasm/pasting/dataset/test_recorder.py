@@ -32,7 +32,7 @@ from pcbasm.pasting.dataset.recorder import (
 )
 from pcbasm.pasting.dataset.writer import PasteDatasetWriter
 from pcbasm.pasting.params import DispenseMotion, PasteParams
-from pcbasm.vision.calibration import CalibrationResult
+from pcbasm.vision.calibration import CameraCalibration
 from pcbasm.vision.crop import RectCrop
 from tests.support.paths import TESTING_DATA_DIR
 
@@ -125,7 +125,7 @@ def _run_info() -> DatasetRunInfo:
         loading=LOADING,
         started_at=STARTED_AT,
         dispenser=_dispenser(),
-        calibration=CalibrationResult(
+        calibration=CameraCalibration(
             pixel_per_mm=120.5,
             square_size_mm=1.0,
             mean_distance_px=120.5,

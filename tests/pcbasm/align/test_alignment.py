@@ -12,8 +12,8 @@ from pcbasm.align import (
     BoardAlignment,
     BoardFrame,
     EdgeMatch,
-    RegionAlignment,
     RegionAlignmentSession,
+    RegionFit,
     is_pad_refinement_target,
 )
 from pcbasm.board import Layer, Pad
@@ -23,7 +23,7 @@ from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FakeCamera, FakeKlipper
 from pcbasm.kicad import load_board
 from pcbasm.vision import Image, Offset
-from pcbasm.vision.calibration import CalibrationResult
+from pcbasm.vision.calibration import CameraCalibration
 from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR
 
 PPM = 10.0
@@ -35,9 +35,9 @@ def _alignment(
     displacement: Point2d,
     *,
     rms_distance_px: float = 0.0,
-) -> RegionAlignment:
+) -> RegionFit:
     center = board_area.centroid
-    return RegionAlignment(
+    return RegionFit(
         region=AlignmentRegion(
             index=index,
             board_center=Point2d(center.x, center.y),
@@ -302,7 +302,7 @@ class TestRegionAlignmentSessionFailure:
                 board=load_board(
                     TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
                 ),
-                calibration=CalibrationResult(
+                calibration=CameraCalibration(
                     pixel_per_mm=PPM,
                     square_size_mm=1.0,
                     mean_distance_px=PPM,

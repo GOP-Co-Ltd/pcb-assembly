@@ -17,7 +17,7 @@ from pcbasm.align import (
     BoardAlignment,
     BoardFrame,
     EdgeMatch,
-    RegionAlignment,
+    RegionFit,
 )
 from pcbasm.config import MachineConfig, load_machine
 from pcbasm.geometry import Identity, Point2d, Shift
@@ -27,7 +27,7 @@ from pcbasm.kicad import load_board
 from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.session import PasteSession
 from pcbasm.vision import Image, Offset
-from pcbasm.vision.calibration import CalibrationResult
+from pcbasm.vision.calibration import CameraCalibration
 from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.pasting import register_pasting_jobs
@@ -73,7 +73,7 @@ def paste_session(
     """
     board_frame = BoardFrame(
         board=load_board(LED_BLINKER),
-        calibration=CalibrationResult(
+        calibration=CameraCalibration(
             pixel_per_mm=PPM,
             square_size_mm=1.0,
             mean_distance_px=PPM,
@@ -101,7 +101,7 @@ def full_board_correction() -> PasteCorrection:
     return PasteCorrection(
         alignment=BoardAlignment(
             results=(
-                RegionAlignment(
+                RegionFit(
                     region=AlignmentRegion(
                         index=0,
                         board_center=Point2d(0.0, 0.0),

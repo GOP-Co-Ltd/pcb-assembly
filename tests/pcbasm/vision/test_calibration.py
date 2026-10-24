@@ -8,19 +8,19 @@ import pytest
 
 from pcbasm.vision import Image
 from pcbasm.vision.calibration import (
-    CalibrationResult,
+    CameraCalibration,
     CheckerboardCalibrator,
     load_focus_z,
 )
 from tests.support.paths import TESTING_DATA_DIR
 
 
-class TestCalibrationResult:
-    """CalibrationResultクラスのテスト."""
+class TestCameraCalibration:
+    """CameraCalibrationクラスのテスト."""
 
     @pytest.fixture
-    def sample(self) -> CalibrationResult:
-        return CalibrationResult(
+    def sample(self) -> CameraCalibration:
+        return CameraCalibration(
             pixel_per_mm=100.0,
             square_size_mm=1.5,
             mean_distance_px=150.0,
@@ -30,10 +30,10 @@ class TestCalibrationResult:
             calibrated_at=datetime(2025, 1, 6, 12, 0, 0),
         )
 
-    def test_mm_per_pixel_returns_inverse(self, sample: CalibrationResult):
+    def test_mm_per_pixel_returns_inverse(self, sample: CameraCalibration):
         assert sample.mm_per_pixel == pytest.approx(0.01)
 
-    def test_to_dict_converts_all_fields(self, sample: CalibrationResult):
+    def test_to_dict_converts_all_fields(self, sample: CameraCalibration):
         data = sample.to_dict()
 
         assert data["pixel_per_mm"] == 100.0
@@ -46,19 +46,19 @@ class TestCalibrationResult:
         "z_position", [None, 15.5], ids=["without-z-position", "with-z-position"]
     )
     def test_save_and_load_roundtrip(
-        self, sample: CalibrationResult, tmp_path: Path, z_position: float | None
+        self, sample: CameraCalibration, tmp_path: Path, z_position: float | None
     ):
         result = attrs.evolve(sample, z_position=z_position)
         json_path = tmp_path / "calibration.json"
         result.save(json_path)
 
-        loaded = CalibrationResult.load(json_path)
+        loaded = CameraCalibration.load(json_path)
 
         assert loaded == result
         assert loaded.z_position == z_position
 
     def test_load_legacy_json_without_z_position(
-        self, sample: CalibrationResult, tmp_path: Path
+        self, sample: CameraCalibration, tmp_path: Path
     ):
         """z_positionフィールドが無いJSONファイルも正常に読み込める."""
         json_path = tmp_path / "legacy.json"
@@ -69,7 +69,7 @@ class TestCalibrationResult:
         data.pop("z_position", None)
         json_path.write_text(json.dumps(data))
 
-        loaded = CalibrationResult.load(json_path)
+        loaded = CameraCalibration.load(json_path)
         assert loaded.z_position is None
 
 
@@ -77,7 +77,7 @@ class TestLoadFocusZ:
     """校正ファイルに記録した焦点 Z（/api/state の focus_z）."""
 
     def _save(self, path: Path, z_position: float | None) -> None:
-        CalibrationResult(
+        CameraCalibration(
             pixel_per_mm=100.0,
             square_size_mm=1.5,
             mean_distance_px=150.0,

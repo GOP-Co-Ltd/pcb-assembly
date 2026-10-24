@@ -10,7 +10,7 @@ from pcbasm.align import (
     BoardAlignment,
     BoardFrame,
     EdgeMatch,
-    RegionAlignment,
+    RegionFit,
 )
 from pcbasm.board import Layer, Pad
 from pcbasm.geometry import HeightPlane, Point2d, Point3d, Rotation, Shift
@@ -25,9 +25,9 @@ def _region_result(
     index: int,
     area: shapely.Polygon,
     displacement: Point2d,
-) -> RegionAlignment:
+) -> RegionFit:
     center = area.centroid
-    return RegionAlignment(
+    return RegionFit(
         region=AlignmentRegion(
             index=index,
             board_center=Point2d(center.x, center.y),

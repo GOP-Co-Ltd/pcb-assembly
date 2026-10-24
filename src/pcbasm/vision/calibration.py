@@ -19,8 +19,8 @@ _converter.register_structure_hook(Path, lambda v, _: Path(v))
 
 
 @attrs.frozen
-class CalibrationResult:
-    """キャリブレーション結果."""
+class CameraCalibration:
+    """カメラ校正の記録（チェッカーボードで求めた pixel/mm と、そのときの Z）."""
 
     pixel_per_mm: float  # pixel/mm 比率
     square_size_mm: float  # チェッカーボードの 1 マスのサイズ (mm)
@@ -61,7 +61,7 @@ def load_focus_z(path: Path) -> float | None:
     """校正時に記録したカメラの焦点 Z [mm] を読む（未校正・Z の記録が無ければ None）."""
     if not path.is_file():
         return None
-    return CalibrationResult.load(path).z_position
+    return CameraCalibration.load(path).z_position
 
 
 class CheckerboardCalibrator:
@@ -87,7 +87,7 @@ class CheckerboardCalibrator:
         self._pattern_rows_range = pattern_rows_range
         self._pattern_cols_range = pattern_cols_range
 
-    def calibrate(self, image: Image) -> tuple[CalibrationResult, Image] | None:
+    def calibrate(self, image: Image) -> tuple[CameraCalibration, Image] | None:
         """画像からキャリブレーションを実行.
 
         結果の z_position は None のまま返す。
@@ -108,7 +108,7 @@ class CheckerboardCalibrator:
             corners, pattern_size
         )
 
-        result = CalibrationResult(
+        result = CameraCalibration(
             pixel_per_mm=pixel_per_mm,
             square_size_mm=self._square_size_mm,
             mean_distance_px=mean_dist,

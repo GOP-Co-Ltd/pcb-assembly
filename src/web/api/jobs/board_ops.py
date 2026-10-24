@@ -7,8 +7,8 @@ from collections.abc import Callable, Sequence
 from pcbasm.align import (
     AlignmentRegion,
     BoardFrame,
-    RegionAlignment,
     RegionAlignmentSession,
+    RegionFit,
     measure_board_frame,
 )
 from pcbasm.board import Board
@@ -85,9 +85,9 @@ def align_regions(
     regions: Sequence[AlignmentRegion],
     *,
     on_failure: Callable[[AlignmentRegion, int], None] | None = None,
-) -> list[RegionAlignment]:
+) -> list[RegionFit]:
     """計画済み領域を巡回し、収束した照合結果だけを返す."""
-    aligned: list[RegionAlignment] = []
+    aligned: list[RegionFit] = []
     for index, region in enumerate(regions):
         ctx.progress("銅箔照合", 100.0 * index / len(regions))
         ctx.checkpoint()

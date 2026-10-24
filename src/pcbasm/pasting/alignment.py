@@ -13,8 +13,8 @@ import attrs
 
 from pcbasm.align import (
     BoardAlignment,
-    RegionAlignment,
     RegionAlignmentSession,
+    RegionFit,
     is_pad_refinement_target,
 )
 from pcbasm.board import Pad
@@ -40,7 +40,7 @@ class PadRefinement:
     """
 
     pad: Pad
-    result: RegionAlignment | None
+    result: RegionFit | None
     residual: Point2d | None
 
 
