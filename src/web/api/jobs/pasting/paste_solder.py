@@ -7,7 +7,7 @@ from pcbasm.pasting.nozzle_clean import resolve_nozzle_clean
 from pcbasm.pasting.overrides import BoardSession
 from pcbasm.pasting.paste_volume.runtime_correction import run_flow_calibration
 from pcbasm.pasting.plan import plan_paste
-from pcbasm.pasting.prepare import measure_correction
+from pcbasm.pasting.prepare import prepare_paste
 from pcbasm.pasting.purge_check import purge_with_cleaning
 from web.api.jobs.board_ops import align_events
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
@@ -84,7 +84,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             ctx.log(f"初回パージ: {purge.label} に {purge.amount_ul:.3f} uL")
 
         ctx.progress("高さ計測")
-        correction = measure_correction(
+        correction = prepare_paste(
             session,
             plan.routed_pads,
             on_event=align_events(ctx),

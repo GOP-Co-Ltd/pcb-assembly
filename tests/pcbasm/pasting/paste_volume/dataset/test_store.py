@@ -26,7 +26,7 @@ from pcbasm.pasting.paste_volume.dataset.pending import (
     parse_pending,
 )
 from pcbasm.pasting.paste_volume.dataset.store import (
-    PasteDatasetWriter,
+    PasteDatasetStore,
     finalize_incomplete,
     rescuable_sessions,
 )
@@ -82,34 +82,34 @@ def _crop(offset: int = 0) -> RectCrop:
 
 
 def _open(tmp_path: Path, *, started_at: datetime | None = STARTED_AT):
-    return PasteDatasetWriter.open(
+    return PasteDatasetStore.open(
         tmp_path, plate_name="plate-40x40", started_at=started_at
     )
 
 
-def _write_all(writer: PasteDatasetWriter) -> None:
+def _write_all(store: PasteDatasetStore) -> None:
     """Fixture が参照する sample index 1（量点）と 2（blank）の全 capture を書く."""
     for index in (1, 2):
         for view in VIEWS:
-            writer.write_capture(index, view, "pre", _crop())
-            writer.write_capture(index, view, "post", _crop(offset=1))
+            store.write_capture(index, view, "pre", _crop())
+            store.write_capture(index, view, "post", _crop(offset=1))
 
 
-class TestPasteDatasetWriterOpen:
+class TestPasteDatasetStoreOpen:
     """Open() が一時 session directory を作り、同名衝突を採番する."""
 
     def test_creates_only_pre_and_post_directories(self, tmp_path: Path):
         root = tmp_path / "datasets"
 
-        writer = PasteDatasetWriter.open(
+        store = PasteDatasetStore.open(
             root,
             plate_name="plate-40x40",
             started_at=STARTED_AT,
         )
 
-        assert writer.root == root
-        assert writer.working_path == root / f".{STEM}.tmp"
-        assert {path.name for path in writer.working_path.iterdir()} == {"pre", "post"}
+        assert store.root == root
+        assert store.working_path == root / f".{STEM}.tmp"
+        assert {path.name for path in store.working_path.iterdir()} == {"pre", "post"}
 
     def test_same_plate_and_millisecond_gets_numeric_suffix(self, tmp_path: Path):
         first = _open(tmp_path)
@@ -122,21 +122,21 @@ class TestPasteDatasetWriterOpen:
         with pytest.raises(ValueError):
             _open(tmp_path, started_at=datetime(2026, 9, 8))
         with pytest.raises(ValueError):
-            PasteDatasetWriter.open(
+            PasteDatasetStore.open(
                 tmp_path,
                 plate_name="",
                 started_at=STARTED_AT,
             )
 
 
-class TestPasteDatasetWriterCaptures:
+class TestPasteDatasetStoreCaptures:
     """Lossless PNG の命名、mask を書かないこと、中断 session の保持."""
 
     def test_writes_pre_and_post_png_without_any_mask_file(self, tmp_path: Path):
-        writer = _open(tmp_path)
+        store = _open(tmp_path)
 
-        _write_all(writer)
-        session = writer.mark_incomplete()
+        _write_all(store)
+        session = store.mark_incomplete()
 
         assert session.name == f"{STEM}.incomplete"
         assert {path.name for path in session.iterdir()} == {"pre", "post"}
@@ -149,13 +149,13 @@ class TestPasteDatasetWriterCaptures:
         }
 
     def test_written_png_is_lossless(self, tmp_path: Path):
-        writer = _open(tmp_path)
+        store = _open(tmp_path)
         pre = _crop()
         post = _crop(offset=1)
-        writer.write_capture(1, VIEWS[0], "pre", pre)
-        writer.write_capture(1, VIEWS[0], "post", post)
+        store.write_capture(1, VIEWS[0], "pre", pre)
+        store.write_capture(1, VIEWS[0], "post", post)
 
-        session = writer.mark_incomplete()
+        session = store.mark_incomplete()
 
         name = "000001.00.png"
         stored_pre = cv2.imread(str(session / "pre" / name), cv2.IMREAD_UNCHANGED)
@@ -165,9 +165,9 @@ class TestPasteDatasetWriterCaptures:
         assert np.array_equal(stored_post, post.image)
 
     def test_captured_view_reports_crop_rect_and_relative_paths(self, tmp_path: Path):
-        writer = _open(tmp_path)
+        store = _open(tmp_path)
 
-        captured = writer.write_capture(1, VIEWS[1], "pre", _crop())
+        captured = store.write_capture(1, VIEWS[1], "pre", _crop())
 
         assert captured.number == 1
         assert captured.offset_x_mm == 1.0
@@ -176,22 +176,22 @@ class TestPasteDatasetWriterCaptures:
         assert captured.post == "post/000001.01.png"
 
     def test_rejects_capture_after_the_session_is_finalized(self, tmp_path: Path):
-        writer = _open(tmp_path)
-        _write_all(writer)
-        writer.finalize(_metadata())
+        store = _open(tmp_path)
+        _write_all(store)
+        store.finalize(_metadata())
 
         with pytest.raises(RuntimeError):
-            writer.write_capture(3, VIEWS[0], "pre", _crop())
+            store.write_capture(3, VIEWS[0], "pre", _crop())
 
 
-class TestPasteDatasetWriterFinalize:
+class TestPasteDatasetStoreFinalize:
     """Metadata 書き出しと完成 session への atomic rename."""
 
     def test_writes_schema_v3_and_atomically_publishes_session(self, tmp_path: Path):
-        writer = _open(tmp_path)
-        _write_all(writer)
+        store = _open(tmp_path)
+        _write_all(store)
 
-        session = writer.finalize(_metadata())
+        session = store.finalize(_metadata())
 
         assert session.name == STEM
         assert {path.name for path in tmp_path.iterdir()} == {STEM}
@@ -200,17 +200,17 @@ class TestPasteDatasetWriterFinalize:
         assert payload["schema_version"] == 3
 
     def test_rejects_missing_post_capture(self, tmp_path: Path):
-        writer = _open(tmp_path)
+        store = _open(tmp_path)
         for index in (1, 2):
             for view in VIEWS:
-                writer.write_capture(index, view, "pre", _crop())
+                store.write_capture(index, view, "pre", _crop())
 
         with pytest.raises(ValueError):
-            writer.finalize(_metadata())
+            store.finalize(_metadata())
 
     def test_rejects_metadata_index_that_was_never_captured(self, tmp_path: Path):
-        writer = _open(tmp_path)
-        _write_all(writer)
+        store = _open(tmp_path)
+        _write_all(store)
         payload = _payload()
         samples = payload["samples"]
         assert isinstance(samples, list)
@@ -220,91 +220,91 @@ class TestPasteDatasetWriterFinalize:
             view["post"] = view["post"].replace("000001", "000009")
 
         with pytest.raises(ValueError):
-            writer.finalize(_parsed(payload))
+            store.finalize(_parsed(payload))
 
     def test_requires_the_blank_captures_as_well(self, tmp_path: Path):
-        writer = _open(tmp_path)
+        store = _open(tmp_path)
         for view in VIEWS:
-            writer.write_capture(1, view, "pre", _crop())
-            writer.write_capture(1, view, "post", _crop(offset=1))
+            store.write_capture(1, view, "pre", _crop())
+            store.write_capture(1, view, "post", _crop(offset=1))
 
         with pytest.raises(ValueError):
-            writer.finalize(_metadata())
+            store.finalize(_metadata())
 
 
-class TestPasteDatasetWriterContextManager:
+class TestPasteDatasetStoreContextManager:
     """Finalize せずに抜けた session は incomplete として保持される."""
 
     def test_unfinalized_session_is_marked_incomplete_on_exit(self, tmp_path: Path):
-        with _open(tmp_path) as writer:
-            writer.write_capture(1, VIEWS[0], "pre", _crop())
+        with _open(tmp_path) as store:
+            store.write_capture(1, VIEWS[0], "pre", _crop())
 
         assert {path.name for path in tmp_path.iterdir()} == {f"{STEM}.incomplete"}
 
     def test_exception_inside_block_keeps_incomplete_session(self, tmp_path: Path):
         with pytest.raises(RuntimeError):
-            with _open(tmp_path) as writer:
-                writer.write_capture(1, VIEWS[0], "pre", _crop())
+            with _open(tmp_path) as store:
+                store.write_capture(1, VIEWS[0], "pre", _crop())
                 raise RuntimeError("abort")
 
         incomplete = tmp_path / f"{STEM}.incomplete"
         assert (incomplete / "pre" / "000001.00.png").is_file()
 
     def test_finalized_session_is_not_marked_incomplete(self, tmp_path: Path):
-        with _open(tmp_path) as writer:
-            _write_all(writer)
-            session = writer.finalize(_metadata())
+        with _open(tmp_path) as store:
+            _write_all(store)
+            session = store.finalize(_metadata())
 
         assert {path.name for path in tmp_path.iterdir()} == {session.name}
 
 
-class TestPasteDatasetWriterPending:
+class TestPasteDatasetStorePending:
     """計量質量の入力前に pending.json を残し、確定時に取り除く."""
 
     def test_write_pending_puts_the_document_in_the_working_session(
         self, tmp_path: Path
     ):
-        writer = _open(tmp_path)
+        store = _open(tmp_path)
 
-        path = writer.write_pending(_pending())
+        path = store.write_pending(_pending())
 
-        assert path == writer.working_path / PENDING_FILENAME
+        assert path == store.working_path / PENDING_FILENAME
         assert json.loads(path.read_text(encoding="utf-8")) == _pending_payload()
 
     def test_incomplete_session_keeps_the_pending_document(self, tmp_path: Path):
-        with _open(tmp_path) as writer:
-            _write_all(writer)
-            writer.write_pending(_pending())
+        with _open(tmp_path) as store:
+            _write_all(store)
+            store.write_pending(_pending())
 
         incomplete = tmp_path / f"{STEM}.incomplete"
         assert (incomplete / PENDING_FILENAME).is_file()
 
     def test_finalize_removes_the_pending_document(self, tmp_path: Path):
-        writer = _open(tmp_path)
-        _write_all(writer)
-        writer.write_pending(_pending())
+        store = _open(tmp_path)
+        _write_all(store)
+        store.write_pending(_pending())
 
-        session = writer.finalize(_metadata())
+        session = store.finalize(_metadata())
 
         assert (session / "metadata.json").is_file()
         assert not (session / PENDING_FILENAME).exists()
 
     def test_rejects_pending_after_the_session_is_finalized(self, tmp_path: Path):
-        writer = _open(tmp_path)
-        _write_all(writer)
-        writer.finalize(_metadata())
+        store = _open(tmp_path)
+        _write_all(store)
+        store.finalize(_metadata())
 
         with pytest.raises(RuntimeError, match="確定済み"):
-            writer.write_pending(_pending())
+            store.write_pending(_pending())
 
 
 class TestRescuableSessions:
     """pending.json を持つ未確定 session の列挙（救出ジョブの選択肢）."""
 
     def test_lists_only_sessions_that_carry_a_pending_document(self, tmp_path: Path):
-        with _open(tmp_path) as writer:
-            _write_all(writer)
-            writer.write_pending(_pending())
+        with _open(tmp_path) as store:
+            _write_all(store)
+            store.write_pending(_pending())
         (tmp_path / "plate-40x40-20260101T000000.000+0000.incomplete").mkdir()
         (tmp_path / "plate-40x40-20260102T000000.000+0000").mkdir()
 
@@ -312,9 +312,9 @@ class TestRescuableSessions:
 
     def test_lists_a_working_session_left_by_a_killed_process(self, tmp_path: Path):
         """プロセスごと落ちると ``.tmp`` のまま残るので、それも救出対象にする."""
-        writer = _open(tmp_path)
-        _write_all(writer)
-        writer.write_pending(_pending())
+        store = _open(tmp_path)
+        _write_all(store)
+        store.write_pending(_pending())
 
         assert rescuable_sessions(tmp_path) == (tmp_path / f".{STEM}.tmp",)
 
@@ -326,9 +326,9 @@ class TestFinalizeIncomplete:
     """未完了 session へ後から metadata を書いて完成名へ確定する."""
 
     def _incomplete(self, tmp_path: Path) -> Path:
-        with _open(tmp_path) as writer:
-            _write_all(writer)
-            writer.write_pending(_pending())
+        with _open(tmp_path) as store:
+            _write_all(store)
+            store.write_pending(_pending())
         return tmp_path / f"{STEM}.incomplete"
 
     def test_writes_metadata_and_renames_to_the_completed_stem(self, tmp_path: Path):
@@ -359,9 +359,9 @@ class TestFinalizeIncomplete:
         assert session == tmp_path / f"{STEM}-1"
 
     def test_finalizes_a_working_session_left_by_a_killed_process(self, tmp_path: Path):
-        writer = _open(tmp_path)
-        _write_all(writer)
-        writer.write_pending(_pending())
+        store = _open(tmp_path)
+        _write_all(store)
+        store.write_pending(_pending())
 
         session, error = finalize_incomplete(tmp_path / f".{STEM}.tmp", _metadata())
 

@@ -37,7 +37,7 @@ from pcbasm.pasting.paste_volume.dataset.recorder import (
     PasteDatasetRecorder,
     validate_dataset_run,
 )
-from pcbasm.pasting.paste_volume.dataset.store import PasteDatasetWriter
+from pcbasm.pasting.paste_volume.dataset.store import PasteDatasetStore
 from pcbasm.vision.crop import RectCrop
 from tests.support.camera_model import make_camera_model
 from tests.support.paths import TESTING_DATA_DIR
@@ -163,7 +163,7 @@ def plan() -> DotGridPlan:
 
 def _recorder(tmp_path: Path, plan: DotGridPlan) -> PasteDatasetRecorder:
     return PasteDatasetRecorder(
-        PasteDatasetWriter.open(
+        PasteDatasetStore.open(
             tmp_path,
             plate_name="plate-20x20",
             started_at=STARTED_AT,
@@ -222,14 +222,14 @@ class TestPasteDatasetRecorder:
     def test_rejects_invalid_view_before_recording(
         self, tmp_path: Path, plan: DotGridPlan
     ):
-        writer = PasteDatasetWriter.open(
+        store = PasteDatasetStore.open(
             tmp_path,
             plate_name="plate-20x20",
             started_at=STARTED_AT,
         )
 
         with pytest.raises(ValueError, match="view number"):
-            PasteDatasetRecorder(writer, plan, (DatasetView(number=-1),))
+            PasteDatasetRecorder(store, plan, (DatasetView(number=-1),))
 
     def test_finalize_writes_metadata_with_schema_v3_key_set(
         self, tmp_path: Path, plan: DotGridPlan

@@ -36,7 +36,7 @@ from pcbasm.pasting.paste_volume.dataset.pending import (
     sample_key,
 )
 from pcbasm.pasting.paste_volume.dataset.plan import DotGridPlan, DotTarget
-from pcbasm.pasting.paste_volume.dataset.store import PasteDatasetWriter
+from pcbasm.pasting.paste_volume.dataset.store import PasteDatasetStore
 from pcbasm.validators import is_finite_number
 from pcbasm.vision import CameraModel
 from pcbasm.vision.crop import RectCrop
@@ -96,7 +96,7 @@ class PasteDatasetRecorder:
 
     def __init__(
         self,
-        writer: PasteDatasetWriter,
+        store: PasteDatasetStore,
         plan: DotGridPlan,
         views: Sequence[DatasetView],
     ) -> None:
@@ -109,7 +109,7 @@ class PasteDatasetRecorder:
             error = view.validate()
             if error is not None:
                 raise ValueError(error)
-        self._writer = writer
+        self._store = store
         self._plan = plan
         self._views = tuple(views)
         self._captured: dict[tuple[int, int], DatasetCapturedView] = {}
@@ -123,7 +123,7 @@ class PasteDatasetRecorder:
 
     def record_pre(self, index: int, view: DatasetView, crop: RectCrop) -> None:
         """Sample ``index`` の塗布前画像を書き、view 記述をセルと紐付けて保持する."""
-        self._captured[(index, view.number)] = self._writer.write_capture(
+        self._captured[(index, view.number)] = self._store.write_capture(
             index, view, "pre", crop
         )
 
@@ -133,7 +133,7 @@ class PasteDatasetRecorder:
 
     def record_post(self, index: int, view: DatasetView, crop: RectCrop) -> str | None:
         """Sample ``index`` の塗布後画像を書き、pre と crop 矩形が一致しなければ理由を返す."""
-        post_view = self._writer.write_capture(index, view, "post", crop)
+        post_view = self._store.write_capture(index, view, "post", crop)
         pre_view = self._captured.get((index, view.number))
         if pre_view is None:
             return f"sample {index} のpre画像が記録されていません"
@@ -227,7 +227,7 @@ class PasteDatasetRecorder:
         :func:`~pcbasm.pasting.paste_volume.dataset.store.finalize_incomplete` で
         本経路と同じ metadata に到達できる。
         """
-        return self._writer.write_pending(self.build_pending(run))
+        return self._store.write_pending(self.build_pending(run))
 
     def finalize(self, *, measured_mass_mg: float, run: DatasetRunInfo) -> Path:
         """計量質量を回転数比でセルへ配分し、metadata を書いて session を確定する.
@@ -240,13 +240,13 @@ class PasteDatasetRecorder:
         )
         if metadata is None:
             raise ValueError(error)
-        path = self._writer.finalize(metadata)
+        path = self._store.finalize(metadata)
         self._metadata = metadata
         return path
 
     def mark_incomplete(self) -> Path:
         """取得済みファイルを保持したまま incomplete session へ確定する."""
-        return self._writer.mark_incomplete()
+        return self._store.mark_incomplete()
 
     def _views_of(self, target: DotTarget) -> tuple[DatasetCapturedView, ...]:
         return tuple(

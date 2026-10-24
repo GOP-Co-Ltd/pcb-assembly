@@ -24,7 +24,7 @@ class PasteCorrection:
     height_plane: Transform
 
 
-def measure_correction(
+def prepare_paste(
     session: PasteSession,
     pads: Sequence[Pad],
     *,

@@ -56,7 +56,7 @@ from pcbasm.pasting.paste_volume.dataset.recorder import (
     PasteDatasetRecorder,
     validate_dataset_run,
 )
-from pcbasm.pasting.paste_volume.dataset.store import PasteDatasetWriter
+from pcbasm.pasting.paste_volume.dataset.store import PasteDatasetStore
 from pcbasm.pasting.paste_volume.evaluate import (
     PasteVolumeEvaluation,
     evaluate_collected_session,
@@ -361,8 +361,7 @@ def _plan_collection(
 ) -> tuple[DotGridPlan, tuple[DatasetView, ...], int]:
     """装置を開く前にセル配置・view・crop 寸法を確定する（不正は ValueError）.
 
-    crop のピクセル寸法はここで 1 回だけ決め、capturer / writer / metadata の 3 箇所へ
-    同じ値を渡す。
+    crop のピクセル寸法はここで 1 回だけ決め、capturer / store / metadata の 3 箇所へ同じ値を渡す。
     """
     dispenser = ctx.machine.paste_dispenser
     run_error = validate_dataset_run(
@@ -530,12 +529,12 @@ def _run_paste_volume_calibration(ctx: JobContext) -> JobResult:
         ctx.progress("高さ計測")
         plate = CopperPlate.measure(session)
 
-        writer = PasteDatasetWriter.open(
+        store = PasteDatasetStore.open(
             ctx.paste_dataset_dir,
             plate_name=f"plate-{width:g}x{height:g}",
             started_at=started_at,
         )
-        recorder = PasteDatasetRecorder(writer, plan, views)
+        recorder = PasteDatasetRecorder(store, plan, views)
         capture = DotCaptureRun(
             session,
             ctx,

@@ -28,7 +28,7 @@ from pcbasm.vision.image import ImageArray
 METADATA_FILENAME = "metadata.json"
 
 
-class PasteDatasetWriter:
+class PasteDatasetStore:
     """一時 session へ画像を書き、完成または incomplete へ atomic 確定する.
 
     :meth:`open` で session directory を採番・作成して構築する（ctor は副作用を持たない）。
@@ -52,7 +52,7 @@ class PasteDatasetWriter:
         plate_name: str,
         started_at: datetime | None = None,
     ) -> Self:
-        """``root`` 直下に一時 session directory を作って writer を返す.
+        """``root`` 直下に一時 session directory を作って store を返す.
 
         Raises:
             ValueError: ``started_at`` が timezone を持たない、または ``plate_name`` が空
@@ -68,11 +68,11 @@ class PasteDatasetWriter:
             f"{plate_name}-{timestamp.strftime('%Y%m%dT%H%M%S')}"
             f".{milliseconds:03d}{timestamp.strftime('%z')}"
         )
-        writer = cls(root, _available_stem(root, base))
-        writer._working_path.mkdir()
+        store = cls(root, _available_stem(root, base))
+        store._working_path.mkdir()
         for phase in ("pre", "post"):
-            (writer._working_path / phase).mkdir()
-        return writer
+            (store._working_path / phase).mkdir()
+        return store
 
     def __enter__(self) -> Self:
         return self

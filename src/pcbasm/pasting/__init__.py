@@ -7,7 +7,7 @@
 通常塗布ジョブ（``web.api.jobs.pasting.paste_solder``）の流れと担当モジュール:
 
 1. 装置を動かす前に、対象 pad・順路・初回パージ・運転時補正を決める: :mod:`.plan`（設定解決は :mod:`.overrides`、順路は :mod:`.route`。pad 編集画面の preview も同じ計画を使う）
-2. Board 計測の結果から :class:`~.session.PasteSession` を組み、:func:`~.prepare.measure_correction` が高さ面計測と位置合わせで :class:`~.prepare.PasteCorrection` を作る
+2. Board 計測の結果から :class:`~.session.PasteSession` を組み、:func:`~.prepare.prepare_paste` が高さ面計測と位置合わせで :class:`~.prepare.PasteCorrection` を作る
 3. ``with session.make_applicator()`` でディスペンサーを有効化し、``retract()`` する
 4. 初回パージを点塗布する（:mod:`.purge_check`。写らなければ :mod:`.nozzle_clean` で掃除してやり直す）
 5. 運転時補正（:mod:`.paste_volume.runtime_correction`。撮影は :mod:`.dot_capture`）の結果で ``rotations_per_ul`` を差し替える
