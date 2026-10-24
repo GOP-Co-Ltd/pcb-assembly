@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from pcbasm.align.board import Corner, marker_position
+from pcbasm.align.board_frame import Corner, marker_position
 from pcbasm.align.scene import board_scene, placed_on_reference
 from pcbasm.board import Board, Layer
 from pcbasm.config.reference_point import CornerOffsetsConfig, ReferencePointConfig

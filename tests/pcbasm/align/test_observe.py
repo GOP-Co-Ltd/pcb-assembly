@@ -1,4 +1,4 @@
-"""Control/setup モジュールのテスト.
+"""Align/observe モジュールのテスト.
 
 Phase 4（memory/agents/implementation-planner/webui-phase4.md §1）で posctrl
 から cv2 表示を全廃し frame_sink 注入に統一した:
@@ -13,7 +13,7 @@ import cv2
 import numpy as np
 import pytest
 
-from pcbasm.align.setup import CircleDetectionError, OffsetObserver
+from pcbasm.align.observe import CircleDetectionError, OffsetObserver
 from pcbasm.geometry import Point2d
 from pcbasm.hal.fake import FakeCamera
 from pcbasm.vision import CircleDetector, Image

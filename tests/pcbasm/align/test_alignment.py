@@ -10,7 +10,7 @@ from shapely.affinity import rotate
 from pcbasm.align import (
     AlignmentRegion,
     BoardAlignment,
-    BoardCalibrationResult,
+    BoardFrame,
     EdgeMatch,
     RegionAlignment,
     RegionAlignmentSession,
@@ -298,11 +298,10 @@ class TestRegionAlignmentSessionFailure:
         resolution = (640, 480)
         frame = Image(np.zeros((resolution[1], resolution[0], 3), dtype=np.uint8))
         return RegionAlignmentSession(
-            BoardCalibrationResult(
-                machine=load_machine(TESTING_CONFIG_DIR / "machine.toml"),
-                klipper=klipper,
-                stage=XYZStage(klipper),
-                camera=FakeCamera([frame]),
+            BoardFrame(
+                board=load_board(
+                    TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
+                ),
                 calibration=CalibrationResult(
                     pixel_per_mm=PPM,
                     square_size_mm=1.0,
@@ -315,10 +314,11 @@ class TestRegionAlignmentSessionFailure:
                 ),
                 offset_transform=Identity(),
                 board_transform=Identity(),
-                pcb=load_board(
-                    TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
-                ),
-            )
+            ),
+            load_machine(TESTING_CONFIG_DIR / "machine.toml"),
+            klipper=klipper,
+            stage=XYZStage(klipper),
+            camera=FakeCamera([frame]),
         )
 
     def test_klipper_refusal_fails_the_region(

@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 
+from pcbasm.align import BoardFrame
 from pcbasm.config import load_machine
 from pcbasm.geometry import Identity, Point2d, Shift
 from pcbasm.hal import XYZStage
@@ -45,12 +46,13 @@ def _session(klipper: FakeKlipper) -> PasteSession:
         klipper=klipper,
         stage=XYZStage(klipper),
         camera=unused,
-        calibration=unused,
-        calibration_result=unused,
-        board_transform=Identity(),
-        offset_transform=unused,
+        board_frame=BoardFrame(
+            board=unused,
+            calibration=unused,
+            offset_transform=unused,
+            board_transform=Identity(),
+        ),
         toolhead_offset=Identity(),
-        pcb=unused,
         probe_executor=unused,
         height_measurer=unused,
     )

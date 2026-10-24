@@ -13,7 +13,7 @@ from typing import Self
 
 import attrs
 
-from pcbasm.align import BoardCalibrationResult, RegionAlignmentSession
+from pcbasm.align import BoardFrame, RegionAlignmentSession
 from pcbasm.board import Board, Copper, Layer, Pad
 from pcbasm.config import MachineConfig
 from pcbasm.config.dispenser import ToolheadConfig
@@ -23,7 +23,7 @@ from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.applicator import PasteApplicator, build_applicator
 from pcbasm.pasting.height import HeightPlaneMeasurer
 from pcbasm.pasting.probe import ProbeExecutor
-from pcbasm.vision import CalibrationResult, FrameSink
+from pcbasm.vision import FrameSink
 
 
 def toolhead_transform(toolhead: ToolheadConfig) -> Transform:
@@ -35,7 +35,7 @@ def toolhead_transform(toolhead: ToolheadConfig) -> Transform:
 class PasteSession:
     """Board 計測の結果から塗布用 HAL を配線した実行セッション.
 
-    ``from_calibration(...)`` で構築する。
+    ``from_board_frame(...)`` で構築する。
     終了時の駐機はジョブ管理（web）が行う。
 
     塗布に渡す board → machine 変換は、塗る対象で選ぶ。
@@ -52,31 +52,34 @@ class PasteSession:
     klipper: KlipperClient
     stage: XYZStage
     camera: Camera
-    calibration: CalibrationResult
-    calibration_result: BoardCalibrationResult
-    board_transform: Transform
-    offset_transform: Transform
+    board_frame: BoardFrame
     toolhead_offset: Transform
-    pcb: Board
     probe_executor: ProbeExecutor
     height_measurer: HeightPlaneMeasurer
 
     @classmethod
-    def from_calibration(cls, result: BoardCalibrationResult) -> Self:
-        """既存の BoardCalibrationResult から塗布用 HAL を組み立てる."""
-        machine = result.machine
+    def from_board_frame(
+        cls,
+        board_frame: BoardFrame,
+        machine: MachineConfig,
+        *,
+        klipper: KlipperClient,
+        stage: XYZStage,
+        camera: Camera,
+    ) -> Self:
+        """計測済みの基板の位置関係と装置から塗布用 HAL を組み立てる."""
         probe_config = machine.probe
         settle = machine.settle
         probe_executor = ProbeExecutor(
-            klipper=result.klipper,
-            stage=result.stage,
+            klipper=klipper,
+            stage=stage,
             lift_height=probe_config.lift_height,
             settle_sec=settle.probe_sec,
         )
         height_measurer = HeightPlaneMeasurer(
             probe_executor=probe_executor,
-            klipper=result.klipper,
-            stage=result.stage,
+            klipper=klipper,
+            stage=stage,
             min_radius=probe_config.min_radius,
             board_edge_margin=probe_config.board_edge_margin,
             min_samples=probe_config.min_samples,
@@ -85,15 +88,11 @@ class PasteSession:
         )
         return cls(
             machine=machine,
-            klipper=result.klipper,
-            stage=result.stage,
-            camera=result.camera,
-            calibration=result.calibration,
-            calibration_result=result,
-            board_transform=result.board_transform,
-            offset_transform=result.offset_transform,
+            klipper=klipper,
+            stage=stage,
+            camera=camera,
+            board_frame=board_frame,
             toolhead_offset=toolhead_transform(machine.paste_dispenser.toolhead),
-            pcb=result.pcb,
             probe_executor=probe_executor,
             height_measurer=height_measurer,
         )
@@ -104,16 +103,16 @@ class PasteSession:
 
         位置合わせ補正と高さ面を含まないので、高さ面を測るプローブや可動域の検証など XY の行き先だけが要る用途に使う。
         """
-        return Compose([self.board_transform, self.toolhead_offset])
+        return Compose([self.board_frame.board_transform, self.toolhead_offset])
 
     @property
     def top_coppers(self) -> tuple[Copper, ...]:
-        return tuple(c for c in self.pcb.copper if c.layer == Layer.TOP)
+        return tuple(c for c in self.board_frame.board.copper if c.layer == Layer.TOP)
 
     @property
     def component_positions(self) -> Mapping[str, Point2d]:
         """Designator → 部品位置（線塗布の走行方向の基準）."""
-        return {c.designator: c.position for c in self.pcb.components}
+        return {c.designator: c.position for c in self.board_frame.board.components}
 
     def measure_height_plane(
         self, coppers: Sequence[Copper] | None = None
@@ -122,14 +121,21 @@ class PasteSession:
         return self.height_measurer.measure(
             coppers=self.top_coppers if coppers is None else coppers,
             board_to_machine=self.board_to_machine,
-            outline=self.pcb.outline.polygon,
+            outline=self.board_frame.board.outline.polygon,
         )
 
     def alignment_session(
         self, *, frame_sink: FrameSink | None = None
     ) -> RegionAlignmentSession:
         """銅箔照合セッション（領域計画・照合・pad 精密照合）を作る."""
-        return RegionAlignmentSession(self.calibration_result, frame_sink=frame_sink)
+        return RegionAlignmentSession(
+            self.board_frame,
+            self.machine,
+            klipper=self.klipper,
+            stage=self.stage,
+            camera=self.camera,
+            frame_sink=frame_sink,
+        )
 
     def plate_transform(self, *, height_plane: HeightPlane) -> Transform:
         """補正を挟まない board → toolhead → 高さ変換を返す.
@@ -170,7 +176,7 @@ class PasteSession:
         位置を撮る。
         銅板のように位置合わせしない対象では ``None`` のままでよい。
         """
-        machine_point = self.board_transform.apply(point)
+        machine_point = self.board_frame.board_transform.apply(point)
         if correction is not None:
             machine_point = correction.apply(machine_point)
         return Point2d(machine_point.x + offset.x, machine_point.y + offset.y)
@@ -178,7 +184,12 @@ class PasteSession:
     def _point_chain(self, correction: Transform, height_plane: Transform) -> Transform:
         """Board → 補正 → toolhead → 高さ の変換列を組む."""
         return Compose(
-            [self.board_transform, correction, self.toolhead_offset, height_plane]
+            [
+                self.board_frame.board_transform,
+                correction,
+                self.toolhead_offset,
+                height_plane,
+            ]
         )
 
     def make_applicator(

@@ -29,7 +29,6 @@ from pcbasm.pasting.flowcalib.lines import (
 )
 from pcbasm.pasting.flowcalib.params import CalibrationParams
 from pcbasm.pasting.flowcalib.procedure import FlowCalibrationProcedure
-from web.api.jobs.board_ops import setup_board
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import (
     JobContext,
@@ -49,6 +48,7 @@ from web.api.jobs.pasting.common import (
     prompt_mass,
     prompt_positive_number,
     run_loading_loop,
+    setup_paste_session,
 )
 
 # 吐出量キャリブレーション統合ジョブ（①rotations_per_ul / ②max_dispense_rate /
@@ -233,11 +233,11 @@ def _run_dispense_calibration(ctx: JobContext) -> JobResult:
         pcb_path = _generate_calibration_board(
             ctx, params.board_width, params.board_height
         )
-        result = setup_board(
+        session = setup_paste_session(
             ctx, camera, tolerance=tolerance, board=load_board(pcb_path)
         )
         ctx.progress("高さ計測")
-        with FlowCalibrationProcedure.setup(result) as procedure:
+        with FlowCalibrationProcedure.setup(session) as procedure:
             results = _calibration_menu_loop(ctx, procedure)
 
     return _dispense_calibration_result(results)

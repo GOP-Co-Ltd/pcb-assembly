@@ -6,27 +6,31 @@ from collections.abc import Callable, Sequence
 
 from pcbasm.align import (
     AlignmentRegion,
-    BoardCalibrationResult,
+    BoardFrame,
     RegionAlignment,
     RegionAlignmentSession,
-    setup_board_calibration,
+    measure_board_frame,
 )
 from pcbasm.board import Board
-from pcbasm.hal import Camera
+from pcbasm.hal import Camera, KlipperClient, XYZStage
 from web.api.jobs.context import JobContext, PromptSpec
 
 
 def setup_board(
     ctx: JobContext,
+    klipper: KlipperClient,
+    stage: XYZStage,
     camera: Camera,
     *,
     tolerance: float | None = None,
     board: Board | None = None,
-) -> BoardCalibrationResult:
+) -> BoardFrame:
     """Progress("セットアップ") → ボード計測セットアップの定型.
 
     Args:
         ctx: 実行中ジョブのコンテキスト
+        klipper: このジョブの Klipper への接続（``ctx.klipper()``）
+        stage: klipper のステージ
         camera: 撮像に使うカメラ
         tolerance: 位置合わせ許容誤差。省略時は ``ctx.params["tolerance"]``
         board: 計測対象の基板。省略時は選択 PCB（``ctx.board()``）
@@ -36,14 +40,14 @@ def setup_board(
     if board is None:
         board = ctx.board()
     ctx.progress("セットアップ")
-    return setup_board_calibration(
-        ctx.devices,
-        machine=ctx.machine,
-        board=board,
-        tolerance=tolerance,
+    return measure_board_frame(
+        board,
+        ctx.machine,
+        klipper=klipper,
+        stage=stage,
         camera=camera,
+        tolerance=tolerance,
         frame_sink=ctx.frame,
-        journal=ctx.journal,
     )
 
 

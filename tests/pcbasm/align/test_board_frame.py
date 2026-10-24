@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from shapely import Polygon, box
 
-from pcbasm.align.board import (
+from pcbasm.align.board_frame import (
     BoardTransformMeasurer,
     Corner,
     corner_offset,

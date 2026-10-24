@@ -1,20 +1,37 @@
-"""Board 座標から機械座標への変換を計測する."""
+"""基板の位置関係（カメラの回転と board → 機械の変換）を計測する."""
 
 import logging
 from collections.abc import Callable
 from enum import Enum, auto
 
+import attrs
 import numpy as np
 
-from pcbasm.board import Outline
+from pcbasm.align.camera_rotation import OffsetTransformMeasurer
+from pcbasm.align.observe import (
+    DETECTION_MAX_ATTEMPTS,
+    DETECTION_RETRY_SEC,
+    OffsetObserver,
+)
+from pcbasm.align.position import XYPositionAdjustor
+from pcbasm.board import Board, Outline
+from pcbasm.config import MachineConfig
 from pcbasm.config.reference_point import CornerOffsetsConfig, ReferencePointConfig
+from pcbasm.gcode import GCode
 from pcbasm.geometry import (
     Compose,
     Matrix2d,
     Point2d,
     Shift,
+    Transform,
 )
-from pcbasm.hal import KlipperClient, Speed, XYZStage
+from pcbasm.hal import Camera, KlipperClient, Speed, XYZStage
+from pcbasm.vision import (
+    CalibrationResult,
+    CircleDetector,
+    FrameSink,
+    safe_move_distance,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -218,3 +235,150 @@ class BoardTransformMeasurer:
             + _board_corner(self._outline, corner)
             + corner_offset(ref.offsets, corner)
         )
+
+
+@attrs.frozen
+class BoardFrame:
+    """計測した基板の位置関係（値）.
+
+    装置（Klipper・ステージ・カメラ）は持たない。使う側が別に受け取る。
+    offset_transform と board_transform の意味は :mod:`pcbasm.align` の冒頭を参照。
+    """
+
+    board: Board
+    calibration: CalibrationResult
+    offset_transform: Transform
+    board_transform: Transform
+
+
+def measure_board_frame(
+    board: Board,
+    machine: MachineConfig,
+    *,
+    klipper: KlipperClient,
+    stage: XYZStage,
+    camera: Camera,
+    tolerance: float,
+    frame_sink: FrameSink | None = None,
+) -> BoardFrame:
+    """ホーミングから Board 変換の計測までを行い、基板の位置関係を返す.
+
+    手順はカメラ準備 → キャリブレーション読込 → ホーミング (G28) → 左上基準点へ移動 → カメラ回転角の計測 → Board 変換の計測。
+
+    この関数自体は終了時の駐機をしない（ジョブ管理が行う）。
+
+    Args:
+        board: 計測する基板
+        machine: マシン設定
+        klipper: Klipper への接続（塗布の本体と同じ timeout 無し）
+        stage: klipper のステージ
+        camera: 使用するカメラ
+        tolerance: 位置合わせの許容誤差 (mm)
+        frame_sink: 検出注釈画像を送る sink。None の場合は表示しない
+
+    Raises:
+        CircleDetectionError: 基準点マーカーを規定回数の再取得でも検出できない場合
+        RuntimeError: 位置補正が収束しない場合、または G-code 送信が失敗した場合
+        ValueError: 基準点配置から Board 変換を決められない場合
+    """
+    outline = board.outline
+    logger.info("Board幅: %.3f mm", outline.width)
+    logger.info("Board高さ: %.3f mm", outline.height)
+
+    # カメラ初期化
+    logger.info("=== カメラ初期化 ===")
+    cam_config = machine.camera
+    logger.info("カメラ: %s", camera.info.name)
+    logger.info("解像度: %sx%s", cam_config.width, cam_config.height)
+
+    # キャリブレーション結果読み込み
+    logger.info("=== キャリブレーション読み込み ===")
+    calibration = CalibrationResult.load(cam_config.calibration_file)
+    logger.info("pixel/mm: %.2f", calibration.pixel_per_mm)
+
+    # 円検出器初期化
+    ref_config = machine.reference_point
+    detector = CircleDetector(
+        pixel_per_mm=calibration.pixel_per_mm,
+        target_diameter_mm=ref_config.target_diameter,
+        crop_size=cam_config.crop.size,
+        diameter_tolerance_mm=0.5,
+    )
+
+    # ホーミング
+    logger.info("=== ホーミング (G28) ===")
+    klipper.send_gcode(GCode.homing(x=True, y=True, z=True) + GCode.wait_for_done())
+    logger.info("ホーミング完了")
+
+    # Reference Point へ移動
+    logger.info("=== Reference Point (top left) へ移動 ===")
+    logger.info("目標位置: (%s, %s)", ref_config.x, ref_config.y)
+    if calibration.z_position is not None:
+        logger.info("キャリブレーションZ位置: %.3f mm", calibration.z_position)
+    settle = machine.settle
+    klipper.send_gcode(
+        stage.move_settled(
+            x=ref_config.x,
+            y=ref_config.y,
+            z=calibration.z_position,
+            settle_sec=settle.move_sec,
+        )
+    )
+    logger.info("移動完了")
+
+    # オフセット検出関数を定義
+    observer = OffsetObserver(
+        detector=detector,
+        camera=camera,
+        crop_size=cam_config.crop.size,
+        frame_sink=frame_sink,
+        sample_count=machine.detection.sample_count,
+        minimum_sample_count=machine.detection.minimum_sample_count,
+        # 有効検出数の下限で判定するようになったため、1 バッチ失敗しただけで
+        # ジョブの最初のステップが止まらないよう撮り直す（塗布痕側と同じ方針）
+        max_attempts=DETECTION_MAX_ATTEMPTS,
+        retry_sec=DETECTION_RETRY_SEC,
+    )
+
+    # カメラ回転角の計測（2 点法）
+    logger.info("=== カメラ回転角の計測 ===")
+    move_distance = (
+        safe_move_distance(cam_config.crop.size, margin=0.3) / calibration.pixel_per_mm
+    )
+    offset_transform_measurer = OffsetTransformMeasurer(
+        observe=observer.observe,
+        klipper=klipper,
+        stage=stage,
+        move_distance=move_distance,
+        settle_sec=settle.move_sec,
+    )
+    offset_transform = offset_transform_measurer.measure()
+
+    # 位置補正を行い最終座標を返す関数を定義
+    position_adjustor = XYPositionAdjustor(
+        observe=observer.observe,
+        klipper=klipper,
+        stage=stage,
+        offset_transform=offset_transform,
+        tolerance=tolerance,
+        settle_sec=settle.move_sec,
+    )
+
+    # Board 変換の計測
+    logger.info("=== Board変換の計測 ===")
+    board_transform_measurer = BoardTransformMeasurer(
+        adjust_reference=position_adjustor.adjust,
+        klipper=klipper,
+        stage=stage,
+        outline=outline,
+        reference_point=ref_config,
+        settle_sec=settle.move_sec,
+    )
+    board_transform = board_transform_measurer.measure()
+
+    return BoardFrame(
+        board=board,
+        calibration=calibration,
+        offset_transform=offset_transform,
+        board_transform=board_transform,
+    )

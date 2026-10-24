@@ -15,7 +15,7 @@ import shapely
 from pcbasm.align import (
     AlignmentRegion,
     BoardAlignment,
-    BoardCalibrationResult,
+    BoardFrame,
     EdgeMatch,
     RegionAlignment,
 )
@@ -71,11 +71,8 @@ def paste_session(
 
     ``machine`` を省くと testing の machine.toml を使う。
     """
-    result = BoardCalibrationResult(
-        machine=machine or load_machine(TESTING_CONFIG_DIR / "machine.toml"),
-        klipper=klipper,
-        stage=XYZStage(klipper),
-        camera=camera,
+    board_frame = BoardFrame(
+        board=load_board(LED_BLINKER),
         calibration=CalibrationResult(
             pixel_per_mm=PPM,
             square_size_mm=1.0,
@@ -88,9 +85,14 @@ def paste_session(
         ),
         offset_transform=Identity(),
         board_transform=Shift(100.0, 50.0),
-        pcb=load_board(LED_BLINKER),
     )
-    return PasteSession.from_calibration(result)
+    return PasteSession.from_board_frame(
+        board_frame,
+        machine or load_machine(TESTING_CONFIG_DIR / "machine.toml"),
+        klipper=klipper,
+        stage=XYZStage(klipper),
+        camera=camera,
+    )
 
 
 def full_board_correction() -> PasteCorrection:

@@ -64,7 +64,7 @@ def run_flow_calibration(
         ctx.log(f"流量キャリブレーション: 校正を読めないので補正しません: {error}")
         return None
 
-    pixel_per_mm = session.calibration.pixel_per_mm
+    pixel_per_mm = session.board_frame.calibration.pixel_per_mm
     crop_size_px, error = crop_pixel_size(plan.crop_size_mm, pixel_per_mm)
     if crop_size_px is None:
         ctx.log(f"流量キャリブレーション: crop 寸法を決められません: {error}")

@@ -19,13 +19,15 @@ from shapely import Point as ShapelyPoint, Polygon
 from pcbasm.align import (
     DETECTION_MAX_ATTEMPTS,
     DETECTION_RETRY_SEC,
-    BoardCalibrationResult,
+    BoardFrame,
     CircleDetectionError,
     OffsetObserver,
     XYPositionAdjustor,
 )
+from pcbasm.config import MachineConfig
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d, Shift
+from pcbasm.hal import Camera, KlipperClient, XYZStage
 from pcbasm.pasting.applicator import PasteApplicator, build_applicator
 from pcbasm.pasting.probe import ProbeExecutor
 from pcbasm.pasting.session import toolhead_transform
@@ -338,8 +340,12 @@ class ToolheadOffsetProcedure:
 
     def __init__(
         self,
-        result: BoardCalibrationResult,
+        board_frame: BoardFrame,
+        machine: MachineConfig,
         *,
+        klipper: KlipperClient,
+        stage: XYZStage,
+        camera: Camera,
         tolerance: float,
         lift_height: float,
         diameter_min: float,
@@ -347,10 +353,14 @@ class ToolheadOffsetProcedure:
         point_spacing: float,
         frame_sink: FrameSink | None = None,
     ) -> None:
-        """Board 計測結果と計測パラメータから HAL と検出器を配線する.
+        """基板の位置関係・装置・計測パラメータから検出器を配線する.
 
         Args:
-            result: ボードキャリブレーション結果
+            board_frame: 計測済みの基板の位置関係
+            machine: マシン設定
+            klipper: Klipper への接続
+            stage: klipper のステージ
+            camera: 使用するカメラ
             tolerance: 位置合わせ許容誤差 [mm]（円検出の標準偏差上限にも使う）
             lift_height: 吐出後の上昇高さ [mm]
             diameter_min: 検出円の最小直径 [mm]
@@ -358,34 +368,34 @@ class ToolheadOffsetProcedure:
             point_spacing: 計測点の最小間隔 [mm]（円検出 ROI の一辺に使う）
             frame_sink: 検出注釈画像を送る sink
         """
-        machine = result.machine
-        self._klipper = result.klipper
-        self._stage = result.stage
-        self._camera = result.camera
-        self._calibration = result.calibration
-        self._board_transform = result.board_transform
+        calibration = board_frame.calibration
+        self._klipper = klipper
+        self._stage = stage
+        self._camera = camera
+        self._calibration = calibration
+        self._board_transform = board_frame.board_transform
         self._dispenser_config = machine.paste_dispenser
         self._toolhead_transform = toolhead_transform(machine.paste_dispenser.toolhead)
         self._lift_height = lift_height
         # 静定・サンプリングは機体設定の値を使う（他の計測と同じ現象・同じ検出器）
         self._settle_sec = machine.settle.move_sec
         self._probe_executor = ProbeExecutor(
-            klipper=result.klipper,
-            stage=result.stage,
+            klipper=klipper,
+            stage=stage,
             lift_height=machine.probe.lift_height,
             settle_sec=machine.settle.probe_sec,
         )
-        roi_side = max(1, round(point_spacing * result.calibration.pixel_per_mm))
+        roi_side = max(1, round(point_spacing * calibration.pixel_per_mm))
         self._roi_size = (roi_side, roi_side)
         detector = PasteDotDetector(
-            pixel_per_mm=result.calibration.pixel_per_mm,
+            pixel_per_mm=calibration.pixel_per_mm,
             diameter_min_mm=diameter_min,
             diameter_max_mm=diameter_max,
             crop_size=self._roi_size,
         )
         observer = OffsetObserver(
             detector=detector,
-            camera=result.camera,
+            camera=camera,
             crop_size=self._roi_size,
             frame_sink=frame_sink,
             sample_count=machine.detection.sample_count,
@@ -397,9 +407,9 @@ class ToolheadOffsetProcedure:
         self._adjustor = XYPositionAdjustor(
             settle_sec=machine.settle.move_sec,
             observe=observer.observe,
-            klipper=result.klipper,
-            stage=result.stage,
-            offset_transform=result.offset_transform,
+            klipper=klipper,
+            stage=stage,
+            offset_transform=board_frame.offset_transform,
             tolerance=tolerance,
         )
 

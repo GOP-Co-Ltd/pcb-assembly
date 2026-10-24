@@ -12,7 +12,7 @@ from collections.abc import Callable, Iterable
 
 import pytest
 
-from pcbasm.align.offset import OffsetTransformMeasurer
+from pcbasm.align.camera_rotation import OffsetTransformMeasurer
 from pcbasm.geometry import Point2d, Point3d, Rotation, Shift, Transform
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FakeKlipper

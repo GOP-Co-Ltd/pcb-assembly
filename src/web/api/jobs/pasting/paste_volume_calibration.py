@@ -69,7 +69,6 @@ from pcbasm.pasting.paste_volume.plot import (
 from pcbasm.pasting.session import PasteSession
 from pcbasm.vision import CalibrationResult
 from pcbasm.vision.crop import RectCrop, crop_pixel_size
-from web.api.jobs.board_ops import setup_board
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import (
     Artifact,
@@ -87,6 +86,7 @@ from web.api.jobs.pasting.common import (
     LOADING_DEFAULT_ROTATIONS,
     prompt_positive_number,
     run_loading_loop,
+    setup_paste_session,
 )
 from web.api.jobs.pasting.paste_volume_common import (
     COLLECTED_SAVE_NAME_PARAM,
@@ -493,7 +493,7 @@ def _generate_plate(ctx: JobContext, width: float, height: float) -> Path:
 def _measure_plate_height(session: PasteSession) -> HeightPlane:
     """銅板外形を銅箔とみなして高さ面を計測する（生成板は TOP 銅箔を持たない）."""
     return session.measure_height_plane(
-        [Copper(layer=Layer.TOP, polygon=session.pcb.outline.polygon)]
+        [Copper(layer=Layer.TOP, polygon=session.board_frame.board.outline.polygon)]
     )
 
 
@@ -516,7 +516,10 @@ def _check_reach(
     limits = session.stage.limits
     for error in (
         validate_capture_reach(
-            plan, views, board_to_stage=session.board_transform, limits=limits
+            plan,
+            views,
+            board_to_stage=session.board_frame.board_transform,
+            limits=limits,
         ),
         validate_dispense_reach(
             plan, board_to_machine=session.board_to_machine, limits=limits
@@ -599,8 +602,7 @@ def _run_paste_volume_calibration(ctx: JobContext) -> JobResult:
 
     with ctx.open_camera() as camera:
         plate_path = _generate_plate(ctx, spec.plate_width_mm, spec.plate_height_mm)
-        result = setup_board(ctx, camera, board=load_board(plate_path))
-        session = PasteSession.from_calibration(result)
+        session = setup_paste_session(ctx, camera, board=load_board(plate_path))
         _check_reach(session, plan, views)
         ctx.progress("高さ計測")
         height_plane = _measure_plate_height(session)
@@ -693,7 +695,7 @@ def _run_paste_volume_calibration(ctx: JobContext) -> JobResult:
                 ),
                 started_at=started_at,
                 dispenser=dispenser_config,
-                calibration=result.calibration,
+                calibration=session.board_frame.calibration,
             )
             # 計量質量は装置の外から来る唯一の値なので、それ以外を先に永続化する。
             # プロンプトへ応答できないまま停止しても、撮影済み画像の教師値が残る。

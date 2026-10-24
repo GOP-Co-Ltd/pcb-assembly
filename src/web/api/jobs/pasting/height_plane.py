@@ -11,11 +11,10 @@ from pcbasm.pasting.height import (
     render_height_plane,
     render_planned_points,
 )
-from pcbasm.pasting.session import PasteSession
 from pcbasm.vision import Image
-from web.api.jobs.board_ops import setup_board
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import JobAborted, JobContext, JobResult, PromptSpec
+from web.api.jobs.pasting.common import setup_paste_session
 
 
 def register(catalog: JobCatalog) -> None:
@@ -83,8 +82,7 @@ def _run_height_plane(ctx: JobContext) -> JobResult:
         raise JobAborted()
 
     with ctx.open_camera() as camera:
-        result = setup_board(ctx, camera)
-        session = PasteSession.from_calibration(result)
+        session = setup_paste_session(ctx, camera)
         ctx.progress("高さ計測")
         height_plane = session.measure_height_plane(top_coppers)
 

@@ -18,7 +18,7 @@ import attrs
 import pytest
 from shapely import Polygon
 
-from pcbasm.align import BoardCalibrationResult
+from pcbasm.align import BoardFrame
 from pcbasm.geometry import Identity
 from pcbasm.hal import Camera, XYZStage
 from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper
@@ -223,17 +223,17 @@ class TestFlowCalibration:
             )
             assert plan is not None, error
             with ctx.open_camera() as camera:
-                session = PasteSession.from_calibration(
-                    BoardCalibrationResult(
-                        machine=ctx.machine,
-                        klipper=machine_klipper,
-                        stage=XYZStage(machine_klipper),
-                        camera=camera,
+                session = PasteSession.from_board_frame(
+                    BoardFrame(
+                        board=pcb,
                         calibration=CALIBRATION,
                         offset_transform=Identity(),
                         board_transform=BOARD_PLACEMENT,
-                        pcb=pcb,
-                    )
+                    ),
+                    ctx.machine,
+                    klipper=machine_klipper,
+                    stage=XYZStage(machine_klipper),
+                    camera=camera,
                 )
                 with session.make_applicator() as applicator:
                     outcomes.append(

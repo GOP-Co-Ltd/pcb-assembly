@@ -7,25 +7,27 @@ Board 巡回の実行・ユーザー入力・フレーム配信は `web/api/jobs
 
 ## 構成
 
-| モジュール         | 役割                                                                                                 |
-| ------------------ | ---------------------------------------------------------------------------------------------------- |
-| `setup.py`         | マシン初期化から Board 変換計測までを行う `setup_board_calibration`                                  |
-| `board.py`         | 4 隅の基準点から Board 座標 → 機械座標の 6 パラメータ affine を最小二乗推定 `BoardTransformMeasurer` |
-| `offset.py`        | 観測座標（カメラ）→ 機械座標の回転を 2 点法で計測 `OffsetTransformMeasurer`                          |
-| `position.py`      | 観測結果が許容誤差に収まるまで XY 位置を反復補正 `XYPositionAdjustor`                                |
-| `orthogonality.py` | Board 変換から直交性指標を出す純粋計算 `OrthogonalityMetrics`                                        |
-| `copper.py`        | 設計銅箔のカメラ投影 `CopperProjector` と観測エッジとの照合 `CopperEdgeMatcher`（chamfer、並進のみ） |
-| `correction.py`    | カメラ空間の照合結果を機械座標の補正 `Transform` へ変換 `to_machine_transform`                       |
-| `region.py`        | 銅箔照合領域の計画 `plan_alignment_regions`                                                          |
-| `aligner.py`       | 1 領域の反復計測 `RegionAligner` → `RegionAlignment`                                                 |
-| `alignment.py`     | 全領域の計測 `RegionAlignmentSession` と pad ごとの補正選択 `BoardAlignment`                         |
-| `render.py`        | 位置合わせ・巡回のプレビュー画像合成（cv2 GUI 非依存）                                               |
-| `scene.py`         | シミュレーションのカメラに映す基板（4 隅の基準円と TOP 銅箔）`board_scene`                           |
+| モジュール           | 役割                                                                                                                                                                                                         |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `board_frame.py`     | ホーミングから Board 変換計測までを行い、基板の位置関係 `BoardFrame`（値）を返す `measure_board_frame`。4 隅の基準点から Board 座標 → 機械座標の 6 パラメータ affine を最小二乗推定 `BoardTransformMeasurer` |
+| `observe.py`         | 画像中心からのずれを観測する `OffsetObserver`                                                                                                                                                                |
+| `camera_rotation.py` | 観測座標（カメラ）→ 機械座標の回転を 2 点法で計測 `OffsetTransformMeasurer`                                                                                                                                  |
+| `position.py`        | 観測結果が許容誤差に収まるまで XY 位置を反復補正 `XYPositionAdjustor`                                                                                                                                        |
+| `orthogonality.py`   | Board 変換から直交性指標を出す純粋計算 `OrthogonalityMetrics`                                                                                                                                                |
+| `copper.py`          | 設計銅箔のカメラ投影 `CopperProjector` と観測エッジとの照合 `CopperEdgeMatcher`（chamfer、並進のみ）                                                                                                         |
+| `correction.py`      | カメラ空間の照合結果を機械座標の補正 `Transform` へ変換 `to_machine_transform`                                                                                                                               |
+| `region.py`          | 銅箔照合領域の計画 `plan_alignment_regions`                                                                                                                                                                  |
+| `aligner.py`         | 1 領域の反復計測 `RegionAligner` → `RegionAlignment`                                                                                                                                                         |
+| `alignment.py`       | 全領域の計測 `RegionAlignmentSession` と pad ごとの補正選択 `BoardAlignment`                                                                                                                                 |
+| `render.py`          | 位置合わせ・巡回のプレビュー画像合成（cv2 GUI 非依存）                                                                                                                                                       |
+| `scene.py`           | シミュレーションのカメラに映す基板（4 隅の基準円と TOP 銅箔）`board_scene`                                                                                                                                   |
 
 公開名は `pcbasm.align` から re-export している。
 
 Board / オフセット調整用の観測は `observe() -> Transform`
-（カメラ mm 空間、原点=画像中心、想定→観測）契約の observer で統一している（`setup.OffsetObserver`）。
+（カメラ mm 空間、原点=画像中心、想定→観測）契約の observer で統一している（`observe.OffsetObserver`）。
+
+`BoardFrame` は計測した値だけを持つ。Klipper・ステージ・カメラは使う側（ジョブ）が用意し（`ctx.klipper()` とそれを包む `XYZStage`、`ctx.open_camera()`）、計測と照合の各部品へ別に渡す。
 
 ## 銅箔位置合わせの仕様
 

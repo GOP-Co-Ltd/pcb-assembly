@@ -11,13 +11,9 @@ from typing import Any
 
 import attrs
 
-from pcbasm.align import (
-    BoardAlignment,
-    BoardCalibrationResult,
-    RegionAlignmentSession,
-)
-from pcbasm.board import Pad
-from pcbasm.hal import KlipperClient, XYZStage
+from pcbasm.align import BoardAlignment, RegionAlignmentSession
+from pcbasm.board import Board, Pad
+from pcbasm.hal import Camera, KlipperClient, XYZStage
 from pcbasm.pasting.alignment import (
     PadRefinement,
     PasteCorrection,
@@ -27,7 +23,7 @@ from pcbasm.pasting.alignment import (
 from pcbasm.pasting.applicator import PasteApplicator
 from pcbasm.pasting.session import PasteSession
 from pcbasm.validators import is_finite_number
-from web.api.jobs.board_ops import align_regions
+from web.api.jobs.board_ops import align_regions, setup_board
 from web.api.jobs.context import JobContext, PromptSpec
 from web.api.jobs.machine_commands import handle_machine_command
 
@@ -315,7 +311,6 @@ def apply_to_machine_toml(ctx: JobContext, values: Mapping[str, float]) -> None:
 class PreparedPasteWorkflow:
     """通常塗布と dataset 収集が共有する計測・位置合わせ結果とその要約."""
 
-    session: PasteSession
     alignment_session: RegionAlignmentSession
     correction: PasteCorrection
     aligned_count: int
@@ -331,15 +326,35 @@ class PreparedPasteWorkflow:
         )
 
 
+def setup_paste_session(
+    ctx: JobContext,
+    camera: Camera,
+    *,
+    tolerance: float | None = None,
+    board: Board | None = None,
+) -> PasteSession:
+    """ボード計測セットアップ（:func:`setup_board`）から塗布セッションを組む定型.
+
+    Klipper はこのジョブの接続（``ctx.klipper()``）を使う。
+    引数は :func:`setup_board` と同じ。
+    """
+    klipper = ctx.klipper()
+    stage = XYZStage(klipper)
+    board_frame = setup_board(
+        ctx, klipper, stage, camera, tolerance=tolerance, board=board
+    )
+    return PasteSession.from_board_frame(
+        board_frame, ctx.machine, klipper=klipper, stage=stage, camera=camera
+    )
+
+
 def prepare_paste_workflow(
     ctx: JobContext,
-    result: BoardCalibrationResult,
+    session: PasteSession,
     *,
     alignment_pads: Sequence[Pad],
 ) -> PreparedPasteWorkflow:
     """高さ計測 → 銅箔領域照合 → pad 中心精密照合を通し、pad 別変換の材料を揃える."""
-    session = PasteSession.from_calibration(result)
-
     ctx.progress("高さ計測")
     height_plane = session.measure_height_plane()
 
@@ -351,7 +366,7 @@ def prepare_paste_workflow(
     _check_all_pads_correctable(alignment, alignment_pads)
     ctx.log(f"位置合わせ成功: {len(aligned)}/{len(regions)} 領域")
 
-    max_short_side = result.machine.alignment.refine_max_short_side
+    max_short_side = session.machine.alignment.refine_max_short_side
     targets = refinement_targets(alignment_pads, max_short_side_mm=max_short_side)
     ctx.log(
         f"pad中心照合対象: {len(targets)}/{len(alignment_pads)} pads "
@@ -363,7 +378,7 @@ def prepare_paste_workflow(
         ctx.checkpoint()
         refinement = refine_pad(
             alignment_session,
-            board_transform=session.board_transform,
+            board_transform=session.board_frame.board_transform,
             alignment=alignment,
             pad=pad,
         )
@@ -387,7 +402,6 @@ def prepare_paste_workflow(
     _check_all_pads_correctable(alignment, alignment_pads)
 
     return PreparedPasteWorkflow(
-        session=session,
         alignment_session=alignment_session,
         correction=PasteCorrection(alignment=alignment, height_plane=height_plane),
         aligned_count=len(aligned),

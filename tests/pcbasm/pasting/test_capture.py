@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 import shapely
 
-from pcbasm.align import BoardCalibrationResult
+from pcbasm.align import BoardFrame
 from pcbasm.board import Copper, Layer
 from pcbasm.config import MachineConfig, load_machine
 from pcbasm.geometry import Identity, Point2d, Shift
@@ -48,11 +48,8 @@ def _frame(width: int, height: int) -> Image:
 def _session(
     camera: FakeCamera, klipper: FakeKlipper, machine: MachineConfig | None = None
 ) -> PasteSession:
-    result = BoardCalibrationResult(
-        machine=machine or load_machine(TESTING_CONFIG_DIR / "machine.toml"),
-        klipper=klipper,
-        stage=XYZStage(klipper),
-        camera=camera,
+    board_frame = BoardFrame(
+        board=load_board(LED_BLINKER),
         calibration=CalibrationResult(
             pixel_per_mm=PPM,
             square_size_mm=1.0,
@@ -65,9 +62,14 @@ def _session(
         ),
         offset_transform=Identity(),
         board_transform=Shift(BOARD_SHIFT.x, BOARD_SHIFT.y),
-        pcb=load_board(LED_BLINKER),
     )
-    return PasteSession.from_calibration(result)
+    return PasteSession.from_board_frame(
+        board_frame,
+        machine or load_machine(TESTING_CONFIG_DIR / "machine.toml"),
+        klipper=klipper,
+        stage=XYZStage(klipper),
+        camera=camera,
+    )
 
 
 def _capturer(
