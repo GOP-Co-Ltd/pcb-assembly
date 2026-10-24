@@ -13,7 +13,7 @@ from pcbasm.board import Board
 from pcbasm.config import MachineConfig
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Shift, Transform
-from pcbasm.hal import Camera, Klipper, XYZStage, create_camera
+from pcbasm.hal import Camera, KlipperClient, XYZStage, create_camera
 from pcbasm.machine.journal import Journal
 from pcbasm.posctrl.board import BoardTransformMeasurer
 from pcbasm.posctrl.offset import OffsetTransformMeasurer
@@ -180,7 +180,7 @@ class BoardCalibrationResult:
     """
 
     machine: MachineConfig
-    klipper: Klipper
+    klipper: KlipperClient
     stage: XYZStage
     camera: Camera
     calibration: CalibrationResult
@@ -227,9 +227,11 @@ def setup_board_calibration(
 
     # Klipper 接続
     logger.info("=== Klipper接続 ===")
-    klipper = hal.open_klipper(machine.klipper, journal=journal)
+    klipper = hal.open_klipper(
+        machine.klipper.host, machine.klipper.port, journal=journal
+    )
     logger.info("接続先: %s:%s", machine.klipper.host, machine.klipper.port)
-    stage = XYZStage(klipper.readonly)
+    stage = XYZStage(klipper)
 
     # カメラ初期化
     logger.info("=== カメラ初期化 ===")

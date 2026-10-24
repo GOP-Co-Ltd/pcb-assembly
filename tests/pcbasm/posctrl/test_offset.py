@@ -5,16 +5,16 @@
 
 新契約: observe() -> Transform。内部で o_i = observe().apply(Point2d(0, 0)) と
 縮約し、measure() は不変（(A2) アンカー: R = Rotation.from_points(Δs, o2 − o1)）。
-klipper / stage は自前 HAL のため mocker.Mock を使用する。
+klipper は FakeKlipper、stage はその上の実 XYZStage を使う。
 """
 
 from collections.abc import Callable, Iterable
 
 import pytest
-from pytest_mock import MockerFixture
 
-from pcbasm import gcode
 from pcbasm.geometry import Point2d, Point3d, Rotation, Shift, Transform
+from pcbasm.hal import XYZStage
+from pcbasm.hal.fake import FakeKlipper
 from pcbasm.posctrl.offset import OffsetTransformMeasurer
 
 
@@ -28,16 +28,14 @@ class TestOffsetTransformMeasurer:
     """OffsetTransformMeasurer の2点法計測のテスト."""
 
     @pytest.fixture
-    def klipper(self, mocker: MockerFixture):
-        return mocker.Mock()
+    def klipper(self) -> FakeKlipper:
+        klipper = FakeKlipper()
+        klipper.set_status("gcode_move", "gcode_position", [5.0, 6.0, 7.0, 0.0])
+        return klipper
 
     @pytest.fixture
-    def stage(self, mocker: MockerFixture):
-        stage = mocker.Mock()
-        stage.max_velocity = 100.0
-        stage.get_position.return_value = Point3d(5.0, 6.0, 7.0)
-        stage.move.return_value = gcode.GCode("G1")
-        return stage
+    def stage(self, klipper: FakeKlipper) -> XYZStage:
+        return XYZStage(klipper)
 
     @pytest.mark.parametrize(
         ("o1", "o2", "expected_degrees"),
@@ -84,13 +82,9 @@ class TestOffsetTransformMeasurer:
 
         measurer.measure()
 
-        assert stage.move.call_count == 2
-        out_kwargs = stage.move.call_args_list[0].kwargs
-        assert out_kwargs["x"] == pytest.approx(10.0)
-        assert out_kwargs["y"] == pytest.approx(0.0)
-        assert out_kwargs["relative"] is True
-        back_kwargs = stage.move.call_args_list[1].kwargs
-        assert back_kwargs["x"] == pytest.approx(5.0)
-        assert back_kwargs["y"] == pytest.approx(6.0)
-        assert back_kwargs["z"] == pytest.approx(7.0)
-        assert klipper.send_gcode.call_count == 2
+        assert klipper.g1_moves() == [
+            {"x": 15.0, "y": 6.0, "f": 3000.0},
+            {"x": 5.0, "y": 6.0, "z": 7.0, "f": 3000.0},
+        ]
+        assert len(klipper.sent) == 2
+        assert stage.get_position() == Point3d(5.0, 6.0, 7.0)

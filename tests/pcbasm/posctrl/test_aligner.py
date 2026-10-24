@@ -81,7 +81,7 @@ def _aligner(
     camera: Camera | None = None,
 ) -> RegionAligner:
     klipper = klipper or FakeKlipper(PRINTER_CONFIG)
-    stage = XYZStage(klipper.readonly)
+    stage = XYZStage(klipper)
     projector = CopperProjector(
         polygons=[shapely.box(-0.4, -0.4, 0.4, 0.4)],
         board_transform=Identity(),
@@ -152,7 +152,7 @@ class TestRegionAligner:
     def test_captures_every_pass_at_camera_focus_z(self):
         klipper = FakeKlipper(PRINTER_CONFIG)
         camera = _PositionRecordingCamera(
-            [_image(15, 0), _image(5, 0)], XYZStage(klipper.readonly)
+            [_image(15, 0), _image(5, 0)], XYZStage(klipper)
         )
         aligner = _aligner(
             [(15, 0), (5, 0)],

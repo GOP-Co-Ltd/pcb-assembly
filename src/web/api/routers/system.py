@@ -6,10 +6,12 @@ from collections.abc import Callable
 
 from fastapi import APIRouter
 
-from pcbasm.hal import Klipper, XYZStage
+from pcbasm.gcode import GCode
+from pcbasm.hal import KlipperClient, XYZStage
 from web.api.dependencies import ControlDep, JobsDep, StateDep, UpdateDep
+from web.api.errors import hal_errors_to_502
 from web.api.jobs.manager import JobManager
-from web.api.routers.common import create_klipper, fetch_status, klipper_errors_to_502
+from web.api.routers.common import create_klipper, fetch_status
 from web.api.state import AppState
 from web.contract.models import FirmwareRestartResponse, KlipperStatus
 from web.selfupdate.service import restart_scheduled_notice
@@ -27,10 +29,10 @@ def get_klipper_status(state: StateDep) -> KlipperStatus:
 
 @router.get("/stage/limits")
 def get_stage_limits(state: StateDep) -> dict[str, dict[str, float]]:
-    """選択マシンの XYZ 可動域を返す（Moonraker 不通は 502）."""
+    """選択マシンの XYZ 可動域を返す（Moonraker 不通と printer.cfg の不備は 502）."""
     klipper = create_klipper(state, STATUS_TIMEOUT)
-    with klipper_errors_to_502():
-        limits = XYZStage(klipper.readonly).limits
+    with hal_errors_to_502():
+        limits = XYZStage(klipper).limits
     return {
         "x": {"min": limits.x.min, "max": limits.x.max},
         "y": {"min": limits.y.min, "max": limits.y.max},
@@ -39,14 +41,12 @@ def get_stage_limits(state: StateDep) -> dict[str, dict[str, float]]:
 
 
 def _klipper_action(
-    state: AppState, jobs: JobManager, action: Callable[[Klipper], None]
+    state: AppState, jobs: JobManager, action: Callable[[KlipperClient], object]
 ) -> dict[str, bool]:
     """Abort 要求を立ててから Klipper へアクションを送る（不通は 502）."""
     # Klipper 送信が失敗しても abort フラグは必ず立てる（先頭で実行）
     jobs.request_abort()
-    klipper = create_klipper(state, STATUS_TIMEOUT)
-    with klipper_errors_to_502():
-        action(klipper)
+    action(create_klipper(state, STATUS_TIMEOUT))
     return {"ok": True}
 
 
@@ -71,7 +71,9 @@ def post_firmware_restart(
     順序は「Klipper へ送る → unit を再起動」。逆にすると、Moonraker へ届かなかった
     場合でも画面だけが止まる。Klipper 送信が失敗した時点で 502 を返して中断する。
     """
-    _klipper_action(state, jobs, Klipper.firmware_restart)
+    _klipper_action(
+        state, jobs, lambda klipper: klipper.send_gcode(GCode.firmware_restart())
+    )
     units = update.restart_units()
     warning = update.restart_services() or ""
     return FirmwareRestartResponse(

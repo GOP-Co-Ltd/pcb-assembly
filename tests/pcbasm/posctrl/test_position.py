@@ -6,15 +6,13 @@
 新契約: observe() -> Transform（カメラ mm 空間・想定→観測）。ループ内で
 offset = offset_transform.apply(observe().apply(Point2d(0, 0))) として変位へ
 縮約し、補正式 target = pos − offset（(A4) アンカー）は従来と不変。
-klipper / stage は自前 HAL のため mocker.Mock を使用する。
+klipper は FakeKlipper、stage はその上の実 XYZStage を使う（移動するとステージの位置も変わる）。
 """
 
 from collections.abc import Callable, Iterable
 
 import pytest
-from pytest_mock import MockerFixture
 
-from pcbasm import gcode
 from pcbasm.geometry import (
     Compose,
     Identity,
@@ -24,6 +22,8 @@ from pcbasm.geometry import (
     Shift,
     Transform,
 )
+from pcbasm.hal import XYZStage
+from pcbasm.hal.fake import FakeKlipper
 from pcbasm.posctrl.position import XYPositionAdjustor
 
 
@@ -37,16 +37,14 @@ class TestXYPositionAdjustor:
     """XYPositionAdjustor の収束・符号・例外のテスト."""
 
     @pytest.fixture
-    def klipper(self, mocker: MockerFixture):
-        return mocker.Mock()
+    def klipper(self) -> FakeKlipper:
+        klipper = FakeKlipper()
+        klipper.set_status("gcode_move", "gcode_position", [10.0, 20.0, 5.0, 0.0])
+        return klipper
 
     @pytest.fixture
-    def stage(self, mocker: MockerFixture):
-        stage = mocker.Mock()
-        stage.max_velocity = 100.0
-        stage.get_position.return_value = Point3d(10.0, 20.0, 5.0)
-        stage.move.return_value = gcode.GCode("G1")
-        return stage
+    def stage(self, klipper: FakeKlipper) -> XYZStage:
+        return XYZStage(klipper)
 
     def test_adjust_converges_with_shrinking_shifts_and_returns_final_target(
         self, klipper, stage
@@ -54,7 +52,7 @@ class TestXYPositionAdjustor:
         """縮小する Shift 列で収束し、最終目標 pos − offset を返す.
 
         1回目 (0.4,−0.2) は tolerance=0.1 超 → (9.6, 20.2) へ補正移動。 2回目
-        (0.02,0.01) で収束 → 戻り値 (9.98, 19.99)。
+        (0.02,0.01) で収束 → 戻り値 (9.58, 20.19)。
         """
         observe = _sequence([Shift(0.4, -0.2), Shift(0.02, 0.01)])
         adjustor = XYPositionAdjustor(
@@ -68,13 +66,12 @@ class TestXYPositionAdjustor:
 
         result = adjustor.adjust()
 
-        assert result.x == pytest.approx(9.98)
-        assert result.y == pytest.approx(19.99)
-        assert stage.move.call_count == 1
-        kwargs = stage.move.call_args.kwargs
-        assert kwargs["x"] == pytest.approx(9.6)
-        assert kwargs["y"] == pytest.approx(20.2)
-        assert klipper.send_gcode.call_count == 1
+        assert result.x == pytest.approx(9.58)
+        assert result.y == pytest.approx(20.19)
+        assert klipper.g1_moves() == [
+            {"x": pytest.approx(9.6), "y": pytest.approx(20.2), "f": 3000.0}
+        ]
+        assert len(klipper.sent) == 1
 
     def test_offset_transform_rotates_observed_displacement_into_machine_space(
         self, klipper, stage
@@ -82,7 +79,7 @@ class TestXYPositionAdjustor:
         """符号ピン: 観測 (1,0)mm + offset_transform=Rotation(90) → 補正 −(0,1).
 
         offset = R(o) = (0,1)、target = pos − offset = (10, 19)。 R⁻¹
-        を適用する実装はここで割れる。
+        を適用する実装はここで割れる。2回目は (10, 19) で収束する。
         """
         observe = _sequence([Shift(1.0, 0.0), Shift(0.0, 0.0)])
         adjustor = XYPositionAdjustor(
@@ -96,11 +93,11 @@ class TestXYPositionAdjustor:
 
         result = adjustor.adjust()
 
-        kwargs = stage.move.call_args.kwargs
-        assert kwargs["x"] == pytest.approx(10.0)
-        assert kwargs["y"] == pytest.approx(19.0)
+        (move,) = klipper.g1_moves()
+        assert move["x"] == pytest.approx(10.0)
+        assert move["y"] == pytest.approx(19.0)
         assert result.x == pytest.approx(10.0)
-        assert result.y == pytest.approx(20.0)
+        assert result.y == pytest.approx(19.0)
 
     def test_rotation_component_of_observed_transform_reduces_to_translation(
         self, klipper, stage
@@ -127,9 +124,9 @@ class TestXYPositionAdjustor:
 
         adjustor.adjust()
 
-        kwargs = stage.move.call_args.kwargs
-        assert kwargs["x"] == pytest.approx(9.7)
-        assert kwargs["y"] == pytest.approx(20.0)
+        (move,) = klipper.g1_moves()
+        assert move["x"] == pytest.approx(9.7)
+        assert move["y"] == pytest.approx(20.0)
 
     def test_adjust_raises_when_not_converged_within_max_iterations(
         self, klipper, stage
@@ -149,4 +146,4 @@ class TestXYPositionAdjustor:
             adjustor.adjust()
 
         assert "収束しませんでした" in str(exc.value)
-        assert klipper.send_gcode.call_count == 3
+        assert len(klipper.sent) == 3

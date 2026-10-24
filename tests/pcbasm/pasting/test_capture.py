@@ -51,7 +51,7 @@ def _session(
     result = BoardCalibrationResult(
         machine=machine or load_machine(TESTING_CONFIG_DIR / "machine.toml"),
         klipper=klipper,
-        stage=XYZStage(klipper.readonly),
+        stage=XYZStage(klipper),
         camera=camera,
         calibration=CalibrationResult(
             pixel_per_mm=PPM,

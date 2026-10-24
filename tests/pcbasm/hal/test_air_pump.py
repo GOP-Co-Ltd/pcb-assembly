@@ -1,32 +1,19 @@
 import pytest
-from pytest_mock import MockerFixture
 
 from pcbasm.hal.air_pump import AirPump
-from pcbasm.hal.klipper import Klipper
+from pcbasm.hal.fake import FakeKlipper
 
 
 class TestAirPump:
     @pytest.fixture
-    def mock_klipper(self, mocker: MockerFixture):
-        klipper = Klipper("127.0.0.1", 7126)
-        mocker.patch.object(
-            klipper.readonly,
-            "get_config",
-            return_value={"output_pin air_pump": {}},
-        )
-        return klipper
+    def air_pump(self) -> AirPump:
+        return AirPump(FakeKlipper({"output_pin air_pump": {}}))
 
-    @pytest.fixture
-    def air_pump(self, mock_klipper: Klipper) -> AirPump:
-        return AirPump(mock_klipper.readonly)
-
-    def test_init_missing_section(self, mocker: MockerFixture):
-        klipper = Klipper("127.0.0.1", 7126)
-        mocker.patch.object(klipper.readonly, "get_config", return_value={})
+    def test_init_missing_section(self):
         with pytest.raises(
             RuntimeError, match=r"printer\.cfgに\[output_pin air_pump\]"
         ):
-            AirPump(klipper.readonly)
+            AirPump(FakeKlipper({}))
 
     @pytest.mark.parametrize(
         ("method", "value"), [("on", 1), ("off", 0)], ids=["on", "off"]

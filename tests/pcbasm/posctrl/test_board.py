@@ -4,13 +4,13 @@ from collections.abc import Callable, Iterable
 
 import numpy as np
 import pytest
-from pytest_mock import MockerFixture
 from shapely import Polygon
 
-from pcbasm import gcode
 from pcbasm.board import Outline
 from pcbasm.config.reference_point import CornerOffsetsConfig, ReferencePointConfig
 from pcbasm.geometry import Compose, Matrix2d, Point2d, Shift
+from pcbasm.hal import XYZStage
+from pcbasm.hal.fake import FakeKlipper
 from pcbasm.posctrl.board import BoardTransformMeasurer, Corner, corner_offset
 
 
@@ -56,15 +56,12 @@ class TestBoardTransformMeasurer:
     """4コーナーから得る board→machine affine 変換のテスト."""
 
     @pytest.fixture
-    def klipper(self, mocker: MockerFixture):
-        return mocker.Mock()
+    def klipper(self) -> FakeKlipper:
+        return FakeKlipper()
 
     @pytest.fixture
-    def stage(self, mocker: MockerFixture):
-        stage = mocker.Mock()
-        stage.max_velocity = 100.0
-        stage.move.return_value = gcode.GCode("G1")
-        return stage
+    def stage(self, klipper: FakeKlipper) -> XYZStage:
+        return XYZStage(klipper)
 
     def test_measure_recovers_known_affine_and_observes_corners_clockwise(
         self, klipper, stage
@@ -126,12 +123,10 @@ class TestBoardTransformMeasurer:
             assert actual_point.x == pytest.approx(expected_point.x)
             assert actual_point.y == pytest.approx(expected_point.y)
 
-        moves = [
-            (call.kwargs["x"], call.kwargs["y"]) for call in stage.move.call_args_list
-        ]
+        moves = [(move["x"], move["y"]) for move in klipper.g1_moves()]
         assert moves == [(target.x, target.y) for target in move_targets]
         assert observed == [expected.apply(marker) for marker in board_markers]
-        assert klipper.send_gcode.call_count == 4
+        assert len(klipper.sent) == 4
 
     @pytest.mark.parametrize("perturbed_corner_index", range(4))
     def test_every_corner_contributes_to_affine_result(

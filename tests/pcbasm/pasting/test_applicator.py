@@ -117,7 +117,7 @@ def _config(**overrides: object) -> PasteDispenserConfig:
 
 
 def _applicator(klipper: FakeKlipper, **overrides: object) -> PasteApplicator:
-    stage = XYZStage(klipper.readonly)
+    stage = XYZStage(klipper)
     return build_applicator(klipper, stage, _config(**overrides))
 
 
@@ -357,7 +357,7 @@ class TestBuildApplicator:
 
     def test_rotations_per_ul_override_changes_dispensed_distance(self, klipper):
         applicator = build_applicator(
-            klipper, XYZStage(klipper.readonly), _config(), rotations_per_ul=90.0
+            klipper, XYZStage(klipper), _config(), rotations_per_ul=90.0
         )
 
         applicator.load(1.0)
@@ -387,7 +387,7 @@ class TestBuildApplicator:
 
     def test_lift_height_override_changes_approach_and_retreat_z(self, klipper):
         applicator = build_applicator(
-            klipper, XYZStage(klipper.readonly), _config(), lift_height=4.0
+            klipper, XYZStage(klipper), _config(), lift_height=4.0
         )
 
         applicator.deposit_at(Point2d(1.0, 2.0), amount_ul=0.1, transform=Identity())

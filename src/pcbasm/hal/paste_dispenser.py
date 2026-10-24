@@ -1,5 +1,7 @@
+from pcbasm.gcode import GCode
+
 from .air_pump import AirPump
-from .klipper import GCode, ReadonlyKlipper
+from .klipper import KlipperClient
 from .manual_stepper import ManualStepper
 
 
@@ -12,7 +14,7 @@ class PasteDispenser:
 
     def __init__(
         self,
-        klipper: ReadonlyKlipper,
+        klipper: KlipperClient,
         rotations_per_ul: float,
         stepper_name: str = "paste_dispenser",
     ) -> None:

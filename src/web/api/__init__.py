@@ -14,5 +14,5 @@ UI の配信は ``web.ui`` の担当。
 - 操作権の奪取（``POST /api/control/takeover``）
 - GET 全般と、装置を動かさない計算用の POST
 
-例外から HTTP ステータスへの変換は ``app.create_app`` の例外ハンドラと ``routers.common.klipper_errors_to_502`` に集まっている。
+例外から HTTP ステータスへの変換は ``errors`` に集まっている。
 """

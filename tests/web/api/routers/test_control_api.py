@@ -10,8 +10,7 @@
   `名前未設定 (<key>)`。壊れた入力は例外にせずフォールバックする
 - 変更系は非保持者に **423 Locked**（body に `holder`）。`emergency-stop` /
   `jobs/current/abort` / WS `abort` / `takeover` / 全 GET は**絶対にゲートしない**
-- 拒否は `Depends`（ハンドラ本体の外）で起きるので、`klipper_errors_to_502()` に
-  巻き込まれて 502 に化けない
+- 拒否は Klipper 通信エラーの 502 に化けない（`ControlDeniedError` は `RuntimeError` 派生だが自分の型で 423 に写る）
 - WS は認可拒否で**切断しない**（`{"type": "error"}` を返して接続を維持する）
 
 2 クライアントの区別はリクエストごとのヘッダで行う（同一 app に 2 つ目の
@@ -379,12 +378,7 @@ class TestGateCoverage:
         assert _control(client, ALICE)["key"] == anonymous
 
     def test_denied_machine_control_is_423_not_502(self, client: TestClient):
-        """認可は `Depends` で行う（ハンドラ本体で claim すると 502 に化ける）.
-
-        `post_machine_control` は本体を `klipper_errors_to_502()` で包む。
-        `ControlDeniedError` は `RuntimeError` 派生なので、本体の中で claim すると
-        リース拒否が「Klipper 通信エラー 502」になり、frontend が 423 を検出できない。
-        """
+        """リース拒否は 502 でなく 423 で返り、frontend が保持者を表示できる."""
         assert client.post("/api/control/acquire", headers=ALICE).status_code == 200
 
         response = client.post(

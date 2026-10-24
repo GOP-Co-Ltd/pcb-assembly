@@ -1,4 +1,6 @@
-from .klipper import GCode, ReadonlyKlipper
+from pcbasm.gcode import GCode
+
+from .klipper import KlipperClient
 
 
 class ManualStepper:
@@ -10,7 +12,7 @@ class ManualStepper:
     相対量で動かすときは、先に ``reset_position()`` で現在位置を基準値に置く。
     """
 
-    def __init__(self, klipper: ReadonlyKlipper, stepper_name: str) -> None:
+    def __init__(self, klipper: KlipperClient, stepper_name: str) -> None:
         """ManualStepper を初期化する.
 
         Args:

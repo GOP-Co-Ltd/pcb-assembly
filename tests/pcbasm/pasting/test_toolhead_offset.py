@@ -352,7 +352,7 @@ def _board_result(klipper: FakeKlipper, camera: FakeCamera) -> BoardCalibrationR
     return BoardCalibrationResult(
         machine=load_machine(TESTING_CONFIG_DIR / "machine.toml"),
         klipper=klipper,
-        stage=XYZStage(klipper.readonly),
+        stage=XYZStage(klipper),
         camera=camera,
         calibration=CalibrationResult(
             pixel_per_mm=PPM,

@@ -1,19 +1,30 @@
-"""重複する成功領域から pad 別補正を導く仕様テスト."""
+"""重複する成功領域から pad 別補正を導く仕様テストと、照合の失敗を None で返す契約."""
 
+from datetime import UTC, datetime
+
+import numpy as np
 import pytest
 import shapely
 from shapely.affinity import rotate
 
 from pcbasm.board import Layer, Pad
-from pcbasm.geometry import Point2d
+from pcbasm.config import load_machine
+from pcbasm.geometry import Identity, Point2d
+from pcbasm.hal import XYZStage
+from pcbasm.hal.fake import FakeCamera, FakeKlipper
+from pcbasm.kicad import load_board
 from pcbasm.posctrl import (
     AlignmentRegion,
     BoardAlignment,
+    BoardCalibrationResult,
     EdgeMatch,
     RegionAlignment,
+    RegionAlignmentSession,
     is_pad_refinement_target,
 )
-from pcbasm.vision import Offset
+from pcbasm.vision import Image, Offset
+from pcbasm.vision.calibration import CalibrationResult
+from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR
 
 PPM = 10.0
 
@@ -268,3 +279,69 @@ class TestBoardAlignmentCorrectionFor:
             alignment.correction_for(Point2d(20.0, 20.0), designator="C17")
 
         assert "C17" in str(exc_info.value)
+
+
+class TestRegionAlignmentSessionFailure:
+    """照合の失敗は None で返し、呼び出し側は残りの領域で続ける.
+
+    Klipper が送信を断った KlipperError も、RuntimeError の派生なので領域の失敗になる。
+    """
+
+    @pytest.fixture
+    def klipper(self) -> FakeKlipper:
+        klipper = FakeKlipper()
+        klipper.fail_on(lambda gcode: True)
+        return klipper
+
+    @pytest.fixture
+    def session(self, klipper: FakeKlipper) -> RegionAlignmentSession:
+        resolution = (640, 480)
+        frame = Image(np.zeros((resolution[1], resolution[0], 3), dtype=np.uint8))
+        return RegionAlignmentSession(
+            BoardCalibrationResult(
+                machine=load_machine(TESTING_CONFIG_DIR / "machine.toml"),
+                klipper=klipper,
+                stage=XYZStage(klipper),
+                camera=FakeCamera([frame]),
+                calibration=CalibrationResult(
+                    pixel_per_mm=PPM,
+                    square_size_mm=1.0,
+                    mean_distance_px=PPM,
+                    std_distance_px=0.0,
+                    resolution=resolution,
+                    crop_size=(400, 400),
+                    calibrated_at=datetime(2026, 8, 20, 12, 0, 0, tzinfo=UTC),
+                    z_position=12.0,
+                ),
+                offset_transform=Identity(),
+                board_transform=Identity(),
+                pcb=load_board(
+                    TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
+                ),
+            )
+        )
+
+    def test_klipper_refusal_fails_the_region(
+        self, klipper: FakeKlipper, session: RegionAlignmentSession
+    ):
+        region = AlignmentRegion(
+            index=0,
+            board_center=Point2d(10.0, 10.0),
+            anchor=Point2d(10.0, 10.0),
+            roi=session.region_roi,
+            board_area=shapely.box(9.0, 9.0, 11.0, 11.0),
+        )
+
+        assert session.align(region) is None
+        # 最初の移動で断られ、撮像へ進んでいない
+        assert len(klipper.sent) == 1
+
+    def test_klipper_refusal_fails_the_pad_refinement(
+        self, klipper: FakeKlipper, session: RegionAlignmentSession
+    ):
+        refined = session.refine(
+            Point2d(10.0, 10.0), Identity(), shapely.box(9.5, 9.5, 10.5, 10.5)
+        )
+
+        assert refined is None
+        assert len(klipper.sent) == 1

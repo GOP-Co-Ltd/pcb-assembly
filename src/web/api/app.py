@@ -8,25 +8,22 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from pcbasm.config import ConfigError
 from pcbasm.hal import AlsaAudioPlayer, AudioPlayer
-from pcbasm.kicad.units import KicadError
 from pcbasm.pasting.overrides import BoardOverrides
-from pcbasm.pasting.testboard.config import BoardConfigError
 from pcbasm.pasting.testboard.generator import BoardGenerator
-from web.api.control import ControlDeniedError, ControlLease, LeaseInfo
+from web.api.control import ControlLease
 from web.api.discovery import (
     ServiceAdvertiser,
     local_ipv4_addresses,
     select_advertise_addresses,
 )
+from web.api.errors import install_error_handlers
 from web.api.jobs.catalog import default_catalog
 from web.api.jobs.manager import JobManager
-from web.api.machine_config import InvalidSettingError, MachineConfigFile
+from web.api.machine_config import MachineConfigFile
 from web.api.preview import PreviewService
 from web.api.routers import (
     app_state,
@@ -47,9 +44,8 @@ from web.api.routers import (
     system,
     update as update_router,
 )
-from web.api.routers.common import control_payload
 from web.api.settings import Settings, resolve_machine_id
-from web.api.state import AppState, BusyError
+from web.api.state import AppState
 from web.selfupdate.runner import UpdateRunner
 from web.selfupdate.settings import UpdateSettings
 
@@ -213,58 +209,7 @@ def create_app(
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/artifacts", StaticFiles(directory=artifacts_dir), name="artifacts")
 
-    @app.exception_handler(BusyError)
-    async def busy_error_handler(request: Request, exc: BusyError) -> JSONResponse:
-        return JSONResponse(
-            status_code=409, content={"detail": str(exc), "owner": exc.owner}
-        )
-
-    @app.exception_handler(ControlDeniedError)
-    async def control_denied_handler(
-        request: Request, exc: ControlDeniedError
-    ) -> JSONResponse:
-        """操作権の拒否を 423 Locked + 保持者情報にする.
-
-        `ControlDep` がハンドラ本体に入る前に投げるため、`klipper_errors_to_502()`
-        の RuntimeError → 502 変換の対象にならない。
-        """
-        holder: LeaseInfo = request.app.state.control.snapshot()
-        return JSONResponse(
-            status_code=423,
-            content={
-                "detail": str(exc),
-                "holder": (
-                    control_payload(holder).model_dump(mode="json")
-                    if holder.held
-                    else None
-                ),
-            },
-        )
-
-    @app.exception_handler(ConfigError)
-    async def config_error_handler(request: Request, exc: ConfigError) -> JSONResponse:
-        """設定エラー（degraded）の間は machine.toml を要る操作を 503 で断る."""
-        return JSONResponse(
-            status_code=503, content={"detail": f"設定エラーのため使えません: {exc}"}
-        )
-
-    @app.exception_handler(InvalidSettingError)
-    async def invalid_setting_handler(
-        request: Request, exc: InvalidSettingError
-    ) -> JSONResponse:
-        return JSONResponse(status_code=400, content={"detail": str(exc)})
-
-    @app.exception_handler(BoardConfigError)
-    async def paste_test_board_config_error_handler(
-        request: Request, exc: BoardConfigError
-    ) -> JSONResponse:
-        return JSONResponse(status_code=400, content={"detail": str(exc)})
-
-    @app.exception_handler(KicadError)
-    async def kicad_error_handler(request: Request, exc: KicadError) -> JSONResponse:
-        # KiCad footprint library / 座標範囲のエラー（テスト塗布基板生成）
-        return JSONResponse(status_code=503, content={"detail": str(exc)})
-
+    install_error_handlers(app)
     app.include_router(app_state.router)
     app.include_router(control_api.router)
     app.include_router(files.router)

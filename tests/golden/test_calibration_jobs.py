@@ -227,7 +227,7 @@ class TestFlowCalibration:
                     BoardCalibrationResult(
                         machine=ctx.machine,
                         klipper=machine_klipper,
-                        stage=XYZStage(machine_klipper.readonly),
+                        stage=XYZStage(machine_klipper),
                         camera=camera,
                         calibration=CALIBRATION,
                         offset_transform=Identity(),

@@ -15,7 +15,7 @@ from pcbasm.board import Layer, Pad
 from pcbasm.config import MachineConfig
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d, Point3d, Shift, sort_by_nearest
-from pcbasm.hal import Camera, Klipper, Speed, XYZStage
+from pcbasm.hal import Camera, KlipperClient, Speed, XYZStage
 from pcbasm.kicad.build import generate_grid_pcb
 from pcbasm.posctrl import (
     AlignmentRegion,
@@ -151,7 +151,7 @@ def _run_reference_point_setup(ctx: JobContext) -> JobResult:
     """
     machine = ctx.machine
     klipper = create_command_klipper(ctx)
-    stage = XYZStage(klipper.readonly)
+    stage = XYZStage(klipper)
     cam_config = machine.camera
     try:
         calibration = CalibrationResult.load(cam_config.calibration_file)
@@ -228,7 +228,7 @@ def _reference_point_frame(
 
 def _dispatch_reference_command(
     ctx: JobContext,
-    klipper: Klipper,
+    klipper: KlipperClient,
     stage: XYZStage,
     calibration: CalibrationResult,
     position: _CachedPosition,
@@ -294,10 +294,11 @@ def _run_camera_calibration(ctx: JobContext) -> JobResult:
     # Z 位置は best-effort（Klipper 不通でも calibration 自体は成立させる）
     z: float | None = None
     try:
+        config = ctx.machine.klipper
         klipper = hal.open_klipper(
-            ctx.machine.klipper, timeout=Z_QUERY_TIMEOUT, journal=ctx.journal
+            config.host, config.port, timeout=Z_QUERY_TIMEOUT, journal=ctx.journal
         )
-        z = XYZStage(klipper.readonly).get_position().z
+        z = XYZStage(klipper).get_position().z
     except Exception as exc:
         ctx.log(f"Z 位置の取得に失敗しました（z_position なしで続行）: {exc}")
     result = attrs.evolve(result, z_position=z)

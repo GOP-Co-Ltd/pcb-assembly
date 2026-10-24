@@ -104,7 +104,7 @@ def klipper() -> FakeKlipper:
 
 @pytest.fixture
 def stage(klipper: FakeKlipper) -> XYZStage:
-    return XYZStage(klipper.readonly)
+    return XYZStage(klipper)
 
 
 @pytest.fixture
@@ -129,7 +129,7 @@ def applicator(klipper: FakeKlipper) -> Iterator[PasteApplicator]:
             lift_height=5.0,
         ),
     )
-    with build_applicator(klipper, XYZStage(klipper.readonly), config) as enabled:
+    with build_applicator(klipper, XYZStage(klipper), config) as enabled:
         klipper.clear_sent()  # enable() の送信を数えない
         yield enabled
 
@@ -209,7 +209,7 @@ class TestApproachGcode:
         slow = FakeKlipper(
             config={**FAKE_PRINTER_CONFIG, "printer": {"max_velocity": "5"}}
         )
-        lines = approach_gcode(XYZStage(slow.readonly), POSITION).to_list()
+        lines = approach_gcode(XYZStage(slow), POSITION).to_list()
 
         assert lines[1] == f"G1 Z{TRAVEL_Z} F{5 * 60.0}"
 
@@ -251,9 +251,7 @@ class TestWipeGcode:
         slow = FakeKlipper(
             config={**FAKE_PRINTER_CONFIG, "printer": {"max_velocity": "5"}}
         )
-        lines = wipe_gcode(
-            XYZStage(slow.readonly), POSITION, _clean(wipe_speed=50.0)
-        ).to_list()
+        lines = wipe_gcode(XYZStage(slow), POSITION, _clean(wipe_speed=50.0)).to_list()
 
         assert all(line.endswith(f"F{5 * 60.0}") for line in lines[1:])
 

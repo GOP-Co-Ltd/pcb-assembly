@@ -8,7 +8,7 @@ from shapely import Point
 
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d, Point3d
-from pcbasm.hal import FrameHub, ManualStepper, XYZStage
+from pcbasm.hal import FrameHub, KlipperError, ManualStepper, XYZStage
 from pcbasm.hal.fake import (
     FAKE_PRINTER_CONFIG,
     Checkerboard,
@@ -40,13 +40,12 @@ class TestFakeKlipper:
             SentGCode(GCode("M400"), 5.0),
         )
 
-    def test_records_emergency_stop_and_firmware_restart(self):
+    def test_records_emergency_stop_as_m112(self):
         klipper = FakeKlipper()
 
         klipper.emergency_stop()
-        klipper.firmware_restart()
 
-        assert klipper.sent_lines == ["M112", "FIRMWARE_RESTART"]
+        assert klipper.sent_lines == ["M112"]
 
     def test_homing_moves_to_endstop_and_marks_axes_homed(self):
         config = {
@@ -62,17 +61,17 @@ class TestFakeKlipper:
 
         klipper.send_gcode(GCode.homing(x=True))
 
-        assert XYZStage(klipper.readonly).get_position() == Point3d(300.0, 20.0, 30.0)
+        assert XYZStage(klipper).get_position() == Point3d(300.0, 20.0, 30.0)
         assert klipper.get_status("toolhead", "homed_axes") == "x"
 
         klipper.send_gcode(GCode.homing())
 
-        assert XYZStage(klipper.readonly).get_position() == Point3d(300.0, 0.0, 0.0)
+        assert XYZStage(klipper).get_position() == Point3d(300.0, 0.0, 0.0)
         assert klipper.get_status("toolhead", "homed_axes") == "xyz"
 
     def test_g1_follows_absolute_and_relative_mode(self):
         klipper = FakeKlipper()
-        stage = XYZStage(klipper.readonly)
+        stage = XYZStage(klipper)
 
         klipper.send_gcode(stage.move(x=10.0, y=20.0, z=5.0))
         klipper.send_gcode(["G91", "G1 X1.5 Z-2", "G90"])
@@ -83,7 +82,7 @@ class TestFakeKlipper:
 
     def test_manual_stepper_move_accumulates_extrusion(self):
         klipper = FakeKlipper()
-        stepper = ManualStepper(klipper.readonly, "paste_dispenser")
+        stepper = ManualStepper(klipper, "paste_dispenser")
 
         klipper.send_gcode(stepper.reset_position() + stepper.move(2.0))
         klipper.send_gcode(stepper.move(1.5))
@@ -93,8 +92,8 @@ class TestFakeKlipper:
 
     def test_stepper_moves_record_where_each_move_was_sent(self):
         klipper = FakeKlipper()
-        stage = XYZStage(klipper.readonly)
-        stepper = ManualStepper(klipper.readonly, "paste_dispenser")
+        stage = XYZStage(klipper)
+        stepper = ManualStepper(klipper, "paste_dispenser")
 
         klipper.send_gcode(
             stage.move(x=10.0, y=20.0) + stepper.reset_position() + stepper.move(2.0)
@@ -120,14 +119,12 @@ class TestFakeKlipper:
             SentGCode(GCode("G91\nG1 X1"), 60.0),
             SentGCode(GCode("G1 X1"), 30.0),
         )
-        assert XYZStage(klipper.readonly).get_position().x == 7.0
+        assert XYZStage(klipper).get_position().x == 7.0
 
     def test_settle_with_waits_after_the_send_is_executed(self):
         klipper = FakeKlipper()
         seen: list[float] = []
-        klipper.settle_with(
-            lambda: seen.append(XYZStage(klipper.readonly).get_position().x)
-        )
+        klipper.settle_with(lambda: seen.append(XYZStage(klipper).get_position().x))
 
         klipper.connection().send_gcode("G1 X3")
 
@@ -138,24 +135,11 @@ class TestFakeKlipper:
         klipper.fail_on(lambda gcode: "M400" in str(gcode))
 
         klipper.send_gcode("G1 X1")
-        with pytest.raises(RuntimeError):
+        with pytest.raises(KlipperError, match="Bad Request"):
             klipper.send_gcode("G1 X2\nM400")
 
         assert klipper.sent_lines == ["G1 X1", "G1 X2", "M400"]
-        assert XYZStage(klipper.readonly).get_position().x == 1.0
-
-    def test_macros_come_from_printer_config(self):
-        klipper = FakeKlipper(
-            {
-                **FAKE_PRINTER_CONFIG,
-                "gcode_macro PRESENT": {"gcode": "G1 Y300"},
-            }
-        )
-
-        klipper.send_present_or_relax()
-
-        assert klipper.readonly.has_macro("PRESENT")
-        assert klipper.sent_lines == ["PRESENT"]
+        assert XYZStage(klipper).get_position().x == 1.0
 
 
 class TestFakeCamera:
@@ -258,7 +242,7 @@ class TestSceneCamera:
         camera = self._camera(
             klipper, toolhead=Point2d(1.0, 0.0), rotations_per_ul=10.0
         )
-        stepper = ManualStepper(klipper.readonly, "paste_dispenser")
+        stepper = ManualStepper(klipper, "paste_dispenser")
 
         klipper.send_gcode(stepper.reset_position() + stepper.move(2.0))
         klipper.send_gcode(stepper.move(1.0))
@@ -274,7 +258,7 @@ class TestSceneCamera:
     ):
         """押し出す前の引き戻しは基板から何も吸い戻さないので、後で同じ XY に押し出した分はそのまま描く."""
         camera = self._camera(klipper, rotations_per_ul=10.0)
-        stepper = ManualStepper(klipper.readonly, "paste_dispenser")
+        stepper = ManualStepper(klipper, "paste_dispenser")
 
         klipper.send_gcode(stepper.reset_position() + stepper.move(-1.0))
         klipper.send_gcode(stepper.reset_position() + stepper.move(1.0))

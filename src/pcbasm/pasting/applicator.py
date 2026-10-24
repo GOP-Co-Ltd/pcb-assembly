@@ -25,7 +25,7 @@ from shapely import Polygon
 from pcbasm.config.dispenser import PasteDispenserConfig
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Path, Point2d, Transform
-from pcbasm.hal import Klipper, PasteDispenser, Speed, XYZStage
+from pcbasm.hal import KlipperClient, PasteDispenser, Speed, XYZStage
 from pcbasm.pasting.dispense import DispenseSummary
 from pcbasm.pasting.fill_path import (
     AppliedDispenseMode,
@@ -94,7 +94,7 @@ class PasteApplicationResult:
 
 
 def build_applicator(
-    klipper: Klipper,
+    klipper: KlipperClient,
     stage: XYZStage,
     config: PasteDispenserConfig,
     *,
@@ -112,7 +112,7 @@ def build_applicator(
         lift_height: 塗布後の上昇高さ [mm] の上書き。``None`` で config の値
     """
     dispenser = PasteDispenser(
-        klipper=klipper.readonly,
+        klipper=klipper,
         rotations_per_ul=(
             config.rotations_per_ul if rotations_per_ul is None else rotations_per_ul
         ),
@@ -145,7 +145,7 @@ class PasteApplicator:
 
     def __init__(
         self,
-        klipper: Klipper,
+        klipper: KlipperClient,
         dispenser: PasteDispenser,
         stage: XYZStage,
         config: PasteDispenserConfig,

@@ -8,7 +8,7 @@ import attrs
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Path, Point3d
 
-from .klipper import ReadonlyKlipper
+from .klipper import KlipperClient
 
 
 @attrs.frozen
@@ -119,17 +119,17 @@ class Limits:
 class XYZStage:
     """XYZ ステージの状態取得と移動 G-code の生成を行うクラス.
 
-    G-code は返すだけで送信しない。送信は ``Klipper.send_gcode`` で行う。
+    G-code は返すだけで送信しない。送信は ``KlipperClient.send_gcode`` で行う。
     座標は機械座標（mm）、速度は mm/s。可動域と最大速度は printer.cfg から読む。
 
     Example:
-        klipper = hal.open_klipper(machine.klipper)
-        stage = XYZStage(klipper.readonly)
+        klipper = hal.open_klipper(machine.klipper.host, machine.klipper.port)
+        stage = XYZStage(klipper)
         position = stage.get_position()
         limits = stage.limits
     """
 
-    def __init__(self, klipper: ReadonlyKlipper) -> None:
+    def __init__(self, klipper: KlipperClient) -> None:
         """XYZStage を初期化する.
 
         Args:

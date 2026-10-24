@@ -71,9 +71,7 @@ def test_audio(
 ) -> AudioTestResponse:
     """現在の通知音設定で指定の音を再生する.
 
-    機体のスピーカーを実際に鳴らすので操作権を要求する（`ControlDep`）。認可を
-    `Depends` で行うのは、ハンドラ本体で claim すると `klipper_errors_to_502()` が
-    423 を 502 に変換してしまうため。
+    機体のスピーカーを実際に鳴らすので操作権を要求する（`ControlDep`）。
     """
     audio = state.machine().audio
     try:

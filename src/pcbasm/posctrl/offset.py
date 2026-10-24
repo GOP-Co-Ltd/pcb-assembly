@@ -5,7 +5,7 @@ from collections.abc import Callable
 
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d, Rotation, Transform
-from pcbasm.hal import Klipper, Speed, XYZStage
+from pcbasm.hal import KlipperClient, Speed, XYZStage
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ class OffsetTransformMeasurer:
     def __init__(
         self,
         observe: Callable[[], Transform],
-        klipper: Klipper,
+        klipper: KlipperClient,
         stage: XYZStage,
         move_distance: float,
         move_velocity_ratio: float = 0.5,

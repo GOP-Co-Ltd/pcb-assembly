@@ -15,12 +15,13 @@
 実機系（記録の永続化・relax 後の 400・実クリーニング動作）は受け入れ試験（docs/acceptance.md の A2）で確かめる。
 """
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from pcbasm.hal.fake import FakeKlipper
+from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeKlipper
 from web.api.settings import Settings
 from web.api.state import AppState
 
@@ -122,6 +123,30 @@ class TestNozzleCleanTestRun:
         assert response.status_code == 400
         assert "可動域外" in response.json()["detail"]
         assert machine_klipper.sent == ()
+
+    def test_missing_air_pump_section_returns_502_with_the_reason(
+        self,
+        config_dir: Path,
+        mount_klipper: Callable[[FakeKlipper], None],
+        client: TestClient,
+    ):
+        """printer.cfg の不備は、どの節が足りないかを添えて 502 で返す."""
+        config = {
+            k: v for k, v in FAKE_PRINTER_CONFIG.items() if k != "output_pin air_pump"
+        }
+        klipper = FakeKlipper(config)
+        klipper.set_status("toolhead", "homed_axes", "xyz")
+        mount_klipper(klipper)
+        path = config_dir / "machine.toml"
+        with path.open("a", encoding="utf-8") as machine_toml:
+            machine_toml.write(
+                "\n[paste_dispenser.nozzle_clean]\nx = 10.0\ny = 20.0\nz = 3.0\n"
+            )
+
+        response = client.post("/api/pasting/nozzle-clean/test")
+
+        assert response.status_code == 502
+        assert "printer.cfgに[output_pin air_pump]" in response.json()["detail"]
 
     def test_busy_returns_409_with_owner_in_detail(
         self, client: TestClient, appstate: AppState

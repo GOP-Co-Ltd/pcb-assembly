@@ -82,10 +82,7 @@ _THIRD_PARTY_ONLY: dict[str, frozenset[str]] = {
 _THIRD_PARTY_OWNER = {"pcbnew": "pcbasm.kicad"}
 
 # まだ残っている違反（import する単位, import される単位か 3rd-party）
-_ALLOWED_VIOLATIONS = {
-    # open_klipper が KlipperConfig を受け取る
-    ("pcbasm.hal", "pcbasm.config"),
-}
+_ALLOWED_VIOLATIONS: set[tuple[str, str]] = set()
 
 
 def _module_name(path: Path) -> str:
