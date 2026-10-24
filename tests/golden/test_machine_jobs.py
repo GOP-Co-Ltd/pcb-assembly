@@ -64,9 +64,9 @@ class TestMachineCheck:
         record = manager.start("machine_check", {})
         finish(job_state, record, JobStatus.FAILED)
 
-        assert record.error == "1 項目が不合格です: カメラの解像度"
+        assert record.error == "1 項目が不合格です: カメラと校正"
         assert (
-            "NG  カメラの解像度: カメラ 640x480 が校正 1280x800 と違います"
+            "NG  カメラと校正: カメラ 640x480 が校正 1280x800 と違います"
             in record.log_lines
         )
         assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")

@@ -43,21 +43,30 @@ class CameraModel:
     Attributes:
         pixel_per_mm: 1 mm あたりの画素数
         image_size: 校正した画像の大きさ (width, height)
-        focus_z: 校正したときの Z [mm]。記録が無ければ None
+        focus_z: 校正したときの Z [mm]（カメラの焦点が合う高さ）
         calibrated_at: 校正した日時
         rotation: 観測オフセット系から機械座標系への回転 R（位置合わせの開始時に測る）
     """
 
     pixel_per_mm: float
     image_size: ImageSize
-    focus_z: float | None
+    focus_z: float
     calibrated_at: datetime
     rotation: Transform = attrs.field(factory=Identity)
 
     @classmethod
     def load(cls, calibration_file: Path) -> CameraModel:
-        """校正ファイルから、回転を測る前（恒等）のモデルを作る."""
+        """校正ファイルから、回転を測る前（恒等）のモデルを作る.
+
+        Raises:
+            ValueError: 校正に焦点 Z（z_position）が記録されていない場合
+        """
         calibration = CameraCalibration.load(calibration_file)
+        if calibration.z_position is None:
+            raise ValueError(
+                f"校正 {calibration_file.name} に焦点 Z（z_position）がありません。"
+                "Klipper につないだ状態で camera_calibration をやり直してください"
+            )
         return cls(
             pixel_per_mm=calibration.pixel_per_mm,
             image_size=calibration.resolution,

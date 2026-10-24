@@ -111,20 +111,24 @@ class TestCheckKlipper:
         assert "192.168.1.100:7125 に接続できません" in checks[0].detail
 
 
+def _save_calibration(path: Path, z_position: float | None) -> Path:
+    CameraCalibration(
+        pixel_per_mm=20.0,
+        square_size_mm=1.5,
+        mean_distance_px=30.0,
+        std_distance_px=0.1,
+        resolution=(1280, 800),
+        crop_size=(600, 600),
+        calibrated_at=datetime(2026, 10, 24),
+        z_position=z_position,
+    ).save(path)
+    return path
+
+
 class TestCheckCamera:
     @pytest.fixture
     def calibration_file(self, tmp_path: Path) -> Path:
-        path = tmp_path / "calibration.json"
-        CameraCalibration(
-            pixel_per_mm=20.0,
-            square_size_mm=1.5,
-            mean_distance_px=30.0,
-            std_distance_px=0.1,
-            resolution=(1280, 800),
-            crop_size=(600, 600),
-            calibrated_at=datetime(2026, 10, 24),
-        ).save(path)
-        return path
+        return _save_calibration(tmp_path / "calibration.json", 12.5)
 
     def test_resolution_matches_calibration(self, calibration_file: Path):
         camera = FakeCamera([_frame(1280, 800)])
@@ -163,6 +167,21 @@ class TestCheckCamera:
 
         assert not check.ok
         assert "校正ファイルを読めません" in check.detail
+
+    def test_calibration_without_focus_z(self, tmp_path: Path):
+        """焦点 Z の無い校正ではジョブが始まらないので、診断でも NG にする.
+
+        ファイルは読めているので、理由は焦点 Z の欠落として示す。
+        """
+        camera = FakeCamera([_frame(1280, 800)])
+        path = _save_calibration(tmp_path / "calibration.json", None)
+
+        check = check_camera(lambda: contextlib.nullcontext(camera), path)
+
+        assert not check.ok
+        assert check.detail.startswith(
+            "校正 calibration.json に焦点 Z（z_position）がありません"
+        )
 
 
 class TestCheckAudio:

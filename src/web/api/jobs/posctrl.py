@@ -166,11 +166,8 @@ def _run_reference_point_setup(ctx: JobContext) -> JobResult:
 
     ctx.progress("ホーミング")
     klipper.send_gcode(GCode.homing(x=True, y=True, z=True) + GCode.wait_for_done())
-    if camera_model.focus_z is not None:
-        ctx.log(f"カメラ Z 高さへ移動: {camera_model.focus_z:.3f} mm")
-        klipper.send_gcode(stage.move(z=camera_model.focus_z) + GCode.wait_for_done())
-    else:
-        ctx.log("キャリブレーションに Z 位置がありません。Z は移動しません")
+    ctx.log(f"カメラ Z 高さへ移動: {camera_model.focus_z:.3f} mm")
+    klipper.send_gcode(stage.move(z=camera_model.focus_z) + GCode.wait_for_done())
 
     position = _CachedPosition(stage)
     with ctx.open_camera() as camera:
@@ -263,6 +260,9 @@ def _dispatch_reference_command(
     return False
 
 
+_NO_FOCUS_Z_EFFECT = "この校正を適用すると、校正を使うジョブは開始時に止まります"
+
+
 def _run_camera_calibration(ctx: JobContext) -> JobResult:
     """チェッカーボードで pixel/mm をキャリブレーションし JSON を保存候補にする."""
     square_size = float(ctx.params["square_size"])
@@ -297,12 +297,16 @@ def _run_camera_calibration(ctx: JobContext) -> JobResult:
     ctx.log(f"pixel/mm: {result.pixel_per_mm:.2f}")
     ctx.log(f"1マスの距離の標準偏差: {result.std_distance_px:.2f} px")
 
-    # Z 位置は best-effort（Klipper 不通でも calibration 自体は成立させる）
+    # Z 位置は best-effort（Klipper 不通でも pixel/mm は記録として残す）。
+    # ただし焦点 Z の無い校正を適用すると、校正を使うジョブは開始時に止まる
     z: float | None = None
     try:
         z = XYZStage(ctx.klipper(Z_QUERY_TIMEOUT)).get_position().z
     except Exception as exc:
-        ctx.log(f"Z 位置の取得に失敗しました（z_position なしで続行）: {exc}")
+        ctx.log(
+            f"Z 位置の取得に失敗しました（z_position なしで保存します。"
+            f"{_NO_FOCUS_Z_EFFECT}）: {exc}"
+        )
     result = attrs.evolve(result, z_position=z)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -319,7 +323,7 @@ def _run_camera_calibration(ctx: JobContext) -> JobResult:
         summary=(
             f"pixel/mm: {result.pixel_per_mm:.2f}"
             f" / σ: {result.std_distance_px:.2f} px"
-            f" / Z: {z if z is not None else '未取得'}"
+            f" / Z: {z if z is not None else f'未取得（{_NO_FOCUS_Z_EFFECT}）'}"
         ),
         artifacts=(
             ctx.artifact("コーナー検出", png_name, "image"),

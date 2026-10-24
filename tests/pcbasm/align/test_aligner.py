@@ -77,7 +77,7 @@ def _aligner(
     *,
     max_passes: int,
     converge_tolerance_mm: float,
-    focus_z: float | None = None,
+    focus_z: float = 0.0,
     klipper: FakeKlipper | None = None,
     camera: Camera | None = None,
 ) -> RegionAligner:

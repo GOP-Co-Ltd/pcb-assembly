@@ -13,7 +13,7 @@ def make_camera_model(
     pixel_per_mm: float,
     image_size: ImageSize,
     *,
-    focus_z: float | None = 10.0,
+    focus_z: float = 10.0,
     rotation: Transform | None = None,
 ) -> CameraModel:
     """校正の値（と測ったカメラの回転）から CameraModel を組む."""

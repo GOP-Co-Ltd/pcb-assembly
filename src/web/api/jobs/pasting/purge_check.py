@@ -129,7 +129,6 @@ def _camera_reach_error(
     撮影で可動域外の例外を出して塗布ジョブを失敗させるより、確かめずに進むほうがよい。
     """
     target = session.camera_point_target(point, correction=point_correction)
-    # ピント Z が未記録のキャリブレーションでは Z を動かさないので見なくてよい（None は見ない）
     outside = session.stage.limits.outside(
         x=target.x, y=target.y, z=session.board_frame.camera_model.focus_z
     )

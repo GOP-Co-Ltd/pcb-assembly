@@ -69,12 +69,14 @@ def check_klipper(klipper: KlipperClient, machine: MachineConfig) -> list[Check]
 def check_camera(
     open_camera: Callable[[], AbstractContextManager[Camera]], calibration_file: Path
 ) -> Check:
-    """カメラから 1 枚撮り、その解像度が校正ファイルの解像度と一致するか確かめる."""
-    name = "カメラの解像度"
+    """校正がジョブに使えるかと、カメラの解像度が校正と一致するかを確かめる."""
+    name = "カメラと校正"
     try:
         camera_model = CameraModel.load(calibration_file)
     except OSError as exc:
         return Check(name, False, f"校正ファイルを読めません: {exc}")
+    except ValueError as exc:  # 焦点 Z の無い校正
+        return Check(name, False, str(exc))
     try:
         with open_camera() as camera:
             size = camera.capture().size

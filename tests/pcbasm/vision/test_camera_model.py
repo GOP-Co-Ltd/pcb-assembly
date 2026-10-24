@@ -58,6 +58,22 @@ class TestCameraModel:
         assert camera_model.calibrated_at == CALIBRATED_AT
         _assert_close(camera_model.rotation.apply(Point2d(1.0, 2.0)), Point2d(1.0, 2.0))
 
+    def test_load_rejects_a_calibration_without_focus_z(self, tmp_path: Path):
+        """焦点 Z の無い校正では、Z を動かさずに進まずジョブの開始時に止まる."""
+        path = tmp_path / "calibration.json"
+        CameraCalibration(
+            pixel_per_mm=28.5,
+            square_size_mm=1.5,
+            mean_distance_px=42.75,
+            std_distance_px=0.1,
+            resolution=(1280, 800),
+            crop_size=(600, 600),
+            calibrated_at=CALIBRATED_AT,
+        ).save(path)
+
+        with pytest.raises(ValueError, match="z_position"):
+            CameraModel.load(path)
+
     def test_pixel_offset_maps_to_camera_mm_with_the_same_axes(self):
         camera_model = _camera_model(Rotation(90.0))
 

@@ -20,7 +20,7 @@ from tests.golden.conftest import CAMERA_MODEL, JOBS, finish, scene_camera
 from tests.golden.scenarios import Scenario, scenarios_of
 from tests.support.golden import assert_transcript
 from tests.web.api.jobs.conftest import answer_next_prompt
-from web.api.jobs.manager import JobManager
+from web.api.jobs.manager import JobManager, JobStatus
 from web.api.machine_config import MachineConfigFile
 from web.api.settings import Settings
 from web.api.state import AppState
@@ -137,6 +137,36 @@ class TestCameraCalibration:
             safe_move_distance(machine.camera.crop.size, margin=0.3)
             / applied.pixel_per_mm
         )
+
+
+class TestCalibrationWithoutFocusZ:
+    @pytest.mark.parametrize(
+        ("job", "params"),
+        [("reference_point_setup", {}), ("board_tour", {"tolerance": 0.1})],
+    )
+    def test_job_fails_before_homing(
+        self,
+        manager: JobManager,
+        job_state: AppState,
+        job_settings: Settings,
+        machine_klipper: FakeKlipper,
+        mount_camera: Callable[[Camera], None],
+        grid_shapes: list[Polygon],
+        job: str,
+        params: dict[str, float],
+    ):
+        """焦点 Z の無い校正では、Z を動かさずに進まず、開始時に理由を示して失敗する."""
+        path = job_settings.config_dir / "camera_calibration.json"
+        calibration = json.loads(path.read_text(encoding="utf-8"))
+        del calibration["z_position"]
+        path.write_text(json.dumps(calibration), encoding="utf-8")
+        mount_camera(scene_camera(machine_klipper, 0.0, shapes=grid_shapes))
+
+        record = manager.start(job, params)
+        finish(job_state, record, JobStatus.FAILED)
+
+        assert "z_position" in str(record.error)
+        assert "G28 X Y Z" not in machine_klipper.sent_lines
 
 
 class TestBoardTour:

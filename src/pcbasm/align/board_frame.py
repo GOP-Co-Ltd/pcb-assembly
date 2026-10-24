@@ -312,8 +312,7 @@ def measure_board_frame(
     # Reference Point へ移動
     logger.info("=== Reference Point (top left) へ移動 ===")
     logger.info("目標位置: (%s, %s)", ref_config.x, ref_config.y)
-    if camera_model.focus_z is not None:
-        logger.info("キャリブレーションZ位置: %.3f mm", camera_model.focus_z)
+    logger.info("キャリブレーションZ位置: %.3f mm", camera_model.focus_z)
     settle = machine.settle
     klipper.send_gcode(
         stage.move_settled(
