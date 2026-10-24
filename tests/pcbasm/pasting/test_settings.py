@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 
+import attrs
 import pytest
 from shapely import Polygon
 
@@ -86,11 +87,12 @@ def _duplicate_pad_number_hierarchy() -> (
     tuple[Sequence[Component], Sequence[Pad], PadHierarchy]
 ):
     components = [_component("U1", "LFCSP-24")]
+    # 読込（load_board）が分割片に付ける ref
     pads = [
-        _pad("U1", "", _rect(0.0, 0.0, 0.93, 0.93)),
-        _pad("U1", "", _rect(1.0, 0.0, 0.93, 0.93)),
-        _pad("U1", "", _rect(0.0, 1.0, 0.93, 0.93)),
-        _pad("U1", "", _rect(1.0, 1.0, 0.93, 0.93)),
+        attrs.evolve(_pad("U1", "", _rect(x, y, 0.93, 0.93)), ref=f"U1.#{index}")
+        for index, (x, y) in enumerate(
+            [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)], start=1
+        )
     ]
     return components, pads, PadHierarchy.build(components, pads)
 
@@ -98,18 +100,13 @@ def _duplicate_pad_number_hierarchy() -> (
 class TestResolvePadSettingsKeys:
     """resolve_pad_settings の戻りキーと確定値。"""
 
-    def test_unique_pad_numbers_use_designator_pad_number_pairs(self):
+    def test_keys_are_pad_refs(self):
         _, _, hierarchy = _two_component_hierarchy()
         model = PasteSettingsModel(base=_full_base())
 
         resolved = resolve_pad_settings(hierarchy, model)
 
-        assert set(resolved.keys()) == {
-            ("R1", "1"),
-            ("R1", "2"),
-            ("U1", "1"),
-            ("U1", "9"),
-        }
+        assert set(resolved.keys()) == {"R1.1", "R1.2", "U1.1", "U1.9"}
 
     def test_duplicate_pad_numbers_are_distinct_resolved_keys(self):
         _, pads, hierarchy = _duplicate_pad_number_hierarchy()
@@ -117,18 +114,8 @@ class TestResolvePadSettingsKeys:
 
         resolved = resolve_pad_settings(hierarchy, model)
 
-        assert set(resolved.keys()) == {
-            ("U1", "#1"),
-            ("U1", "#2"),
-            ("U1", "#3"),
-            ("U1", "#4"),
-        }
-        assert [hierarchy.pad_ref_for_pad(pad) for pad in pads] == [
-            ("U1", "#1"),
-            ("U1", "#2"),
-            ("U1", "#3"),
-            ("U1", "#4"),
-        ]
+        assert list(resolved) == [pad.ref for pad in pads]
+        assert list(resolved) == ["U1.#1", "U1.#2", "U1.#3", "U1.#4"]
 
     def test_all_values_resolve_to_base_when_no_levels(self):
         _, _, hierarchy = _two_component_hierarchy()
@@ -169,11 +156,11 @@ class TestOverrideMerge:
 
         resolved = resolve_pad_settings(hierarchy, model)
 
-        u1 = resolved[("U1", "1")]
+        u1 = resolved["U1.1"]
         assert u1.params.ul_per_mm2 == pytest.approx(0.5)  # 上書き
         assert u1.params.prime_extra_delay == pytest.approx(0.8)  # 継承
         # 別部品 R1 は影響を受けない
-        assert resolved[("R1", "1")].params.ul_per_mm2 == pytest.approx(0.1)
+        assert resolved["R1.1"].params.ul_per_mm2 == pytest.approx(0.1)
 
     def test_enum_and_auto_height_override_inherit_like_numeric_fields(self):
         _, _, hierarchy = _two_component_hierarchy()
@@ -193,12 +180,12 @@ class TestOverrideMerge:
 
         resolved = resolve_pad_settings(hierarchy, model)
 
-        u1 = resolved[("U1", "1")]
+        u1 = resolved["U1.1"]
         assert u1.params.dispense_mode == "line"
         assert u1.params.line_direction == "outward"
         assert u1.params.paste_height == "auto"
         assert u1.params.ul_per_mm2 == pytest.approx(0.1)
-        r1 = resolved[("R1", "1")]
+        r1 = resolved["R1.1"]
         assert r1.params.dispense_mode == "auto"
         assert r1.params.line_direction == "unconstrained"
         assert r1.params.paste_height == pytest.approx(0.05)
@@ -231,8 +218,8 @@ class TestOverrideMerge:
 
         resolved = resolve_pad_settings(hierarchy, model)
 
-        assert resolved[("R1", "1")].params.prime_extra_delay == pytest.approx(0.45)
-        assert resolved[("U1", "1")].params.prime_extra_delay == pytest.approx(0.9)
+        assert resolved["R1.1"].params.prime_extra_delay == pytest.approx(0.45)
+        assert resolved["U1.1"].params.prime_extra_delay == pytest.approx(0.9)
 
     def test_more_specific_level_wins_over_less_specific(self):
         # L4 が L2 を上書き、未指定 field は L2 から継承
@@ -250,12 +237,12 @@ class TestOverrideMerge:
 
         resolved = resolve_pad_settings(hierarchy, model)
 
-        thermal = resolved[("U1", "9")]
+        thermal = resolved["U1.9"]
         assert thermal.params.ul_per_mm2 == pytest.approx(0.9)  # L4 が勝つ
         assert thermal.params.prime_extra_delay == pytest.approx(1.5)  # L2 から継承
         assert thermal.params.paste_height == pytest.approx(0.05)  # base から継承
         # 同部品の別 pad は L4 の影響を受けず L2 が効く
-        other = resolved[("U1", "1")]
+        other = resolved["U1.1"]
         assert other.params.ul_per_mm2 == pytest.approx(0.5)
         assert other.params.prime_extra_delay == pytest.approx(1.5)
 
@@ -277,8 +264,8 @@ class TestOverrideMerge:
 
         resolved = resolve_pad_settings(hierarchy, model)
 
-        assert resolved[("R1", "1")].params.bead_width_factor == pytest.approx(0.7)
-        assert resolved[("R2", "1")].params.bead_width_factor == pytest.approx(0.7)
+        assert resolved["R1.1"].params.bead_width_factor == pytest.approx(0.7)
+        assert resolved["R2.1"].params.bead_width_factor == pytest.approx(0.7)
         # 同じ override は node 側でも L1 ノードとそのサブツリー全体へ伝搬する
         nodes = resolve_node_settings(hierarchy, model)
         assert nodes[("L1", "0402")].params.bead_width_factor == pytest.approx(0.7)
@@ -298,9 +285,9 @@ class TestEnabledResolution:
 
         resolved = resolve_pad_settings(hierarchy, model)
 
-        assert resolved[("U1", "1")].enabled is False
-        assert resolved[("U1", "9")].enabled is False
-        assert resolved[("R1", "1")].enabled is True  # 他部品は無関係
+        assert resolved["U1.1"].enabled is False
+        assert resolved["U1.9"].enabled is False
+        assert resolved["R1.1"].enabled is True  # 他部品は無関係
 
     def test_l4_enable_revives_pad_disabled_at_l2(self):
         # L2=False で配下無効でも、同 pad の L4=True で有効に復活
@@ -315,8 +302,8 @@ class TestEnabledResolution:
 
         resolved = resolve_pad_settings(hierarchy, model)
 
-        assert resolved[("U1", "9")].enabled is True  # L4 が勝つ
-        assert resolved[("U1", "1")].enabled is False  # L4 指定なしは L2 のまま
+        assert resolved["U1.9"].enabled is True  # L4 が勝つ
+        assert resolved["U1.1"].enabled is False  # L4 指定なしは L2 のまま
         # node 側では無効化された L2 ノード自身も見える
         nodes = resolve_node_settings(hierarchy, model)
         assert nodes[("L2", "U1")].enabled is False
@@ -345,9 +332,9 @@ class TestEnabledResolution:
 
         resolved = resolve_pad_settings(hierarchy, model)
 
-        assert resolved[("U1", "9")].enabled is True
-        assert resolved[("U1", "1")].enabled is False
-        assert resolved[("R1", "1")].enabled is False
+        assert resolved["U1.9"].enabled is True
+        assert resolved["U1.1"].enabled is False
+        assert resolved["R1.1"].enabled is False
 
     def test_enabled_none_at_level_does_not_override(self):
         # LevelSetting.enabled=None（override のみ）は enabled を上書きしない
@@ -363,7 +350,7 @@ class TestEnabledResolution:
 
         resolved = resolve_pad_settings(hierarchy, model)
 
-        assert resolved[("U1", "1")].enabled is True  # 既定の有効を維持
+        assert resolved["U1.1"].enabled is True  # 既定の有効を維持
 
     def test_l4_disable_affects_only_one_duplicate_pad_fragment(self):
         _, _, hierarchy = _duplicate_pad_number_hierarchy()
@@ -374,10 +361,10 @@ class TestEnabledResolution:
 
         resolved = resolve_pad_settings(hierarchy, model)
 
-        assert resolved[("U1", "#1")].enabled is True
-        assert resolved[("U1", "#2")].enabled is False
-        assert resolved[("U1", "#3")].enabled is True
-        assert resolved[("U1", "#4")].enabled is True
+        assert resolved["U1.#1"].enabled is True
+        assert resolved["U1.#2"].enabled is False
+        assert resolved["U1.#3"].enabled is True
+        assert resolved["U1.#4"].enabled is True
 
 
 class TestSelectEnabledPads:
@@ -536,8 +523,7 @@ class TestResolveNodeSettings:
 
         for pad in hierarchy.iter_pads():
             l4_key = hierarchy.node_keys_for_pad(pad)[-1]
-            pad_ref = hierarchy.pad_ref_for_pad(pad)
-            assert node_resolved[l4_key] == pad_resolved[pad_ref]
+            assert node_resolved[l4_key] == pad_resolved[pad.ref]
 
     def test_l4_node_values_match_resolve_pad_settings_for_duplicate_pads(self):
         # parity（分割 pad）: 同一 pad_number の分割片も L4 key が個別に分かれ、
@@ -553,8 +539,7 @@ class TestResolveNodeSettings:
 
         for pad in hierarchy.iter_pads():
             l4_key = hierarchy.node_keys_for_pad(pad)[-1]
-            pad_ref = hierarchy.pad_ref_for_pad(pad)
-            assert node_resolved[l4_key] == pad_resolved[pad_ref]
+            assert node_resolved[l4_key] == pad_resolved[pad.ref]
 
 
 class TestFindOrphans:
@@ -598,10 +583,8 @@ class TestWithLevelPatch:
         patched = model.with_level_patch(("L2", "U1"), values={"ul_per_mm2": 0.5})
 
         resolved = resolve_pad_settings(hierarchy, patched)
-        assert resolved[("U1", "1")].params.ul_per_mm2 == pytest.approx(0.5)
-        assert resolved[("U1", "1")].params.prime_extra_delay == pytest.approx(
-            0.8
-        )  # 継承
+        assert resolved["U1.1"].params.ul_per_mm2 == pytest.approx(0.5)
+        assert resolved["U1.1"].params.prime_extra_delay == pytest.approx(0.8)  # 継承
 
     def test_clear_restores_inheritance(self):
         _, _, hierarchy = _two_component_hierarchy()
@@ -615,9 +598,7 @@ class TestWithLevelPatch:
         patched = model.with_level_patch(("L2", "U1"), clear=["ul_per_mm2"])
 
         resolved = resolve_pad_settings(hierarchy, patched)
-        assert resolved[("U1", "1")].params.ul_per_mm2 == pytest.approx(
-            0.1
-        )  # base へ復帰
+        assert resolved["U1.1"].params.ul_per_mm2 == pytest.approx(0.1)  # base へ復帰
 
     def test_enabled_not_sent_keeps_existing(self):
         model = PasteSettingsModel(
@@ -664,9 +645,9 @@ class TestWithPadsEnabled:
         patched = model.with_pads_enabled(l4_keys, enabled=False)
 
         resolved = resolve_pad_settings(hierarchy, patched)
-        assert resolved[("U1", "9")].enabled is False
-        assert resolved[("U1", "1")].enabled is True
-        assert resolved[("R1", "1")].enabled is True
+        assert resolved["U1.9"].enabled is False
+        assert resolved["U1.1"].enabled is True
+        assert resolved["R1.1"].enabled is True
 
 
 class TestOverrideSummaries:

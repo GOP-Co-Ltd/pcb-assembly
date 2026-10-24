@@ -10,11 +10,13 @@ from typing import Any, Literal, Protocol
 
 import attrs
 
+from pcbasm.board import Board
 from pcbasm.config import MachineConfig
 from pcbasm.hal import Camera, FrameHub
 from pcbasm.machine.journal import Journal
+from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.vision import Image
-from web.api.board_settings import BoardSettingsStore
+from web.api.selection import BoardCache
 
 type Answer = bool | float | str
 type ParamValue = bool | float | int | str
@@ -143,8 +145,9 @@ class JobContext:
         machine_id: str,
         paste_dataset_dir: Path,
         paste_volume_calibration_dir: Path,
-        source_pcb: str | None = None,
-        board_store: BoardSettingsStore | None = None,
+        source_pcb: str | None,
+        boards: BoardCache,
+        overrides: BoardOverrides,
     ) -> None:
         # パラメータは保持しない（ブリッジの live_params() 経由で都度読む）
         self._bridge = bridge
@@ -156,7 +159,8 @@ class JobContext:
         self._paste_dataset_dir = paste_dataset_dir
         self._paste_volume_calibration_dir = paste_volume_calibration_dir
         self._source_pcb = source_pcb
-        self._board_store = board_store
+        self._boards = boards
+        self._overrides = overrides
 
     @property
     def params(self) -> Mapping[str, ParamValue]:
@@ -204,13 +208,21 @@ class JobContext:
 
     @property
     def source_pcb(self) -> str | None:
-        """選択 PCB の pcb_browse_root 相対 posix パス（未選択/未配線なら None）."""
+        """選択 PCB の pcb_browse_root 相対 posix パス（未選択なら None）."""
         return self._source_pcb
 
     @property
-    def board_store(self) -> BoardSettingsStore | None:
-        """基板ごとの塗布設定ストア（未配線なら None）."""
-        return self._board_store
+    def overrides(self) -> BoardOverrides:
+        """基板ごとの塗布設定ストア（HTTP 経路と同じインスタンス）."""
+        return self._overrides
+
+    def board(self) -> Board:
+        """選択 PCB の Board を返す（requires_pcb=True のジョブだけが呼ぶ）.
+
+        前回読んだときからファイルが差し替わっていれば読み直す。
+        """
+        assert self._pcb_path is not None  # requires_pcb=True
+        return self._boards.get(self._pcb_path)
 
     def artifact(
         self, label: str, filename: str, kind: Literal["image", "file"]

@@ -13,12 +13,11 @@ from typing import Self
 
 import attrs
 
-from pcbasm.board import Copper, Layer, Pad
+from pcbasm.board import Board, Copper, Layer, Pad
 from pcbasm.config import MachineConfig
 from pcbasm.config.dispenser import ToolheadConfig
 from pcbasm.geometry import Compose, HeightPlane, Identity, Point2d, Shift, Transform
 from pcbasm.hal import Camera, Klipper, XYZStage
-from pcbasm.kicad import PcbFile
 from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.applicator import PasteApplicator, build_applicator
 from pcbasm.pasting.height import HeightPlaneMeasurer
@@ -58,7 +57,7 @@ class PasteSession:
     board_transform: Transform
     offset_transform: Transform
     toolhead_offset: Transform
-    pcb: PcbFile
+    pcb: Board
     probe_executor: ProbeExecutor
     height_measurer: HeightPlaneMeasurer
 

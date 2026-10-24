@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from pathlib import Path
 
+from pcbasm.board import Board
 from pcbasm.hal import Camera
 from pcbasm.posctrl import (
     AlignmentRegion,
@@ -21,7 +21,7 @@ def setup_board(
     camera: Camera,
     *,
     tolerance: float | None = None,
-    pcb_path: Path | None = None,
+    board: Board | None = None,
 ) -> BoardCalibrationResult:
     """Progress("セットアップ") → ボード計測セットアップの定型.
 
@@ -29,17 +29,16 @@ def setup_board(
         ctx: 実行中ジョブのコンテキスト
         camera: 撮像に使うカメラ
         tolerance: 位置合わせ許容誤差。省略時は ``ctx.params["tolerance"]``
-        pcb_path: 計測対象の PCB。省略時は選択 PCB（``ctx.pcb_path``）
+        board: 計測対象の基板。省略時は選択 PCB（``ctx.board()``）
     """
     if tolerance is None:
         tolerance = float(ctx.params["tolerance"])
-    if pcb_path is None:
-        assert ctx.pcb_path is not None  # requires_pcb=True
-        pcb_path = ctx.pcb_path
+    if board is None:
+        board = ctx.board()
     ctx.progress("セットアップ")
     return setup_board_calibration(
         machine=ctx.machine,
-        pcb_file_path=pcb_path,
+        board=board,
         tolerance=tolerance,
         camera=camera,
         frame_sink=ctx.frame,

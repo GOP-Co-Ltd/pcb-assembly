@@ -85,7 +85,7 @@ def configure_synthetic_job(
         app.state.preview,
         catalog,
         app.state.settings,
-        app.state.board_store,
+        app.state.overrides,
         audio_player=app.state.audio_player,
     )
 

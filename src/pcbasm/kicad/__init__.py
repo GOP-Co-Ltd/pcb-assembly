@@ -10,6 +10,6 @@ pcbnew（KiCad 9 以降）が無い環境では、このパッケージのどの
 ``build`` / ``footprint`` / ``units`` は re-export しないので、モジュールを直接 import する。
 """
 
-from .read import PcbFile
+from .read import load_board
 
-__all__ = ["PcbFile"]
+__all__ = ["load_board"]

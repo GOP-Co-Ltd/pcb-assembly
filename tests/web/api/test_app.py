@@ -7,7 +7,7 @@
 
 MR1 追記（計画書 web-api-ui-split.md「MR1」節）:
 
-- JobManager と HTTP 経路は同一の BoardSettingsStore を共有する
+- JobManager と HTTP 経路は同一の BoardOverrides を共有する
   （別インスタンスだと更新ロックが効かず、ジョブ実行中の pad 編集が消える）
 
 MR4 追記（同「MR4」節）: ``templates`` / ``static`` は frontend (`web.ui`) へ移設した
@@ -41,10 +41,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper
+from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.paths import PROJECT_ROOT
 from tests.support.polling import wait_until
 from web.api.app import create_app
-from web.api.board_settings import BoardSettingsStore
 from web.api.jobs.catalog import JobDefinition
 from web.api.jobs.context import JobContext
 from web.api.settings import Settings
@@ -109,31 +109,31 @@ class TestCreateApp:
         assert player.close_calls == 1
 
 
-class TestBoardStoreSharing:
-    """ジョブワーカーと HTTP 経路の BoardSettingsStore 同一性."""
+class TestOverridesSharing:
+    """ジョブワーカーと HTTP 経路の BoardOverrides 同一性."""
 
-    def test_job_context_gets_the_app_board_store_instance(
+    def test_job_context_gets_the_app_overrides_instance(
         self, app: FastAPI, client: TestClient
     ):
-        captured: list[BoardSettingsStore | None] = []
+        captured: list[BoardOverrides] = []
 
         def run(ctx: JobContext) -> None:
-            captured.append(ctx.board_store)
+            captured.append(ctx.overrides)
 
         app.state.catalog.register(
             JobDefinition(
-                name="board-store-probe",
-                label="board_store 配線の確認",
+                name="overrides-probe",
+                label="overrides 配線の確認",
                 run=run,
                 uses_machine=False,
             )
         )
 
-        response = client.post("/api/jobs/board-store-probe")
+        response = client.post("/api/jobs/overrides-probe")
 
         assert response.status_code == 201, response.text
         wait_until(lambda: bool(captured))
-        assert captured[0] is app.state.board_store
+        assert captured[0] is app.state.overrides
 
 
 class TestDegraded:

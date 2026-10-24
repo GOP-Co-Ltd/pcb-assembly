@@ -33,7 +33,7 @@ from fastapi.testclient import TestClient
 from shapely import Polygon
 
 from pcbasm.pasting.params import PASTE_PARAM_NAMES
-from tests.web.api.conftest import COPPER_PCB_FIXTURE
+from tests.web.api.conftest import COPPER_PCB_FIXTURE, REAL_PCB_FIXTURE
 from web.api.settings import Settings
 from web.api.state import AppState
 
@@ -120,6 +120,43 @@ class TestPcbNotSelected:
         )
 
         assert response.status_code == 409
+
+
+class TestReplacedBoard:
+    """同名で内容の違う基板に差し替えると、次の preview が新しい pad を使う."""
+
+    @staticmethod
+    def _pad_ids(client: TestClient) -> set[str]:
+        return {pad["id"] for pad in _get_config(client)["pads"]}
+
+    @staticmethod
+    def _upload(client: TestClient, fixture: Path) -> None:
+        response = client.post(
+            "/api/pcb-file/upload",
+            files={"file": ("board.kicad_pcb", fixture.read_bytes())},
+        )
+        assert response.status_code == 201, response.text
+
+    def test_reupload_under_the_same_name(self, client: TestClient):
+        self._upload(client, COPPER_PCB_FIXTURE)
+        assert _U1_PADS <= self._pad_ids(client)
+
+        self._upload(client, REAL_PCB_FIXTURE)
+
+        ids = self._pad_ids(client)
+        assert {"CONCAVE_L.#1", "CONCAVE_L.#2"} <= ids
+        assert not _U1_PADS & ids
+
+    def test_file_replaced_on_disk_without_selecting_again(
+        self, selected_client: TestClient, pcb_root: Path, copper_pcb_path: Path
+    ):
+        assert _U1_PADS <= self._pad_ids(selected_client)
+
+        shutil.copy(REAL_PCB_FIXTURE, pcb_root / copper_pcb_path)
+
+        ids = self._pad_ids(selected_client)
+        assert {"CONCAVE_L.#1", "CONCAVE_L.#2"} <= ids
+        assert not _U1_PADS & ids
 
 
 class TestGetPadConfig:

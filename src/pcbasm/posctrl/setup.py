@@ -5,16 +5,15 @@ from __future__ import annotations
 import logging
 import math
 import time
-from pathlib import Path
 
 import attrs
 
 from pcbasm import hal
+from pcbasm.board import Board
 from pcbasm.config import MachineConfig
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Shift, Transform
 from pcbasm.hal import Camera, Klipper, XYZStage, create_camera
-from pcbasm.kicad import PcbFile
 from pcbasm.machine.journal import Journal
 from pcbasm.posctrl.board import BoardTransformMeasurer
 from pcbasm.posctrl.offset import OffsetTransformMeasurer
@@ -187,12 +186,12 @@ class BoardCalibrationResult:
     calibration: CalibrationResult
     offset_transform: Transform
     board_transform: Transform
-    pcb: PcbFile
+    pcb: Board
 
 
 def setup_board_calibration(
     machine: MachineConfig,
-    pcb_file_path: Path,
+    board: Board,
     tolerance: float = 0.1,
     *,
     camera: Camera | None = None,
@@ -201,14 +200,14 @@ def setup_board_calibration(
 ) -> BoardCalibrationResult:
     """マシン初期化から Board 変換計測までの共通セットアップを実行する.
 
-    手順は PCB 読込 → Klipper 接続 → カメラ準備 → キャリブレーション読込 →
+    手順は Klipper 接続 → カメラ準備 → キャリブレーション読込 →
     ホーミング (G28) → 左上基準点へ移動 → カメラ回転角の計測 → Board 変換の計測。
 
     この関数自体は終了時の駐機をしない（ジョブ管理が行う）。
 
     Args:
         machine: マシン設定
-        pcb_file_path: KiCAD ファイルのパス
+        board: 計測する基板
         tolerance: 位置合わせの許容誤差 (mm)
         camera: 使用するカメラ。None の場合はマシン設定から生成する
         frame_sink: 検出注釈画像を送る sink。None の場合は表示しない
@@ -222,11 +221,7 @@ def setup_board_calibration(
         RuntimeError: 位置補正が収束しない場合、または G-code 送信が失敗した場合
         ValueError: 基準点配置から Board 変換を決められない場合
     """
-    # PCB ファイル読み込み
-    logger.info("=== PCBファイル読み込み ===")
-    pcb = PcbFile(pcb_file_path)
-    outline = pcb.outline
-    logger.info("PCBファイル: %s", pcb_file_path)
+    outline = board.outline
     logger.info("Board幅: %.3f mm", outline.width)
     logger.info("Board高さ: %.3f mm", outline.height)
 
@@ -341,5 +336,5 @@ def setup_board_calibration(
         calibration=calibration,
         offset_transform=offset_transform,
         board_transform=board_transform,
-        pcb=pcb,
+        pcb=board,
     )

@@ -7,7 +7,8 @@ from time import monotonic
 import pcbnew
 import pytest
 
-from pcbasm.kicad import PcbFile
+from pcbasm.board import Board
+from pcbasm.kicad import load_board
 from pcbasm.kicad.units import KicadError
 from pcbasm.pasting.testboard.config import (
     BoardConfig,
@@ -305,8 +306,8 @@ class TestBoardGeneration:
         return _board(generator, BoardConfig(), tmp_path)
 
     @pytest.fixture
-    def pcb(self, generator, tmp_path: Path) -> PcbFile:
-        return PcbFile(_board_file(generator, BoardConfig(), tmp_path))
+    def pcb(self, generator, tmp_path: Path) -> Board:
+        return load_board(_board_file(generator, BoardConfig(), tmp_path))
 
     def test_generated_board_contains_one_pad_per_pattern_instance(self, board):
         footprints = list(board.GetFootprints())
@@ -379,9 +380,7 @@ class TestBoardGeneration:
         assert pad.GetLayerSet().Contains(pcbnew.F_Cu)
         assert pad.GetLayerSet().Contains(pcbnew.F_Paste)
 
-    def test_generated_board_round_trip_keeps_outline_and_pad_layers(
-        self, pcb: PcbFile
-    ):
+    def test_generated_board_round_trip_keeps_outline_and_pad_layers(self, pcb: Board):
         assert pcb.outline.width == pytest.approx(40.0, abs=0.1)
         assert pcb.outline.height == pytest.approx(40.0, abs=0.1)
         # パッド種 64 + PURGE 1
@@ -393,7 +392,7 @@ class TestBoardGeneration:
         assert purge[0].pad_number == "1"
         assert purge[0].polygon.area == pytest.approx(4.0, abs=0.01)
 
-    def test_rotation_is_written_to_pad_footprints(self, pcb: PcbFile):
+    def test_rotation_is_written_to_pad_footprints(self, pcb: Board):
         rotations = {
             component.rotation
             for component in pcb.components

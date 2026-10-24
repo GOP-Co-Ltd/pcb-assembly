@@ -6,6 +6,7 @@ JobManager だけが生成するため、合成ジョブを manager 経由で実
 
 - params は catalog 検証済み（default 充填・型変換済み）
 - pcb_path は選択 PCB の絶対パス（未選択なら None）
+- board() はファイルが差し替わっていれば読み直す
 - machine は選択マシンの設定、artifacts_dir は data/webui/<job_id>/（作成済み）
 - log / progress は record へ反映、frame は preview のオーバーライドスロットへ
 - next_command は timeout 超過で None
@@ -16,15 +17,16 @@ prompt / abort 経由の挙動は test_manager.py（respond_prompt / request_abo
 
 from __future__ import annotations
 
+import shutil
 import threading
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.vision import Image
-from tests.web.api.conftest import decode_jpeg, jpeg_payload
-from web.api.board_settings import BoardSettingsStore
+from tests.web.api.conftest import COPPER_PCB_FIXTURE, decode_jpeg, jpeg_payload
 from web.api.jobs.catalog import JobCatalog, ParamSpec
 from web.api.jobs.context import JobContext
 from web.api.jobs.manager import JobManager, JobStatus
@@ -122,10 +124,10 @@ class TestContextProperties:
 
 
 class TestBoardSettingsWiring:
-    """source_pcb / board_store の manager → JobContext 配線.
+    """source_pcb / overrides の manager → JobContext 配線.
 
     paste_solder ジョブが基板ごとの塗布設定ストアを引けるよう、manager は 選択中の PCB 相対パス・共有
-    BoardSettingsStore を ctx へ渡す （計画書 Phase 5「JobContext への配線」節の契約）。
+    BoardOverrides を ctx へ渡す （計画書 Phase 5「JobContext への配線」節の契約）。
 
     MR1 追記: ctx へ渡るのは注入されたインスタンスそのものでなければならない （manager
     が自前生成に戻ると更新ロックが効かない）。
@@ -136,26 +138,60 @@ class TestBoardSettingsWiring:
         manager: JobManager,
         catalog: JobCatalog,
         state: AppState,
-        board_store: BoardSettingsStore,
+        overrides: BoardOverrides,
         real_pcb_path: Path,
         wait_until: WaitUntil,
     ):
         state.select_pcb(real_pcb_path)
-        captured: list[tuple[str | None, BoardSettingsStore | None]] = []
+        captured: list[tuple[str | None, BoardOverrides | None]] = []
 
         def run(ctx: JobContext) -> None:
-            captured.append((ctx.source_pcb, ctx.board_store))
+            captured.append((ctx.source_pcb, ctx.overrides))
 
         _register(catalog, run, requires_pcb=True)
         record = manager.start("synthetic", {})
         wait_until(lambda: record.status.terminal)
 
         assert record.status == JobStatus.SUCCEEDED
-        source_pcb, ctx_board_store = captured[0]
+        source_pcb, ctx_overrides = captured[0]
         # pcb_browse_root からの相対 posix パス（絶対パスではない）
         assert source_pcb == real_pcb_path.as_posix()
         # 注入した同一インスタンス（等価ではなく同一性）
-        assert ctx_board_store is board_store
+        assert ctx_overrides is overrides
+
+
+class TestBoard:
+    """ctx.board() はジョブの開始時の選択 PCB を、差し替わっていれば読み直して返す."""
+
+    def test_job_after_replacing_the_file_uses_the_new_pads(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        state: AppState,
+        pcb_root: Path,
+        real_pcb_path: Path,
+        wait_until: WaitUntil,
+    ):
+        state.select_pcb(real_pcb_path)
+        captured: list[set[str]] = []
+
+        def run(ctx: JobContext) -> None:
+            captured.append({pad.designator for pad in ctx.board().pads})
+
+        _register(catalog, run, requires_pcb=True)
+
+        def designators() -> set[str]:
+            record = manager.start("synthetic", {})
+            wait_until(lambda: record.status.terminal)
+            assert record.status == JobStatus.SUCCEEDED
+            return captured[-1]
+
+        assert "CONCAVE_L" in designators()
+
+        shutil.copy(COPPER_PCB_FIXTURE, pcb_root / real_pcb_path)
+
+        assert "CONCAVE_L" not in designators()
+        assert "U1" in captured[-1]
 
 
 class TestLogAndProgress:
@@ -205,13 +241,13 @@ class TestFrame:
         state: AppState,
         catalog: JobCatalog,
         fake_camera_settings: Settings,
-        board_store: BoardSettingsStore,
+        overrides: BoardOverrides,
         wait_until: WaitUntil,
     ):
         # TTL を長くした PreviewService で「直近のジョブ提供フレーム優先」を
         # 決定的に観測する
         preview = PreviewService(state, override_ttl=60.0)
-        manager = JobManager(state, preview, catalog, fake_camera_settings, board_store)
+        manager = JobManager(state, preview, catalog, fake_camera_settings, overrides)
         frame_sent = threading.Event()
         gate = threading.Event()
         magenta = np.zeros((48, 64, 3), dtype=np.uint8)

@@ -9,7 +9,7 @@
 - 解決時は各 pad で L0→L4 を辿り、非 ``None`` 項目で上書きする（最も具体的な階層の値を採用する）。
   ``enabled`` も同じ規則で、明示の無い pad は有効
 
-永続化（JSON 変換）は :mod:`pcbasm.pasting.persist`。
+保存（JSON 変換）は :mod:`pcbasm.pasting.overrides`。
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ import attrs
 from pcbasm.board import Pad
 from pcbasm.config.dispenser import PasteDispenserConfig
 from pcbasm.geometry import Point2d
-from pcbasm.pasting.hierarchy import HierKey, PadHierarchy, PadHierarchyNode, PadRef
+from pcbasm.pasting.hierarchy import HierKey, PadHierarchy, PadHierarchyNode
 from pcbasm.pasting.params import (
     PASTE_PARAM_NAMES,
     PasteParams,
@@ -164,12 +164,10 @@ def _resolve_chain(
 
 def resolve_pad_settings(
     hierarchy: PadHierarchy, model: PasteSettingsModel
-) -> dict[PadRef, ResolvedSetting]:
+) -> dict[str, ResolvedSetting]:
     """各 pad の解決済み設定を返す（``hierarchy.node_keys_for_pad`` の L0→L4 順に重ねる）."""
     return {
-        hierarchy.pad_ref_for_pad(pad): _resolve_chain(
-            hierarchy.node_keys_for_pad(pad), model
-        )
+        pad.ref: _resolve_chain(hierarchy.node_keys_for_pad(pad), model)
         for pad in hierarchy.iter_pads()
     }
 
@@ -204,7 +202,7 @@ def select_enabled_pads(
     プレビュー（webui router）と実行（webui job）が同一の絞り込みを共有するための単一ソース。
     """
     resolved = resolve_pad_settings(hierarchy, model)
-    return [pad for pad in pads if resolved[hierarchy.pad_ref_for_pad(pad)].enabled]
+    return [pad for pad in pads if resolved[pad.ref].enabled]
 
 
 @attrs.frozen

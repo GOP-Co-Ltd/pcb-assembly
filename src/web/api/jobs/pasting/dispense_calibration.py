@@ -13,6 +13,7 @@ from typing import Any
 
 import attrs
 
+from pcbasm.kicad import load_board
 from pcbasm.kicad.build import generate_rect_pcb, save_board
 from pcbasm.pasting.flowcalib.flow import (
     CONVERGENCE_REL_TOL,
@@ -232,7 +233,9 @@ def _run_dispense_calibration(ctx: JobContext) -> JobResult:
         pcb_path = _generate_calibration_board(
             ctx, params.board_width, params.board_height
         )
-        result = setup_board(ctx, camera, tolerance=tolerance, pcb_path=pcb_path)
+        result = setup_board(
+            ctx, camera, tolerance=tolerance, board=load_board(pcb_path)
+        )
         ctx.progress("高さ計測")
         with FlowCalibrationProcedure.setup(result) as procedure:
             results = _calibration_menu_loop(ctx, procedure)

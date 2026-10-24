@@ -17,15 +17,15 @@ from fastapi.responses import JSONResponse
 from pcbasm.board import Layer
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.initial_purge import validate_initial_purge
+from pcbasm.pasting.overrides import BoardSession, board_settings_export_filename
 from pcbasm.pasting.params import validate_field_names, validate_param_values
 from pcbasm.pasting.paste_volume.runtime import validate_flow_calibration_point
-from pcbasm.pasting.persist import board_settings_export_filename
 from pcbasm.pasting.route import routed_enabled_pads
 from pcbasm.pasting.settings import PasteSettingsModel
 from web.api.dependencies import (
-    BoardStoreDep,
     ControlDep,
     MachineConfigDep,
+    OverridesDep,
     SettingsDep,
     StateDep,
 )
@@ -34,7 +34,6 @@ from web.api.routers.pasting_view import (
     FlowCalibrationResponse,
     InitialPurgePatch,
     InitialPurgeResponse,
-    Loaded,
     NodePatch,
     PadConfigCopperResponse,
     PadConfigImport,
@@ -55,7 +54,7 @@ from web.api.routers.pasting_view import (
     build_route,
     key_from_node_id,
     layer_pads,
-    load_board,
+    load_session,
 )
 
 router = APIRouter(prefix="/api")
@@ -65,20 +64,20 @@ router = APIRouter(prefix="/api")
 def get_pad_config(
     state: StateDep,
     settings: SettingsDep,
-    board_store: BoardStoreDep,
+    overrides: OverridesDep,
 ) -> PadConfigResponse:
     """選択中基板の pad ジオメトリ・階層・解決済み設定・疎 override を返す."""
-    return build_pad_config(load_board(state, settings, board_store))
+    return build_pad_config(load_session(state, settings, overrides))
 
 
 @router.get("/pasting/pad-config/copper")
 def get_pad_config_copper(
     state: StateDep,
     settings: SettingsDep,
-    board_store: BoardStoreDep,
+    overrides: OverridesDep,
 ) -> PadConfigCopperResponse:
     """選択中基板の銅箔島を表示用に返す（基板ごとに 1 回取る読み取り専用）."""
-    return build_copper(load_board(state, settings, board_store))
+    return build_copper(load_session(state, settings, overrides))
 
 
 @router.post("/pasting/pad-config/route")
@@ -86,10 +85,10 @@ def calculate_pad_route(
     body: PasteRouteRequest,
     state: StateDep,
     settings: SettingsDep,
-    board_store: BoardStoreDep,
+    overrides: OverridesDep,
 ) -> PasteRouteResponse:
     """選択中基板の有効 pad だけを対象に塗布順路を返す（POST だが読み取り専用計算）."""
-    return build_route(load_board(state, settings, board_store), body.layer)
+    return build_route(load_session(state, settings, overrides), body.layer)
 
 
 @router.post("/pasting/pad-config/fill-path")
@@ -97,10 +96,10 @@ def calculate_pad_fill_path(
     body: PasteFillPathRequest,
     state: StateDep,
     settings: SettingsDep,
-    board_store: BoardStoreDep,
+    overrides: OverridesDep,
 ) -> PasteFillPathResponse:
     """選択中基板の有効 pad だけを対象に塗布パスを返す（POST だが読み取り専用計算）."""
-    return build_fill_path(load_board(state, settings, board_store), body.layer)
+    return build_fill_path(load_session(state, settings, overrides), body.layer)
 
 
 @router.patch("/pasting/pad-config/node")
@@ -108,11 +107,11 @@ def patch_pad_config_node(
     body: NodePatch,
     state: StateDep,
     settings: SettingsDep,
-    board_store: BoardStoreDep,
+    overrides: OverridesDep,
     _control: ControlDep,
 ) -> PatchResponse:
     """ノードの enabled/values upsert・clear を適用し、影響 pad を返す."""
-    loaded = load_board(state, settings, board_store)
+    loaded = load_session(state, settings, overrides)
     _check_expected_pcb(body.expected_pcb, loaded)
     if (message := validate_param_values(body.values)) is not None:
         raise HTTPException(status_code=400, detail=message)
@@ -122,7 +121,7 @@ def patch_pad_config_node(
     if key not in loaded.hierarchy.all_keys():
         raise HTTPException(status_code=400, detail=f"未知のノードです: {body.node}")
     enabled_sent = "enabled" in body.model_fields_set
-    new_model = board_store.update(
+    new_model = overrides.update(
         loaded.source_pcb,
         loaded.base_config,
         board_signature=loaded.board_signature,
@@ -143,18 +142,18 @@ def patch_pad_config_pads(
     body: PadEnablePatch,
     state: StateDep,
     settings: SettingsDep,
-    board_store: BoardStoreDep,
+    overrides: OverridesDep,
     _control: ControlDep,
 ) -> PatchResponse:
     """Pad id 配列を L4 ノードの enabled 設定として一括適用する."""
-    loaded = load_board(state, settings, board_store)
+    loaded = load_session(state, settings, overrides)
     _check_expected_pcb(body.expected_pcb, loaded)
     l4_keys, unknown = loaded.hierarchy.l4_keys_for_pad_ids(body.ids)
     if unknown:
         raise HTTPException(
             status_code=400, detail=f"未知の pad です: {', '.join(unknown)}"
         )
-    model = board_store.update(
+    model = overrides.update(
         loaded.source_pcb,
         loaded.base_config,
         board_signature=loaded.board_signature,
@@ -169,12 +168,12 @@ def patch_initial_purge(
     body: InitialPurgePatch,
     state: StateDep,
     settings: SettingsDep,
-    board_store: BoardStoreDep,
+    overrides: OverridesDep,
     machine_config: MachineConfigDep,
     _control: ControlDep,
 ) -> InitialPurgeResponse:
     """初回パージ量と塗布座標を即時保存し、解決済み設定を返す."""
-    loaded = load_board(state, settings, board_store)
+    loaded = load_session(state, settings, overrides)
     _check_expected_pcb(body.expected_pcb, loaded)
     amount_sent = "initial_purge_ul" in body.model_fields_set
     point_sent = "point" in body.model_fields_set
@@ -195,7 +194,7 @@ def patch_initial_purge(
     error = validate_initial_purge(
         amount_ul=next_amount,
         point=next_point,
-        outline=loaded.pcb.outline.polygon,
+        outline=loaded.board.outline.polygon,
     )
     if error is not None:
         raise HTTPException(status_code=400, detail=error)
@@ -205,7 +204,7 @@ def patch_initial_purge(
             machine_config.write({"paste_dispenser.initial_purge_ul": next_amount})
     model = loaded.model
     if point_sent:
-        model = board_store.update(
+        model = overrides.update(
             loaded.source_pcb,
             loaded.base_config,
             board_signature=loaded.board_signature,
@@ -227,7 +226,7 @@ def patch_flow_calibration(
     body: FlowCalibrationPatch,
     state: StateDep,
     settings: SettingsDep,
-    board_store: BoardStoreDep,
+    overrides: OverridesDep,
     _control: ControlDep,
 ) -> FlowCalibrationResponse:
     """運転時流量キャリブレーションの測定位置を即時保存し、解決済み設定を返す.
@@ -242,7 +241,7 @@ def patch_flow_calibration(
     crop 寸法を先に変えただけで保存できなくなるのを避けるため、判定は計画時に行い
     ``flow_calibration.error`` として返す。
     """
-    loaded = load_board(state, settings, board_store)
+    loaded = load_session(state, settings, overrides)
     _check_expected_pcb(body.expected_pcb, loaded)
     if "points" not in body.model_fields_set:
         return FlowCalibrationResponse(flow_calibration=build_flow_calibration(loaded))
@@ -250,11 +249,11 @@ def patch_flow_calibration(
     next_points = _flow_calibration_points(body.points)
     for point in next_points:
         error = validate_flow_calibration_point(
-            point=point, outline=loaded.pcb.outline.polygon
+            point=point, outline=loaded.board.outline.polygon
         )
         if error is not None:
             raise HTTPException(status_code=400, detail=error)
-    model = board_store.update(
+    model = overrides.update(
         loaded.source_pcb,
         loaded.base_config,
         board_signature=loaded.board_signature,
@@ -275,7 +274,7 @@ def _flow_calibration_points(values: list[list[float]]) -> tuple[Point2d, ...]:
     return tuple(Point2d(value[0], value[1]) for value in values)
 
 
-def _check_expected_pcb(expected_pcb: str, loaded: Loaded) -> None:
+def _check_expected_pcb(expected_pcb: str, loaded: BoardSession) -> None:
     """編集開始時の PCB と選択中 PCB の不一致を 409 で弾く."""
     if expected_pcb != loaded.source_pcb:
         raise HTTPException(
@@ -297,11 +296,11 @@ def _initial_purge_point(value: list[float] | None) -> Point2d | None:
 
 @router.get("/pasting/pad-config/export")
 def export_pad_config(
-    state: StateDep, settings: SettingsDep, board_store: BoardStoreDep
+    state: StateDep, settings: SettingsDep, overrides: OverridesDep
 ) -> JSONResponse:
     """現在の基板 override 設定をダウンロード用 JSON として返す."""
-    loaded = load_board(state, settings, board_store)
-    doc = board_store.export_doc(
+    loaded = load_session(state, settings, overrides)
+    doc = overrides.export_doc(
         loaded.source_pcb,
         loaded.model,
         board_signature=loaded.board_signature,
@@ -330,13 +329,13 @@ def import_pad_config(
     body: PadConfigImport,
     state: StateDep,
     settings: SettingsDep,
-    board_store: BoardStoreDep,
+    overrides: OverridesDep,
     _control: ControlDep,
 ) -> PadConfigResponse:
     """アップロードされた基板 override 設定を検証して保存し、最新設定を返す."""
-    loaded = load_board(state, settings, board_store)
+    loaded = load_session(state, settings, overrides)
     try:
-        model = board_store.model_from_doc(
+        model = overrides.model_from_doc(
             body.document,
             loaded.base_config,
             board_signature=loaded.board_signature,
@@ -344,11 +343,11 @@ def import_pad_config(
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    pruned = board_store.prune(
+    pruned = overrides.prune(
         loaded.source_pcb,
         model,
         loaded.hierarchy,
-        outline=loaded.pcb.outline.polygon,
+        outline=loaded.board.outline.polygon,
         board_signature=loaded.board_signature,
     )
     return build_pad_config(attrs.evolve(loaded, model=pruned))

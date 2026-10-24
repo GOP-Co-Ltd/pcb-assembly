@@ -6,7 +6,6 @@ import cv2
 
 from pcbasm.board import Layer
 from pcbasm.geometry import sampling_diagnostics
-from pcbasm.kicad import PcbFile
 from pcbasm.pasting.height import (
     plan_probe_points,
     render_height_plane,
@@ -38,7 +37,7 @@ def register(catalog: JobCatalog) -> None:
 def _run_height_plane(ctx: JobContext) -> JobResult:
     """計画点プレビュー → confirm → 高さ計測 → ヒートマップ生成を実行する."""
     assert ctx.pcb_path is not None  # requires_pcb=True
-    pcb = PcbFile(ctx.pcb_path)
+    pcb = ctx.board()
     top_coppers = [c for c in pcb.copper if c.layer == Layer.TOP]
     # 装置を触らずに計画点だけ出す（計測時と同じ規則）
     planned_points = plan_probe_points(

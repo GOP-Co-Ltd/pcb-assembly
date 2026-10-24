@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime
 
 from pcbasm.gcode import GCode
-from pcbasm.kicad import PcbFile
 from pcbasm.pasting.toolhead_offset import (
     MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT,
     ProbedPoint,
@@ -133,9 +132,8 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
         raise ValueError(diameter_error)
 
     # 配置不能ならカメラや Klipper を開始する前に中止する。
-    assert ctx.pcb_path is not None  # requires_pcb=True
     planned_points, plan_error = plan_toolhead_offset_points(
-        PcbFile(ctx.pcb_path).outline.polygon,
+        ctx.board().outline.polygon,
         point_count=point_count,
         point_spacing=point_spacing,
         edge_margin=edge_margin,

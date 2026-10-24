@@ -78,6 +78,8 @@ class Pad:
         layer: レイヤー (Top/Bottom)
         polygon: ペースト領域のポリゴン (mm 単位)
         is_custom_shape: カスタム形状かどうか
+        ref: 基板内で一意な参照 ``"<designator>.<pad_number>"``（既定）。
+            同じ designator と pad_number の pad が複数あるときは ``#1`` / ``#2`` を付けて区別する
     """
 
     designator: str
@@ -86,6 +88,11 @@ class Pad:
     layer: Layer
     polygon: Polygon
     is_custom_shape: bool = False
+    ref: str = attrs.field(
+        default=attrs.Factory(
+            lambda pad: f"{pad.designator}.{pad.pad_number}", takes_self=True
+        )
+    )
 
     @property
     def center(self) -> Point2d:
@@ -115,3 +122,20 @@ class Copper:
     def area(self) -> float:
         """ポリゴンの面積を計算 (mm^2)."""
         return self.polygon.area
+
+
+@attrs.frozen
+class Board:
+    """KiCad ファイル 1 枚分の基板データ（pad の ``ref`` は基板内で一意）.
+
+    Attributes:
+        outline: 基板アウトライン
+        components: 部品
+        pads: ペーストを塗る pad（ペースト形状が複数の輪郭に分かれる pad は輪郭ごとに 1 つ）
+        copper: 銅箔島
+    """
+
+    outline: Outline
+    components: tuple[Component, ...]
+    pads: tuple[Pad, ...]
+    copper: tuple[Copper, ...]

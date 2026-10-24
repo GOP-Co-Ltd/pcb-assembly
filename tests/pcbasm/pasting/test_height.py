@@ -19,7 +19,7 @@ from pcbasm.geometry import (
     sample_points_in_polygons,
     sort_by_nearest,
 )
-from pcbasm.kicad import PcbFile
+from pcbasm.kicad import load_board
 from pcbasm.pasting.height import (
     HeightPlaneMeasurer,
     plan_probe_points,
@@ -241,7 +241,7 @@ class TestHeightRender:
     """render_planned_points / render_height_plane（PNG として読めることだけを確かめる）."""
 
     def test_render_planned_points_outputs_readable_png(self, tmp_path):
-        pcb = PcbFile(LED_BLINKER_PCB)
+        pcb = load_board(LED_BLINKER_PCB)
         # 凸包（薄線描画）が成立する 4 点
         points = _spread_points_in_outline(
             pcb, [(0.2, 0.2), (0.8, 0.2), (0.8, 0.8), (0.2, 0.8)]
@@ -256,7 +256,7 @@ class TestHeightRender:
 
     def test_render_planned_points_accepts_fewer_than_hull_points(self, tmp_path):
         """凸包が成立しない 2 点でも描画できる（境界ケース）."""
-        pcb = PcbFile(LED_BLINKER_PCB)
+        pcb = load_board(LED_BLINKER_PCB)
         points = _spread_points_in_outline(pcb, [(0.3, 0.5), (0.7, 0.5)])
         output = tmp_path / "planned_two.png"
 
@@ -267,7 +267,7 @@ class TestHeightRender:
         assert image.size > 0
 
     def test_render_height_plane_outputs_readable_png(self, tmp_path):
-        pcb = PcbFile(LED_BLINKER_PCB)
+        pcb = load_board(LED_BLINKER_PCB)
         # 2 次曲面フィットに必要な非退化 6 点（z は緩い傾斜）
         fractions = [
             (0.1, 0.1),
@@ -290,7 +290,7 @@ class TestHeightRender:
         assert image.size > 0
 
     def test_render_height_plane_accepts_pcb_to_plane_frame(self, tmp_path):
-        pcb = PcbFile(LED_BLINKER_PCB)
+        pcb = load_board(LED_BLINKER_PCB)
         pcb_to_plane = Shift(x=120.0, y=-80.0, z=0.0)
         fractions = [
             (0.1, 0.1),

@@ -135,6 +135,7 @@ def build_state_response(
         nozzle_clean=None if clean is None else nozzle_clean_payload(clean),
         config_error=config_error,
         config_notice=state.config_notice,
+        pcb_notice=state.pcb_notice,
     )
 
 

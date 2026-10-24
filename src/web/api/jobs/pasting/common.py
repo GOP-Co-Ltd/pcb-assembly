@@ -20,9 +20,7 @@ from pcbasm.pasting.alignment import (
     refinement_targets,
 )
 from pcbasm.pasting.applicator import PasteApplicator
-from pcbasm.pasting.hierarchy import PadHierarchy
 from pcbasm.pasting.session import PasteSession
-from pcbasm.pasting.settings import PasteSettingsModel
 from pcbasm.posctrl import (
     BoardAlignment,
     BoardCalibrationResult,
@@ -315,21 +313,6 @@ def apply_to_machine_toml(ctx: JobContext, values: Mapping[str, float]) -> None:
         f"{key.rsplit('.', 1)[1]} = {value:.6f}" for key, value in rounded.items()
     )
     ctx.log(f"machine.toml へ反映しました: {pairs}")
-
-
-def resolve_paste_model(ctx: JobContext, hierarchy: PadHierarchy) -> PasteSettingsModel:
-    """基板設定ストア（あれば）から塗布設定モデルを取得する.
-
-    ストア／PCB が未配線なら ``machine.toml`` の ``[paste_dispenser]`` を L0 デフォルトに
-    据えた全 pad 有効のモデルを返す。
-    """
-    if ctx.board_store is not None and ctx.source_pcb is not None:
-        return ctx.board_store.load_or_init(
-            ctx.source_pcb,
-            ctx.machine.paste_dispenser,
-            board_signature=hierarchy.signature(),
-        )
-    return PasteSettingsModel.from_config(ctx.machine.paste_dispenser)
 
 
 @attrs.frozen

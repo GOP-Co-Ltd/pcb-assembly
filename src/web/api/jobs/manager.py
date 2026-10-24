@@ -27,9 +27,9 @@ from pcbasm.hal.audio import Sound
 from pcbasm.hal.klipper import PRESENT_TIMEOUT
 from pcbasm.machine.journal import Journal
 from pcbasm.parking import park_or_present
+from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.validators import is_finite_number
 from pcbasm.vision import Image
-from web.api.board_settings import BoardSettingsStore
 from web.api.jobs.catalog import JobCatalog, JobDefinition
 from web.api.jobs.context import (
     Answer,
@@ -422,7 +422,7 @@ class JobManager:
         preview: PreviewService,
         catalog: JobCatalog,
         settings: Settings,
-        board_store: BoardSettingsStore,
+        overrides: BoardOverrides,
         *,
         audio_player: AudioPlayer | None = None,
         log_capacity: int = 500,
@@ -434,7 +434,7 @@ class JobManager:
             preview: ctx.frame() の委譲先
             catalog: ジョブ定義カタログ
             settings: WebUI 設定（data_dir / pcb_browse_root）
-            board_store: 基板設定ストア。HTTP 経路と同一インスタンスを
+            overrides: 基板設定ストア。HTTP 経路と同一インスタンスを
                 渡すこと（別インスタンスだと更新ロックで直列化できない）
             audio_player: ジョブ完了通知音のプレイヤー（None なら再生しない）
             log_capacity: ログのリングバッファ行数
@@ -446,7 +446,7 @@ class JobManager:
         self._audio_player = audio_player
         self._log_capacity = log_capacity
         self._artifacts_root = settings.webui_data_dir
-        self._board_store = board_store
+        self._overrides = overrides
 
         self._lock = threading.Lock()
         self._record: JobRecord | None = None
@@ -506,7 +506,8 @@ class JobManager:
                     self._settings.paste_volume_calibration_dir
                 ),
                 source_pcb=selected_pcb.as_posix() if selected_pcb else None,
-                board_store=self._board_store,
+                boards=self._state.boards,
+                overrides=self._overrides,
             )
             worker = threading.Thread(
                 target=self._run_worker,
