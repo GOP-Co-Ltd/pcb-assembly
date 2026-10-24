@@ -8,7 +8,7 @@
 API は `live_server`（backend 直）へ、SSR ページは `live_ui`（frontend 経由）へ投げる。
 プロキシ経路そのものの検証は tests/e2e/test_proxy_e2e.py が担当する。
 
-ジョブ通しの題材には hidden の ``job_demo``（uses_machine=False・実機不要）を使う。
+ジョブ通しの題材には検証用の ``job_demo``（uses_machine=False・実機不要）を使う。
 log / progress / prompt / prompt_resolved / apply を一通り通すための検証用ジョブで、
 prompt 2 回（confirm → number）に応答すると SUCCEEDED + apply ペイロードを返す。
 """

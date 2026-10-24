@@ -56,7 +56,6 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 - `src/pcbasm/vision/`: 画像処理、キャリブレーション、特徴検出
 - `src/pcbasm/posctrl/`: PCB の位置合わせ共通制御
 - `src/pcbasm/pasting/`: ペースト塗布ロジック
-- `src/pcbasm/pnp/`: Pick and Place 用名前空間
 - `src/pcbasm/geometry/`: 3D 座標と幾何計算
 - `src/pcbasm/pcb/`: KiCAD 読込と PCB 設計情報
 - `src/pcbasm/visualization/`: 塗布パス・高さ面・PCB の可視化

@@ -59,7 +59,6 @@ def _run_handler_job(
         JobDefinition(
             name="handler",
             label="machine_commands 検証ジョブ",
-            tab="dev",
             run=run,
             uses_machine=False,
         )

@@ -29,7 +29,6 @@ def register(catalog: JobCatalog) -> None:
         JobDefinition(
             name="paste_volume_refit",
             label="塗布量校正の再フィット",
-            tab="pasting",
             run=_run_paste_volume_refit,
             params=(
                 *DETECTION_PARAMS,

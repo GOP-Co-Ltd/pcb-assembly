@@ -14,7 +14,7 @@ from pydantic import BaseModel
 # backend が `GET /api/machine-info` で自己申告する API 契約のバージョン。
 # mDNS の広告がこの版を載せ、frontend の探索は版のずれた機体を更新専用にする（定義箇所はここだけ）。
 # frontend は machine-info の api_version を見ないので、静的登録だけの機体は更新専用にならない
-API_VERSION = 5
+API_VERSION = 6
 
 type JobStatusName = Literal[
     "pending", "running", "waiting_input", "succeeded", "failed", "aborted"
@@ -223,7 +223,6 @@ class MachineInfo(BaseModel):
     """
 
     machine_id: str
-    machine_type: str | None
     mainsail_url: str
     fb_start: str
     api_version: int
@@ -249,7 +248,6 @@ class JobSpecInfo(BaseModel):
 
     name: str
     label: str
-    tab: Literal["dev", "pasting", "posctrl"]
     params: list[ParamSpecInfo] = []
     requires_pcb: bool = False
     uses_machine: bool = True
@@ -257,14 +255,13 @@ class JobSpecInfo(BaseModel):
     accepts_commands: bool = False
     persisted_params: list[str] = []
     runtime_params: list[str] = []
-    hidden: bool = False
     provides_preview: bool = False
     loading_param: str | None = None
     loading_stages: str = "ローディング"
 
 
 class JobCatalogResponse(BaseModel):
-    """/api/jobs のジョブカタログレスポンス（hidden を含む全件）."""
+    """/api/jobs のジョブカタログレスポンス（登録済みの全件）."""
 
     jobs: list[JobSpecInfo]
 

@@ -92,7 +92,6 @@ def job_spec_info(
     return JobSpecInfo(
         name=definition.name,
         label=definition.label,
-        tab=definition.tab,
         params=[
             ParamSpecInfo(
                 name=spec.name,
@@ -114,7 +113,6 @@ def job_spec_info(
         accepts_commands=definition.accepts_commands,
         persisted_params=list(definition.persisted_params),
         runtime_params=list(definition.runtime_params),
-        hidden=definition.hidden,
         provides_preview=definition.provides_preview,
         loading_param=definition.loading_param,
         loading_stages=definition.loading_stages,
@@ -123,10 +121,7 @@ def job_spec_info(
 
 @router.get("/jobs")
 def get_jobs(state: StateDep, catalog: CatalogDep) -> JobCatalogResponse:
-    """登録済みジョブ定義を登録順で全件返す（hidden も含む）.
-
-    hidden ジョブも実行時登録され POST できるため、frontend が扱えるよう filter しない。
-    """
+    """登録済みジョブ定義を登録順で全件返す."""
     return JobCatalogResponse(
         jobs=[
             job_spec_info(definition, state, catalog) for definition in catalog.list()

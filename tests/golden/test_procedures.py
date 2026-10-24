@@ -609,7 +609,6 @@ class TestMachineCommands:
             JobDefinition(
                 name="command",
                 label="マシン操作",
-                tab="dev",
                 run=run,
                 uses_machine=False,
             )

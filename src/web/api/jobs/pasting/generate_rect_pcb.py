@@ -11,7 +11,6 @@ def register(catalog: JobCatalog) -> None:
         JobDefinition(
             name="generate_rect_pcb",
             label="キャリブレーション矩形 PCB 生成",
-            tab="pasting",
             run=_run_generate_rect_pcb,
             params=(
                 ParamSpec("width", "基板幅", "float", 40.0, unit="mm"),

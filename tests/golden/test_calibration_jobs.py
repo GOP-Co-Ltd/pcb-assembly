@@ -53,7 +53,8 @@ from tests.web.api.jobs.pasting.conftest import full_board_correction
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.context import JobContext
 from web.api.jobs.manager import JobManager, JobRecord
-from web.api.jobs.pasting import CALIBRATION_MENU_STAGE, LOADING_STAGE
+from web.api.jobs.pasting.common import LOADING_STAGE
+from web.api.jobs.pasting.dispense_calibration import CALIBRATION_MENU_STAGE
 from web.api.jobs.pasting.flow_calibration import run_flow_calibration
 from web.api.settings import Settings
 from web.api.state import AppState

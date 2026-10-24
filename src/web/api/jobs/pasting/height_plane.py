@@ -20,7 +20,6 @@ def register(catalog: JobCatalog) -> None:
         JobDefinition(
             name="height_plane",
             label="高さ平面計測",
-            tab="pasting",
             run=_run_height_plane,
             params=(
                 ParamSpec("tolerance", "位置合わせ許容誤差", "float", 0.1, unit="mm"),

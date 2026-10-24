@@ -79,10 +79,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.appstate.close()
 
 
-def _build_advertiser(
-    settings: Settings, machine_type: str | None
-) -> ServiceAdvertiser:
-    """設定と machine.toml の現在値から広告を組む（ソケットは開かない）.
+def _build_advertiser(settings: Settings) -> ServiceAdvertiser:
+    """設定から広告を組む（ソケットは開かない）.
 
     設定エラー（degraded）でも広告する。機体一覧に載らないと WebUI から直せない。
 
@@ -96,7 +94,6 @@ def _build_advertiser(
     return ServiceAdvertiser(
         machine_id=resolve_machine_id(settings),
         port=settings.port,
-        machine_type=machine_type,
         addresses=addresses,
         service_type=settings.discovery_service_type,
         interfaces=settings.discovery_interfaces,
@@ -162,7 +159,7 @@ def create_app(
         )
     state = AppState(settings, store)
     # 設定エラーでもプロセスは落とさず degraded で上げる（落とすと WebUI から直せない）
-    machine, config_error = state.machine_or_error()
+    _, config_error = state.machine_or_error()
     if config_error is not None:
         logger.warning("設定エラーのため degraded で起動します: %s", config_error)
     preview = PreviewService(state)
@@ -187,9 +184,7 @@ def create_app(
     )
     # 広告の開始は lifespan（AsyncZeroconf が running loop を要求する）
     app.state.advertiser = (
-        _build_advertiser(settings, None if machine is None else machine.machine_type)
-        if settings.discovery_enabled
-        else None
+        _build_advertiser(settings) if settings.discovery_enabled else None
     )
     app.state.update = (
         update_runner if update_runner is not None else _build_update_runner(settings)

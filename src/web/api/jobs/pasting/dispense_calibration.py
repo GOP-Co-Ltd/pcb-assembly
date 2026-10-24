@@ -63,7 +63,6 @@ def register(catalog: JobCatalog) -> None:
         JobDefinition(
             name="dispense_calibration",
             label="吐出量キャリブレーション",
-            tab="pasting",
             run=_run_dispense_calibration,
             params=(
                 # 共通の準備（その場生成する銅板 + ボード計測）。銅板は開始時に 1 回生成する

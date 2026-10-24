@@ -143,7 +143,7 @@ class MachineClient:
         return await self._fetch(UpdateStatusResponse, "/api/update/status")
 
     async def jobs(self) -> JobCatalogResponse:
-        """`GET /api/jobs`（hidden を含む全件）."""
+        """`GET /api/jobs`."""
         return await self._fetch(JobCatalogResponse, "/api/jobs")
 
     async def _fetch[ModelT: BaseModel](self, model: type[ModelT], path: str) -> ModelT:

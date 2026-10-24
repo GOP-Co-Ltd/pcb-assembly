@@ -16,15 +16,13 @@ from tests.web.api.jobs.conftest import (
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.context import JobContext
 from web.api.jobs.manager import JobStatus
-from web.api.jobs.pasting import (
+from web.api.jobs.pasting.common import (
     Extrude,
     Finish,
     InvalidLoadingCommand,
+    LoadingTotals,
     Rotate,
     parse_loading_command,
-)
-from web.api.jobs.pasting.common import (
-    LoadingTotals,
     prompt_positive_number,
     run_loading_loop,
 )

@@ -75,7 +75,7 @@ ui: ## Run UI frontend server
 # mDNS 探索も切る（実 LAN の機体が混ざると、fake backend だけを見る隔離にならない）
 ui-fake: ## Run UI frontend against api-fake (isolated port; for manual/browser E2E)
 	@mkdir -p "$${PCBASM_UI_FAKE_DIR:-/tmp/pcbasm-ui-fake}"
-	@printf '[[machine]]\nmachine_id = "fake"\nhost = "127.0.0.1"\nport = %s\nname = "fake backend"\n' \
+	@printf '[[machine]]\nmachine_id = "fake"\nhost = "127.0.0.1"\nport = %s\n' \
 		"$${PCBASM_API_PORT:-8099}" > "$${PCBASM_UI_FAKE_DIR:-/tmp/pcbasm-ui-fake}/machines.toml"
 	PCBASM_UI_PORT=$${PCBASM_UI_PORT:-8098} \
 	PCBASM_UI_MACHINES_FILE="$${PCBASM_UI_FAKE_DIR:-/tmp/pcbasm-ui-fake}/machines.toml" \

@@ -34,7 +34,7 @@ from tests.support.settings import make_api_settings, make_ui_settings
 from tests.web.api.jobs.conftest import register_gated
 from tests.web.update_support import UpdateSandbox, make_update_sandbox
 from web.api.app import create_app
-from web.api.discovery import TXT_KEY_API, TXT_KEY_ID, TXT_KEY_TYPE
+from web.api.discovery import TXT_KEY_API, TXT_KEY_ID
 from web.api.models import API_VERSION
 from web.selfupdate.runner import UpdateRunner
 from web.ui.app import create_app as create_ui_app
@@ -82,7 +82,7 @@ def old_backend(
         paste_test_board_footprint_root=paste_test_board_footprint_root,
         update_runner=UpdateRunner(sandbox.settings),
     )
-    register_gated(app.state.catalog, name=_STOPPABLE_JOB, hidden=True)
+    register_gated(app.state.catalog, name=_STOPPABLE_JOB)
     old = start_app(app)
     try:
         yield old
@@ -99,13 +99,11 @@ def mixed_stack(
             machine_id=E2E_MACHINE_ID,
             host=LOOPBACK,
             port=live_server.port,
-            machine_type="paste",
         ),
         MachineEndpoint(
             machine_id=OLD_MACHINE_ID,
             host=LOOPBACK,
             port=old_backend.port,
-            machine_type="paste",
             update_only=True,
         ),
     )
@@ -138,7 +136,6 @@ def advertised(service_type: str, *, port: int, api: str) -> Iterator[None]:
         properties={
             TXT_KEY_ID: OLD_MACHINE_ID,
             TXT_KEY_API: api,
-            TXT_KEY_TYPE: "paste",
         },
         parsed_addresses=[LOOPBACK],
     )

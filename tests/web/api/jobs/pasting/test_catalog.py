@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from web.api.jobs.catalog import JobCatalog, default_catalog
+from web.api.jobs.pasting import register_pasting_jobs
 
 PASTING_JOBS = (
     "paste_solder",
@@ -26,10 +27,11 @@ class TestCatalog:
     def default(self) -> JobCatalog:
         return default_catalog()
 
-    def test_pasting_tab_has_exactly_phase5_jobs(self, default: JobCatalog):
-        names = {definition.name for definition in default.list(tab="pasting")}
+    def test_registers_exactly_the_pasting_jobs(self):
+        catalog = JobCatalog()
+        register_pasting_jobs(catalog)
 
-        assert names == set(PASTING_JOBS)
+        assert {definition.name for definition in catalog.list()} == set(PASTING_JOBS)
 
     @pytest.mark.parametrize(
         ("name", "requires_pcb", "uses_machine", "accepts_commands"),

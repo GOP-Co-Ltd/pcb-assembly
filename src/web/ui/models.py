@@ -19,10 +19,8 @@ class MachineSummary(BaseModel):
 
     machine_id: str
     label: str
-    name: str | None
     host: str
     port: int
-    machine_type: str | None
     source: Literal["static", "mdns"]
     current: bool
 

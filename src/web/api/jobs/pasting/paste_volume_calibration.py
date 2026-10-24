@@ -115,7 +115,6 @@ def register(catalog: JobCatalog) -> None:
         JobDefinition(
             name="paste_volume_calibration",
             label="塗布量校正の生成",
-            tab="pasting",
             run=_run_paste_volume_calibration,
             params=(
                 ParamSpec(

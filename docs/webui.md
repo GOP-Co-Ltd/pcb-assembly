@@ -51,7 +51,6 @@ make ui-fake  # api-fake（8099）を上流にした frontend（port 8098）
 | 位置合わせ | カメラプレビュー、カメラ校正、銅箔検出調整、基準点設定                                 |
 | はんだ塗布 | パッド設定と塗布、ローディング、高さ計測、吐出量校正、ノズル位置設定                   |
 | 開発       | PCB の抽出・生成、Klipper ステータス、通知音、設定履歴とバックアップ、ソフトウェア更新 |
-| 部品実装   | 未実装                                                                                 |
 | 一括管理   | 全機体の操作権の取得・解放、ソフトウェア更新、塗布実行（[運用ガイド](operations.md)）  |
 
 キャリブレーションやノズル位置は機体固有の値を使う。初回は画面の案内に沿って
@@ -91,12 +90,10 @@ AP のマルチキャスト抑制などで探索できない環境では、front
 machine_id = "kurousagi"  # 必須。URL の /m/{machine_id} になる
 host = "kurousagi.local"  # 必須。ホスト名または IP
 port = 8081               # 省略時 8081
-name = "黒兎 1 号機"      # 省略可。機体の補足情報
-machine_type = "paste"    # 省略可
 ```
 
 選択メニューには `machine_id: host` を表示する（例: `kurousagi: kurousagi.local`）。
-`name` は選択メニューの表示名には使わない。対象が未選択の案内画面では「マシンを選択」から選ぶ。
+対象が未選択の案内画面では「マシンを選択」から選ぶ。
 
 **`machine_id` はその機体のホスト名（`hostname` の出力）に合わせる。** backend が名乗る ID は
 `socket.gethostname()` で決まり、環境変数では変えられない。この ID と `machine_id` がずれると、
@@ -105,7 +102,7 @@ machine_type = "paste"    # 省略可
 
 ファイルが無い場合は静的登録 0 台として起動する（探索で見つかった分だけが一覧に出る）。
 同じ `machine_id` を両方の経路が知っている場合は静的登録の `host` / `port` を優先し、
-静的側が持たない `machine_type` と、API 版がずれているか（更新専用）だけを探索側で埋める。
+API 版がずれているか（更新専用）だけを探索側で埋める。
 
 frontend が `machines.toml` を読むのは起動時の 1 回だけなので、編集したら frontend を
 再起動する（実行中に更新されるのは mDNS 探索の分だけ）。`scripts/setup-machine-config.sh` が案内する

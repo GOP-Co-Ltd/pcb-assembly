@@ -135,10 +135,11 @@ class TestCatalog:
     def default(self) -> JobCatalog:
         return default_catalog()
 
-    def test_posctrl_tab_has_exactly_phase4_jobs(self, default: JobCatalog):
-        names = {definition.name for definition in default.list(tab="posctrl")}
+    def test_registers_exactly_the_posctrl_jobs(self):
+        catalog = JobCatalog()
+        register_posctrl_jobs(catalog)
 
-        assert names == set(POSCTRL_JOBS)
+        assert {definition.name for definition in catalog.list()} == set(POSCTRL_JOBS)
 
     @pytest.mark.parametrize(
         ("name", "requires_pcb", "uses_machine", "accepts_commands"),

@@ -5,7 +5,7 @@
 ## ハードウェア
 
 - Raspberry Pi 5
-- Pick and Place または Paste Dispenser Machine
+- Paste Dispenser Machine
 - スピーカー（通知音を使う場合。I2S DAC / アンプまたは HDMI 音声出力）
 
 ## ソフトウェア

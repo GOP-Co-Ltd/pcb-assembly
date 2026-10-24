@@ -24,12 +24,7 @@ from zeroconf import (
 )
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo, AsyncZeroconf
 
-from web.api.discovery import (
-    SERVICE_TYPE,
-    TXT_KEY_API,
-    TXT_KEY_ID,
-    TXT_KEY_TYPE,
-)
+from web.api.discovery import SERVICE_TYPE, TXT_KEY_API, TXT_KEY_ID
 from web.api.models import API_VERSION
 from web.ui.machines import MachineEndpoint
 
@@ -83,7 +78,6 @@ def endpoint_from_service_info(info: ServiceInfo) -> MachineEndpoint | None:
         machine_id=machine_id,
         host=addresses[0],
         port=info.port,
-        machine_type=_text(properties, TXT_KEY_TYPE),
         source="mdns",
         update_only=not _api_compatible(properties),
     )

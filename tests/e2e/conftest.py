@@ -37,6 +37,7 @@ from fastapi import FastAPI
 from starlette.types import ASGIApp
 
 from pcbasm.hal.fake import FakeAudioPlayer
+from tests.support.job_demo import register_job_demo
 from tests.support.settings import make_api_settings, make_ui_settings
 from tests.web.api.conftest import COPPER_PCB_FIXTURE
 from web.api.app import create_app
@@ -90,7 +91,7 @@ def configure_synthetic_job(
 
 
 def _register_completion_notice_jobs(catalog: JobCatalog) -> None:
-    """終了通知のブラウザE2E用 hiddenジョブを登録する。"""
+    """終了通知のブラウザE2E用ジョブを登録する。"""
 
     def succeed(ctx: JobContext) -> JobResult:
         return JobResult(summary="通知テスト完了")
@@ -110,11 +111,9 @@ def _register_completion_notice_jobs(catalog: JobCatalog) -> None:
             JobDefinition(
                 name=name,
                 label=label,
-                tab="dev",
                 run=run,
                 uses_machine=False,
                 notify_on_completion=True,
-                hidden=True,
             )
         )
 
@@ -447,12 +446,14 @@ def live_server(
 
     通知音は `FakeAudioPlayer` を注入する（既定の `AlsaAudioPlayer` だとジョブの
     完了・応答待ちが実 `aplay` を起動して実スピーカーが鳴る）。
+    ジョブ機構を通す題材として検証用の ``job_demo`` も登録する。
     """
     app = create_app(
         e2e_settings,
         audio_player=FakeAudioPlayer(),
         paste_test_board_footprint_root=paste_test_board_footprint_root,
     )
+    register_job_demo(app.state.catalog)
     _register_completion_notice_jobs(app.state.catalog)
     running = start_app(app)
     try:
@@ -475,7 +476,6 @@ def live_ui(live_server: LiveServer, tmp_path: Path) -> Iterator[LiveUi]:
         machine_id=E2E_MACHINE_ID,
         host="127.0.0.1",
         port=live_server.port,
-        name="E2E 機",
     )
     app = create_ui_app(
         make_ui_settings((endpoint,), machines_file=tmp_path / "absent-machines.toml")

@@ -37,7 +37,6 @@ def register(catalog: JobCatalog) -> None:
         JobDefinition(
             name="toolhead_offset",
             label="ツールヘッドオフセット計測",
-            tab="pasting",
             run=_run_toolhead_offset,
             params=(
                 ParamSpec("tolerance", "位置合わせ許容誤差", "float", 0.1, unit="mm"),

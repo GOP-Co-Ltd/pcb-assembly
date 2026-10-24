@@ -113,10 +113,8 @@ class TestBoardStoreSharing:
             JobDefinition(
                 name="board-store-probe",
                 label="board_store 配線の確認",
-                tab="dev",
                 run=run,
                 uses_machine=False,
-                hidden=True,
             )
         )
 
@@ -136,7 +134,7 @@ class TestDegraded:
         state = client.get("/api/state").json()
 
         assert "lift_height" in state["config_error"]
-        assert client.get("/api/machine-info").json()["machine_type"] is None
+        assert client.get("/api/machine-info").status_code == 200
 
     def test_refuses_to_start_a_job(
         self, broken_config: Path, app: FastAPI, client: TestClient
@@ -146,10 +144,8 @@ class TestDegraded:
             JobDefinition(
                 name="degraded-probe",
                 label="degraded の確認",
-                tab="dev",
                 run=lambda ctx: started.append(True),
                 uses_machine=False,
-                hidden=True,
             )
         )
 
@@ -208,10 +204,8 @@ class TestReadsFromDiskEveryTime:
             JobDefinition(
                 name="lift-height-probe",
                 label="lift_height の確認",
-                tab="dev",
                 run=lambda ctx: seen.append(ctx.machine.paste_dispenser.lift_height),
                 uses_machine=False,
-                hidden=True,
             )
         )
 

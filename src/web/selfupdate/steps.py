@@ -31,9 +31,6 @@ SMOKE_MODULES: dict[str, str] = {
     "pcbasm-ui.service": "web.ui.app",
 }
 
-# 全部入り（同居機）の既定値。unit を観測できない文脈で参照する
-ALL_SMOKE_MODULES: tuple[str, ...] = ("web.api.app", "web.ui.app")
-
 
 def sync_command(settings: UpdateSettings) -> tuple[str, ...]:
     """依存を lock ファイル通りに揃える argv."""
@@ -52,18 +49,12 @@ def smoke_modules(units: Sequence[str]) -> tuple[str, ...]:
     return tuple(SMOKE_MODULES[unit] for unit in units if unit in SMOKE_MODULES)
 
 
-def smoke_command(
-    settings: UpdateSettings, modules: Sequence[str] = ALL_SMOKE_MODULES
-) -> tuple[str, ...]:
+def smoke_command(settings: UpdateSettings, modules: Sequence[str]) -> tuple[str, ...]:
     """更新後の import smoke の argv（`--no-sync` で依存を書き換えない）.
-
-    本番では必ず `smoke_modules(active_units)` の結果を渡す。既定の全部入りを
-    frontend 専用機で使うと、`web.api.app` が picamera2 / pcbnew を要求して必ず失敗する
-    （既定を残しているのは契約テストが引数なしの形を固定しているため）。
 
     Args:
         settings: バイナリのパスを持つ設定
-        modules: import するモジュール（既定は同居機と同じ全部入り）
+        modules: import するモジュール（`smoke_modules(active_units)` の結果）
 
     Returns:
         `uv run --no-sync python -c "import ..."`

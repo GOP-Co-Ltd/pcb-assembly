@@ -1,4 +1,4 @@
-"""Pasting タブのジョブが共有する WS コマンド解釈・prompt・ワークフロー駆動.
+"""塗布系のジョブが共有する WS コマンド解釈・prompt・ワークフロー駆動.
 
 ドメイン手順（高さ計測・位置合わせ・pad 別変換・塗布）は ``pcbasm.pasting`` に置き、
 ここは ``JobContext`` を使う対話（prompt / progress / log / checkpoint）とループ制御だけを担う。
@@ -40,7 +40,6 @@ LOADING_DEFAULT_ROTATIONS = 5.0
 LOADING_DEFAULT_ROTATION_RATE = 0.5
 LOADING_DEFAULT_ROTATION_ACCEL = 0.5
 LOADING_DEFAULT_RETRACT_ROTATIONS = 0.0
-APPLY_DIGITS = 6
 
 
 @attrs.frozen
@@ -309,7 +308,7 @@ def apply_to_machine_toml(ctx: JobContext, values: Mapping[str, float]) -> None:
 
     採用のたびに書き込むことで、以降の中止・失敗でも計測結果を失わない。
     """
-    rounded = {key: round(value, APPLY_DIGITS) for key, value in values.items()}
+    rounded = {key: round(value, 6) for key, value in values.items()}
     ctx.apply_machine_settings(rounded)
     pairs = " / ".join(
         f"{key.rsplit('.', 1)[1]} = {value:.6f}" for key, value in rounded.items()

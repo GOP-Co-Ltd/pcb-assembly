@@ -30,7 +30,6 @@ from web.api.discovery import (
     SERVICE_TYPE,
     TXT_KEY_API,
     TXT_KEY_ID,
-    TXT_KEY_TYPE,
     ServiceAdvertiser,
     build_service_info,
     local_ipv4_addresses,
@@ -97,7 +96,6 @@ class TestBuildServiceInfo:
         return build_service_info(
             machine_id="kurousagi",
             port=8081,
-            machine_type="paste",
             addresses=("192.168.100.201",),
         )
 
@@ -113,22 +111,11 @@ class TestBuildServiceInfo:
         assert info.properties == {
             TXT_KEY_ID.encode(): b"kurousagi",
             TXT_KEY_API.encode(): str(API_VERSION).encode(),
-            TXT_KEY_TYPE.encode(): b"paste",
         }
 
     def test_address_and_port_are_advertised(self, info: ServiceInfo):
         assert info.parsed_addresses() == ["192.168.100.201"]
         assert info.port == 8081
-
-    def test_missing_machine_type_is_absent_from_txt(self):
-        info = build_service_info(
-            machine_id="alpha",
-            port=8081,
-            machine_type=None,
-            addresses=("10.0.0.3",),
-        )
-
-        assert set(info.properties) == {TXT_KEY_ID.encode(), TXT_KEY_API.encode()}
 
 
 class TestAdvertiserWithoutMulticast:
@@ -143,7 +130,6 @@ class TestAdvertiserWithoutMulticast:
         return ServiceAdvertiser(
             machine_id="alpha",
             port=8081,
-            machine_type=None,
             addresses=("10.0.0.3",),
             service_type=random_service_type(),
             interfaces=(UNUSABLE_INTERFACE,),
@@ -165,19 +151,15 @@ class TestAdvertiserWithoutMulticast:
 class TestAdvertiserWithUnbuildableServiceInfo:
     """ServiceInfo が組めない設定でもアプリを落とさない（M2 の回帰）.
 
-    `_build_info` は machine.toml 由来の値（machine_id / TXT）を使うので、組み立て
-    自体が失敗しうる。組み立てを `start` の try の外に置くと lifespan で例外が抜け、
+    `_build_info` はホスト名由来の machine_id を使うので、組み立て自体が失敗しうる。組み立てを `start` の try の外に置くと lifespan で例外が抜け、
     ``Application startup failed. Exiting.`` になって backend が起動しない。
     """
 
     @staticmethod
-    def _advertiser(
-        *, machine_id: str = "alpha", machine_type: str | None = None
-    ) -> ServiceAdvertiser:
+    def _advertiser(*, machine_id: str) -> ServiceAdvertiser:
         return ServiceAdvertiser(
             machine_id=machine_id,
             port=8081,
-            machine_type=machine_type,
             addresses=("10.0.0.3",),
             service_type=random_service_type(),
             interfaces=(UNUSABLE_INTERFACE,),
@@ -194,21 +176,6 @@ class TestAdvertiserWithUnbuildableServiceInfo:
 
         assert "BadTypeInNameException" in caplog.text
 
-    def test_too_long_txt_value_warns_instead_of_raising(
-        self, caplog: pytest.LogCaptureFixture
-    ):
-        """TXT 値（machine.toml の machine_type）が長すぎる場合.
-
-        zeroconf は ValueError を投げる。`zeroconf.Error` のサブクラスではないので
-        except に ValueError を含めていないと lifespan まで抜ける。
-        """
-        advertiser = self._advertiser(machine_type="x" * 300)
-
-        with caplog.at_level(logging.WARNING):
-            asyncio.run(advertiser.start())
-
-        assert "ValueError" in caplog.text
-
 
 class TestMachineIdResolution:
     """`resolve_machine_id` — 広告と `/api/machine-info` が同じ ID を使う（D7）."""
@@ -224,7 +191,6 @@ class TestMachineIdResolution:
         info = build_service_info(
             machine_id=resolve_machine_id(webui_settings),
             port=webui_settings.port,
-            machine_type=None,
             addresses=(),
         )
 

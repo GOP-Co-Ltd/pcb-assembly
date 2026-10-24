@@ -65,7 +65,7 @@ WebUI の設定ページからも編集できる。
 
 ## 命名規則
 
-`<マシン名>.<用途>` — 用途は `machine.toml` の `machine_type`（`paste` / `pnp`）に一致させる。
+`<マシン名>.<用途>` — 用途は今は `paste`（はんだペースト塗布）だけ。
 
 - マシン名は小文字のスネークケース（例: `kurousagi`）
 - 例: `kurousagi.paste`
@@ -130,8 +130,6 @@ git add data/config-templates/<マシン名>.<用途>
 ## machine.toml の最小例
 
 ```toml
-machine_type = "paste" # マシン種別: paste / pnp（必須）
-
 [klipper]
 host = "localhost"
 port = 7125

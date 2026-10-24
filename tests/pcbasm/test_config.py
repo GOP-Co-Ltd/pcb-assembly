@@ -331,7 +331,7 @@ class TestLoadKlipper:
 
     def test_missing_section_is_a_config_error(self, tmp_path):
         path = tmp_path / "machine.toml"
-        path.write_text('machine_type = "paste"\n', encoding="utf-8")
+        path.write_text("[probe]\n", encoding="utf-8")
 
         with pytest.raises(ConfigError, match="klipper"):
             load_klipper(path)
@@ -513,38 +513,16 @@ class TestMachinePasteDispenserFlowCalibration:
         assert flow.enabled is True
 
 
-class TestMachineType:
-    """Machine.machine_type は必須キー（欠落・paste / pnp 以外は設定エラー）."""
+class TestObsoleteMachineType:
+    """稼働機の machine.toml に残る ``machine_type`` は、移行で消えるまで読み飛ばす."""
 
-    def test_reads_paste_from_config(self):
-        machine = load_machine(TESTING_DATA_DIR / "machine.toml")
-
-        assert machine.machine_type == "paste"
-
-    def test_reads_pnp_from_config(self, tmp_path):
+    def test_machine_type_key_is_ignored(self, tmp_path):
+        expected = load_machine(_write_with(tmp_path))
         path = _write_with(
-            tmp_path, **{'machine_type = "paste"': 'machine_type = "pnp"'}
+            tmp_path, **{"[klipper]": 'machine_type = "paste"\n\n[klipper]'}
         )
 
-        assert load_machine(path).machine_type == "pnp"
-
-    @pytest.mark.parametrize(
-        ("replacement", "message"),
-        [
-            ("", "必須の項目がありません"),
-            ('machine_type = "sander"', "未知のマシン種別"),
-        ],
-        ids=["missing", "unknown"],
-    )
-    def test_missing_or_unknown_machine_type_is_a_config_error(
-        self, tmp_path, replacement: str, message: str
-    ):
-        path = _write_with(tmp_path, **{'machine_type = "paste"': replacement})
-
-        with pytest.raises(
-            ConfigError, match=f"{message}.* @ machine.toml.machine_type"
-        ):
-            load_machine(path)
+        assert load_machine(path) == expected
 
 
 @pytest.mark.parametrize("section", ["nozzle_cap", "nozzle_clean"])
