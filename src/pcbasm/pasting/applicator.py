@@ -100,24 +100,21 @@ def build_applicator(
     stage: XYZStage,
     config: PasteDispenserConfig,
     *,
-    rotations_per_ul: float | None = None,
     lift_height: float | None = None,
 ) -> PasteApplicator:
     """Machine 設定からディスペンサー HAL ごと :class:`PasteApplicator` を組み立てる.
+
+    基板を使わない操作（ローディング・ノズルキャップ）の入口。
+    計測済みの基板へ塗るときは :meth:`PasteSession.make_applicator <pcbasm.pasting.session.PasteSession.make_applicator>` を使う。
 
     Args:
         klipper: Klipper クライアント
         stage: XYZ ステージ
         config: ``MachineConfig.paste_dispenser``
-        rotations_per_ul: μL → 回転数の係数 [rev/μL] の上書き（キャリブ検証ループで
-            新値を反映した applicator を作り直す経路）。``None`` で config の値
         lift_height: 塗布後の上昇高さ [mm] の上書き。``None`` で config の値
     """
     dispenser = PasteDispenser(
-        klipper=klipper,
-        rotations_per_ul=(
-            config.rotations_per_ul if rotations_per_ul is None else rotations_per_ul
-        ),
+        klipper=klipper, rotations_per_ul=config.rotations_per_ul
     )
     return PasteApplicator(klipper, dispenser, stage, config, lift_height=lift_height)
 
@@ -178,7 +175,7 @@ class PasteApplicator:
     def adopt_rotations_per_ul(self, rotations_per_ul: float) -> None:
         """運転中に μL → 回転数の換算係数を差し替える.
 
-        運転時補正が求めた係数を、残りの pad へ適用するための入口。
+        運転時補正と吐出量キャリブレーション ① が、求めた係数を以降の吐出へ適用する唯一の入口。
         ``with`` を抜けずに差し替えるので AirPump の OFF→ON が入らない。
         """
         logger.info(

@@ -352,21 +352,11 @@ class TestAutoPasteHeight:
         assert _down_z(klipper) == pytest.approx(0.08)
 
 
-class TestBuildApplicator:
-    """build_applicator は machine 設定から HAL ごと組み立てる."""
-
-    def test_rotations_per_ul_override_changes_dispensed_distance(self, klipper):
-        applicator = build_applicator(
-            klipper, XYZStage(klipper), _config(), rotations_per_ul=90.0
-        )
-
-        applicator.load(1.0)
-
-        ((distance, _),) = _stepper_moves(klipper)
-        assert distance == pytest.approx(90.0 * ROTATION_DISTANCE)
+class TestAdoptRotationsPerUl:
+    """adopt_rotations_per_ul は applicator を作り直さずに吐出係数を差し替える."""
 
     def test_adopt_rotations_per_ul_changes_the_dispensed_distance(self, klipper):
-        """運転時流量キャリブレーションが残りの pad へ新係数を効かせる入口."""
+        """運転時補正と吐出量キャリブレーション ① が以降の吐出へ新係数を効かせる入口."""
         applicator = _applicator(klipper)
 
         applicator.adopt_rotations_per_ul(90.0)
@@ -384,6 +374,10 @@ class TestBuildApplicator:
         applicator.adopt_rotations_per_ul(90.0)
 
         assert klipper.sent == ()
+
+
+class TestBuildApplicator:
+    """build_applicator は machine 設定から HAL ごと組み立てる."""
 
     def test_lift_height_override_changes_approach_and_retreat_z(self, klipper):
         applicator = build_applicator(

@@ -1,7 +1,7 @@
 """多点ツールヘッドオフセット計測の仕様テスト.
 
 ``ToolheadOffsetProcedure`` は自前 HAL の fake（``FakeKlipper`` / ``FakeCamera``）に
-実 ``XYZStage`` / ``ProbeExecutor`` / ``PasteApplicator`` を組み合わせ、送信 G-code で検証する。
+実 ``PasteSession``（``XYZStage`` / ``ProbeExecutor`` / ``PasteApplicator``）を組み合わせ、送信 G-code で検証する。
 """
 
 import math
@@ -18,6 +18,7 @@ from pcbasm.geometry import Identity, Point2d, Shift
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FakeCamera, FakeKlipper
 from pcbasm.kicad import load_board
+from pcbasm.pasting.session import PasteSession
 from pcbasm.pasting.toolhead_offset import (
     MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT,
     ToolheadOffsetDiagnostics,
@@ -360,12 +361,11 @@ def _procedure(
         camera_model=make_camera_model(PPM, (640, 480), focus_z=FOCUS_Z),
         board_transform=Shift(BOARD_SHIFT.x, BOARD_SHIFT.y),
     )
+    session = PasteSession.from_board_frame(
+        board_frame, machine, klipper=klipper, stage=XYZStage(klipper), camera=camera
+    )
     return ToolheadOffsetProcedure(
-        board_frame,
-        machine,
-        klipper=klipper,
-        stage=XYZStage(klipper),
-        camera=camera,
+        session,
         tolerance=0.1,
         lift_height=5.0,
         diameter_min=diameter_min,

@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime
 
 from pcbasm.gcode import GCode
-from pcbasm.hal import XYZStage
 from pcbasm.pasting.toolhead_offset import (
     MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT,
     ProbedPoint,
@@ -17,7 +16,6 @@ from pcbasm.pasting.toolhead_offset import (
     plan_toolhead_offset_points,
 )
 from pcbasm.vision import validate_paste_diameters
-from web.api.jobs.board_ops import setup_board
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import (
     ApplyPayload,
@@ -27,6 +25,7 @@ from web.api.jobs.context import (
 from web.api.jobs.pasting.common import (
     LOADING_DEFAULT_AMOUNT,
     run_loading_loop,
+    setup_paste_session,
 )
 
 _DIAGNOSTICS_FILENAME = "toolhead_offset_diagnostics.json"
@@ -148,16 +147,10 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
         f"（最小間隔 {point_spacing:g} mm / 外周margin {edge_margin:g} mm）"
     )
 
-    klipper = ctx.klipper()
-    stage = XYZStage(klipper)
     with ctx.open_camera() as camera:
-        board_frame = setup_board(ctx, klipper, stage, camera, tolerance=tolerance)
+        session = setup_paste_session(ctx, camera, tolerance=tolerance)
         procedure = ToolheadOffsetProcedure(
-            board_frame,
-            ctx.machine,
-            klipper=klipper,
-            stage=stage,
-            camera=camera,
+            session,
             tolerance=tolerance,
             lift_height=lift_height,
             diameter_min=diameter_min,
@@ -186,8 +179,10 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
 
         with procedure.applicator() as applicator:
             # ペーストフェーズの直前に一度だけロードする。
-            klipper.send_gcode(stage.move(z=0.0) + GCode.wait_for_done())
-            run_loading_loop(ctx, klipper, stage, applicator)
+            session.klipper.send_gcode(
+                session.stage.move(z=0.0) + GCode.wait_for_done()
+            )
+            run_loading_loop(ctx, session.klipper, session.stage, applicator)
             applicator.retract()
 
             dispense_amount = float(ctx.params["dispense_amount"])

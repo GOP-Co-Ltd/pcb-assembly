@@ -402,9 +402,8 @@ class TestLoading:
 class TestToolheadOffset:
     def test_probe_then_deposit(self, klipper: FakeKlipper, machine: MachineConfig):
         """全点をプローブしてから、表面 Z + 塗布高さで全点に点塗布する."""
-        board_frame = _board_frame(LED_BLINKER)
         points, error = plan_toolhead_offset_points(
-            board_frame.board.outline.polygon,
+            load_board(LED_BLINKER).outline.polygon,
             point_count=4,
             point_spacing=5.0,
             edge_margin=5.0,
@@ -412,11 +411,7 @@ class TestToolheadOffset:
         )
         assert points is not None, error
         procedure = ToolheadOffsetProcedure(
-            board_frame,
-            machine,
-            klipper=klipper,
-            stage=XYZStage(klipper),
-            camera=_blank_camera(),
+            _session(klipper, machine, LED_BLINKER),
             tolerance=0.1,
             lift_height=5.0,
             diameter_min=0.4,
@@ -465,7 +460,7 @@ class TestFlowCalibration:
         params: CalibrationParams,
         session: PasteSession,
     ):
-        """① 線を引いて計量し、算出値を採用して applicator を作り直す."""
+        """① 線を引いて計量し、算出値を採用する（ディスペンサーは有効のまま）."""
         density = machine.paste_dispenser.density_mg_per_ul
         with FlowCalibrationProcedure(CopperPlate.measure(session)) as procedure:
             procedure.move_to_loading_z()

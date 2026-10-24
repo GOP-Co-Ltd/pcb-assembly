@@ -409,7 +409,7 @@ def _calibrate_rotations_per_ul(
     行い、電子天秤にセットしてタール（ゼロ）してから ``line_count`` 本の線を段ずらしで
     引く。線引き後はヘッドを退避 Z（z_max − removal_z_offset、既定は全退避）へ上げ、
     基板を取り出して計量しやすくする。合計質量から :meth:`RotationsPerUlRound.evaluate` で
-    新 ``rotations_per_ul`` を算出する。採用すると新値で applicator を作り直す
+    新 ``rotations_per_ul`` を算出する。採用すると以降の線引きを新値で行う
     （``dispense_accel`` は machine.toml の設定値のまま触らない）。採用時点で machine.toml へ
     即時反映するため、以降の中止・失敗でも計測結果は失われない。収束（前後の相対差が
     許容内）はヒントとして表示するのみで、ループ継続はユーザー判断。タール前の中止・
@@ -507,11 +507,11 @@ def _calibrate_rotations_per_ul(
         )
         adopted = attrs.evolve(results, rotations_per_ul=round_.computed)
         if choice == "採用して吐出量キャリブレーションを終了する":
-            # 再描画しないので applicator の作り直しは不要。finish でジョブを終了。
+            # 再描画しないので差し替えは不要。finish でジョブを終了。
             return attrs.evolve(adopted, finish=True)
-        # 「再計測」「他のキャリブへ進む」は新値で applicator を作り直す。
+        # 「再計測」「他のキャリブへ進む」は以降の線引きを新値で行う。
         procedure.adopt(round_)
-        ctx.log("新 rotations_per_ul で applicator を再構成しました")
+        ctx.log("以降の線引きは新 rotations_per_ul で行います")
         if choice == "採用して再計測する":
             continue
         return adopted  # 採用して他のキャリブレーションへ進む

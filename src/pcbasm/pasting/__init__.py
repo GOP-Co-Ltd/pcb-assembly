@@ -21,6 +21,11 @@
 - :mod:`.dispense_calibration`: 銅板に線を引いて計量し、``machine.toml`` の ``rotations_per_ul`` などを決める事前校正
 - :mod:`.paste_volume.runtime_correction`: 塗布ジョブ中に基板上のドットを撮影して ``rotations_per_ul`` をその場で補正する（``machine.toml`` は書き換えない）
 
+``machine.toml`` の ``rotations_per_ul`` を決める正典の入口は :mod:`.dispense_calibration` の ① である。
+ローディングページの質量キャリブレーション（:class:`~.dispense_calibration.mass.MassFlowEstimate`）は、初期値をゼロから作るときに使う。
+設定ページは表示と手直しに使う。
+ジョブ中の差し替えは、① の採用も運転時補正も :meth:`~.applicator.PasteApplicator.adopt_rotations_per_ul` だけを通す（applicator を作り直さない）。
+
 その他: :mod:`.paste_volume` は点の直径 → 体積の校正（その校正用の画像収集は :mod:`.paste_volume.dataset`）、:mod:`.test_board` はテスト塗布基板の生成。
 
 単位: 長さ・座標は mm、量は μL、``rotations_per_ul`` は rev/μL。

@@ -249,9 +249,9 @@ class TestRemovalZ:
 
 
 class TestAdopt:
-    """① の採用で rotations_per_ul だけを更新し applicator を作り直す."""
+    """① の採用で rotations_per_ul だけを差し替え、ディスペンサーは有効のまま保つ."""
 
-    def test_adopt_updates_rotations_per_ul_and_rebuilds_applicator(
+    def test_adopt_switches_rotations_per_ul_without_cycling_the_dispenser(
         self, procedure, klipper
     ):
         round_ = RotationsPerUlRound(
@@ -273,11 +273,8 @@ class TestAdopt:
         assert _dispense_accels_ul_s2(klipper, 2.0) == pytest.approx(
             [MACHINE.paste_dispenser.motion.dispense_accel]
         )
-        # 旧 applicator の無効化 → 新 applicator の有効化
-        assert [line for line in switched if "ENABLE=" in line] == [
-            next(line for line in switched if "ENABLE=0" in line),
-            next(line for line in switched if "ENABLE=1" in line),
-        ]
+        # AirPump の OFF→ON もステッパーの無効化も挟まない
+        assert switched == []
         # 以降の線引きは新 rotations_per_ul で回転距離が決まる
         assert _dispense_distances_mm(klipper) == pytest.approx(
             [(RETRACT_AMOUNT + 0.5) * 2.0 * ROTATION_DISTANCE]

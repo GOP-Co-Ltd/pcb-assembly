@@ -1,9 +1,8 @@
 """流量キャリブレーションの機械手順（銅板・applicator を束ねる）.
 
 計測済みの銅板（:class:`~pcbasm.pasting.plate.CopperPlate`）へ線を引き、
-メニューループ中保持し続ける applicator を管理する。① の検証ループは新
-``rotations_per_ul`` で applicator を作り直すため、現在の applicator と現在の
-``rotations_per_ul`` をここで一元管理する。
+メニューループ中保持し続ける applicator を管理する。① で採用した ``rotations_per_ul`` は
+この applicator へ差し替え、以降の線引きに使う。
 
 ユーザー対話・進捗・中断・ログ文言は持たない（web ジョブ側の責務）。
 """
@@ -28,7 +27,7 @@ class FlowCalibrationProcedure:
     """銅板上に線を引いて計量するための HAL 側手順.
 
     コンテキストマネージャとして使い、``with`` の間だけ applicator（ディスペンサー）が
-    有効になる。:meth:`adopt` は ``with`` の中で呼ぶ。
+    有効になる。
 
     Example:
         with FlowCalibrationProcedure(CopperPlate.measure(session)) as procedure:
@@ -40,7 +39,6 @@ class FlowCalibrationProcedure:
         """計測済みの銅板で組む."""
         self._session = plate.session
         self._transform = plate.transform
-        self._rotations_per_ul = plate.session.machine.paste_dispenser.rotations_per_ul
         self._applicator = plate.session.make_applicator()
 
     def __enter__(self) -> Self:
@@ -61,7 +59,7 @@ class FlowCalibrationProcedure:
     @property
     def rotations_per_ul(self) -> float:
         """現在の applicator が使っている rotations_per_ul [rev/μL]."""
-        return self._rotations_per_ul
+        return self._applicator.rotations_per_ul
 
     @property
     def transform(self) -> Transform:
@@ -137,17 +135,8 @@ class FlowCalibrationProcedure:
         return tuple(executions)
 
     def adopt(self, round: RotationsPerUlRound) -> None:
-        """① の算出値を採用し、新 rotations_per_ul で applicator を作り直す.
-
-        古い applicator は無効化し、新しい applicator を有効化する（``with`` の中で呼ぶ）。
-        """
-        self._applicator.__exit__(None, None, None)
-        self._rotations_per_ul = round.computed
-        self._applicator = self._session.make_applicator(
-            rotations_per_ul=round.computed
-        )
-        self._applicator.__enter__()
-        logger.info("rotations_per_ul を採用: %.6f rev/uL", round.computed)
+        """① の算出値を採用し、以降の線引きを新 rotations_per_ul で行う."""
+        self._applicator.adopt_rotations_per_ul(round.computed)
 
     def _send_move(self, *, z: float) -> None:
         self._session.klipper.send_gcode(

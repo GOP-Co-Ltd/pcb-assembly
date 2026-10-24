@@ -314,9 +314,3 @@ M400
 # send timeout=None
 SET_PIN PIN=air_pump VALUE=0
 MANUAL_STEPPER STEPPER=paste_dispenser ENABLE=0
-# send timeout=None
-SET_PIN PIN=air_pump VALUE=1
-MANUAL_STEPPER STEPPER=paste_dispenser ENABLE=1
-# send timeout=None
-SET_PIN PIN=air_pump VALUE=0
-MANUAL_STEPPER STEPPER=paste_dispenser ENABLE=0

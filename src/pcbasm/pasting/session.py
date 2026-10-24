@@ -16,7 +16,6 @@ import attrs
 from pcbasm.align import BoardFrame, RegionAlignmentSession
 from pcbasm.board import Board, Copper, Layer, Pad
 from pcbasm.config import MachineConfig
-from pcbasm.config.dispenser import ToolheadConfig
 from pcbasm.geometry import Compose, HeightPlane, Identity, Point2d, Shift, Transform
 from pcbasm.hal import Camera, KlipperClient, XYZStage
 from pcbasm.pasting.applicator import PasteApplicator, build_applicator
@@ -24,11 +23,6 @@ from pcbasm.pasting.height import HeightPlaneMeasurer
 from pcbasm.pasting.prepare import PasteCorrection
 from pcbasm.pasting.probe import ProbeExecutor
 from pcbasm.vision import FrameSink
-
-
-def toolhead_transform(toolhead: ToolheadConfig) -> Transform:
-    """Toolhead の位置に xy 平行移動する Transform を返す."""
-    return Shift(x=toolhead.x, y=toolhead.y)
 
 
 @attrs.frozen
@@ -86,13 +80,14 @@ class PasteSession:
             max_samples=probe_config.max_samples,
             settle_sec=settle.move_sec,
         )
+        toolhead = machine.paste_dispenser.toolhead
         return cls(
             machine=machine,
             klipper=klipper,
             stage=stage,
             camera=camera,
             board_frame=board_frame,
-            toolhead_offset=toolhead_transform(machine.paste_dispenser.toolhead),
+            toolhead_offset=Shift(x=toolhead.x, y=toolhead.y),
             probe_executor=probe_executor,
             height_measurer=height_measurer,
         )
@@ -186,25 +181,19 @@ class PasteSession:
             ]
         )
 
-    def make_applicator(
-        self,
-        *,
-        rotations_per_ul: float | None = None,
-        lift_height: float | None = None,
-    ) -> PasteApplicator:
+    def make_applicator(self, *, lift_height: float | None = None) -> PasteApplicator:
         """Machine 設定のパラメータで :class:`PasteApplicator` を構築する.
 
         返す applicator はまだディスペンサーを有効化していない。
         ``with`` で有効化してから使う。
+        ``rotations_per_ul`` を変えるときは作り直さず :meth:`PasteApplicator.adopt_rotations_per_ul` で差し替える。
 
         Args:
-            rotations_per_ul: μL → 回転数の係数 [rev/μL] の上書き（``None`` で machine 設定の値）
             lift_height: 塗布後の上昇高さ [mm] の上書き（``None`` で machine 設定の値）
         """
         return build_applicator(
             self.klipper,
             self.stage,
             self.machine.paste_dispenser,
-            rotations_per_ul=rotations_per_ul,
             lift_height=lift_height,
         )
