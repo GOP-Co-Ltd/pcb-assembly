@@ -18,7 +18,7 @@
 
 計測中に失敗すると例外を送出する（``CircleDetectionError`` は RuntimeError の派生）。
 
-``RegionAlignmentSession`` の ``align`` / ``refine`` だけは失敗を None で返す。
+``RegionAlignmentSession`` の ``align`` / ``refine`` だけは失敗を None で返す（Klipper の ``KlipperError`` は伝える）。
 """
 
 from .aligner import RegionAligner, RegionFit

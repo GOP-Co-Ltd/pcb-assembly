@@ -34,6 +34,7 @@ def measure_correction(
     """高さ面を測り、pads を位置合わせして塗布の補正を返す.
 
     Raises:
+        KlipperError: 高さ面の計測中または位置合わせ中に Klipper が要求を断った場合
         ValueError: 位置合わせに成功した領域が 1 件も無い場合
     """
     height_plane = session.measure_height_plane()

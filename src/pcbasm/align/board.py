@@ -19,7 +19,7 @@ from pcbasm.align.region import AlignmentRegion, plan_alignment_regions
 from pcbasm.board import Layer, Pad
 from pcbasm.config import MachineConfig
 from pcbasm.geometry import Point2d, Shift, Transform, oriented_bbox
-from pcbasm.hal import Camera, KlipperClient, XYZStage
+from pcbasm.hal import Camera, KlipperClient, KlipperError, XYZStage
 from pcbasm.vision import CopperEdgeDetector, FrameSink, PixelRect
 
 logger = logging.getLogger(__name__)
@@ -116,9 +116,15 @@ class RegionAlignmentSession:
         )
 
     def align(self, region: AlignmentRegion) -> RegionFit | None:
-        """領域を照合し、失敗または非収束なら None を返す（例外を送出しない）."""
+        """領域を照合し、失敗または非収束なら None を返す.
+
+        Raises:
+            KlipperError: Klipper が移動を断った場合（領域の失敗にせず、ジョブを止める）
+        """
         try:
             return self._aligner.measure(region)
+        except KlipperError:
+            raise
         except RuntimeError as exc:
             logger.warning("領域 %d の照合に失敗: %s", region.index, exc)
             return None
@@ -138,6 +144,9 @@ class RegionAlignmentSession:
 
         Returns:
             収束した結果。失敗または非収束なら None
+
+        Raises:
+            KlipperError: Klipper が移動を断った場合
         """
         anchor = self._board_transform.apply(board_point)
         initial_displacement = initial_correction.apply(anchor) - anchor
@@ -152,6 +161,8 @@ class RegionAlignmentSession:
             return self._aligner.measure(
                 region, initial_displacement=initial_displacement
             )
+        except KlipperError:
+            raise
         except RuntimeError as exc:
             logger.warning(
                 "pad中心 (%.3f, %.3f) の再照合に失敗: %s",
@@ -367,6 +378,7 @@ def align_regions(
     照合の失敗と非収束は、その領域の失敗として残りの領域へ進む。
 
     Raises:
+        KlipperError: Klipper が移動を断った場合（残りの領域へ進まない）
         ValueError: 成功した領域が 1 件も無い場合
     """
     on_event(RegionsPlanned(len(regions)))
@@ -407,6 +419,7 @@ def align_board(
     精密照合の初期値は領域だけの補正で、収束しなかった pad は領域の補正を使う。
 
     Raises:
+        KlipperError: Klipper が移動を断った場合
         ValueError: 成功した領域が 1 件も無い場合
     """
     regions = session.plan_regions([pad.center for pad in pads])

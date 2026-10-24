@@ -29,7 +29,7 @@ from pcbasm.align import (
 from pcbasm.board import Board, Layer, Pad
 from pcbasm.config import MachineConfig, load_machine
 from pcbasm.geometry import Identity, Point2d, Shift, Transform, transform_polygon
-from pcbasm.hal import Camera, XYZStage
+from pcbasm.hal import Camera, KlipperError, XYZStage
 from pcbasm.hal.fake import FakeCamera, FakeKlipper, SceneCamera
 from pcbasm.kicad import load_board
 from pcbasm.vision import Image, Offset
@@ -291,11 +291,8 @@ def _session(
     )
 
 
-class TestRegionAlignmentSessionFailure:
-    """照合の失敗は None で返し、呼び出し側は残りの領域で続ける.
-
-    Klipper が送信を断った KlipperError も、RuntimeError の派生なので領域の失敗になる。
-    """
+class TestRegionAlignmentSessionKlipperRefusal:
+    """Klipper が移動を断った KlipperError は、領域の失敗（None）にせず呼び出し側へ伝える."""
 
     @pytest.fixture
     def klipper(self) -> FakeKlipper:
@@ -308,7 +305,7 @@ class TestRegionAlignmentSessionFailure:
         frame = Image(np.zeros((480, 640, 3), dtype=np.uint8))
         return _session(klipper, FakeCamera([frame]), board=load_board(LED_BLINKER))
 
-    def test_klipper_refusal_fails_the_region(
+    def test_align_raises_klipper_error(
         self, klipper: FakeKlipper, session: RegionAlignmentSession
     ):
         region = AlignmentRegion(
@@ -319,18 +316,18 @@ class TestRegionAlignmentSessionFailure:
             board_area=shapely.box(9.0, 9.0, 11.0, 11.0),
         )
 
-        assert session.align(region) is None
+        with pytest.raises(KlipperError):
+            session.align(region)
         # 最初の移動で断られ、撮像へ進んでいない
         assert len(klipper.sent) == 1
 
-    def test_klipper_refusal_fails_the_pad_refinement(
+    def test_refine_raises_klipper_error(
         self, klipper: FakeKlipper, session: RegionAlignmentSession
     ):
-        refined = session.refine(
-            Point2d(10.0, 10.0), Identity(), shapely.box(9.5, 9.5, 10.5, 10.5)
-        )
-
-        assert refined is None
+        with pytest.raises(KlipperError):
+            session.refine(
+                Point2d(10.0, 10.0), Identity(), shapely.box(9.5, 9.5, 10.5, 10.5)
+            )
         assert len(klipper.sent) == 1
 
 
@@ -346,7 +343,7 @@ def _align_on_scene(
     copper: Transform | None = PLACEMENT,
     fail_klipper: bool = False,
     max_passes: int | None = None,
-) -> tuple[list[AlignEvent], BoardCorrection | ValueError]:
+) -> tuple[list[AlignEvent], BoardCorrection | ValueError | KlipperError]:
     """TOP 銅箔を copper で置いた led_blinker を SceneCamera で撮り、2 pad を位置合わせする.
 
     Args:
@@ -389,7 +386,7 @@ def _align_on_scene(
         correction = align_board(
             session, pads, max_short_side_mm=0.6, on_event=events.append
         )
-    except ValueError as exc:
+    except (ValueError, KlipperError) as exc:
         return events, exc
     return events, correction
 
@@ -457,7 +454,6 @@ class TestAlignBoard:
     @pytest.mark.parametrize(
         ("failure", "cause"),
         [
-            ({"fail_klipper": True}, "Bad Request"),
             ({"copper": None}, "領域 {index} の銅箔エッジ照合に失敗しました"),
             # 銅箔が 0.2 mm ずれていて、1 パスでは増分が収束判定の 0.03 mm に収まらない
             (
@@ -465,12 +461,12 @@ class TestAlignBoard:
                 "領域 {index} は 1 パスで収束しませんでした",
             ),
         ],
-        ids=["moonraker_400", "no_copper_edges", "not_converging"],
+        ids=["no_copper_edges", "not_converging"],
     )
     def test_each_failure_fails_the_region_and_moves_on(
         self, caplog: pytest.LogCaptureFixture, failure: dict, cause: str
     ):
-        """Moonraker の 400・銅箔エッジの検出の失敗・非収束は、どれも領域の失敗として次の領域へ進む.
+        """銅箔エッジの検出の失敗と非収束は、どちらも領域の失敗として次の領域へ進む.
 
         どの領域も成功しないので、最後に補正が作れず ValueError で止まる（元の例外は伝わらない）。
         失敗の原因は警告ログに残る。
@@ -488,3 +484,14 @@ class TestAlignBoard:
             f"領域 {index} の照合に失敗: " + cause.format(index=index)
             for index in range(len(regions))
         ]
+
+    def test_moonraker_400_stops_at_the_first_region(
+        self, caplog: pytest.LogCaptureFixture
+    ):
+        """Moonraker の 400 は領域の失敗にせず、残りの領域へ進まずに KlipperError で止まる."""
+        with caplog.at_level(logging.WARNING, logger="pcbasm.align.board"):
+            events, result = _align_on_scene(fail_klipper=True)
+
+        assert isinstance(result, KlipperError)
+        assert [type(event) for event in events] == [RegionsPlanned, AlignStep]
+        assert caplog.records == []

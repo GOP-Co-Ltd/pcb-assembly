@@ -86,7 +86,8 @@ class RegionAligner:
             initial_displacement: 累積変位の初期値（mm）。None なら 0
 
         Raises:
-            RuntimeError: match 失敗、累積変位が max_correction_mm 超過、または max_passes で非収束
+            KlipperError: Klipper が移動を断った場合
+            RuntimeError: 撮像の失敗、match 失敗、累積変位が max_correction_mm 超過、または max_passes で非収束
         """
         cumulative = initial_displacement or Point2d(0.0, 0.0)
         for passes in range(1, self._max_passes + 1):

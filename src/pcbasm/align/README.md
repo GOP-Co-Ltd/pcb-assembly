@@ -40,7 +40,8 @@ Board / オフセット調整用の観測は `observe() -> Transform`
 
 `RegionAligner` は各領域を反復計測し、既定 0.03 mm 以下の増分で収束した
 `RegionFit` だけを採用する。照合失敗・補正上限超過・非収束の領域は
-`RegionAlignmentSession` が棄却する。`BoardCorrection` は pad 中心を覆う成功領域のうち、
+`RegionAlignmentSession` が棄却する。Klipper が移動を断った（`KlipperError`）ときは
+領域の失敗にせず、残りの領域へ進まずにジョブを止める。`BoardCorrection` は pad 中心を覆う成功領域のうち、
 重なり合う成功領域群の補正量と最も整合するものを選ぶ。同点なら RMS が小さいもの、
 さらに同点なら領域中心が pad 中心に近いものを優先する。pad 中心を覆う成功領域が
 なければ、中心が最も近い成功領域の補正を使う。成功領域が 1 件もなければ
