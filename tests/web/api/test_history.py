@@ -11,32 +11,35 @@ from pathlib import Path
 
 import pytest
 
-from web.api.config_store import ConfigStore
 from web.api.history import MAX_SNAPSHOTS, ConfigHistory, UnknownSnapshotError
+from web.api.machine_config import MachineConfigFile
 
 
 @pytest.fixture
-def history(store: ConfigStore) -> ConfigHistory:
-    return store.history
+def history(machine_config: MachineConfigFile) -> ConfigHistory:
+    return ConfigHistory(machine_config.path)
 
 
 class TestSnapshotOnWrite:
     def test_write_keeps_the_previous_content_with_its_change(
-        self, store: ConfigStore, history: ConfigHistory, config_dir: Path
+        self,
+        machine_config: MachineConfigFile,
+        history: ConfigHistory,
+        config_dir: Path,
     ):
-        original = store.machine_toml_path().read_bytes()
+        original = machine_config.path.read_bytes()
 
-        store.write_machine_settings({"paste_dispenser.motion.lift_height": 3.0})
+        machine_config.write({"paste_dispenser.motion.lift_height": 3.0})
 
         [entry] = history.entries()
         assert (config_dir / "history" / entry.name).read_bytes() == original
         assert entry.changes == ["paste_dispenser.motion.lift_height: 2.0 → 3.0"]
 
     def test_entries_are_newest_first_and_each_shows_its_own_change(
-        self, store: ConfigStore, history: ConfigHistory
+        self, machine_config: MachineConfigFile, history: ConfigHistory
     ):
-        store.write_machine_settings({"paste_dispenser.motion.lift_height": 3.0})
-        store.write_machine_settings({"camera.fps": 20.0})
+        machine_config.write({"paste_dispenser.motion.lift_height": 3.0})
+        machine_config.write({"camera.fps": 20.0})
 
         assert [entry.changes for entry in history.entries()] == [
             ["camera.fps: 30.0 → 20.0"],
@@ -44,10 +47,13 @@ class TestSnapshotOnWrite:
         ]
 
     def test_order_follows_the_name_not_the_mtime(
-        self, store: ConfigStore, history: ConfigHistory, config_dir: Path
+        self,
+        machine_config: MachineConfigFile,
+        history: ConfigHistory,
+        config_dir: Path,
     ):
-        store.write_machine_settings({"paste_dispenser.motion.lift_height": 3.0})
-        store.write_machine_settings({"camera.fps": 20.0})
+        machine_config.write({"paste_dispenser.motion.lift_height": 3.0})
+        machine_config.write({"camera.fps": 20.0})
         # 置き直しで古い世代ほど mtime が新しくなった状態
         newest_first = sorted((config_dir / "history").iterdir(), reverse=True)
         for mtime, path in enumerate(newest_first):
@@ -59,25 +65,25 @@ class TestSnapshotOnWrite:
         ]
 
     def test_write_without_change_keeps_no_snapshot(
-        self, store: ConfigStore, history: ConfigHistory
+        self, machine_config: MachineConfigFile, history: ConfigHistory
     ):
-        store.write_machine_settings({"paste_dispenser.motion.lift_height": 2.0})
+        machine_config.write({"paste_dispenser.motion.lift_height": 2.0})
 
         assert history.entries() == []
 
     def test_added_and_removed_keys_are_shown_as_none(
-        self, store: ConfigStore, history: ConfigHistory
+        self, machine_config: MachineConfigFile, history: ConfigHistory
     ):
-        store.write_machine_settings({"audio.volume": 0.5})
+        machine_config.write({"audio.volume": 0.5})
 
         [entry] = history.entries()
         assert entry.changes == ["audio.volume: （なし） → 0.5"]
 
     def test_unreadable_toml_is_reported_instead_of_a_diff(
-        self, store: ConfigStore, history: ConfigHistory
+        self, machine_config: MachineConfigFile, history: ConfigHistory
     ):
-        store.write_machine_settings({"paste_dispenser.motion.lift_height": 3.0})
-        store.machine_toml_path().write_text("[paste_dispenser\n")
+        machine_config.write({"paste_dispenser.motion.lift_height": 3.0})
+        machine_config.path.write_text("[paste_dispenser\n")
 
         [entry] = history.entries()
         assert entry.changes == ["TOML として読めないため差分を出せません"]
@@ -103,15 +109,18 @@ class TestRotation:
 
 class TestRestore:
     def test_restore_brings_back_the_file_and_keeps_the_replaced_content(
-        self, store: ConfigStore, history: ConfigHistory, config_dir: Path
+        self,
+        machine_config: MachineConfigFile,
+        history: ConfigHistory,
+        config_dir: Path,
     ):
-        path = store.machine_toml_path()
+        path = machine_config.path
         original = path.read_bytes()
-        store.write_machine_settings({"paste_dispenser.motion.lift_height": 3.0})
+        machine_config.write({"paste_dispenser.motion.lift_height": 3.0})
         written = path.read_bytes()
         [entry] = history.entries()
 
-        history.restore(entry.name)
+        machine_config.restore(entry.name)
 
         # コメントを含めて元のファイルに戻る
         assert path.read_bytes() == original
@@ -122,13 +131,13 @@ class TestRestore:
 
     @pytest.mark.parametrize("name", ["machine-missing.toml", "../machine.toml"])
     def test_unknown_name_changes_nothing(
-        self, store: ConfigStore, history: ConfigHistory, name: str
+        self, machine_config: MachineConfigFile, history: ConfigHistory, name: str
     ):
-        store.write_machine_settings({"paste_dispenser.motion.lift_height": 3.0})
-        written = store.machine_toml_path().read_bytes()
+        machine_config.write({"paste_dispenser.motion.lift_height": 3.0})
+        written = machine_config.path.read_bytes()
 
         with pytest.raises(UnknownSnapshotError):
-            history.restore(name)
+            machine_config.restore(name)
 
-        assert store.machine_toml_path().read_bytes() == written
+        assert machine_config.path.read_bytes() == written
         assert len(history.entries()) == 1

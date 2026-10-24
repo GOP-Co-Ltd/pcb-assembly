@@ -17,9 +17,8 @@ from pcbasm.hal.fake import FakeCamera
 from pcbasm.machine.journal import Journal
 from pcbasm.migrate.machine_toml import NAME, MigrationError, migrate_machine_toml
 from pcbasm.vision import Image
-from web.api.config_store import ConfigStore
+from web.api.machine_config import MachineConfigFile
 from web.api.settings import Settings
-from web.contract.models import MachineSettingValue
 
 logger = logging.getLogger(__name__)
 
@@ -50,17 +49,17 @@ class AppState:
     （``_persist_lock`` 保持中に装置排他ロックを取る経路を作らない）。
     """
 
-    def __init__(self, settings: Settings, store: ConfigStore) -> None:
+    def __init__(self, settings: Settings, machine_config: MachineConfigFile) -> None:
         """AppState を初期化する.
 
         webui_data_dir/webui_state.json から選択状態を復元する。
 
         Args:
             settings: WebUI 設定
-            store: 設定ファイルストア
+            machine_config: machine.toml の読み書き
         """
         self._settings = settings
-        self._store = store
+        self._machine_config = machine_config
         self._lock = threading.Lock()
         self._busy_owner: str | None = None
         self._state_path = settings.webui_data_dir / _STATE_FILENAME
@@ -113,6 +112,11 @@ class AppState:
                 self._persist(relative, self._job_param_defaults)
                 self._selected_pcb = relative
 
+    @property
+    def machine_config(self) -> MachineConfigFile:
+        """machine.toml の読み書き（書き込みは装置排他ロックの内側で行う）."""
+        return self._machine_config
+
     def machine(self) -> MachineConfig:
         """machine.toml をディスクから読み、全体を検証して返す（毎回ロード）.
 
@@ -121,7 +125,7 @@ class AppState:
         Raises:
             ConfigError: machine.toml が読めない・検証に通らない場合（degraded）
         """
-        return load_machine(self._store.machine_toml_path())
+        return load_machine(self._machine_config.path)
 
     def machine_or_error(self) -> tuple[MachineConfig, None] | tuple[None, str]:
         """:meth:`machine` の degraded 版。設定エラーなら ``(None, 理由)`` を返す.
@@ -149,7 +153,7 @@ class AppState:
         失敗しても例外は出さない。ファイルに触れず、読めない間はその理由を設定エラーとして出す（degraded）。
         """
         try:
-            changes = migrate_machine_toml(self._store.machine_toml_path())
+            changes = migrate_machine_toml(self._machine_config.path)
         except MigrationError as exc:
             logger.error("machine.toml を移行できません: %s", exc)
             self._migration_error = str(exc)
@@ -169,25 +173,11 @@ class AppState:
         Raises:
             ConfigError: [klipper] が読めない場合
         """
-        return load_klipper(self._store.machine_toml_path())
+        return load_klipper(self._machine_config.path)
 
     def journal(self) -> Journal:
         """ジョブの外の操作（REST）を書く当日の G-code ジャーナルを返す."""
         return Journal.for_today(self._settings.journal_dir)
-
-    def write_machine_settings(self, values: Mapping[str, MachineSettingValue]) -> None:
-        """machine.toml へホワイトリスト項目を書き込む.
-
-        ジョブワーカー専用（排他ロック保持中の即時反映。
-        ``JobManager._apply_machine_settings`` 経由でのみ呼ぶ）。装置排他
-        ロックは取らない。リクエスト経路は「``machine_lock(owner)`` 内で
-        ``ConfigStore.write_machine_settings`` → ``publish_state_changed()``」
-        パターンを使うこと。
-
-        Raises:
-            UnknownFieldError: 未知キーまたは型不一致の場合
-        """
-        self._store.write_machine_settings(values)
 
     def job_param_defaults(self, job_name: str) -> dict[str, StoredJobParamValue]:
         """ジョブフォーム用に保存された既定値を返す（未保存なら空 dict）."""

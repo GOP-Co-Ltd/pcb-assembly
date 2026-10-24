@@ -1,8 +1,6 @@
 """`web.api.routers.settings_api` の仕様テスト.
 
-計画書「routers」節 + spec §8:
-
-- GET /api/settings/machine がホワイトリスト全項目（label / unit / value）を返す
+- GET /api/settings/machine が全設定項目を、表示の定義（見出し・カード・表示名・単位・選択肢）と値付きで表示する順に返す
 - PUT は実ファイルへ反映しコメントを保持する
 - 未知キー → 400、busy → 409
 
@@ -30,28 +28,28 @@ import tomlkit
 from fastapi.testclient import TestClient
 
 from pcbasm.config import MachineConfig, load_machine
-from web.api.config_store import MACHINE_FIELDS
+from pcbasm.config.fields import setting_fields
 from web.api.state import AppState
 
 
 class TestPasteSettingsValidation:
     @pytest.mark.parametrize(
-        ("field", "value"),
+        ("key", "value"),
         [
-            ("nozzle_diameter", 0.0),
-            ("max_fill_speed", 0.0),
-            ("max_dispense_rate", 0.0),
-            ("retract_amount", 0.0),
-            ("retract_accel_factor", 1.0),
-            ("bead_width_factor", 0.0),
-            ("overlap", -0.1),
-            ("overlap", 1.0),
-            ("ul_per_mm2", 0.0),
-            ("prime_extra_delay", -0.1),
+            ("paste_dispenser.nozzle_diameter", 0.0),
+            ("paste_dispenser.motion.max_fill_speed", 0.0),
+            ("paste_dispenser.motion.max_dispense_rate", 0.0),
+            ("paste_dispenser.motion.retract_amount", 0.0),
+            ("paste_dispenser.motion.retract_accel_factor", 1.0),
+            ("paste_dispenser.defaults.bead_width_factor", 0.0),
+            ("paste_dispenser.defaults.overlap", -0.1),
+            ("paste_dispenser.defaults.overlap", 1.0),
+            ("paste_dispenser.defaults.ul_per_mm2", 0.0),
+            ("paste_dispenser.defaults.prime_extra_delay", -0.1),
         ],
     )
     def test_invalid_batch_preserves_the_usable_config(
-        self, client: TestClient, config_dir: Path, field: str, value: float
+        self, client: TestClient, config_dir: Path, key: str, value: float
     ):
         path = config_dir / "machine.toml"
         original = path.read_bytes()
@@ -61,13 +59,13 @@ class TestPasteSettingsValidation:
             json={
                 "values": {
                     "camera.calibration_file": "must-not-be-saved.json",
-                    f"paste_dispenser.{field}": value,
+                    key: value,
                 }
             },
         )
 
         assert response.status_code == 400, response.text
-        assert field in response.json()["detail"]
+        assert key.rsplit(".", 1)[-1] in response.json()["detail"]
         assert path.read_bytes() == original
         assert load_machine(path).paste_dispenser.nozzle_diameter > 0
 
@@ -98,14 +96,15 @@ class TestPasteSettingsValidation:
 class TestMachineSettingsApi:
     """GET / PUT /api/settings/machine."""
 
-    def test_get_returns_every_whitelisted_field(self, client: TestClient):
-        """公開キー集合は MACHINE_FIELDS そのもので、各項目が label / value / value_type を持つ."""
+    def test_get_returns_every_setting_field_in_display_order(self, client: TestClient):
+        """項目は setting_fields() の全項目で、その並び（設定ページに描く順）のまま返る."""
         response = client.get("/api/settings/machine")
 
         assert response.status_code == 200
+        keys = [field["key"] for field in response.json()["fields"]]
+        assert keys == [field.key for field in setting_fields()]
         fields = {field["key"]: field for field in response.json()["fields"]}
-        assert set(fields) == {spec.key for spec in MACHINE_FIELDS}
-        assert all(field["label"] for field in fields.values())
+        assert all(field["label"] and field["group"] for field in fields.values())
 
         # 代表 2 型: そのまま返る float と、"auto" を取り得る float_or_auto
         assert fields["paste_dispenser.motion.max_fill_speed"]["value"] == 0.8
@@ -232,7 +231,7 @@ class TestMachineSettingsApi:
     def test_put_invalid_value_returns_400(
         self, client: TestClient, key: str, value: object
     ):
-        """値そのものの検証は config_store が担う。ここは 400 写像と、原因キーを名指しすることを見る."""
+        """値そのものの検証は machine_config が担う。ここは 400 写像と、原因キーを名指しすることを見る."""
         response = client.put("/api/settings/machine", json={"values": {key: value}})
 
         assert response.status_code == 400
@@ -360,6 +359,29 @@ class TestMachineSettingsApi:
         assert len(changed) == 5
         # 変更対象外のコメントが無傷で残る
         assert "キャリブレーション値 2026/06/08" in after_text
+
+    def test_get_returns_the_display_definition_from_the_schema(
+        self, client: TestClient
+    ):
+        """見出し・カード・選択肢・下限・空欄の扱いは backend が設定のスキーマから組んで返す."""
+        fields = {
+            field["key"]: field
+            for field in client.get("/api/settings/machine").json()["fields"]
+        }
+
+        mode = fields["paste_dispenser.defaults.dispense_mode"]
+        assert mode["section"] == "paste_dispenser"
+        assert mode["section_label"] == "ペーストディスペンサー"
+        assert mode["group"] == "塗布方式"
+        assert mode["value_type"] == "choice"
+        assert {"value": "micro_line", "label": "微小線"} in mode["choices"]
+        assert fields["paste_dispenser.nozzle_clean.passes"]["minimum"] == 0
+        assert fields["paste_dispenser.nozzle_clean.wipe_speed"]["minimum"] is None
+        calibration = fields["paste_dispenser.volume_correction.calibration_file"]
+        assert calibration["clearable"] is True
+        assert fields["paste_dispenser.nozzle_cap.position"]["value_type"] == (
+            "float_triple"
+        )
 
     def test_get_returns_reference_point_offset_pairs(self, client: TestClient):
         fields = {

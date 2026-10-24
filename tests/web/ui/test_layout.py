@@ -4,8 +4,7 @@
 
 - `pages.py` の**純粋な表示知識だけ**を frontend へ移す（装置の事実は backend が
   `JobSpecInfo` で自己申告する）
-- `SETTINGS_SECTIONS` / `settings_sections` は設定ページの階層表示専用なので frontend が
-  持つ。宣言が欠けると設定ページの見出しに生のドットキーが出る
+- 設定ページの項目・見出し・並び順は backend が返し、`settings_sections` はまとめるだけ
 - `templates/` と `static/` は `web.api` から `web.ui` へ移設する
 
 テンプレート名・静的資産名の誤りはページ描画時の 500 やアセット 404 になり、
@@ -17,7 +16,6 @@ from pathlib import Path
 
 import pytest
 
-from web.api.config_store import MACHINE_FIELDS
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.pasting import register_pasting_jobs
 from web.contract.models import SettingsField
@@ -26,7 +24,6 @@ from web.ui.layout import (
     DISPENSE_CALIBRATION_PARAM_GROUPS,
     FEATURE_TEMPLATES,
     PASTE_VOLUME_CALIBRATION_PARAM_GROUPS,
-    SETTINGS_SECTIONS,
     TAB_LABELS,
     TABS,
 )
@@ -191,122 +188,59 @@ class TestMachinePrefixFunnel:
         assert "withBase(artifact.url)" in lines[0]
 
 
-def _field(key: str) -> SettingsField:
+def _field(key: str, section: str, group: str) -> SettingsField:
     return SettingsField(
-        key=key, label=key, value_type="float", unit=None, value=1.0, resolved=1.0
+        key=key,
+        section=section,
+        section_label=section.upper(),
+        group=group,
+        label=key,
+        value_type="float",
+        unit=None,
+        choices=[],
+        minimum=None,
+        clearable=False,
+        value=1.0,
+        resolved=1.0,
     )
 
 
-class TestSettingsLayoutDeclaration:
-    """設定ページのレイアウト宣言（frontend だけが持つ表示知識）.
-
-    宣言から漏れた項目は「未分類」へ落ちるだけで消えはしないが、見出しが生のキーになる。
-    存在しないキーを書いても描画は落ちない（静かに欠ける）ので、両方向の網羅をここでピンする。
-    """
-
-    def test_every_machine_field_is_declared_exactly_once(self):
-        declared = [
-            key
-            for section in SETTINGS_SECTIONS
-            for group in section.groups
-            for key in group.keys
-        ]
-
-        assert sorted(declared) == sorted(spec.key for spec in MACHINE_FIELDS)
-        assert len(declared) == len(set(declared))
-
-    def test_section_slugs_are_unique(self):
-        """Slug はナビの選択状態と URL hash に使うので重複させない."""
-        slugs = [section.slug for section in SETTINGS_SECTIONS]
-
-        assert len(slugs) == len(set(slugs))
-        assert layout.UNCATEGORIZED_SLUG not in slugs
-
-    def test_no_group_is_empty(self):
-        assert all(
-            group.keys for section in SETTINGS_SECTIONS for group in section.groups
-        )
-
-
 class TestSettingsSections:
-    """`settings_sections()` が組む表示ツリー（セクション → グループ → 項目）."""
+    """`settings_sections()` は backend が返した順のまま、画面（section）とカード（group）へまとめる."""
 
-    def test_fields_follow_the_declared_order(self):
-        """並び順の正は `SETTINGS_SECTIONS`。backend の項目順には従わない."""
+    def test_groups_fields_by_section_and_card_in_the_backend_order(self):
         fields = [
-            _field("camera.crop.width"),
-            _field("audio.volume"),
-            _field("camera.width"),
+            _field("camera.width", "camera", "デバイス"),
+            _field("camera.crop.width", "camera", "クロップ"),
+            _field("camera.height", "camera", "デバイス"),
+            _field("audio.volume", "audio", "通知音"),
         ]
 
         sections = layout.settings_sections(fields)
 
         assert [
-            (section.label, [group.label for group in section.groups])
+            (
+                section.slug,
+                section.label,
+                [
+                    (group.label, [field.key for field in group.fields])
+                    for group in section.groups
+                ],
+            )
             for section in sections
-        ] == [("カメラ", ["デバイス", "クロップ"]), ("通知音", ["通知音"])]
-        assert [field.key for field in sections[0].groups[0].fields] == ["camera.width"]
-        assert [field.key for field in sections[0].groups[1].fields] == [
-            "camera.crop.width"
+        ] == [
+            (
+                "camera",
+                "CAMERA",
+                [
+                    ("デバイス", ["camera.width", "camera.height"]),
+                    ("クロップ", ["camera.crop.width"]),
+                ],
+            ),
+            ("audio", "AUDIO", [("通知音", ["audio.volume"])]),
         ]
-
-    def test_paste_dispenser_is_a_single_section(self):
-        """`paste_dispenser.*` は 1 セクションにまとまる（2 つに割れないことの回帰）."""
-        fields = [_field(spec.key) for spec in MACHINE_FIELDS]
-
-        sections = layout.settings_sections(fields)
-
-        paste = [section for section in sections if section.slug == "paste_dispenser"]
-        assert len(paste) == 1
-        assert sorted(
-            field.key for group in paste[0].groups for field in group.fields
-        ) == sorted(
-            spec.key
-            for spec in MACHINE_FIELDS
-            if spec.key.startswith("paste_dispenser.")
-        )
-
-    def test_every_machine_field_is_rendered_once(self):
-        fields = [_field(spec.key) for spec in MACHINE_FIELDS]
-
-        sections = layout.settings_sections(fields)
-
-        placed = [
-            field.key
-            for section in sections
-            for group in section.groups
-            for field in group.fields
-        ]
-        assert sorted(placed) == sorted(spec.key for spec in MACHINE_FIELDS)
-        assert all(section.slug != layout.UNCATEGORIZED_SLUG for section in sections)
-        # ナビのバッジ（field_count）の合計が全項目数と一致する
-        assert sum(section.field_count for section in sections) == len(MACHINE_FIELDS)
-
-    def test_undeclared_keys_fall_back_to_an_uncategorized_section(self):
-        """宣言漏れの項目を落とさない（設定ページは唯一の編集画面）."""
-        # backend が新しいセクションを足し、frontend がまだ追随していない状態
-        fields = [_field("camera.width"), _field("pnp.feeder_pitch")]
-
-        sections = layout.settings_sections(fields)
-
-        assert [section.slug for section in sections] == [
-            "camera",
-            layout.UNCATEGORIZED_SLUG,
-        ]
-        fallback = sections[-1]
-        assert [group.label for group in fallback.groups] == ["pnp"]
-        assert [field.key for field in fallback.groups[0].fields] == [
-            "pnp.feeder_pitch"
-        ]
-
-    def test_absent_fields_leave_no_empty_group_or_section(self):
-        """Backend が返さなかった項目は空カード・空セクションを作らない."""
-        sections = layout.settings_sections([_field("audio.volume")])
-
-        assert [section.slug for section in sections] == ["audio"]
-        assert [
-            field.key for group in sections[0].groups for field in group.fields
-        ] == ["audio.volume"]
+        # ナビのバッジ（field_count）は画面の項目数
+        assert [section.field_count for section in sections] == [3, 1]
 
 
 class TestParamGroupCoverage:

@@ -1,13 +1,12 @@
-"""ページ構成の表示定義（タブ / feature / テンプレート / 設定セクション）.
+"""ページ構成の表示定義（タブ / feature / テンプレート）.
 
 ここに置くのは純粋な表示定義だけ。
 装置の事実（フレーム提供の有無・progress_stage 文字列・ジョブのパラメータ定義）は
 ここには置かない。それらは backend が `GET /api/jobs` の `JobSpecInfo` で自己申告し、
 frontend はその値をテンプレートへ渡すだけにする。
 
-`SETTINGS_SECTIONS` / `settings_sections` は設定ページの階層表示専用なので frontend だけが
-持つ（backend は `GET /api/settings/machine` で項目と値を返すだけで、表示のまとめ方も
-並び順も知らない）。
+設定ページの項目・見出し・並び順も backend が `GET /api/settings/machine` で返す。
+`settings_sections` はそれを画面とカードへまとめるだけで、並べ替えない。
 """
 
 from __future__ import annotations
@@ -162,45 +161,6 @@ JOB_TEMPLATES = frozenset(
     }
 )
 
-# ノズル位置ページに即保存フォームで載せるクリーニング設定。
-# 位置 XYZ は記録ボタンの管轄なので、同じ画面に手打ち欄を並べない
-# （どちらが正しい値か曖昧になる。緊急時に手で入力する経路は /settings に残す）。
-NOZZLE_CLEAN_SETTING_KEYS = (
-    "paste_dispenser.nozzle_clean.press_depth",
-    "paste_dispenser.nozzle_clean.purge_ul",
-    "paste_dispenser.nozzle_clean.stroke",
-    "paste_dispenser.nozzle_clean.passes",
-    "paste_dispenser.nozzle_clean.wipe_speed",
-)
-
-# 上のうち 0 を受け付けないキー（0 は「その工程を行わない」を意味しない）
-POSITIVE_ONLY_MACHINE_KEYS = frozenset({"paste_dispenser.nozzle_clean.wipe_speed"})
-
-# はんだ塗布ページに即保存フォームで載せる auto しきい値（machine 全体設定）
-PASTE_AUTO_THRESHOLD_KEYS = (
-    "paste_dispenser.auto_line_aspect_ratio",
-    "paste_dispenser.auto_area_short_side_factor",
-)
-
-# はんだ塗布ページに即保存フォームで載せる pad 逐次位置合わせ設定
-PASTE_PAD_REFINEMENT_KEYS = ("alignment.refine_max_short_side",)
-
-# はんだ塗布ページに即保存フォームで載せる運転時流量キャリブレーション設定。
-# 測定位置だけは基板ごとの設定なので pad editor 側で編集する（表示は同じ箱に並べる）。
-PASTE_FLOW_CALIBRATION_KEYS = (
-    "paste_dispenser.volume_correction.calibration_file",
-    "paste_dispenser.volume_correction.amount_ul",
-    "paste_dispenser.volume_correction.crop_size_mm",
-    "paste_dispenser.volume_correction.settle_seconds",
-)
-
-# 上のうち、保存済み校正の <select> へ差し替えるキー
-PASTE_FLOW_CALIBRATION_FILE_KEY = "paste_dispenser.volume_correction.calibration_file"
-
-# 空欄の保存が「未入力」ではなく「無効にする」を意味するキー。
-# 既定では空欄は保存しないので、これが無いと一度設定した値を消せない。
-CLEARABLE_MACHINE_KEYS = frozenset({PASTE_FLOW_CALIBRATION_FILE_KEY})
-
 LOADING_ROTATION_PARAMS = ("rotations", "rate", "accel", "retract_rotations")
 
 # dispense_calibration フォームのセクション分け（表示のみ）。
@@ -289,242 +249,6 @@ PASTE_VOLUME_CALIBRATION_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] =
 
 
 @attrs.frozen
-class SettingsGroupSpec:
-    """設定カード 1 枚の宣言.
-
-    Attributes:
-        label: カードの見出し
-        keys: カードへ並べる設定 key（この順に描く）
-    """
-
-    label: str
-    keys: tuple[str, ...]
-
-
-@attrs.frozen
-class SettingsSectionSpec:
-    """設定ページの左ナビ 1 項目 = 右ペイン 1 画面の宣言.
-
-    Attributes:
-        slug: ナビの選択状態と URL hash に使う識別子
-        label: ナビとパネル見出しの表示名
-        groups: 画面に並べるカード
-    """
-
-    slug: str
-    label: str
-    groups: tuple[SettingsGroupSpec, ...]
-
-
-# 設定ページの構成。並び順はここの定義に従い、backend の `MACHINE_FIELDS` の定義順には
-# 依存しない（依存させると、backend が入れ子セクションを途中に挟んだ時点で親セクションの
-# カードが 2 枚に分かれる）。宣言漏れの項目は「未分類」に入るだけで消えないが、
-# tests/web/ui/test_layout.py で MACHINE_FIELDS との双方向の網羅を検査している。
-SETTINGS_SECTIONS: tuple[SettingsSectionSpec, ...] = (
-    SettingsSectionSpec(
-        "paste_dispenser",
-        "ペーストディスペンサー",
-        (
-            SettingsGroupSpec(
-                "吐出の基本",
-                (
-                    "paste_dispenser.rotations_per_ul",
-                    "paste_dispenser.nozzle_diameter",
-                    "paste_dispenser.nozzle_outer_diameter",
-                    "paste_dispenser.solder_paste_density",
-                    "paste_dispenser.defaults.ul_per_mm2",
-                ),
-            ),
-            SettingsGroupSpec(
-                "吐出の速度",
-                (
-                    "paste_dispenser.motion.max_dispense_rate",
-                    "paste_dispenser.motion.dispense_accel",
-                    "paste_dispenser.motion.max_fill_speed",
-                ),
-            ),
-            SettingsGroupSpec(
-                "リトラクト",
-                (
-                    "paste_dispenser.motion.retract_amount",
-                    "paste_dispenser.motion.retract_rate",
-                    "paste_dispenser.motion.retract_accel_factor",
-                ),
-            ),
-            SettingsGroupSpec(
-                "プライム・パージ",
-                (
-                    "paste_dispenser.defaults.prime_extra_delay",
-                    "paste_dispenser.initial_purge_ul",
-                ),
-            ),
-            SettingsGroupSpec(
-                "塗布方式",
-                (
-                    "paste_dispenser.defaults.dispense_mode",
-                    "paste_dispenser.defaults.line_direction",
-                    "paste_dispenser.auto_line_aspect_ratio",
-                    "paste_dispenser.auto_area_short_side_factor",
-                ),
-            ),
-            SettingsGroupSpec(
-                "塗布経路",
-                (
-                    "paste_dispenser.defaults.bead_width_factor",
-                    "paste_dispenser.defaults.overlap",
-                    "paste_dispenser.defaults.boundary_margin",
-                ),
-            ),
-            SettingsGroupSpec(
-                "微小線",
-                (
-                    "paste_dispenser.defaults.micro_line_z_start",
-                    "paste_dispenser.defaults.micro_line_z_end",
-                    "paste_dispenser.motion.micro_line_settle_seconds",
-                ),
-            ),
-            SettingsGroupSpec(
-                "Z 高さ",
-                (
-                    "paste_dispenser.defaults.paste_height",
-                    "paste_dispenser.motion.lift_height",
-                    "paste_dispenser.motion.post_dispense_settle_seconds",
-                ),
-            ),
-            SettingsGroupSpec(
-                "ツールヘッド",
-                ("paste_dispenser.toolhead.x", "paste_dispenser.toolhead.y"),
-            ),
-            SettingsGroupSpec(
-                "流量キャリブレーション",
-                (
-                    "paste_dispenser.volume_correction.calibration_file",
-                    "paste_dispenser.volume_correction.amount_ul",
-                    "paste_dispenser.volume_correction.crop_size_mm",
-                    "paste_dispenser.volume_correction.settle_seconds",
-                ),
-            ),
-            SettingsGroupSpec(
-                "ノズルキャップ",
-                ("paste_dispenser.nozzle_cap.position",),
-            ),
-            SettingsGroupSpec(
-                "ノズルクリーニング",
-                (
-                    "paste_dispenser.nozzle_clean.position",
-                    "paste_dispenser.nozzle_clean.press_depth",
-                    "paste_dispenser.nozzle_clean.purge_ul",
-                    "paste_dispenser.nozzle_clean.stroke",
-                    "paste_dispenser.nozzle_clean.passes",
-                    "paste_dispenser.nozzle_clean.wipe_speed",
-                ),
-            ),
-        ),
-    ),
-    SettingsSectionSpec(
-        "alignment",
-        "パッド位置合わせ",
-        (
-            SettingsGroupSpec(
-                "パッド位置合わせ",
-                (
-                    "alignment.region_size_px",
-                    "alignment.region_overlap",
-                    "alignment.board_edge_margin",
-                    "alignment.refine_max_short_side",
-                    "alignment.search_window",
-                    "alignment.max_correction",
-                    "alignment.max_passes",
-                    "alignment.converge_tolerance",
-                    "alignment.canny_low",
-                    "alignment.canny_high",
-                    "alignment.blur_ksize",
-                ),
-            ),
-        ),
-    ),
-    SettingsSectionSpec(
-        "probe",
-        "プローブ",
-        (
-            SettingsGroupSpec(
-                "プローブ",
-                (
-                    "probe.lift_height",
-                    "probe.min_radius",
-                    "probe.board_edge_margin",
-                    "probe.min_samples",
-                    "probe.max_samples",
-                ),
-            ),
-        ),
-    ),
-    SettingsSectionSpec(
-        "reference_point",
-        "基準点",
-        (
-            SettingsGroupSpec(
-                "位置",
-                (
-                    "reference_point.x",
-                    "reference_point.y",
-                    "reference_point.target_diameter",
-                ),
-            ),
-            SettingsGroupSpec(
-                "コーナーオフセット",
-                (
-                    "reference_point.offsets.top_left",
-                    "reference_point.offsets.top_right",
-                    "reference_point.offsets.bottom_left",
-                    "reference_point.offsets.bottom_right",
-                ),
-            ),
-        ),
-    ),
-    SettingsSectionSpec(
-        "camera",
-        "カメラ",
-        (
-            SettingsGroupSpec(
-                "デバイス",
-                (
-                    "camera.calibration_file",
-                    "camera.device_id",
-                    "camera.width",
-                    "camera.height",
-                    "camera.fps",
-                    "camera.format",
-                ),
-            ),
-            SettingsGroupSpec("クロップ", ("camera.crop.width", "camera.crop.height")),
-        ),
-    ),
-    SettingsSectionSpec(
-        "settle_detection",
-        "静定待ち・検出",
-        (
-            SettingsGroupSpec("静定待ち", ("settle.move_sec", "settle.probe_sec")),
-            SettingsGroupSpec(
-                "統計検出",
-                ("detection.sample_count", "detection.minimum_sample_count"),
-            ),
-        ),
-    ),
-    SettingsSectionSpec(
-        "audio",
-        "通知音",
-        (SettingsGroupSpec("通知音", ("audio.device", "audio.volume")),),
-    ),
-)
-
-# 宣言から漏れた項目を受けるセクション（backend が項目を足して frontend が追随していない
-# 状態）。設定ページは machine.toml の唯一の編集画面なので、項目を捨てず末尾へ出す
-UNCATEGORIZED_SLUG = "uncategorized"
-UNCATEGORIZED_LABEL = "未分類"
-
-
-@attrs.frozen
 class SettingsGroup:
     """描画用の設定カード 1 枚（値入り）."""
 
@@ -546,47 +270,20 @@ class SettingsSection:
         return sum(len(group.fields) for group in self.groups)
 
 
-def section_of(key: str) -> str:
-    """設定 key の属するセクション（最後のドットより前）を返す."""
-    return key.rsplit(".", 1)[0]
-
-
 def settings_sections(fields: Sequence[SettingsField]) -> list[SettingsSection]:
-    """設定項目を `SETTINGS_SECTIONS` の宣言どおりの表示ツリーへ組む.
-
-    backend が返さなかった項目は空のカード・セクションを作らない。
-
-    宣言に無い項目は末尾の「未分類」セクションへ TOML セクション単位でまとめる。
-    """
-    by_key = {field.key: field for field in fields}
-    placed: set[str] = set()
-    sections: list[SettingsSection] = []
-    for spec in SETTINGS_SECTIONS:
-        groups = tuple(
-            SettingsGroup(label=group.label, fields=present)
-            for group in spec.groups
-            if (present := tuple(by_key[key] for key in group.keys if key in by_key))
-        )
-        placed.update(field.key for group in groups for field in group.fields)
-        if groups:
-            sections.append(
-                SettingsSection(slug=spec.slug, label=spec.label, groups=groups)
-            )
-    if undeclared := [field for field in fields if field.key not in placed]:
-        sections.append(_uncategorized_section(undeclared))
-    return sections
-
-
-def _uncategorized_section(fields: list[SettingsField]) -> SettingsSection:
-    """宣言漏れの項目を TOML セクション単位でまとめる（見出しは生のセクション名）."""
-    buckets: dict[str, list[SettingsField]] = {}
+    """Backend が表示する順に返した設定項目を、画面（section）とカード（group）へまとめる."""
+    tree: dict[tuple[str, str], dict[str, list[SettingsField]]] = {}
     for field in fields:
-        buckets.setdefault(section_of(field.key), []).append(field)
-    return SettingsSection(
-        slug=UNCATEGORIZED_SLUG,
-        label=UNCATEGORIZED_LABEL,
-        groups=tuple(
-            SettingsGroup(label=section, fields=tuple(group))
-            for section, group in buckets.items()
-        ),
-    )
+        groups = tree.setdefault((field.section, field.section_label), {})
+        groups.setdefault(field.group, []).append(field)
+    return [
+        SettingsSection(
+            slug=slug,
+            label=label,
+            groups=tuple(
+                SettingsGroup(label=group, fields=tuple(members))
+                for group, members in groups.items()
+            ),
+        )
+        for (slug, label), groups in tree.items()
+    ]

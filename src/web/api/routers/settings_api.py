@@ -5,9 +5,8 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from web.api.dependencies import ControlDep, HistoryDep, JobsDep, StateDep, StoreDep
+from web.api.dependencies import ControlDep, MachineConfigDep, StateDep
 from web.api.history import UnknownSnapshotError
-from web.api.routers.common import machine_settings_fields
 from web.contract.models import (
     ConfigHistoryResponse,
     MachineSettingsResponse,
@@ -23,18 +22,29 @@ class SettingsUpdate(BaseModel):
     values: dict[str, MachineSettingValue]
 
 
+def _settings(
+    state: StateDep, machine_config: MachineConfigDep
+) -> MachineSettingsResponse:
+    machine, _ = state.machine_or_error()
+    return MachineSettingsResponse(fields=machine_config.fields(machine))
+
+
 @router.get("/settings/machine")
-def get_machine_settings(state: StateDep, store: StoreDep) -> MachineSettingsResponse:
-    """編集できる machine.toml の項目を、記載値（``value``）と実効値（``resolved``）付きで返す."""
-    return MachineSettingsResponse(fields=machine_settings_fields(store, state))
+def get_machine_settings(
+    state: StateDep, machine_config: MachineConfigDep
+) -> MachineSettingsResponse:
+    """設定項目を、表示の定義・記載値（``value``）・実効値（``resolved``）付きで返す.
+
+    設定エラー（degraded）の間は実効値を出さず、書かれている値だけで設定を直せるようにする。
+    """
+    return _settings(state, machine_config)
 
 
 @router.put("/settings/machine")
 def put_machine_settings(
     body: SettingsUpdate,
     state: StateDep,
-    store: StoreDep,
-    jobs: JobsDep,
+    machine_config: MachineConfigDep,
     _control: ControlDep,
 ) -> MachineSettingsResponse:
     """machine.toml の項目を保存し、保存後の全項目を返す.
@@ -43,29 +53,27 @@ def put_machine_settings(
     ``camera.*``（``camera.crop.*`` を除く）を変えたときはカメラを再構築する。
     """
     with state.machine_lock("settings"):
-        store.write_machine_settings(body.values)
+        machine_config.write(body.values)
         # crop はレンダラが毎フレーム読むためデバイス再構築は不要（ストリームを切断しない）
         if any(
             key.startswith("camera.") and not key.startswith("camera.crop.")
             for key in body.values
         ):
             state.rebuild_camera()
-    jobs.publish_state_changed()
-    return MachineSettingsResponse(fields=machine_settings_fields(store, state))
+    return _settings(state, machine_config)
 
 
 @router.get("/settings/history")
-def get_config_history(history: HistoryDep) -> ConfigHistoryResponse:
+def get_config_history(machine_config: MachineConfigDep) -> ConfigHistoryResponse:
     """machine.toml の世代を新しい順に、次に入った変更の要約付きで返す."""
-    return ConfigHistoryResponse(entries=history.entries())
+    return ConfigHistoryResponse(entries=machine_config.history_entries())
 
 
 @router.post("/settings/history/{name}/restore")
 def restore_config_history(
     name: str,
     state: StateDep,
-    history: HistoryDep,
-    jobs: JobsDep,
+    machine_config: MachineConfigDep,
     _control: ControlDep,
 ) -> ConfigHistoryResponse:
     """指定の世代を machine.toml へ書き戻し、書き戻した後の世代一覧を返す.
@@ -76,9 +84,8 @@ def restore_config_history(
     """
     with state.machine_lock("settings"):
         try:
-            history.restore(name)
+            machine_config.restore(name)
         except UnknownSnapshotError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         state.rebuild_camera()
-    jobs.publish_state_changed()
-    return ConfigHistoryResponse(entries=history.entries())
+    return ConfigHistoryResponse(entries=machine_config.history_entries())

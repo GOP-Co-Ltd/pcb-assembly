@@ -32,9 +32,9 @@ from tests.golden.conftest import (
 from tests.golden.scenarios import Scenario, scenarios_of
 from tests.support.golden import assert_transcript
 from tests.web.api.jobs.conftest import answer_next_prompt
-from web.api.config_store import ConfigStore
 from web.api.jobs.manager import JobManager, JobStatus
 from web.api.jobs.pasting.common import LOADING_STAGE
+from web.api.machine_config import MachineConfigFile
 from web.api.settings import Settings
 from web.api.state import AppState
 
@@ -76,7 +76,7 @@ class CloggedKlipper(FakeKlipper):
 
 def _forget_nozzle_clean(settings: Settings) -> None:
     """machine.toml のクリーニング節を座標の無い節にする（設定ページから動作値だけを保存した未教示の機体）."""
-    path = ConfigStore(settings.config_dir).machine_toml_path()
+    path = MachineConfigFile(settings.config_dir).path
     document = tomlkit.parse(path.read_text(encoding="utf-8"))
     dispenser = document["paste_dispenser"]
     assert isinstance(dispenser, Table)

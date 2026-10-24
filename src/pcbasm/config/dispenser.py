@@ -2,23 +2,41 @@
 
 下位表 ``defaults``（pad ごとに上書きできる塗布パラメータ）と ``motion``（吐出ダイナミクス）の型は
 :mod:`pcbasm.pasting.params` が持つ。
+設定ページの ``order`` は ``[paste_dispenser]`` の画面での通し番号で、params の項目と並びを分け合う（重なると :func:`~pcbasm.config.fields.setting_fields` が ValueError にする）。
 """
 
 from __future__ import annotations
 
 import attrs
 
+from pcbasm.config.fields import XYZ, setting
 from pcbasm.geometry import Point3d
 from pcbasm.pasting.params import DispenseMotion, PasteParams
 from pcbasm.validators import (
-    is_finite_number,
+    as_validator,
     validate_finite_number,
+    validate_greater_than_one,
     validate_non_negative_number,
     validate_positive_number,
 )
 
 DEFAULT_AUTO_LINE_ASPECT_RATIO = 1.618
 DEFAULT_AUTO_AREA_SHORT_SIDE_FACTOR = 3.0
+
+# 設定ページのカード
+_BASICS = "吐出の基本"
+_AUTO = "Auto の切り替え"
+_VOLUME = "流量キャリブレーション"
+_POSITIONS = "ノズル位置"
+_CLEAN = "ノズルクリーニング"
+
+_positive = as_validator(validate_positive_number)
+_non_negative = as_validator(validate_non_negative_number)
+
+
+def _non_negative_int(_: object, __: attrs.Attribute, value: int) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"passesは0以上の整数である必要があります: {value!r}")
 
 
 @attrs.frozen
@@ -51,17 +69,31 @@ class VolumeCorrectionConfig:
         settle_seconds: 全点を塗ってから塗布後の撮影に入るまでの待ち [秒]（0 で待たない）
     """
 
-    calibration_file: str = ""
-    amount_ul: float = 0.2
-    crop_size_mm: float = 2.0
-    settle_seconds: float = 10.0
-
-    def __attrs_post_init__(self) -> None:
-        for name in ("amount_ul", "crop_size_mm"):
-            if error := validate_positive_number(name, getattr(self, name)):
-                raise ValueError(error)
-        if error := validate_non_negative_number("settle_seconds", self.settle_seconds):
-            raise ValueError(error)
+    calibration_file: str = attrs.field(
+        default="",
+        metadata=setting(
+            label="校正ファイル", group=_VOLUME, order=100, clearable=True
+        ),
+    )
+    amount_ul: float = attrs.field(
+        default=0.2,
+        validator=_positive,
+        metadata=setting(
+            label="1点あたりの塗布量", unit="uL", group=_VOLUME, order=101
+        ),
+    )
+    crop_size_mm: float = attrs.field(
+        default=2.0,
+        validator=_positive,
+        metadata=setting(label="撮影crop寸法", unit="mm", group=_VOLUME, order=102),
+    )
+    settle_seconds: float = attrs.field(
+        default=10.0,
+        validator=_non_negative,
+        metadata=setting(
+            label="静定待ち", unit="s", group=_VOLUME, order=103, minimum=0.0
+        ),
+    )
 
     @property
     def enabled(self) -> bool:
@@ -77,7 +109,12 @@ class NozzleCapConfig:
         position: キャップ位置（マシン座標 [mm]）。未教示なら None で、駐機は PRESENT へ落ちる
     """
 
-    position: Point3d | None = None
+    position: Point3d | None = attrs.field(
+        default=None,
+        metadata=setting(
+            label="キャップ位置", unit="mm", group=_POSITIONS, order=110, set=XYZ
+        ),
+    )
 
 
 @attrs.frozen
@@ -108,39 +145,73 @@ class NozzleCleanConfig:
         wipe_speed: こすり移動速度 [mm/sec]
     """
 
-    position: Point3d | None = None
-    press_depth: float = 0.5
-    purge_ul: float = 0.2
-    stroke: float = 2.0
-    passes: int = 2
-    wipe_speed: float = 10.0
+    position: Point3d | None = attrs.field(
+        default=None,
+        metadata=setting(
+            label="クリーニング位置（Zは面の高さ）",
+            unit="mm",
+            group=_POSITIONS,
+            order=111,
+            set=XYZ,
+        ),
+    )
+    press_depth: float = attrs.field(
+        default=0.5,
+        validator=_non_negative,
+        metadata=setting(
+            label="押し込み量", unit="mm", group=_CLEAN, order=120, minimum=0.0
+        ),
+    )
+    purge_ul: float = attrs.field(
+        default=0.2,
+        validator=_non_negative,
+        metadata=setting(
+            label="クリーニング前パージ量",
+            unit="uL",
+            group=_CLEAN,
+            order=121,
+            minimum=0.0,
+        ),
+    )
+    stroke: float = attrs.field(
+        default=2.0,
+        validator=_non_negative,
+        metadata=setting(
+            label="こすり幅 片側", unit="mm", group=_CLEAN, order=122, minimum=0.0
+        ),
+    )
+    passes: int = attrs.field(
+        default=2,
+        validator=_non_negative_int,
+        metadata=setting(label="往復回数", group=_CLEAN, order=123, minimum=0),
+    )
+    wipe_speed: float = attrs.field(
+        default=10.0,
+        validator=_positive,
+        metadata=setting(label="こすり速度", unit="mm/sec", group=_CLEAN, order=124),
+    )
 
     def __attrs_post_init__(self) -> None:
         if self.position is not None:
             for name in ("x", "y", "z"):
                 if error := validate_finite_number(name, getattr(self.position, name)):
                     raise ValueError(error)
-        for name in ("press_depth", "purge_ul", "stroke"):
-            if error := validate_non_negative_number(name, getattr(self, name)):
-                raise ValueError(error)
-        if error := validate_positive_number("wipe_speed", self.wipe_speed):
-            raise ValueError(error)
-        if (
-            isinstance(self.passes, bool)
-            or not isinstance(self.passes, int)
-            or self.passes < 0
-        ):
-            raise ValueError(
-                f"passesは0以上の整数である必要があります: {self.passes!r}"
-            )
 
 
 @attrs.frozen
 class ToolheadConfig:
     """ツールヘッドの設定."""
 
-    x: float
-    y: float
+    x: float = attrs.field(
+        metadata=setting(
+            label="ツールヘッド相対位置 X", unit="mm", group="ツールヘッド", order=90
+        )
+    )
+    y: float = attrs.field(
+        metadata=setting(
+            label="ツールヘッド相対位置 Y", unit="mm", group="ツールヘッド", order=91
+        )
+    )
 
 
 @attrs.frozen(kw_only=True)
@@ -163,16 +234,51 @@ class PasteDispenserConfig:
         nozzle_clean: ノズルクリーニング
     """
 
-    rotations_per_ul: float
-    nozzle_diameter: float
-    nozzle_outer_diameter: float | None = None
+    rotations_per_ul: float = attrs.field(
+        metadata=setting(
+            label="1uLあたりの回転数", unit="rev/uL", group=_BASICS, order=10
+        )
+    )
+    nozzle_diameter: float = attrs.field(
+        validator=_positive,
+        metadata=setting(label="ノズル内径", unit="mm", group=_BASICS, order=11),
+    )
+    nozzle_outer_diameter: float | None = attrs.field(
+        default=None,
+        validator=attrs.validators.optional(_positive),
+        metadata=setting(label="ノズル外径", unit="mm", group=_BASICS, order=12),
+    )
     toolhead: ToolheadConfig
     defaults: PasteParams
     motion: DispenseMotion
-    solder_paste_density: float = 3.78
-    auto_line_aspect_ratio: float = DEFAULT_AUTO_LINE_ASPECT_RATIO
-    auto_area_short_side_factor: float = DEFAULT_AUTO_AREA_SHORT_SIDE_FACTOR
-    initial_purge_ul: float = 0.1
+    solder_paste_density: float = attrs.field(
+        default=3.78,
+        validator=_positive,
+        metadata=setting(
+            label="はんだペースト密度", unit="mg/uL", group=_BASICS, order=13
+        ),
+    )
+    auto_line_aspect_ratio: float = attrs.field(
+        default=DEFAULT_AUTO_LINE_ASPECT_RATIO,
+        validator=as_validator(validate_greater_than_one),
+        metadata=setting(label="Auto線塗布しきい縦横比", group=_AUTO, order=55),
+    )
+    auto_area_short_side_factor: float = attrs.field(
+        default=DEFAULT_AUTO_AREA_SHORT_SIDE_FACTOR,
+        validator=_positive,
+        metadata=setting(label="Auto面塗布しきい短辺倍率", group=_AUTO, order=56),
+    )
+    initial_purge_ul: float = attrs.field(
+        default=0.1,
+        validator=_non_negative,
+        metadata=setting(
+            label="初回パージ量",
+            unit="uL",
+            group="プライム・パージ",
+            order=41,
+            minimum=0.0,
+        ),
+    )
     volume_correction: VolumeCorrectionConfig = attrs.field(
         factory=VolumeCorrectionConfig
     )
@@ -180,30 +286,6 @@ class PasteDispenserConfig:
     nozzle_clean: NozzleCleanConfig = attrs.field(factory=NozzleCleanConfig)
 
     def __attrs_post_init__(self) -> None:
-        for name in (
-            "nozzle_diameter",
-            "solder_paste_density",
-            "auto_area_short_side_factor",
-        ):
-            if error := validate_positive_number(name, getattr(self, name)):
-                raise ValueError(error)
-        if self.nozzle_outer_diameter is not None:
-            if error := validate_positive_number(
-                "nozzle_outer_diameter", self.nozzle_outer_diameter
-            ):
-                raise ValueError(error)
-        if (
-            not is_finite_number(self.auto_line_aspect_ratio)
-            or self.auto_line_aspect_ratio <= 1.0
-        ):
-            raise ValueError(
-                "auto_line_aspect_ratioは1.0より大きい必要があります: "
-                f"{self.auto_line_aspect_ratio!r}"
-            )
-        if error := validate_non_negative_number(
-            "initial_purge_ul", self.initial_purge_ul
-        ):
-            raise ValueError(error)
         if self.effective_nozzle_outer_diameter < self.nozzle_diameter:
             raise ValueError(
                 "nozzle_outer_diameterはnozzle_diameter以上である必要があります: "

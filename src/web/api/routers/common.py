@@ -1,25 +1,22 @@
-"""複数ルーターが共有するヘルパ（Klipper 接続・状態レスポンス・設定項目）.
+"""複数ルーターが共有するヘルパ（Klipper 接続・状態レスポンス・ジョブ定義のパラメータ）.
 
 2 つ以上の router から使われるものだけを置く（1 router 専用のヘルパは各 router に残す）。
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator
 from contextlib import contextmanager
-from pathlib import Path
 
 import attrs
 import httpx
 from fastapi import HTTPException
 
 from pcbasm import hal
-from pcbasm.config import MachineConfig
 from pcbasm.geometry import Point3d
 from pcbasm.hal import Klipper
 from pcbasm.pasting.nozzle_clean import clean_position_label
 from pcbasm.vision import load_focus_z
-from web.api.config_store import MACHINE_FIELDS, ConfigStore, FieldSpec
 from web.api.control import ClientIdentity, LeaseInfo
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.manager import JobManager
@@ -33,10 +30,8 @@ from web.contract.models import (
     JobBrief,
     KlipperStatus,
     MachineInfo,
-    MachineSettingValue,
     NozzleCleanInfo,
     Position,
-    SettingsField,
     StateResponse,
 )
 
@@ -210,68 +205,3 @@ def param_specs_with_saved_defaults(
         attrs.evolve(spec, default=valid[spec.name]) if spec.name in valid else spec
         for spec in definition.params
     )
-
-
-# --------------------------------------------------------------------------- #
-# マシン設定項目（settings ページ / API 共用）
-# --------------------------------------------------------------------------- #
-
-
-def _fields(
-    specs: tuple[FieldSpec, ...],
-    values: Mapping[str, MachineSettingValue | None],
-    resolved: Mapping[str, MachineSettingValue | None],
-) -> list[SettingsField]:
-    return [
-        SettingsField(
-            key=spec.key,
-            label=spec.label,
-            value_type=spec.value_type,
-            unit=spec.unit,
-            value=values[spec.key],
-            resolved=resolved.get(spec.key),
-        )
-        for spec in specs
-    ]
-
-
-def machine_settings_fields(store: ConfigStore, state: AppState) -> list[SettingsField]:
-    """machine.toml のホワイトリスト項目を現在値と実効値付きで返す.
-
-    実効値（``resolved``）は cattrs が既定値を埋めたあとの値で、SSR ページが現在値を
-    表示するために使う。未記載キーの代替値を frontend 側に置くとプロセス境界の両側で
-    二重管理になり、両者が食い違うと誤った値が保存フォームに乗る。設定エラー（degraded）の
-    間は実効値を出さず、書かれている値だけで設定を直せるようにする。
-    """
-    machine, _ = state.machine_or_error()
-    resolved = (
-        {}
-        if machine is None
-        else {spec.key: _resolved_value(machine, spec.key) for spec in MACHINE_FIELDS}
-    )
-    return _fields(MACHINE_FIELDS, store.read_machine_settings(), resolved)
-
-
-def _resolved_value(machine: MachineConfig, key: str) -> MachineSettingValue | None:
-    """ドット区切りキーを `MachineConfig` から辿って実効値を読む（未設定の任意項目は None）."""
-    node: object = machine
-    for part in key.split("."):
-        node = getattr(node, part)
-        if node is None:
-            return None
-    return _as_setting_value(node)
-
-
-def _as_setting_value(value: object) -> MachineSettingValue | None:
-    """`MachineConfig` の値を API の設定値表現へ変換する（表現できないものは None）."""
-    if isinstance(value, Path):
-        return value.as_posix()
-    if isinstance(value, tuple):
-        # reference_point.offsets.* の [x, y]
-        return [float(item) for item in value]
-    if isinstance(value, Point3d):
-        # nozzle_cap / nozzle_clean の position
-        return [value.x, value.y, value.z]
-    if isinstance(value, bool | int | float | str):
-        return value
-    return None

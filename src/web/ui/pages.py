@@ -49,20 +49,13 @@ from web.contract.models import (
 from web.ui.layout import (
     BULK_LABEL,
     BULK_PATH,
-    CLEARABLE_MACHINE_KEYS,
     DISPENSE_CALIBRATION_PARAM_GROUPS,
     FEATURE_GROUPS,
     FEATURE_LABELS,
     FEATURE_TEMPLATES,
     JOB_TEMPLATES,
     LOADING_ROTATION_PARAMS,
-    NOZZLE_CLEAN_SETTING_KEYS,
-    PASTE_AUTO_THRESHOLD_KEYS,
-    PASTE_FLOW_CALIBRATION_FILE_KEY,
-    PASTE_FLOW_CALIBRATION_KEYS,
-    PASTE_PAD_REFINEMENT_KEYS,
     PASTE_VOLUME_CALIBRATION_PARAM_GROUPS,
-    POSITIVE_ONLY_MACHINE_KEYS,
     TAB_LABELS,
     TABS,
     settings_sections,
@@ -158,6 +151,11 @@ class _MachineSettings:
             cause = LookupError(f"backend が {key} の現在値を解決できません: {value!r}")
             raise BackendUnavailable(self._endpoint, cause) from cause
         return float(value)
+
+    def select(self, *keys: str) -> list[SettingsField]:
+        """``keys`` の項目をその順に返す（機能ページの即保存フォーム用）."""
+        by_key = {field.key: field for field in self.fields}
+        return [by_key[key] for key in keys]
 
 
 async def _machine_settings(
@@ -450,10 +448,7 @@ async def settings_page(machine_id: str, request: Request) -> HTMLResponse:
         client.machine_info(), client.state(), client.machine_settings()
     )
     context = _base_context(request, machine_id, "settings", info, state)
-    context.update(
-        settings_sections=settings_sections(machine_settings.fields),
-        clearable_keys=CLEARABLE_MACHINE_KEYS,
-    )
+    context.update(settings_sections=settings_sections(machine_settings.fields))
     return _html_page(request, "settings.html", context)
 
 
@@ -521,18 +516,17 @@ def _paste_workspace_context(
 ) -> dict[str, Any]:
     """Pad editor 付き塗布ページのコンテキスト（machine 設定の即保存フォーム）."""
     return {
-        "auto_threshold_fields": [
-            field for field in settings.fields if field.key in PASTE_AUTO_THRESHOLD_KEYS
-        ],
-        "pad_refinement_fields": [
-            field for field in settings.fields if field.key in PASTE_PAD_REFINEMENT_KEYS
-        ],
-        "flow_calibration_fields": [
-            field
-            for field in settings.fields
-            if field.key in PASTE_FLOW_CALIBRATION_KEYS
-        ],
-        "flow_calibration_file_key": PASTE_FLOW_CALIBRATION_FILE_KEY,
+        "auto_threshold_fields": settings.select(
+            "paste_dispenser.auto_line_aspect_ratio",
+            "paste_dispenser.auto_area_short_side_factor",
+        ),
+        "pad_refinement_fields": settings.select("alignment.refine_max_short_side"),
+        "flow_calibration_fields": settings.select(
+            "paste_dispenser.volume_correction.calibration_file",
+            "paste_dispenser.volume_correction.amount_ul",
+            "paste_dispenser.volume_correction.crop_size_mm",
+            "paste_dispenser.volume_correction.settle_seconds",
+        ),
     }
 
 
@@ -559,10 +553,13 @@ def _nozzle_cap_context(
     return {
         "nozzle_cap": state.nozzle_cap,
         "nozzle_clean": state.nozzle_clean,
-        "nozzle_clean_fields": [
-            field for field in settings.fields if field.key in NOZZLE_CLEAN_SETTING_KEYS
-        ],
-        "positive_only_keys": POSITIVE_ONLY_MACHINE_KEYS,
+        "nozzle_clean_fields": settings.select(
+            "paste_dispenser.nozzle_clean.press_depth",
+            "paste_dispenser.nozzle_clean.purge_ul",
+            "paste_dispenser.nozzle_clean.stroke",
+            "paste_dispenser.nozzle_clean.passes",
+            "paste_dispenser.nozzle_clean.wipe_speed",
+        ),
     }
 
 

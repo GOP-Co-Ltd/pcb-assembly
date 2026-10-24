@@ -2,6 +2,10 @@
 
 import attrs
 
+from pcbasm.config.fields import setting
+
+_OFFSETS = "コーナーオフセット"
+
 
 @attrs.frozen
 class CornerOffsetsConfig:
@@ -14,10 +18,18 @@ class CornerOffsetsConfig:
         bottom_right: 右下コーナーのオフセット [x, y] (mm)
     """
 
-    top_left: tuple[float, float]
-    top_right: tuple[float, float]
-    bottom_left: tuple[float, float]
-    bottom_right: tuple[float, float]
+    top_left: tuple[float, float] = attrs.field(
+        metadata=setting(label="左上 [x, y]", unit="mm", group=_OFFSETS, order=4)
+    )
+    top_right: tuple[float, float] = attrs.field(
+        metadata=setting(label="右上 [x, y]", unit="mm", group=_OFFSETS, order=5)
+    )
+    bottom_left: tuple[float, float] = attrs.field(
+        metadata=setting(label="左下 [x, y]", unit="mm", group=_OFFSETS, order=6)
+    )
+    bottom_right: tuple[float, float] = attrs.field(
+        metadata=setting(label="右下 [x, y]", unit="mm", group=_OFFSETS, order=7)
+    )
 
 
 @attrs.frozen
@@ -29,7 +41,13 @@ class ReferencePointConfig:
     ほかの隅の概略位置は :class:`~pcbasm.posctrl.board.BoardTransformMeasurer` が求める。
     """
 
-    x: float
-    y: float
-    target_diameter: float
+    x: float = attrs.field(
+        metadata=setting(label="基準点 X", unit="mm", group="位置", order=1)
+    )
+    y: float = attrs.field(
+        metadata=setting(label="基準点 Y", unit="mm", group="位置", order=2)
+    )
+    target_diameter: float = attrs.field(
+        metadata=setting(label="基準点マーカー直径", unit="mm", group="位置", order=3)
+    )
     offsets: CornerOffsetsConfig

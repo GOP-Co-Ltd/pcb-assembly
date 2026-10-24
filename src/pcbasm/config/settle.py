@@ -2,7 +2,10 @@
 
 import attrs
 
-from pcbasm.validators import validate_non_negative_number
+from pcbasm.config.fields import setting
+from pcbasm.validators import as_validator, validate_non_negative_number
+
+_non_negative = as_validator(validate_non_negative_number)
 
 
 @attrs.frozen
@@ -22,10 +25,17 @@ class SettleConfig:
         probe_sec: PROBE 実行後の待ち [sec]
     """
 
-    move_sec: float = 0.5
-    probe_sec: float = 0.0
-
-    def __attrs_post_init__(self) -> None:
-        for name in ("move_sec", "probe_sec"):
-            if error := validate_non_negative_number(name, getattr(self, name)):
-                raise ValueError(error)
+    move_sec: float = attrs.field(
+        default=0.5,
+        validator=_non_negative,
+        metadata=setting(
+            label="移動後の静定待ち", unit="s", group="静定待ち", order=1, minimum=0.0
+        ),
+    )
+    probe_sec: float = attrs.field(
+        default=0.0,
+        validator=_non_negative,
+        metadata=setting(
+            label="プローブ後の待ち", unit="s", group="静定待ち", order=2, minimum=0.0
+        ),
+    )

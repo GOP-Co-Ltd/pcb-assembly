@@ -14,8 +14,8 @@ from web.api.dependencies import (
     CatalogDep,
     ControlDep,
     JobsDep,
+    MachineConfigDep,
     StateDep,
-    StoreDep,
 )
 from web.api.identity import get_identity
 from web.api.jobs.catalog import JobCatalog, JobDefinition
@@ -234,26 +234,25 @@ class JobResultRequest(BaseModel):
 def post_apply(
     jobs: JobsDep,
     state: StateDep,
-    store: StoreDep,
+    machine_config: MachineConfigDep,
     _control: ControlDep,
     body: JobResultRequest,
 ) -> dict[str, dict[str, bool | float | int | str]]:
     """直近 SUCCEEDED ジョブの計測結果を設定へ反映する.
 
     409: 対象ジョブ不一致・反映可能なジョブ無し（LookupError）/ 実行中（BusyError）。
-    400: ホワイトリスト外キー（UnknownFieldError）。
+    400: 未知のキー・不正な値（InvalidSettingError）。
     """
     with state.machine_lock("apply-settings"):
         try:
             payload = jobs.apply_payload(expected_job_id=body.expected_job_id)
         except LookupError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        store.write_machine_settings(
+        machine_config.write(
             payload.values,
             files={file.filename: file.content for file in payload.files},
         )
         jobs.mark_applied(expected_job_id=body.expected_job_id)
-    jobs.publish_state_changed()
     return {"applied": dict(payload.values)}
 
 

@@ -28,7 +28,7 @@ from pcbasm.vision import ImageArray
 from tests.helpers import copy_testing_config
 from tests.support.paths import TESTING_DATA_DIR
 from web.api.app import create_app
-from web.api.config_store import ConfigStore
+from web.api.machine_config import MachineConfigFile
 from web.api.settings import Settings
 from web.api.state import AppState
 
@@ -173,15 +173,17 @@ def appstate(app: FastAPI, client: TestClient) -> AppState:
 
 
 @pytest.fixture
-def store(config_dir: Path) -> ConfigStore:
-    """`tmp_path` にコピーした config ディレクトリを読む ConfigStore."""
-    return ConfigStore(config_dir)
+def machine_config(config_dir: Path) -> MachineConfigFile:
+    """`tmp_path` にコピーした config ディレクトリの machine.toml を読み書きする."""
+    return MachineConfigFile(config_dir)
 
 
 @pytest.fixture
-def state(fake_camera_settings: Settings, store: ConfigStore) -> Iterator[AppState]:
+def state(
+    fake_camera_settings: Settings, machine_config: MachineConfigFile
+) -> Iterator[AppState]:
     """FakeCamera を使う実 AppState（frame 経路の検証に必要）."""
-    state = AppState(fake_camera_settings, store)
+    state = AppState(fake_camera_settings, machine_config)
     yield state
     state.close()
 

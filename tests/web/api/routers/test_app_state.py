@@ -23,7 +23,7 @@ import attrs
 from fastapi.testclient import TestClient
 
 from web.api.app import create_app
-from web.api.config_store import ConfigStore
+from web.api.machine_config import MachineConfigFile
 from web.api.settings import Settings
 from web.api.state import AppState
 
@@ -58,9 +58,9 @@ class TestStateApi:
         assert data["busy_owner"] == "pytest-job"
 
     def test_state_reports_recorded_nozzle_cap(
-        self, client: TestClient, store: ConfigStore
+        self, client: TestClient, machine_config: MachineConfigFile
     ):
-        store.write_machine_settings(
+        machine_config.write(
             {"paste_dispenser.nozzle_cap.position": [10.0, 20.0, -3.5]}
         )
 
@@ -82,10 +82,10 @@ class TestStateApi:
         assert "x / y / z の 3 つ" in response.json()["config_error"]
 
     def test_state_reports_recorded_nozzle_clean_with_server_built_label(
-        self, client: TestClient, store: ConfigStore
+        self, client: TestClient, machine_config: MachineConfigFile
     ):
         """表示文字列はサーバーが組んで返す（JS に整形させない）."""
-        store.write_machine_settings(
+        machine_config.write(
             {
                 "paste_dispenser.nozzle_clean.position": [10.0, 20.0, -30.0],
                 "paste_dispenser.nozzle_clean.press_depth": 0.4,
@@ -124,7 +124,7 @@ class TestMachineInfoApi:
             # frontend / discovery の互換判定に使う値なので、`web.contract.discovery.API_VERSION`
             # を import せずリテラルで固定する（import すると同語反復になり、うっかりの
             # バンプが無音で通る）。バンプは意図的な契約変更なのでここも同時に更新する
-            "api_version": 7,
+            "api_version": 8,
         }
 
     def test_mainsail_url_resolves_from_machine_id_not_request_host(

@@ -11,12 +11,11 @@ from pcbasm.pasting.testboard.generator import (
     BoardGenerator,
 )
 from web.api.board_settings import BoardSettingsStore
-from web.api.config_store import ConfigStore
 from web.api.control import ClientIdentity, ControlLease, LeaseInfo
-from web.api.history import ConfigHistory
 from web.api.identity import get_identity
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.manager import JobManager
+from web.api.machine_config import MachineConfigFile
 from web.api.preview import PreviewService
 from web.api.settings import Settings
 from web.api.state import AppState
@@ -27,12 +26,8 @@ def get_state(request: Request) -> AppState:
     return request.app.state.appstate
 
 
-def get_store(request: Request) -> ConfigStore:
-    return request.app.state.store
-
-
-def get_history(request: Request) -> ConfigHistory:
-    return request.app.state.store.history
+def get_machine_config(request: Request) -> MachineConfigFile:
+    return request.app.state.machine_config
 
 
 def get_settings(request: Request) -> Settings:
@@ -90,8 +85,7 @@ def require_control(request: Request) -> LeaseInfo:
 
 
 StateDep = Annotated[AppState, Depends(get_state)]
-StoreDep = Annotated[ConfigStore, Depends(get_store)]
-HistoryDep = Annotated[ConfigHistory, Depends(get_history)]
+MachineConfigDep = Annotated[MachineConfigFile, Depends(get_machine_config)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 PreviewDep = Annotated[PreviewService, Depends(get_preview)]
 JobsDep = Annotated[JobManager, Depends(get_jobs)]

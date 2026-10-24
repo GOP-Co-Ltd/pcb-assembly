@@ -714,7 +714,7 @@ class TestTreeNodeResolution:
             "choices": [],
             "column": None,
         }
-        assert by_name["ul_per_mm2"]["unit"] == "μL/mm²"
+        assert by_name["ul_per_mm2"]["unit"] == "uL/mm²"
         # 微小線の始点高・終点高は塗布高さの列に描く
         assert [
             field["name"] for field in fields if field["column"] == "paste_height"

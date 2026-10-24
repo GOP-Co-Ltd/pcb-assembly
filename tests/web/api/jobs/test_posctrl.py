@@ -63,10 +63,10 @@ import pytest
 
 from pcbasm.pcb import PcbFile
 from pcbasm.vision import CalibrationResult, Image
-from web.api.config_store import ConfigStore
 from web.api.jobs.catalog import JobCatalog, default_catalog
 from web.api.jobs.manager import JobManager, JobStatus
 from web.api.jobs.posctrl import register_posctrl_jobs
+from web.api.machine_config import MachineConfigFile
 from web.api.preview import PreviewService
 from web.api.settings import Settings
 from web.api.state import AppState
@@ -100,13 +100,13 @@ def catalog() -> JobCatalog:
 
 @pytest.fixture
 def checkerboard_state(
-    checkerboard_camera_settings: Settings, store: ConfigStore
+    checkerboard_camera_settings: Settings, machine_config: MachineConfigFile
 ) -> Iterator[AppState]:
     # checkerboard.png は 400x400。既定 crop 600 は画像をはみ出すため、
     # tmp コピーの machine.toml へ 400x400 を書いてから AppState を作る
     # （crop は machine.toml `[camera.crop]` から読まれる契約。要確認事項 a）
-    store.write_machine_settings({"camera.crop.width": 400, "camera.crop.height": 400})
-    state = AppState(checkerboard_camera_settings, store)
+    machine_config.write({"camera.crop.width": 400, "camera.crop.height": 400})
+    state = AppState(checkerboard_camera_settings, machine_config)
     yield state
     state.close()
 

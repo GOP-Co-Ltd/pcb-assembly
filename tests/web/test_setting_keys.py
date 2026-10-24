@@ -1,15 +1,14 @@
-"""WebUI が書く・表示する設定キーは、どれも MachineConfig の属性パスとして存在する.
+"""WebUI が書く・表示する設定キーは、どれも設定ページの項目（setting_fields）にある.
 
-TOML のパスと属性のパスは一致するので、キーの書き間違いや、節を移したときの書き換え漏れをここで見つける。
+書き込みは設定ページと同じ 1 経路を通り、項目に無いキーは拒否される。キーの書き間違いや、節を移したときの書き換え漏れをここで見つける。
 """
 
 import re
-import types
-from typing import Any, Union, get_args, get_origin
 
 import attrs
 
 from pcbasm.config import MachineConfig
+from pcbasm.config.fields import setting_fields
 from pcbasm.paths import PROJECT_ROOT
 
 _SECTIONS = "|".join(attrs.fields_dict(MachineConfig))
@@ -30,25 +29,12 @@ def _written_keys() -> set[str]:
     }
 
 
-def _attrs_class(annotation: Any) -> type | None:
-    """フィールドの型から attrs クラスを取り出す（``X | None`` も見る）."""
-    if attrs.has(annotation):
-        return annotation
-    if get_origin(annotation) in (Union, types.UnionType):
-        return next((arg for arg in get_args(annotation) if attrs.has(arg)), None)
-    return None
-
-
-def _resolves(path: str) -> bool:
-    cls: type | None = MachineConfig
-    for name in path.split("."):
-        if cls is None:
-            return False
-        fields = attrs.fields_dict(attrs.resolve_types(cls))
-        if name not in fields:
-            return False
-        cls = _attrs_class(fields[name].type)
-    return True
+def _is_setting_key(key: str) -> bool:
+    """設定キーそのものか、設定キーの接頭辞（``camera.crop`` など）."""
+    return any(
+        field.key == key or field.key.startswith(f"{key}.")
+        for field in setting_fields()
+    )
 
 
 class TestSettingKeys:
@@ -60,5 +46,5 @@ class TestSettingKeys:
         assert "alignment.canny_low" in keys
         assert "camera.calibration_file" in keys
 
-    def test_every_key_is_an_attribute_path_of_machine_config(self):
-        assert {key for key in _written_keys() if not _resolves(key)} == set()
+    def test_every_key_is_a_setting_field(self):
+        assert {key for key in _written_keys() if not _is_setting_key(key)} == set()

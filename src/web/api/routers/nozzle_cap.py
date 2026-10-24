@@ -16,8 +16,8 @@ from pcbasm.hal import Klipper, XYZStage
 from pcbasm.parking import move_to_cap
 from pcbasm.pasting.applicator import build_applicator
 from pcbasm.pasting.nozzle_clean import clean_nozzle, plan_nozzle_clean
-from web.api.config_store import ConfigStore
-from web.api.dependencies import ControlDep, JobsDep, StateDep, StoreDep
+from web.api.dependencies import ControlDep, MachineConfigDep, StateDep
+from web.api.machine_config import MachineConfigFile
 from web.api.routers.common import (
     create_klipper,
     klipper_errors_to_502,
@@ -81,7 +81,7 @@ def _park_at_cap(cap: Point3d | None, klipper: Klipper, stage: XYZStage) -> str:
 
 
 def _record_current_position(
-    state: AppState, store: ConfigStore, *, owner: str, prefix: str
+    state: AppState, machine_config: MachineConfigFile, *, owner: str, prefix: str
 ) -> Point3d:
     """全軸ホーミングを検査し、現在位置を 3 桁丸めで ``prefix`` のテーブルへ書く."""
     # BusyError（RuntimeError 派生）は 502 変換の対象にせず app.py の 409 ハンドラへ
@@ -94,27 +94,27 @@ def _record_current_position(
         saved = Point3d(
             round(position.x, 3), round(position.y, 3), round(position.z, 3)
         )
-        store.write_machine_settings(
-            {f"{prefix}.position": [saved.x, saved.y, saved.z]}
-        )
+        machine_config.write({f"{prefix}.position": [saved.x, saved.y, saved.z]})
     return saved
 
 
 @router.post("/pasting/nozzle-cap/record")
 def record_nozzle_cap(
-    state: StateDep, store: StoreDep, jobs: JobsDep, _control: ControlDep
+    state: StateDep, machine_config: MachineConfigDep, _control: ControlDep
 ) -> NozzleCapPosition:
     """現在のマシン座標をノズルキャップ位置として記録する."""
     saved = _record_current_position(
-        state, store, owner="nozzle-cap-record", prefix="paste_dispenser.nozzle_cap"
+        state,
+        machine_config,
+        owner="nozzle-cap-record",
+        prefix="paste_dispenser.nozzle_cap",
     )
-    jobs.publish_state_changed()
     return NozzleCapPosition(x=saved.x, y=saved.y, z=saved.z)
 
 
 @router.post("/pasting/nozzle-clean/record")
 def record_nozzle_clean(
-    state: StateDep, store: StoreDep, jobs: JobsDep, _control: ControlDep
+    state: StateDep, machine_config: MachineConfigDep, _control: ControlDep
 ) -> NozzleCleanInfo:
     """現在のマシン座標をノズルクリーニング位置として記録する.
 
@@ -123,9 +123,11 @@ def record_nozzle_clean(
     表示用の文字列も同じ応答で返す。
     """
     saved = _record_current_position(
-        state, store, owner="nozzle-clean-record", prefix="paste_dispenser.nozzle_clean"
+        state,
+        machine_config,
+        owner="nozzle-clean-record",
+        prefix="paste_dispenser.nozzle_clean",
     )
-    jobs.publish_state_changed()
     return nozzle_clean_payload(saved)
 
 

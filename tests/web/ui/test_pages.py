@@ -12,7 +12,7 @@
 - **machine.toml が壊れても SSR が 500 しない**（設定の現在値を要る
   `_MACHINE_TOML_DEPENDENT_URLS` だけが 503 に落ちる）
 - **定義から導出される配線**: ジョブの ParamSpec がフォームに出る、preview /
-  ローディング UI が `JobDefinition` と一致する、`MACHINE_FIELDS` が設定フォームに出る
+  ローディング UI が `JobDefinition` と一致する、`setting_fields()` の全項目が設定フォームに出る
 
 表示文字列・DOM id の網羅確認とページ上の実操作は `tests/e2e/` が実ブラウザで持つ。
 
@@ -32,8 +32,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from pcbasm.config.fields import setting_fields
 from web.api.app import create_app as create_backend_app
-from web.api.config_store import MACHINE_FIELDS
 from web.api.jobs.catalog import JobCatalog, default_catalog
 from web.api.settings import Settings as ApiSettings
 from web.api.state import AppState
@@ -43,7 +43,6 @@ from web.ui.layout import (
     FEATURE_TEMPLATES,
     JOB_TEMPLATES,
     LOADING_ROTATION_PARAMS,
-    SETTINGS_SECTIONS,
     TABS as PAGE_TABS,
 )
 from web.ui.machines import MachineEndpoint
@@ -280,19 +279,18 @@ class TestPages:
         assert "http://testserver" not in text
 
     def test_settings_page_renders_every_machine_field(self, client: TestClient):
-        """`MACHINE_FIELDS` の全キーが即保存フォームに出る（設定キーの出し忘れの検出）.
+        """`setting_fields()` の全キーが即保存フォームに出る.
 
-        ペア表示（`reference_point.offsets.*`）だけは 1 入力に 2 値を載せるので
-        `data-pair-key` で出る。保存ボタンは持たない（変更した時点で PUT する）。
-        セクション構成の網羅は `test_layout.py::TestSettingsLayoutDeclaration` が持つ。
+        組の値（`reference_point.offsets.*` と座標）は複数の入力に分かれるので `data-pair-
+        key` で出る。保存ボタンは持たない（変更した時点で PUT する）。
         """
         text = client.get("/settings").text
 
         missing = [
-            spec.key
-            for spec in MACHINE_FIELDS
-            if f'name="{spec.key}"' not in text
-            and f'data-pair-key="{spec.key}"' not in text
+            field.key
+            for field in setting_fields()
+            if f'name="{field.key}"' not in text
+            and f'data-pair-key="{field.key}"' not in text
         ]
 
         assert missing == []
@@ -312,7 +310,7 @@ class TestPages:
             r'class="settings-section"[^>]*data-section="([^"]+)"', text
         )
 
-        assert nav_slugs == [section.slug for section in SETTINGS_SECTIONS]
+        assert nav_slugs == list(dict.fromkeys(f.section for f in setting_fields()))
         assert panel_slugs == nav_slugs
         assert text.count('class="settings-section" data-section') == len(nav_slugs)
 
@@ -863,7 +861,7 @@ class TestUnsetMachineSettingsShowResolvedValues:
             response.text,
         )
         assert input_tag is not None
-        assert 'data-type="float"' in input_tag.group()
+        assert 'type="number"' in input_tag.group()
         assert 'value="0.4"' in input_tag.group()
         assert '<span class="unit">mm</span>' in response.text
 

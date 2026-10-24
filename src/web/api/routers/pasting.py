@@ -25,10 +25,9 @@ from pcbasm.pcb import Layer
 from web.api.dependencies import (
     BoardStoreDep,
     ControlDep,
-    JobsDep,
+    MachineConfigDep,
     SettingsDep,
     StateDep,
-    StoreDep,
 )
 from web.api.routers.pasting_view import (
     FlowCalibrationPatch,
@@ -171,8 +170,7 @@ def patch_initial_purge(
     state: StateDep,
     settings: SettingsDep,
     board_store: BoardStoreDep,
-    store: StoreDep,
-    jobs: JobsDep,
+    machine_config: MachineConfigDep,
     _control: ControlDep,
 ) -> InitialPurgeResponse:
     """初回パージ量と塗布座標を即時保存し、解決済み設定を返す."""
@@ -204,10 +202,7 @@ def patch_initial_purge(
 
     if amount_sent:
         with state.machine_lock("pasting-initial-purge"):
-            store.write_machine_settings(
-                {"paste_dispenser.initial_purge_ul": next_amount}
-            )
-        jobs.publish_state_changed()
+            machine_config.write({"paste_dispenser.initial_purge_ul": next_amount})
     model = loaded.model
     if point_sent:
         model = board_store.update(

@@ -28,20 +28,12 @@
       // 意味する項目だけ data-allow-empty で明示的に送る
       return input.dataset.allowEmpty === "true" ? "" : null;
     }
-    if (
-      input.dataset.type === "str" ||
-      input.dataset.type === "dispense_mode" ||
-      input.dataset.type === "line_direction"
-    ) {
-      return text;
+    // 数値の欄（number / range）だけ数値で送る。文字列の欄と select は文字列のまま送り、
+    // 型と範囲の検証はサーバが 400 で返す
+    if (input.type === "number" || input.type === "range") {
+      return parseNumber(text, input.name);
     }
-    if (input.dataset.type === "float_or_auto" && text === "auto") {
-      return "auto";
-    }
-
-    // 整数制約はサーバ（config_store の int 検証）が 400 で弾く。
-    // ここでは数値化可否（parseNumber）のみ確認する。
-    return parseNumber(text, input.name);
+    return text;
   }
 
   function pairValue(group) {

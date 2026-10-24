@@ -1,15 +1,17 @@
 """塗布パラメータの単一ソース.
 
 pad 単位で上書きできる 10 項目を :class:`PasteParams`（全項目確定）と
-:class:`PasteParamsPatch`（差分、欠落 = 継承）の 2 型で表す。項目の一覧・並び・値の制約は
+:class:`PasteParamsPatch`（差分、欠落 = 継承）の 2 型で表す。項目の一覧・並び・値の制約・表示名は
 :class:`PasteParams` の attrs フィールドが唯一の出典で、``machine.toml`` の
-``[paste_dispenser.defaults]`` もこの型で読む。項目名・UI メタデータ・HTTP 境界の検証は
+``[paste_dispenser.defaults]`` もこの型で読む。項目名・pad 編集表の列・HTTP 境界の検証は
 ``attrs.fields`` から導出する。
 
 装置側の吐出ダイナミクス（レート・加速度・リトラクト・リフト）は pad に依らないので
 :class:`DispenseMotion`（``[paste_dispenser.motion]``）に分ける。
 
 ``pcbasm.config`` がこのモジュールの型で ``machine.toml`` を読むので、ここは L0 の単位だけに依存する。
+そのため設定ページの metadata は :func:`pcbasm.config.fields.setting` を呼ばずに同じキーの dict で書く（:func:`~pcbasm.config.fields.setting_fields` がそれを ``setting`` に通して検査する）。
+``order`` は ``[paste_dispenser]`` の画面での通し番号。
 """
 
 from __future__ import annotations
@@ -20,8 +22,10 @@ from typing import Any, Literal, Self, get_args, override
 import attrs
 
 from pcbasm.validators import (
+    as_validator,
     is_finite_number,
     validate_finite_number,
+    validate_greater_than_one,
     validate_non_negative_number,
     validate_positive_number,
 )
@@ -34,32 +38,16 @@ PasteHeight = float | Literal["auto"]
 PasteParamValue = float | str
 
 
-def _raise(error: str | None) -> None:
-    if error is not None:
-        raise ValueError(error)
-
-
-def _positive(_: object, attribute: attrs.Attribute, value: Any) -> None:
-    _raise(validate_positive_number(attribute.name, value))
-
-
-def _non_negative(_: object, attribute: attrs.Attribute, value: Any) -> None:
-    _raise(validate_non_negative_number(attribute.name, value))
-
-
-def _finite(_: object, attribute: attrs.Attribute, value: Any) -> None:
-    _raise(validate_finite_number(attribute.name, value))
+_positive = as_validator(validate_positive_number)
+_non_negative = as_validator(validate_non_negative_number)
+_finite = as_validator(validate_finite_number)
+_above_one = as_validator(validate_greater_than_one)
 
 
 def _height(instance: object, attribute: attrs.Attribute, value: PasteHeight) -> None:
     """正の高さ [mm] か ``auto``."""
     if value != "auto":
         _positive(instance, attribute, value)
-
-
-def _above_one(_: object, attribute: attrs.Attribute, value: Any) -> None:
-    if not is_finite_number(value) or value <= 1.0:
-        raise ValueError(f"{attribute.name}は1.0より大きい必要があります: {value!r}")
 
 
 def _dispense_mode(_: object, __: attrs.Attribute, value: DispenseMode) -> None:
@@ -75,6 +63,20 @@ def _line_direction(_: object, __: attrs.Attribute, value: LineDirection) -> Non
 def _overlap(_: object, attribute: attrs.Attribute, value: Any) -> None:
     if not is_finite_number(value) or not 0.0 <= value < 1.0:
         raise ValueError(f"{attribute.name}は0以上1未満である必要があります: {value!r}")
+
+
+_DISPENSE_MODE_CHOICES = (
+    ("auto", "Auto"),
+    ("dot", "点"),
+    ("line", "線"),
+    ("area", "面"),
+    ("micro_line", "微小線"),
+)
+_LINE_DIRECTION_CHOICES = (
+    ("unconstrained", "指定なし"),
+    ("outward", "部品中心 → 外側"),
+    ("inward", "外側 → 部品中心"),
+)
 
 
 @attrs.frozen
@@ -126,18 +128,80 @@ class PasteParams:
         micro_line_z_end: 微小線の終点で基板表面から取る隙間 [mm]、または ``auto``（塗布量から計算）
     """
 
-    dispense_mode: DispenseMode = attrs.field(default="auto", validator=_dispense_mode)
-    line_direction: LineDirection = attrs.field(
-        default="unconstrained", validator=_line_direction
+    dispense_mode: DispenseMode = attrs.field(
+        default="auto",
+        validator=_dispense_mode,
+        metadata={
+            "label": "塗布方式",
+            "group": "塗布方式",
+            "order": 50,
+            "choices": _DISPENSE_MODE_CHOICES,
+        },
     )
-    ul_per_mm2: float = attrs.field(validator=_positive)
-    paste_height: PasteHeight = attrs.field(validator=_height)
-    prime_extra_delay: float = attrs.field(default=0.0, validator=_non_negative)
-    bead_width_factor: float = attrs.field(default=1.0, validator=_positive)
-    overlap: float = attrs.field(default=0.0, validator=_overlap)
-    boundary_margin: float = attrs.field(default=0.0, validator=_finite)
-    micro_line_z_start: PasteHeight = attrs.field(default="auto", validator=_height)
-    micro_line_z_end: PasteHeight = attrs.field(default="auto", validator=_height)
+    line_direction: LineDirection = attrs.field(
+        default="unconstrained",
+        validator=_line_direction,
+        metadata={
+            "label": "線の走行方向",
+            "group": "塗布方式",
+            "order": 51,
+            "choices": _LINE_DIRECTION_CHOICES,
+        },
+    )
+    ul_per_mm2: float = attrs.field(
+        validator=_positive,
+        metadata={
+            "label": "面積あたりのペースト量",
+            "unit": "uL/mm²",
+            "group": "吐出の基本",
+            "order": 14,
+        },
+    )
+    paste_height: PasteHeight = attrs.field(
+        validator=_height,
+        metadata={"label": "塗布高さ", "unit": "mm", "group": "Z 高さ", "order": 80},
+    )
+    prime_extra_delay: float = attrs.field(
+        default=0.0,
+        validator=_non_negative,
+        metadata={
+            "label": "プライム後追加遅延",
+            "unit": "s",
+            "group": "プライム・パージ",
+            "order": 40,
+            "minimum": 0.0,
+        },
+    )
+    bead_width_factor: float = attrs.field(
+        default=1.0,
+        validator=_positive,
+        metadata={"label": "ビード幅係数", "group": "塗布経路", "order": 60},
+    )
+    overlap: float = attrs.field(
+        default=0.0,
+        validator=_overlap,
+        metadata={
+            "label": "重なり率",
+            "group": "塗布経路",
+            "order": 61,
+            "minimum": 0.0,
+        },
+    )
+    boundary_margin: float = attrs.field(
+        default=0.0,
+        validator=_finite,
+        metadata={"label": "外周余白", "unit": "mm", "group": "塗布経路", "order": 62},
+    )
+    micro_line_z_start: PasteHeight = attrs.field(
+        default="auto",
+        validator=_height,
+        metadata={"label": "始点高", "unit": "mm", "group": "微小線", "order": 70},
+    )
+    micro_line_z_end: PasteHeight = attrs.field(
+        default="auto",
+        validator=_height,
+        metadata={"label": "終点高", "unit": "mm", "group": "微小線", "order": 71},
+    )
 
     @property
     def paste_height_mm(self) -> float:
@@ -169,13 +233,10 @@ _PASTE_PARAM_ATTRIBUTES: dict[str, attrs.Attribute] = attrs.fields_dict(PastePar
 PASTE_PARAM_NAMES: tuple[str, ...] = tuple(_PASTE_PARAM_ATTRIBUTES)
 
 
-def validate_field_values(
-    cls: type[PasteParams] | type[DispenseMotion], values: Mapping[str, object]
-) -> str | None:
-    """``cls`` の項目の値を、その attrs フィールドの validator で検証する（部分編集では渡された項目だけ）."""
-    attributes = attrs.fields_dict(cls)
+def _validate_field_values(values: Mapping[str, object]) -> str | None:
+    """渡された項目の値だけを、その attrs フィールドの validator で検証する."""
     for name, value in values.items():
-        attribute = attributes[name]
+        attribute = _PASTE_PARAM_ATTRIBUTES[name]
         try:
             attribute.validator(None, attribute, value)  # type: ignore[misc]
         except ValueError as exc:
@@ -195,7 +256,7 @@ def validate_param_values(values: Mapping[str, object]) -> str | None:
     """HTTP 境界で受けた塗布パラメータ値を検証し、不正なら日本語エラー文を返す."""
     if (message := validate_field_names(values)) is not None:
         return message
-    return validate_field_values(PasteParams, values)
+    return _validate_field_values(values)
 
 
 class PasteParamsPatch:
@@ -256,47 +317,27 @@ class PasteParamsPatch:
         return f"PasteParamsPatch({items})"
 
 
-# 項目ごとの表示ラベル・単位・描く列（PR18 で attrs の metadata へ移す）
-_LABELS: dict[str, tuple[str, str | None, str | None]] = {
-    "dispense_mode": ("塗布方式", None, None),
-    "line_direction": ("線の走行方向", None, None),
-    "ul_per_mm2": ("面積あたりのペースト量", "μL/mm²", None),
-    "paste_height": ("塗布高さ", "mm", None),
-    "prime_extra_delay": ("プライム後追加遅延", "s", None),
-    "bead_width_factor": ("ビード幅係数", None, None),
-    "overlap": ("重なり率", None, None),
-    "boundary_margin": ("外周余白", "mm", None),
-    "micro_line_z_start": ("始点高", "mm", "paste_height"),
-    "micro_line_z_end": ("終点高", "mm", "paste_height"),
-}
-_CHOICE_LABELS: dict[str, str] = {
-    "auto": "Auto",
-    "dot": "点",
-    "line": "線",
-    "area": "面",
-    "micro_line": "微小線",
-    "unconstrained": "指定なし",
-    "outward": "部品中心 → 外側",
-    "inward": "外側 → 部品中心",
-}
-_CHOICES: dict[str, tuple[str, ...]] = {
-    "dispense_mode": DISPENSE_MODES,
-    "line_direction": LINE_DIRECTIONS,
+# pad 表で独立した列にせず、ほかの項目の列に描く項目 → その列の項目名
+_COLUMNS: dict[str, str] = {
+    "micro_line_z_start": "paste_height",
+    "micro_line_z_end": "paste_height",
 }
 
 
 def _param_field(attribute: attrs.Attribute) -> ParamField:
-    label, unit, column = _LABELS[attribute.name]
-    choices = _CHOICES.get(attribute.name, ())
+    choices = tuple(
+        ChoiceOption(value, label)
+        for value, label in attribute.metadata.get("choices", ())
+    )
     # 数値か auto を受け付ける項目（validator が _height）は height の入力欄で描く
     is_height = attribute.validator is _height
     return ParamField(
         attribute.name,
-        label,
+        attribute.metadata["label"],
         "choice" if choices else "height" if is_height else "number",
-        unit=unit,
-        choices=tuple(ChoiceOption(value, _CHOICE_LABELS[value]) for value in choices),
-        column=column,
+        unit=attribute.metadata.get("unit"),
+        choices=choices,
+        column=_COLUMNS.get(attribute.name),
     )
 
 
@@ -324,16 +365,90 @@ class DispenseMotion:
         post_dispense_settle_seconds: 塗布の移動が終わってからヘッドを上げるまでの静定待ち [sec]
     """
 
-    max_fill_speed: float = attrs.field(validator=_positive)
-    max_dispense_rate: float = attrs.field(validator=_positive)
-    dispense_accel: float = attrs.field(validator=_positive)
-    retract_amount: float = attrs.field(validator=_positive)
-    retract_rate: float = attrs.field(validator=_positive)
-    retract_accel_factor: float = attrs.field(validator=_above_one)
-    lift_height: float = attrs.field(default=2.0, validator=_positive)
-    micro_line_settle_seconds: float = attrs.field(default=0.1, validator=_non_negative)
+    max_fill_speed: float = attrs.field(
+        validator=_positive,
+        metadata={
+            "label": "最大塗布速度",
+            "unit": "mm/s",
+            "group": "吐出の速度",
+            "order": 22,
+        },
+    )
+    max_dispense_rate: float = attrs.field(
+        validator=_positive,
+        metadata={
+            "label": "吐出レート上限",
+            "unit": "uL/s",
+            "group": "吐出の速度",
+            "order": 20,
+        },
+    )
+    dispense_accel: float = attrs.field(
+        validator=_positive,
+        metadata={
+            "label": "吐出加速度",
+            "unit": "uL/s²",
+            "group": "吐出の速度",
+            "order": 21,
+        },
+    )
+    retract_amount: float = attrs.field(
+        validator=_positive,
+        metadata={
+            "label": "リトラクション量",
+            "unit": "uL",
+            "group": "リトラクト",
+            "order": 30,
+        },
+    )
+    retract_rate: float = attrs.field(
+        validator=_positive,
+        metadata={
+            "label": "リトラクションレート",
+            "unit": "uL/s",
+            "group": "リトラクト",
+            "order": 31,
+        },
+    )
+    retract_accel_factor: float = attrs.field(
+        validator=_above_one,
+        metadata={
+            "label": "リトラクション加速度係数",
+            "group": "リトラクト",
+            "order": 32,
+        },
+    )
+    lift_height: float = attrs.field(
+        default=2.0,
+        validator=_positive,
+        metadata={
+            "label": "吐出後の上昇高さ",
+            "unit": "mm",
+            "group": "Z 高さ",
+            "order": 81,
+        },
+    )
+    micro_line_settle_seconds: float = attrs.field(
+        default=0.1,
+        validator=_non_negative,
+        metadata={
+            "label": "微小線の静定待ち",
+            "unit": "s",
+            "group": "微小線",
+            "order": 72,
+            "minimum": 0.0,
+        },
+    )
     post_dispense_settle_seconds: float = attrs.field(
-        default=0.1, validator=_non_negative
+        default=0.1,
+        validator=_non_negative,
+        metadata={
+            "label": "塗布後の静定待ち（上昇前）",
+            "unit": "s",
+            "group": "Z 高さ",
+            "order": 82,
+            "minimum": 0.0,
+        },
     )
 
     @property
