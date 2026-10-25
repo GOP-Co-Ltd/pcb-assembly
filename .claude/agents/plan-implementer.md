@@ -60,4 +60,4 @@ effort: medium
 - テスト方針全般：skill `testing-strategy`
 - spec-test-author との分担：skill `agent-team-startup`
 - フィードバック規約：`memory/MEMORY.md`
-- プロジェクトコマンド：AGENTS.md
+- プロジェクトコマンド：CLAUDE.md

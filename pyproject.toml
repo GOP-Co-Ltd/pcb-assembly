@@ -86,8 +86,7 @@ exclude = [
   "./klipper",
   ".claude/worktrees",
   # 外部から vendoring した skill は upstream と同一に保つため型検査しない。
-  ".claude/skills/yomiyasu",
-  ".agents/skills/yomiyasu"
+  ".claude/skills/yomiyasu"
 ]
 reportMissingTypeStubs = false
 reportImplicitOverride = true

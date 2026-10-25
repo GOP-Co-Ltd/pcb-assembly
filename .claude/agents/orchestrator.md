@@ -62,4 +62,4 @@ model: inherit
 
 - チームフロー・モデル構成：skill `agent-team-startup`
 - 並列化判断：skill `maximize-parallels`
-- Git 運用・開発コマンド：AGENTS.md
+- Git 運用・開発コマンド：CLAUDE.md

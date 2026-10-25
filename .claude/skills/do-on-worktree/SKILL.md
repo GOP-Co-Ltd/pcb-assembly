@@ -30,28 +30,21 @@ git worktree list
 
 ### 2. worktree を作る
 
-ブランチ名は AGENTS.md の `<種別>/<日付>/<内容>` 規約に従う。
+ブランチ名は CLAUDE.md の `<種別>/<日付>/<内容>` 規約に従う。
 
-- **Claude Code**: `EnterWorktree` ツールを使う。`worktree.baseRef` の既定 `fresh` により origin の `main` から分岐し、`.claude/worktrees/<name>/` に作られる。自動で付くブランチ名が規約と食い違えば `git branch -m <旧> <新>` で直す
-
-- **Codex**: 標準の `git worktree` を使う
-
-    ```bash
-    git fetch origin main
-    git worktree add -b <branch> /tmp/pcb-assembly-worktrees/<slug> origin/main
-    ```
+`EnterWorktree` ツールを使う。`worktree.baseRef` の既定 `fresh` により origin の `main` から分岐し、`.claude/worktrees/<name>/` に作られる。自動で付くブランチ名が規約と食い違えば `git branch -m <旧> <新>` で直す。
 
 既存の worktree や branch を削除・上書きしない。
 
 ### 3. 作業する
 
-依頼された変更を worktree 内で実装する。AGENTS.md の開発原則・Git 運用に従う。
+依頼された変更を worktree 内で実装する。CLAUDE.md の開発原則・Git 運用に従う。
 shell で `cd` した先は次の呼び出しに持ち越されることがある。git は `git -C <worktree のパス>` で対象を明示し、他の worktree のブランチを切り替えない。
-Claude Code で `.claude/` 配下を触る場合は skill `edit-dot-claude` の手順（/tmp 経由）を使う。
+`.claude/` 配下を触る場合は skill `edit-dot-claude` の手順（/tmp 経由）を使う。
 
 ### 4. 検証とコミット
 
-`make check` を通してからコミットする。コミットは AGENTS.md の規約（`<種別>(<スコープ>): <内容>`、1 コミット 1 関心事）に従う。
+`make check` を通してからコミットする。コミットは CLAUDE.md の規約（`<種別>(<スコープ>): <内容>`、1 コミット 1 関心事）に従う。
 
 ### 5. PR を出す
 
@@ -61,7 +54,7 @@ Claude Code で `.claude/` 配下を触る場合は skill `edit-dot-claude` の�
 
 worktree とブランチは残す。後でユーザーが続きやマージを判断する。
 
-- Claude Code は、ユーザーが「戻って」「worktree を抜けて」と言ったときに `ExitWorktree` を `action: "keep"` で呼ぶ。能動的には呼ばず、`remove` も使わない
+- ユーザーが「戻って」「worktree を抜けて」と言ったときに `ExitWorktree` を `action: "keep"` で呼ぶ。能動的には呼ばず、`remove` も使わない
 - 削除はユーザーの明示がある場合だけ行う。未マージ変更を含む worktree に `--force` を使わない
 
 ## 注意点

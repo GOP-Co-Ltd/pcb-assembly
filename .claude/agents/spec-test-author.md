@@ -67,4 +67,4 @@ skills:
 - テスト方針詳細：skill `testing-strategy`
 - テストコード規約：skill `refactor-conventions`
 - フィードバック規約：`memory/MEMORY.md`
-- プロジェクトコマンド：AGENTS.md
+- プロジェクトコマンド：CLAUDE.md

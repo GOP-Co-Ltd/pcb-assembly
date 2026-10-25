@@ -17,7 +17,7 @@ from web.ui.features import FEATURES
 DOCS = sorted(
     [
         PROJECT_ROOT / "README.md",
-        PROJECT_ROOT / "AGENTS.md",
+        PROJECT_ROOT / "CLAUDE.md",
         PROJECT_ROOT / "CONTRIBUTING.md",
         PROJECT_ROOT / "github-runner" / "README.md",
         *(PROJECT_ROOT / "data").glob("*/README.md"),

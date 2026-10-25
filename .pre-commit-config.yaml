@@ -1,5 +1,5 @@
 # 外部から vendoring した skill は upstream と同一に保つため整形対象外にする。
-exclude: ^\.agents/skills/yomiyasu/
+exclude: ^\.claude/skills/yomiyasu/
 
 default_language_version:
   python: python3

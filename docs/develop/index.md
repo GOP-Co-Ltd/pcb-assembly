@@ -102,8 +102,8 @@ WebSocket・MJPEG・ジョブ実行は `tests/e2e/conftest.py` の `live_ui` / `
 を使う。fixture が起動・停止を管理し、config とデータを一時ディレクトリへ隔離する。
 mDNS の検証はランダムなサービス型とループバックだけを使う。
 
-詳しい規約は [テスト戦略](../../.agents/skills/testing-strategy/SKILL.md) と
-[WebUI E2E](../../.agents/skills/webui-e2e/SKILL.md) を参照する。
+詳しい規約は [テスト戦略](../../.claude/skills/testing-strategy/SKILL.md) と
+[WebUI E2E](../../.claude/skills/webui-e2e/SKILL.md) を参照する。
 
 ## 文書を直す
 
@@ -141,17 +141,5 @@ frontend は backend が返した値を表示する。JS に設定の継承解�
 内部属性は原則 `_` prefix とし、既存の公開インターフェースを維持する。
 入力の検証は値オブジェクトの `validate() -> str | None` を基本にする。
 
-責務ごとの配置と機能からコードへの地図は [アーキテクチャ](architecture.md)、詳細は [AGENTS.md](../../AGENTS.md)
-と [リファクタリング規約](../../.agents/skills/refactor-conventions/SKILL.md) を参照する。
-
-## Codex の完了通知
-
-このリポジトリで Codex CLI を起動すると、処理完了時に Windows 側へ通知する。
-`.codex/config.toml` は、terminal が非フォーカスのときだけ
-`agent-turn-complete` 通知を送る設定である。通知方法は自動で選ばれる。VSCode の
-integrated terminal では OSC 9 のポップアップ通知を優先し、未対応の場合は
-terminal bell にフォールバックする。
-
-設定は Codex の起動時に読み込まれるため、追加・変更後は Codex を再起動する。
-通知が表示されない場合は、Windows の「設定 > システム > 通知」で VSCode の通知を
-許可し、集中モードが通知を抑止していないことを確認する。
+責務ごとの配置と機能からコードへの地図は [アーキテクチャ](architecture.md)、詳細は [CLAUDE.md](../../CLAUDE.md)
+と [リファクタリング規約](../../.claude/skills/refactor-conventions/SKILL.md) を参照する。

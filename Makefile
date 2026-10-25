@@ -18,12 +18,6 @@ test-e2e: ## Run WebUI full-stack E2E (live uvicorn + HTTP/WS/MJPEG)
 playwright-install: ## Install Playwright-managed Chromium when system chromium is unavailable
 	uv run playwright install chromium
 
-migrate-codex: ## Generate Codex rules from Claude settings
-	uv run python scripts/migrate_codex.py
-
-migrate-codex-check: ## Check whether generated Codex rules are current
-	uv run python scripts/migrate_codex.py --check
-
 type: ## Run type check
 	uv run pyright
 

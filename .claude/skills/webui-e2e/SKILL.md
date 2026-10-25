@@ -148,8 +148,8 @@ make dev  # backend 8099、frontend 8098。data/sim/config を一時ディレク
 `make dev` は foreground の常駐 command。エージェントは次の順で扱う。
 
 1. **基本は A（pytest E2E）で済ませる。** ほとんどの検証は `live_ui` fixture で足りる。
-2. どうしても常駐が要る確認は background で起動し（Claude Code は `run_in_background: true` の Bash、
-    Codex は `exec_command` の PTY session）、別 command で readiness をポーリングする。
+2. どうしても常駐が要る確認は background で起動し（`run_in_background: true` の Bash）、
+    別 command で readiness をポーリングする。
     foreground の `sleep` で待たない。確認後は起動したプロセスを止め、終了を確認する。
     - 例: `curl --retry 30 --retry-delay 0 --retry-connrefused -s http://127.0.0.1:8099/api/state`
 3. ブラウザでの体感確認はユーザーに依頼する（装置を動かすフローの実機確認と同様）。

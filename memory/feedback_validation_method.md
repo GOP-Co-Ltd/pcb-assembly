@@ -38,7 +38,7 @@ def validate_image_constraints(constraints: ImageConstraints) -> str | None: ...
     `pasting/testboard/config.py`）はこの規約に沿って移行済み
     （`DatasetView.validate()` / `LineLayout.validate()` / `BoardConfig.validate()`）
 - それ以外の既存 `validate_*` は、その周辺を触る機会に合わせて移す。
-    無関係なモジュールをこの規約のためだけに一括改名はしない（AGENTS.md 開発原則 3）
+    無関係なモジュールをこの規約のためだけに一括改名はしない（CLAUDE.md 開発原則 3）
 - スカラー 1 個を受ける検証（`config.py` の `validate_audio_volume` など）はメソッド化できない。
     `src/web/api/config_store.py` の `_coerce` がオブジェクト構築前に 1 フィールドだけ検証するため、
     module-level 関数のまま残す
