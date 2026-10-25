@@ -137,8 +137,8 @@ custom agent と `agent-team-startup` Skill を使う。
 `implementation-planner` → 任意 `spec-test-author` →
 `plan-implementer` → `code-simplifier` → `docs-keeper`
 
-中間メモは `memory/agents/<agent-name>/<task>.md` に置く。並列 agent は書き込み
-範囲を分離し、同じファイルを同時編集しない。
+中間メモはファイルに残さず各 agent の報告で受け渡し、残すべき判断は PR 本文に書く。
+並列 agent は書き込み範囲を分離し、同じファイルを同時編集しない。
 
 ## 参照先
 

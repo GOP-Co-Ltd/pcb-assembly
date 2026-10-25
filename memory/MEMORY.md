@@ -1,6 +1,6 @@
 # PCB アセンブリ プロジェクトメモリ
 
-Claude Code / Codex とユーザーの対話で確立された規約・好み、およびマルチエージェント時の中間メモを記録する。
+Claude Code / Codex とユーザーの対話で確立された規約・好みと、技術選定の判断を記録する。
 各ファイル先頭の frontmatter で description を確認し、関連タスクで参照する。
 
 ## 実機を動かす確認はユーザーが行う
@@ -27,14 +27,6 @@ pytest は実機に触れない（`@mark_hardware` のテストは無く、テ�
 ## 技術選定の記録
 
 - [rustuna を採らない判断](decision_rustuna.md) — 実測で 16 倍速いが我々のボトルネックではない。再検討する条件つき
-
-## エージェント間共有メモリ
-
-`agents/` 配下に各エージェント専用のフォルダを持つ。各 agent は自身のフォルダにのみ書き込む。
-
-- 詳細は [agents/README.md](agents/README.md)
-- 現行エージェント: `orchestrator` / `implementation-planner` / `spec-test-author` / `plan-implementer` / `code-reviewer` / `code-simplifier`
-- `agents/docs-keeper/` は廃止済みエージェントのノート（履歴として保持。責務は `code-simplifier` に統合）
 
 ## 追加・運用ルール
 

@@ -16,8 +16,8 @@ description: implementation-planner、任意の spec-test-author、plan-implemen
 - `code-simplifier`: 公開 API を変えずに内部を簡素化する
 - `docs-keeper`: README、仕様書、docstring の整合を最小変更で保つ
 
-定義は `.codex/agents/*.toml`、中間メモは
-`memory/agents/<agent-name>/<task-slug>.md` に置く。
+定義は `.codex/agents/*.toml`。中間メモはファイルに残さず各 agent の報告で受け渡し、
+残すべき判断は PR 本文に書く。
 
 ## 標準サイクル
 

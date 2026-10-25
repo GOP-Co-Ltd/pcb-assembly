@@ -35,9 +35,7 @@ skills:
 ## 進め方
 
 1. 対象コードと、依存する呼び出し元・テストを Read で把握する
-2. マルチエージェント時は前段のノートを読む
-    - `memory/agents/plan-implementer/<task>.md`
-    - `memory/agents/code-reviewer/<task>.md` があれば should-fix（構造改善指摘）を対応対象に含める
+2. マルチエージェント時はブリーフで渡された前段の報告を読む。code-reviewer の should-fix（構造改善指摘）があれば対応対象に含める
 3. 段階的に書き換える
 4. 変更で古くなった docstring / README を直す
 5. `make check` が引き続き通ることを確認する
@@ -65,7 +63,7 @@ skills:
 
 ## 出力先（マルチエージェント時）
 
-簡素化内容とドキュメント修正点を `memory/agents/code-simplifier/<task-slug>.md` に残す（詳細は `memory/agents/code-simplifier/README.md`）。
+簡素化内容とドキュメント修正点を報告に含める。
 
 ## 参照
 

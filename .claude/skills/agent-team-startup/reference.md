@@ -52,10 +52,8 @@ spec-test-author  plan-implementer   ← 並列起動（同じ計画書を入力
 
 ## 並列実行の運用
 
-- 並列 implementer は `memory/agents/plan-implementer/<task>-<instance>.md` 形式でファイルを分離する
-- 並列 spec-test-author も `memory/agents/spec-test-author/<task>-<instance>.md` で同様に分離する
-- 他の implementer / spec-test-author に影響する IF 変更は、同ファイルに「IF 変更通知」セクションで明記する
-- 並列 simplifier / reviewer も同様にファイルを分離する
+- 並列 agent には担当範囲（ファイル）を disjoint に割り当て、報告の冒頭に担当範囲を書かせる
+- 他の implementer / spec-test-author に影響する IF 変更は、報告の「IF 変更通知」に書かせ、orchestrator が関係する agent に伝える
 - 並列発火は 1 メッセージにまとめる（skill `maximize-parallels`）
 
 ## Failure mode と対処
@@ -87,4 +85,4 @@ spec-test-author  plan-implementer   ← 並列起動（同じ計画書を入力
 7. approve 後に `code-simplifier` を起動する（should-fix の対応と docstring / README 同期）。大きく書き換えたら 6 で再レビュー
 8. 最終検証 → コミット
 
-各 agent 起動時は `subagent_type` で指定し、必要なコンテキスト（計画書パス、対象ファイル、前段ノートのパス）を prompt に含める。並列発火時は 1 メッセージにまとめる（skill `maximize-parallels`）。
+各 agent 起動時は `subagent_type` で指定し、必要なコンテキスト（計画書、対象ファイル、前段 agent の報告の要点）を prompt に含める。並列発火時は 1 メッセージにまとめる（skill `maximize-parallels`）。

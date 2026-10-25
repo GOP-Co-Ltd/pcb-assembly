@@ -11,7 +11,7 @@ effort: medium
 
 ## 担当範囲
 
-- 触ってよい: 対象文書（オーケストレーターから指定されたファイル）と自分のノート `memory/agents/doc-teacher/<task-slug>.md`
+- 触ってよい: 対象文書（オーケストレーターから指定されたファイル）と自分のノート `${TMPDIR:-/tmp}/doc-teacher/<task-slug>.md`
 - 対象がコードファイルの場合、変えてよいのは docstring とコメントだけ。コードの挙動は変えない
 - 対象外のファイルに直すべき点を見つけたら、直さずに報告に書く
 
@@ -96,7 +96,8 @@ effort: medium
 
 ## ノート
 
-`memory/agents/doc-teacher/<task-slug>.md` に置く。git 管理対象で、後で同じ問題を再利用する。
+`${TMPDIR:-/tmp}/doc-teacher/<task-slug>.md` に置く（リポジトリの外）。問題・要点・ラウンド記録は、最後にオーケストレーターが PR 本文へ移す。
+Write はシェル変数を展開しないので、最初に Bash で `mkdir -p "${TMPDIR:-/tmp}/doc-teacher" && echo "${TMPDIR:-/tmp}"` を実行し、展開した絶対パスを使う。
 
 ```markdown
 # <対象文書> 理解度テスト

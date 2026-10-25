@@ -17,7 +17,7 @@ description: 手順書・skill・README・docstring・コメントを、高性�
 | `doc-teacher`    | 執筆・出題・採点・改稿                             | すべて                               |
 | `doc-student`    | 対象文書だけを読んで解答する                       | 対象文書と、プロンプト内の問題文だけ |
 
-模範解答は `doc-teacher` のノート（`memory/agents/doc-teacher/<task-slug>.md`）にだけ置く。`doc-student` へのプロンプトに模範解答やノートのパスを書かない。
+模範解答は `doc-teacher` のノート（`${TMPDIR:-/tmp}/doc-teacher/<task-slug>.md`）にだけ置く。`doc-student` へのプロンプトに模範解答やノートのパスを書かない。
 
 ## 手順
 
@@ -36,7 +36,7 @@ description: 手順書・skill・README・docstring・コメントを、高性�
 
 ```text
 Agent(subagent_type="doc-teacher", name="doc-teacher-<task-slug>", run_in_background=false,
-      prompt="対象: <パス>。読者と用途: <1〜2 文>。ノート: memory/agents/doc-teacher/<task-slug>.md。
+      prompt="対象: <パス>。読者と用途: <1〜2 文>。ノート: ${TMPDIR:-/tmp}/doc-teacher/<task-slug>.md。
               1 回目の起動として、執筆と出題をして報告して。")
 ```
 
@@ -88,7 +88,7 @@ SendMessage(to="doc-teacher-<task-slug>",
 
 1. 対象文書の最終 diff を読み、事実の誤りと不要な肥大化がないかを確かめる
 2. `make check` を通す（docstring を変えたときに特に必要）
-3. 対象文書とノートを commit する。1 文書 1 commit
+3. 対象文書を commit する。1 文書 1 commit。ノートの問題・要点・ラウンド記録は PR 本文に書く
 4. ユーザーに報告する: 対象、ラウンド数、最終の正解数、行数の変化、主な改稿、`doc-teacher` が挙げた対象外の問題
 
 ## 注意

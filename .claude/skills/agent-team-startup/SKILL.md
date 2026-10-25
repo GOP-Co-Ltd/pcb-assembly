@@ -14,7 +14,7 @@ description: orchestrator（メインエージェント）が implementation-pla
 - `settings.json` に `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` が設定済み（必須）
 - メインエージェントが `orchestrator` の役割（`.claude/agents/orchestrator.md`）を担う。チーム運用を常用するセッションは `claude --agent orchestrator` で起動してもよい
 - 各 agent は `.claude/agents/` 配下に定義済み（orchestrator, implementation-planner, spec-test-author, plan-implementer, code-reviewer, code-simplifier）
-- 中間メモは `memory/agents/<agent-name>/<task-slug>.md` に書く（詳細は `memory/agents/README.md`）
+- 中間メモはファイルに残さない。各 agent は計画書・判断ログ・レビューを報告として返し、orchestrator が次の agent のブリーフに要る分を渡す。残すべき判断は orchestrator が PR 本文に書く
 
 ## 役割とモデル / effort 構成
 
@@ -41,32 +41,31 @@ orchestrator に `effort` を設定していないのは、frontmatter の effor
    - ユーザーへの質問はここだけが行える（サブエージェントは AskUserQuestion を持たない）
 
 1. implementation-planner  [複数モジュールにまたがるとき。1 モジュールに収まるなら orchestrator が自分で計画]
-   - 要件を仕様化し、計画書を memory/agents/implementation-planner/<task>.md に書く
+   - 要件を仕様化し、計画書を報告として返す
    - 確認事項があれば計画書に列挙し、orchestrator が中継する
 
 2. spec-test-author  [任意 — 仕様 first フロー時のみ]
    - 計画書を読み、tests/ 配下にテスト（生きた仕様書）を書く
    - 本番コード（src/）は触らない
-   - 期待される失敗と仕様根拠を memory/agents/spec-test-author/<task>.md に記録
+   - 期待される失敗と仕様根拠を報告する
    - plan-implementer と並列実行可能（reference.md パターン A）
 
 3. plan-implementer
-   - 計画書（必要なら spec-test-author のノートも）を読み、実装＋型＋lint をグリーン化
+   - 計画書（必要なら spec-test-author の報告も）を読み、実装＋型＋lint をグリーン化
    - spec-test-author が engagement されていればテストは編集しない（実装だけで通す）
-   - 計画外の判断は memory/agents/plan-implementer/<task>.md に記録
+   - 計画外の判断を報告する
 
 4. code-reviewer
-   - diff と計画書を突き合わせ、verdict（approve / request-changes）を
-     memory/agents/code-reviewer/<task>.md に出す
+   - diff と計画書を突き合わせ、verdict（approve / request-changes）を報告する
    - 見つけた指摘は確信度を添えて全件報告する（ふるいにかけない）
    - orchestrator が裁定：must-fix → 3 に差し戻し／should-fix → 5 へ／
-     誤検出 → 却下（理由を orchestrator のノートに記録）
+     誤検出 → 却下（理由を PR 本文に書く）
    - must-fix が残る間は verdict が request-changes になり、3 ⇄ 4 を繰り返す
 
 5. code-simplifier
    - 公開 IF を保持しつつ内部を簡素化（reviewer の should-fix も対応対象）
    - 変更で古くなった docstring / README を同期する
-   - 内容を memory/agents/code-simplifier/<task>.md に記録
+   - 内容を報告する
    - 大きく書き換えた場合は 4 で再レビュー
 ```
 
