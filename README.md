@@ -34,20 +34,20 @@ WebUI は装置を実際に動かす。変更操作の前に画面で操作権�
 
 ## ドキュメント
 
-| 目的                                   | ガイド                                                                             |
-| -------------------------------------- | ---------------------------------------------------------------------------------- |
-| 装置・OS・マシン設定を準備する         | [セットアップ](docs/setup.md)                                                      |
-| 新しい機体を塗布できる状態まで整える   | [立ち上げ](docs/commissioning.md)                                                  |
-| 機体を選び、PCB を開いて作業する       | [WebUI の使い方](docs/webui.md)                                                    |
-| サービスを常駐させ、更新・復旧する     | [運用ガイド](docs/operations.md)                                                   |
-| バックアップを取り、設定や版を戻す     | [保守ガイド](docs/maintenance.md)                                                  |
-| 不具合を報告し、コードを変更・検証する | [CONTRIBUTING](CONTRIBUTING.md)                                                    |
-| 変更を実機で確かめる                   | [実機受け入れ試験](docs/acceptance.md)                                             |
-| コードの責務と依存方向を知る           | [アーキテクチャ](docs/architecture.md)                                             |
-| マシン設定テンプレートを扱う           | [設定テンプレート](deploy/templates/README.md)                                     |
-| 塗布量校正の原理・実測結果を確認する   | [直径ベースの塗布量校正](docs/paste-volume-diameter-calibration.md)                |
-| 画像収集・校正の設計背景を調べる       | [画像ベース吐出量キャリブレーション要件](docs/image-based-dispense-calibration.md) |
-| CI 用の専用 Raspberry Pi を構築する    | [GitHub Actions Runner](github-runner/README.md)                                   |
+| 目的                                   | ガイド                                                                                    |
+| -------------------------------------- | ----------------------------------------------------------------------------------------- |
+| 装置・OS・マシン設定を準備する         | [セットアップ](docs/setup.md)                                                             |
+| 新しい機体を塗布できる状態まで整える   | [立ち上げ](docs/commissioning.md)                                                         |
+| 機体を選び、PCB を開いて作業する       | [WebUI の使い方](docs/webui.md)                                                           |
+| サービスを常駐させ、更新・復旧する     | [運用ガイド](docs/operations.md)                                                          |
+| バックアップを取り、設定や版を戻す     | [保守ガイド](docs/maintenance.md)                                                         |
+| 不具合を報告し、コードを変更・検証する | [CONTRIBUTING](CONTRIBUTING.md)                                                           |
+| 変更を実機で確かめる                   | [実機受け入れ試験](docs/acceptance.md)                                                    |
+| コードの責務と依存方向を知る           | [アーキテクチャ](docs/architecture.md)                                                    |
+| マシン設定テンプレートを扱う           | [設定テンプレート](deploy/templates/README.md)                                            |
+| 塗布量校正の原理・実測結果を確認する   | [直径ベースの塗布量校正](docs/design/paste-volume-diameter-calibration.md)                |
+| 画像収集・校正の設計背景を調べる       | [画像ベース吐出量キャリブレーション要件](docs/design/image-based-dispense-calibration.md) |
+| CI 用の専用 Raspberry Pi を構築する    | [GitHub Actions Runner](github-runner/README.md)                                          |
 
 ## 開発コマンド
 

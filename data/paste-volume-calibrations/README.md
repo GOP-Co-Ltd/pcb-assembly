@@ -9,4 +9,4 @@
 （収集 dataset を置く `data/paste-volume-datasets/` は容量の都合で ignore している）。
 
 手法・schema・達成条件は
-[直径ベースの塗布量校正](../../docs/paste-volume-diameter-calibration.md) を参照。
+[直径ベースの塗布量校正](../../docs/design/paste-volume-diameter-calibration.md) を参照。

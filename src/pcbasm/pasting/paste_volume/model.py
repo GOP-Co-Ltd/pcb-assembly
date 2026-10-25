@@ -25,7 +25,7 @@ from pcbasm.validators import is_finite_number
 
 # 運転時補正で採用する直径範囲を決める、被覆域の下端側から除外する割合。
 # 同条件で採った 2 つの校正は大径側で 3 % しか違わないのに、被覆域の下端では 58 %
-# 食い違う（docs/paste-volume-diameter-calibration.md「被覆域の下端は信頼できる範囲
+# 食い違う（docs/design/paste-volume-diameter-calibration.md「被覆域の下端は信頼できる範囲
 # から外す」）。被覆域が比 1.9 倍しかないところへ [d³, d², d] の 3 自由度を当てている
 # ので、曲線が一致しても係数が個別に定まらないため。
 #

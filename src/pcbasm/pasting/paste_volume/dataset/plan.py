@@ -30,7 +30,7 @@ _GRID_EPSILON = 1e-9
 # ほぼ無い（831 サンプルで検出失敗 0 件、view 間ばらつきは体積換算 1.2% で、5 view
 # から 1 view へ減らしても総残差は 8.0% → 8.1% 程度）のに対し、撮影枚数は view 数に
 # 比例して収集時間を支配する。周辺 view に残る役割は検出失敗時のフォールバックだけで、
-# 必要なら 4 などへ上げる（docs/paste-volume-diameter-calibration.md の「周辺 view の既定」節）。
+# 必要なら 4 などへ上げる（docs/design/paste-volume-diameter-calibration.md の「周辺 view の既定」節）。
 DEFAULT_VIEW_COUNT = 0
 DEFAULT_VIEW_OFFSET_MM = 1.0
 DEFAULT_PASTE_HEIGHT_MM = 0.2
