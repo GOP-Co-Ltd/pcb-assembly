@@ -6,8 +6,13 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 from pcbasm.geometry import Point2d, Point3d
+
+if TYPE_CHECKING:
+    # tact は plan 経由で labels を import する
+    from pcbasm.pasting.tact import TactEstimate
 
 
 def fmt_xy(point: Point2d, digits: int = 2) -> str:
@@ -61,3 +66,17 @@ def flow_calibration_label(
     if error is not None:
         return f"{placed}（{error}）"
     return f"{placed}（校正ファイル未設定のため補正しません）"
+
+
+def duration_label(seconds: float) -> str:
+    """所要時間を「h時間m分s秒」で書く（1 秒未満は切り捨てる）."""
+    total = int(seconds)
+    return f"{total // 3600}時間{total % 3600 // 60}分{total % 60}秒"
+
+
+def tact_breakdown_label(estimate: TactEstimate) -> str:
+    """予測所要時間の内訳（塗る pad の数と、前段・塗布の時間）."""
+    return (
+        f"{estimate.pad_count} pad（前段 {duration_label(estimate.setup_seconds)}"
+        f" + 塗布 {duration_label(estimate.paste_seconds)}）"
+    )

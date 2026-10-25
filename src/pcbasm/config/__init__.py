@@ -31,6 +31,7 @@ from pcbasm.config.klipper import KlipperConfig
 from pcbasm.config.probe import ProbeConfig
 from pcbasm.config.reference_point import ReferencePointConfig
 from pcbasm.config.settle import SettleConfig
+from pcbasm.config.tact import TactConfig
 from pcbasm.pasting.params import (
     DISPENSE_MODES,
     LINE_DIRECTIONS,
@@ -164,8 +165,9 @@ class MachineConfig:
     detection: DetectionConfig = attrs.field(
         factory=DetectionConfig, metadata=section(label="統計検出", order=7)
     )
-    # タクトタイム見積りのための予約節。中身は読まずに受け入れる
-    tact: dict[str, Any] | None = None
+    tact: TactConfig = attrs.field(
+        factory=TactConfig, metadata=section(label="所要時間の予測", order=9)
+    )
 
 
 def _describe(exc: BaseException, _: object) -> str:

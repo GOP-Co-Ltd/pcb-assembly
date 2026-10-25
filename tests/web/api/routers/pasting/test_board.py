@@ -9,6 +9,7 @@
   resolved 反映、clear → 継承復帰）
 - PATCH pads 一括
 - 未知キー / 未知 node → 400
+- 予測所要時間（printer.cfg を読めなければ理由を返す）
 
 実 PCB（led_blinker）を読む経路は ``copper_pcb_path`` fixture を使う
 （pcbnew 依存。conftest が pcb_browse_root へコピー済み）。設定書き込み先は
@@ -34,6 +35,7 @@ from shapely import Polygon
 
 from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.pasting.params import PASTE_PARAM_NAMES
+from tests.support.moonraker import FakeMoonraker
 from tests.support.paths import FILL_COVERAGE_PCB, LED_BLINKER_PCB
 from web.api.backend import Backend
 from web.api.env import Env
@@ -111,6 +113,7 @@ class TestPcbNotSelected:
             ),
             pytest.param("POST", "/route", {"layer": "Top"}, id="route"),
             pytest.param("POST", "/fill-path", {"layer": "Top"}, id="fill-path"),
+            pytest.param("GET", "/tact-estimate", None, id="tact-estimate"),
             pytest.param("POST", "/import", {"document": {}}, id="import"),
             pytest.param("POST", "/reset", {"expected_pcb": _SELECTED_PCB}, id="reset"),
         ],
@@ -1226,6 +1229,68 @@ class TestPadConfigFillPath:
         assert fill_path["pads"]
         assert {pad["dispense_mode"] for pad in fill_path["pads"]} == {"dot"}
         assert all(pad["point_count"] == pad["path_count"] for pad in fill_path["pads"])
+
+
+class TestTactEstimate:
+    """GET /api/pasting/board/tact-estimate（装置を動かさずに塗布の所要時間を予測する）."""
+
+    def _estimate(self, client: TestClient) -> dict:
+        response = client.get("/api/pasting/board/tact-estimate")
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    def test_adds_the_setup_to_the_paste_time(
+        self, selected_client: TestClient, moonraker: FakeMoonraker
+    ):
+        enabled_top = [
+            pad
+            for pad in _get_config(selected_client)["pads"]
+            if pad["layer"] == "Top" and pad["enabled"]
+        ]
+
+        estimate = self._estimate(selected_client)
+
+        assert estimate["error"] is None
+        assert estimate["total_seconds"] > 300.0
+        assert estimate["detail"].startswith(
+            f"{len(enabled_top)} pad（前段 0時間5分0秒 + 塗布 "
+        )
+        assert re.fullmatch(r"0時間\d+分\d+秒", estimate["label"])
+
+    def test_setup_sec_comes_from_the_machine_settings(
+        self, selected_client: TestClient, moonraker: FakeMoonraker
+    ):
+        before = self._estimate(selected_client)["total_seconds"]
+        response = selected_client.put(
+            "/api/machine_config", json={"values": {"tact.setup_sec": 60.0}}
+        )
+        assert response.status_code == 200, response.text
+
+        after = self._estimate(selected_client)["total_seconds"]
+
+        assert after == pytest.approx(before - 240.0)
+
+    def test_disabled_pads_shorten_the_estimate(
+        self, selected_client: TestClient, moonraker: FakeMoonraker
+    ):
+        before = self._estimate(selected_client)
+        patch = selected_client.patch(
+            "/api/pasting/board/node",
+            json={"node": "L2:U1", "enabled": False, "expected_pcb": _SELECTED_PCB},
+        )
+        assert patch.status_code == 200, patch.text
+
+        after = self._estimate(selected_client)
+
+        assert after["total_seconds"] < before["total_seconds"]
+
+    @pytest.mark.usefixtures("unreachable_klipper")
+    def test_unreachable_klipper_returns_the_reason(self, selected_client: TestClient):
+        estimate = self._estimate(selected_client)
+
+        assert estimate["total_seconds"] is None
+        assert estimate["label"] is None
+        assert estimate["error"].startswith("Klipper から printer.cfg を読めないので")
 
 
 class TestExpectedPcb:

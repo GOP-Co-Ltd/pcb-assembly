@@ -489,6 +489,13 @@ class TestPastingJobPages:
         assert 'data-endpoint="/api/machine_config"' in text
         assert setting_key in text
 
+    def test_paste_solder_renders_the_tact_estimate_slot(self, client: TestClient):
+        """予測所要時間の枠は実行パネルに置き、値は JS が backend から取る."""
+        text = client.get("/paste_solder").text
+
+        assert 'data-testid="tact-estimate-label"' in text
+        assert "js/pasting/tact_estimate.js" in text
+
     def test_loading_page_renders_optional_start_position(self, client: TestClient):
         text = client.get("/loading").text
 

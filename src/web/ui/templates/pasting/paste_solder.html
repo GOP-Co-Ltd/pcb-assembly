@@ -31,6 +31,11 @@
     パッド編集欄の上にある数値欄は機体全体の設定で、入力するとすぐ保存されます。
   </p>
   <div class="pasting-job-panel" data-testid="pasting-job-panel">
+  {# 実行前の予測。時間と内訳の文言はサーバーが組む #}
+  <p class="tact-estimate" data-testid="tact-estimate">
+    予測所要時間 <strong id="tact-estimate-label" data-testid="tact-estimate-label">—</strong>
+    <span id="tact-estimate-detail" class="tact-estimate-detail" data-testid="tact-estimate-detail"></span>
+  </p>
   {% include "partials/job_form.html" %}
   {% if loading %}
   {% include "partials/loading_controls.html" %}
@@ -56,6 +61,7 @@
 <script src="{{ static_asset('js/pasting/loading_controls.js') }}"></script>
 {% endif %}
 <script type="module" src="{{ static_asset('js/pasting/pad_editor/index.js') }}"></script>
+<script src="{{ static_asset('js/pasting/tact_estimate.js') }}"></script>
 <script src="{{ static_asset('js/pasting/paste_volume_calibrations.js') }}"></script>
 <script src="{{ static_asset('js/settings.js') }}"></script>
 {% endblock %}

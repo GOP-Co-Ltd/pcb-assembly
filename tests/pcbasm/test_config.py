@@ -24,6 +24,7 @@ from pcbasm.config.klipper import KlipperConfig
 from pcbasm.config.probe import ProbeConfig
 from pcbasm.config.reference_point import CornerOffsetsConfig, ReferencePointConfig
 from pcbasm.config.settle import SettleConfig
+from pcbasm.config.tact import TactConfig
 from pcbasm.geometry import Point3d
 from pcbasm.migrate.machine_toml import migrate_text
 from pcbasm.pasting.params import DispenseMotion, PasteParams
@@ -585,12 +586,6 @@ class TestUnknownKeys:
 
         assert raised.value.sections == {"paste_dispenser"}
 
-    def test_tact_is_reserved_for_the_tact_time_estimate(self, tmp_path):
-        """[tact] 節は中身を読まずに受け入れる."""
-        machine = _machine_with(tmp_path, "[tact]\nsetup_sec = 300.0\n")
-
-        assert machine.tact == {"setup_sec": 300.0}
-
 
 @pytest.mark.parametrize("section", ["nozzle_cap", "nozzle_clean"])
 class TestNozzlePosition:
@@ -736,6 +731,32 @@ class TestMachineSettle:
     def test_rejects_negative(self, key, value):
         with pytest.raises(ValueError, match=key):
             SettleConfig(**{key: value})
+
+
+class TestMachineTact:
+    """`[tact]`: 塗布の所要時間の予測（セクションごと省略可。速度は printer.cfg から読む）."""
+
+    def test_defaults_whole_section_when_absent(self):
+        assert load_machine(MINIMAL_MACHINE_TOML).tact == TactConfig(setup_sec=300.0)
+
+    def test_reads_setup_sec(self, tmp_path):
+        machine = _machine_with(tmp_path, "[tact]\nsetup_sec = 120.0\n")
+
+        assert machine.tact == TactConfig(setup_sec=120.0)
+
+    def test_speed_keys_are_unknown(self, tmp_path):
+        """速度と加速度は printer.cfg の値を使うので、machine.toml には書けない（移行が消す）."""
+        path = tmp_path / "machine.toml"
+        path.write_text(
+            MINIMAL_MACHINE_TOML.read_text() + "\n[tact]\ntravel_speed = 10.0\n"
+        )
+
+        with pytest.raises(ConfigError, match="travel_speed"):
+            load_machine(path)
+
+    def test_rejects_negative_setup_sec(self):
+        with pytest.raises(ValueError, match="setup_sec"):
+            TactConfig(setup_sec=-1.0)
 
 
 class TestMachineDetection:

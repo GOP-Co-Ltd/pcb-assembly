@@ -37,14 +37,15 @@ class TestSettingFields:
             "settle",
             "detection",
             "audio",
+            "tact",
         ]
         assert sections == sorted(sections, key=sections.index)
 
     def test_sections_without_metadata_are_not_settings(self):
-        """接続先と予約節は設定ページに出さない."""
+        """接続先は設定ページに出さない."""
         sections = {field.section for field in setting_fields()}
 
-        assert {"klipper", "tact"} & sections == set()
+        assert "klipper" not in sections
         assert {
             top.name for top in attrs.fields(MachineConfig) if top.metadata
         } == sections

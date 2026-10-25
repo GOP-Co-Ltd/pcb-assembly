@@ -164,6 +164,25 @@ class TestFillSequence:
         assert [move.get("SYNC") for move in _stepper_moves(klipper)] == [0.0, 0.0]
 
 
+class TestDispenseSeconds:
+    """Prime から吐出が終わるまでの時間（所要時間の予測が読む）."""
+
+    def test_path_runs_for_the_dispense_time_after_prime(self):
+        # L=10: prime 2.75 s + 追加遅延 0.5 s のあと、20 uL を 4 uL/s で 5 s 走る
+        path = Path([Point3d(0.0, 0.0, 5.0), Point3d(10.0, 0.0, 5.0)])
+
+        assert _sequence(path).dispense_seconds == pytest.approx(3.25 + 5.0)
+
+    def test_point_fill_waits_the_same_time(self):
+        # 点は上限 10 uL/s でその場に出す: prime 台形(10, 10, 8) = 10/8 + (10 - 6.25)/10 と
+        # 追加遅延 0.5 s、吐出 20/10 s を 1 回の G4 で待つ
+        path = Path([Point3d(0.0, 0.0, 5.0)])
+        sequence = _sequence(path)
+
+        assert sequence.dispense_seconds == pytest.approx(1.625 + 0.5 + 2.0)
+        assert "G4 P4125" in _run(sequence).sent_lines
+
+
 class TestRateCap:
     """``rate_cap`` による吐出レート頭打ち値の切替テスト."""
 

@@ -27,6 +27,7 @@ from tests.support.browser import (
     session_headers as _session_headers,
     wait_for_config,
 )
+from tests.support.moonraker import FakeMoonraker
 
 _HTTP_TIMEOUT = 10.0
 _BROWSER_TIMEOUT_MS = 10_000
@@ -1077,6 +1078,63 @@ class TestPasteSolderBrowserOverrideVisibility:
         inherit_button = l4_row.get_by_test_id("pad-enabled-inherit")
         inherit_button.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
         assert not inherit_button.is_disabled()
+
+
+class TestPasteSolderBrowserTactEstimate:
+    """実行パネルの予測所要時間（文言はサーバーが組み、pad や machine 全体設定を編集すると取り直す）."""
+
+    def test_estimate_follows_pad_edits(
+        self,
+        live_server: LiveServer,
+        live_ui: LiveUi,
+        browser_page,
+        moonraker: FakeMoonraker,
+    ):
+        _select_led_blinker(live_server)
+        _open_paste_solder(browser_page, live_ui)
+        label = browser_page.get_by_test_id("tact-estimate-label")
+        detail = browser_page.get_by_test_id("tact-estimate-detail")
+        expect(label).to_have_text(re.compile(r"^\d+時間\d+分\d+秒$"))
+        expect(detail).to_have_text(
+            re.compile(r"^[1-9]\d* pad（前段 0時間5分0秒 \+ 塗布 ")
+        )
+
+        browser_page.get_by_test_id("pad-disable-all").click()
+
+        expect(label).to_have_text("0時間5分0秒")
+        expect(detail).to_have_text("0 pad（前段 0時間5分0秒 + 塗布 0時間0分0秒）")
+
+    def test_estimate_follows_machine_settings(
+        self,
+        live_server: LiveServer,
+        live_ui: LiveUi,
+        browser_page,
+        moonraker: FakeMoonraker,
+    ):
+        """Auto しきい値は塗布方式を変えるので、machine 全体設定欄を保存しても取り直す."""
+        _select_led_blinker(live_server)
+        _open_paste_solder(browser_page, live_ui)
+        label = browser_page.get_by_test_id("tact-estimate-label")
+        expect(label).to_have_text(re.compile(r"^\d+時間\d+分\d+秒$"))
+        before = label.text_content()
+
+        browser_page.get_by_test_id(
+            "auto-threshold-paste_dispenser.auto_line_aspect_ratio"
+        ).fill("1.01")
+
+        expect(label).not_to_have_text(before or "")
+        expect(label).to_have_text(re.compile(r"^\d+時間\d+分\d+秒$"))
+
+    def test_unreachable_klipper_shows_the_reason(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
+        _select_led_blinker(live_server)
+        _open_paste_solder(browser_page, live_ui)
+
+        expect(browser_page.get_by_test_id("tact-estimate-label")).to_have_text("—")
+        expect(browser_page.get_by_test_id("tact-estimate-detail")).to_contain_text(
+            "printer.cfg を読めないので予測できません"
+        )
 
 
 class TestPasteSolderBrowserResponsiveLayout:

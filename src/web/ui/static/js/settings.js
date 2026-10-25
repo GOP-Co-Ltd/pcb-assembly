@@ -73,6 +73,7 @@
       if (values === null) return;
       await previous;
       await api("PUT", control.form.dataset.endpoint, { values });
+      document.dispatchEvent(new CustomEvent("machine-settings:saved"));
     });
   }
 

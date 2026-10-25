@@ -142,6 +142,8 @@ import {
     render();
     // 銅箔は基板ごとに 1 回だけ取る（pad 編集では変わらず、点数が多い）
     if (state.copper?.pcb_file !== config.pcb_file) loadCopper(config.pcb_file);
+    // 塗る pad と設定が変わると予測所要時間も変わる（tact_estimate.js が取り直す）
+    document.dispatchEvent(new CustomEvent("pasting:board-loaded"));
   }
 
   async function loadCopper(pcbFile) {

@@ -29,6 +29,11 @@ DEAD = {
     "paste_dispenser.pad_align.min_roi",
     "paste_dispenser.pad_align.region_count",
     "paste_dispenser.pad_align.min_regions",
+    # 所要時間の予測は printer.cfg の速度と加速度を読む
+    "tact.travel_speed",
+    "tact.travel_accel",
+    "tact.z_speed",
+    "tact.z_accel",
 }
 DEFAULTS = {
     "dispense_mode",
@@ -117,8 +122,8 @@ class TestMigrateMachineToml:
 
         machine = load_machine(machine_toml)
         for path, value in before.items():
-            # tact は読まない予約節、校正ファイルは設定ディレクトリからの絶対パスに解決される
-            if path in DEAD or path.startswith(("tact.", "camera.calibration_file")):
+            # 校正ファイルは設定ディレクトリからの絶対パスに解決される
+            if path in DEAD or path == "camera.calibration_file":
                 continue
             actual = attrgetter(_attribute_path(_new_path(path)))(machine)
             assert (
@@ -176,13 +181,30 @@ class TestMigrateMachineToml:
         text = machine_toml.read_text()
         assert text.endswith("\n") and not text.endswith("\n\n")
 
-    def test_leaves_tact_untouched(self, machine_toml: Path):
-        """[tact] 節は中身を読まずにそのまま残す."""
-        before = tomllib.loads(machine_toml.read_text())["tact"]
-
+    def test_keeps_only_setup_sec_in_tact(self, machine_toml: Path):
+        """速度と加速度は printer.cfg から読むので消し、setup_sec はコメントごと残す."""
         migrate_machine_toml(machine_toml)
 
-        assert tomllib.loads(machine_toml.read_text())["tact"] == before
+        text = machine_toml.read_text()
+        assert tomllib.loads(text)["tact"] == {"setup_sec": 300.0}
+        tact = text.split("[tact]")[1].split("\n[")[0]
+        assert tact.startswith(
+            "\n# タクトタイム見積り専用の値（装置の動作はこれを参照しない）\n"
+            "setup_sec = 300.0 # 位置合わせ・高さ計測・パージ等の固定分 [sec]（実測に合わせる）\n"
+        )
+
+    def test_drops_tact_speeds_from_a_file_already_in_the_current_layout(self):
+        """移行 M を当てた後に残っていた [tact] の速度も次の起動で消し、書き忘れた接続先は補わない."""
+        text = (
+            "[klipper]\nport = 7125\n\n"
+            "[tact]\ntravel_speed = 10.0\nz_accel = 10.0\nsetup_sec = 200.0\n"
+        )
+
+        migrated, changes = migrate_text(text)
+
+        assert migrated == "[klipper]\nport = 7125\n\n[tact]\nsetup_sec = 200.0\n"
+        assert changes == ["tact.travel_speed を削除", "tact.z_accel を削除"]
+        assert migrate_text(migrated) == (migrated, [])
 
     def test_writes_the_former_klipper_defaults(self):
         """接続先の既定値は撤去したので、移行するファイルに書かれていなければこれまでの既定値を明示する."""

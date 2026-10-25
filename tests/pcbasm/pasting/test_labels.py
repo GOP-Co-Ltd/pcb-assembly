@@ -3,11 +3,14 @@
 from pcbasm.geometry import Point2d, Point3d
 from pcbasm.pasting.labels import (
     clean_position_label,
+    duration_label,
     flow_calibration_label,
     fmt_xy,
     fmt_xyz,
     purge_selection_label,
+    tact_breakdown_label,
 )
+from pcbasm.pasting.tact import TactEstimate
 
 
 class TestCoordinates:
@@ -64,3 +67,20 @@ class TestFlowCalibrationLabel:
         label = flow_calibration_label(self.POINTS, planned_amount_ul=None, error=None)
 
         assert "校正ファイル未設定" in label
+
+
+class TestDurationLabel:
+    def test_hours_minutes_and_seconds(self):
+        assert duration_label(3725.9) == "1時間2分5秒"
+
+    def test_short_duration_keeps_zero_hours(self):
+        assert duration_label(59.0) == "0時間0分59秒"
+
+
+class TestTactBreakdownLabel:
+    def test_pad_count_setup_and_paste(self):
+        estimate = TactEstimate(setup_seconds=300.0, paste_seconds=95.0, pad_count=24)
+
+        assert tact_breakdown_label(estimate) == (
+            "24 pad（前段 0時間5分0秒 + 塗布 0時間1分35秒）"
+        )

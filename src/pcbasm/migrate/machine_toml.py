@@ -1,5 +1,7 @@
 """移行 M: machine.toml の死にキーを除き、節を「TOML のパス = 属性のパス」にそろえる.
 
+``[tact]`` の速度と加速度も除く（所要時間の予測は printer.cfg の値を読む。``setup_sec`` は残す）。
+
 tomlkit で書き換えるので、値の行に付いたコメントは移動先へ一緒に動く。
 除くキーの行のコメントは消えるが、書き換える前の内容を ``history/machine-pre-M.toml``（ローテーションで消えない）に残す。
 """
@@ -58,6 +60,8 @@ _DISPENSER_SOURCES = (
     *_DEFAULTS_KEYS,
     *_MOTION_KEYS,
 )
+# [tact] のうち、printer.cfg から読むようにした速度と加速度
+_TACT_SPEED_KEYS = ("travel_speed", "travel_accel", "z_speed", "z_accel")
 # [klipper] の接続先はコードの既定値を撤去したので、移行するファイルに書かれていなければこれまでの既定値を明示する
 _KLIPPER_DEFAULTS = {"host": "localhost", "port": 7125}
 
@@ -114,6 +118,14 @@ def _migrate(doc: Container) -> list[str]:
     # 新しい形のファイルで書き忘れた接続先は補わない（設定エラーにする）
     if changes:
         _make_klipper_explicit(doc, changes)
+
+    # [tact] の速度は新しい形のファイルにも残りうるので、古い形かどうかの判定に含めない
+    tact = _table(doc, "tact")
+    if tact is not None:
+        for key in _TACT_SPEED_KEYS:
+            if key in tact:
+                tact.remove(key)
+                changes.append(f"tact.{key} を削除")
     return changes
 
 

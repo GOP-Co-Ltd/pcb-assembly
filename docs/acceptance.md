@@ -81,7 +81,7 @@
 | `pcbasm.gcode`、`pcbasm.geometry`                     | A1, A5, A8                              |
 | `pcbasm.align`、`pcbasm.vision`                       | A3, A4, A5, A8                          |
 | `pcbasm.board`、`pcbasm.kicad`                        | A8, A17                                 |
-| `pcbasm.pasting`                                      | A6, A7, A8, A9, A15, A16                |
+| `pcbasm.pasting`                                      | A6, A7, A8, A9, A15, A16, A21           |
 | 描画（`pcbasm.plotting` と `render_*`）               | A7, A9, A17                             |
 | `pcbasm.config`、`web.api.machine_config`、設定の移行 | A10, A13, A18, A19 と、全項目の起動確認 |
 | `web.api`、`web.ui`                                   | A1, A8, A12, A17, A18 の画面操作        |
@@ -113,6 +113,7 @@
 | A18  | Apply と即時書込                 | 001                                    |
 | A19  | 002 での確認                     | 002                                    |
 | A20  | 電源の入れ直し                   | 001                                    |
+| A21  | 所要時間の予測と実測             | 001                                    |
 
 ### A0 装置診断
 
@@ -229,6 +230,13 @@
 
 - 操作: Pi の電源を入れ直す
 - 合格条件: Moonraker の起動が遅れても、操作なしで使える状態へ戻る
+
+### A21 所要時間の予測と実測
+
+- 画面: `paste_solder`
+- 前提: A8 と同じ基板と PCB。起動時の移行で `machine.toml` の `[tact]` から `travel_speed` / `travel_accel` / `z_speed` / `z_accel` が消え、`setup_sec` が残っている
+- 操作: 実行前に予測所要時間を控え、A8 の塗布を通す。終わったらジョブコンソールの経過と見比べ、`tact.setup_sec` を合わせる
+- 合格条件: パッドを無効にすると予測が短くなる。予測と経過の差が、`tact.setup_sec` を合わせた後に 1 割以内に収まる
 
 ## 未確認の項目（実機で確かめる）
 

@@ -102,6 +102,14 @@ class FillSequence:
         return self._effective_rate()
 
     @property
+    def dispense_seconds(self) -> float:
+        """Prime（追加遅延込み）から吐出が終わるまでの時間 [sec].
+
+        経路を走る時間は吐出の時間に合わせてあるので、経路長によらずこの値になる。
+        """
+        return self._prime_time() + self._dispense_time()
+
+    @property
     def prime_extra_volume_ul(self) -> float:
         """Prime 追加遅延中に基板上へ押し出す体積 [μL]."""
         return self._extra_amount()

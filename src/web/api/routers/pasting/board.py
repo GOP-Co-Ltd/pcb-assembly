@@ -2,7 +2,7 @@
 
 選択中の基板について、pad ジオメトリ・階層ツリー・解決済み塗布設定・
 疎な override を 1 回のリクエストで返し（GET）、ノード/pad 単位の編集を即時保存する
-（PATCH）。順路・塗布パス・銅箔のプレビューも同じ基板について返す。
+（PATCH）。順路・塗布パス・銅箔のプレビューと、塗布の予測所要時間も同じ基板について返す。
 
 node_id 規約（フロントと共有する契約）:
 
@@ -19,6 +19,7 @@ from collections.abc import Callable, Iterable
 from urllib.parse import quote
 
 import attrs
+import httpx
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
@@ -27,6 +28,7 @@ from pcbasm.board import Board, Layer, Pad
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.hierarchy import PadHierarchyNode
 from pcbasm.pasting.initial_purge import validate_initial_purge_point
+from pcbasm.pasting.labels import duration_label, tact_breakdown_label
 from pcbasm.pasting.overrides import (
     BoardOverrides,
     BoardSession,
@@ -56,9 +58,18 @@ from pcbasm.pasting.paste_volume.runtime_correction import (
     validate_flow_calibration_point,
 )
 from pcbasm.pasting.plan import PastePlan, plan_paste
-from web.api.deps import ControlDep, MachineConfigDep, OverridesDep, SelectionDep
+from pcbasm.pasting.tact import MotionLimits, estimate_paste_tact
+from web.api.deps import (
+    ControlDep,
+    DevicesDep,
+    MachineConfigDep,
+    OverridesDep,
+    SelectionDep,
+)
 from web.api.machine_config import MachineConfigFile
 from web.api.selection import Selection
+
+STATUS_TIMEOUT = 10.0  # printer.cfg の読み取りのみ（移動なし）
 
 router = APIRouter(prefix="/api/pasting/board")
 
@@ -296,6 +307,15 @@ class PasteFillPathResponse(BaseModel):
     layer: str
     nozzle_diameter: float
     pads: list[PasteFillPathPad]
+
+
+class TactEstimateInfo(BaseModel):
+    """GET /api/pasting/board/tact-estimate のレスポンス（予測できなければ ``error`` に理由）."""
+
+    total_seconds: float | None = None
+    label: str | None = None  # 予測所要時間（例: "0時間12分5秒"）
+    detail: str | None = None  # 内訳（塗る pad の数と、前段・塗布の時間）
+    error: str | None = None
 
 
 class NodePatch(BaseModel):
@@ -730,6 +750,33 @@ def calculate_fill_path(
     """選択中基板の有効 pad だけを対象に塗布パスを返す（POST だが読み取り専用計算）."""
     loaded = load_session(selection, machine_config, overrides)
     return build_fill_path(plan_paste(loaded, layer=body.layer), body.layer)
+
+
+@router.get("/tact-estimate")
+def get_tact_estimate(
+    selection: SelectionDep,
+    machine_config: MachineConfigDep,
+    overrides: OverridesDep,
+    devices: DevicesDep,
+) -> TactEstimateInfo:
+    """選択中基板の塗布にかかる時間を予測する（装置は動かさず、printer.cfg の速度と加速度を読む）."""
+    loaded = load_session(selection, machine_config, overrides)
+    try:
+        printer_config = devices.klipper(STATUS_TIMEOUT).get_config()
+    except httpx.HTTPError as exc:
+        return TactEstimateInfo(
+            error=f"Klipper から printer.cfg を読めないので予測できません: {exc}"
+        )
+    estimate = estimate_paste_tact(
+        plan_paste(loaded),
+        machine_config.machine().tact,
+        MotionLimits.from_printer_config(printer_config),
+    )
+    return TactEstimateInfo(
+        total_seconds=estimate.total_seconds,
+        label=duration_label(estimate.total_seconds),
+        detail=tact_breakdown_label(estimate),
+    )
 
 
 @router.patch("/node")

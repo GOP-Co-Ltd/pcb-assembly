@@ -28,9 +28,9 @@ from .audio import AudioDevice, AudioPlayer, Sound
 from .camera import Camera, CameraInfo, Resolution
 from .klipper import GCodeJournal, KlipperError
 
-# FakeKlipper が既定で返す printer.cfg。XYZStage / PasteDispenser / ProbeExecutor が読むセクションだけを持つ
+# FakeKlipper が既定で返す printer.cfg。XYZStage / PasteDispenser / ProbeExecutor と所要時間の予測が読むセクションだけを持つ
 FAKE_PRINTER_CONFIG: dict[str, dict[str, Any]] = {
-    "printer": {"max_velocity": "100"},
+    "printer": {"max_velocity": "100", "max_accel": "1000"},
     "stepper_x": {"position_min": "0", "position_max": "300"},
     "stepper_y": {"position_min": "0", "position_max": "300"},
     "stepper_z": {"position_min": "-5", "position_max": "50"},

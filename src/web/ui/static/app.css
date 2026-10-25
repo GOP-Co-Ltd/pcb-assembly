@@ -1317,6 +1317,16 @@ h2 {
   min-width: 0;
 }
 
+.tact-estimate {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.tact-estimate-detail {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 .pasting-job-panel .job-form,
 .pasting-job-panel .loading-controls {
   margin-bottom: 0;
