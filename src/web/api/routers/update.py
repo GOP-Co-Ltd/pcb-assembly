@@ -46,10 +46,11 @@ def get_update_status(update: UpdateDep, env: EnvDep) -> UpdateStatusResponse:
 
 
 @router.post("/check")
-def post_update_check(
-    update: UpdateDep, env: EnvDep, _control: ControlDep
-) -> UpdateStatusResponse:
-    """Remote を fetch してから状態を返す（ネットワーク I/O を伴う）."""
+def post_update_check(update: UpdateDep, env: EnvDep) -> UpdateStatusResponse:
+    """Remote を fetch してから状態を返す（ネットワーク I/O を伴う）.
+
+    装置も作業ツリーも変えないので操作権を要求しない（確認しただけの端末に操作権を残さない）。
+    """
     return _status(update, update.check(), env)
 
 

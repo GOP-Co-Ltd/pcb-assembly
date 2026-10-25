@@ -5,7 +5,7 @@
 | メソッド | パス | 認可 | 成功 | 失敗 |
 | --- | --- | --- | --- | --- |
 | GET | /api/update/status | なし | 200 | 常に 200（git 失敗は `error` で返す） |
-| POST | /api/update/check | ControlDep | 200 | 423 |
+| POST | /api/update/check | なし | 200 | 常に 200（fetch の失敗は `fetch_error` で返す） |
 | POST | /api/update/run | ControlDep | 202 | 423 / 409 / 403 |
 
 加えて「**参照先を絶対にリクエストパラメータにしない**」（ブランチ・remote・ref・
@@ -155,24 +155,29 @@ class TestStatus:
 
 
 class TestControlGate:
-    """変更系は操作権が要る（`ControlDep` は必ず `Depends` として使う）."""
+    """更新の実行は操作権が要り、確認は要らない（確認しただけの端末に操作権を残さない）."""
 
-    @pytest.mark.parametrize(
-        ("path", "payload"),
-        [
-            ("/api/update/check", None),
-            ("/api/update/run", {"expected_head": "0000000"}),
-        ],
-    )
-    def test_non_holder_gets_423(
-        self, path: str, payload: dict[str, str] | None, update_client: TestClient
-    ):
-        update_client.post("/api/update/check", headers=ALICE)
+    def test_non_holder_cannot_run(self, update_client: TestClient):
+        update_client.post("/api/session/control/acquire", headers=ALICE)
 
-        response = update_client.post(path, headers=BOB, json=payload)
+        response = update_client.post(
+            "/api/update/run", headers=BOB, json={"expected_head": "0000000"}
+        )
 
         assert response.status_code == 423
         assert response.json()["holder"]
+
+    def test_non_holder_can_check(self, update_client: TestClient):
+        update_client.post("/api/session/control/acquire", headers=ALICE)
+
+        assert update_client.post("/api/update/check", headers=BOB).status_code == 200
+
+    def test_check_leaves_the_control_free(self, update_client: TestClient):
+        update_client.post("/api/update/check", headers=ALICE)
+
+        state = update_client.get("/api/session/state", headers=BOB).json()
+
+        assert state["control"]["held"] is False
 
 
 class TestRun:

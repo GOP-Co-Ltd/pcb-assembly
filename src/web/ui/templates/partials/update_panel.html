@@ -20,7 +20,8 @@
   </dl>
   <p data-update="notice" class="placeholder"></p>
   <p data-update="blocker" class="toast error" hidden></p>
-  {# 変更操作。機体の更新は、操作権が空いていれば backend が取る（ほかの端末が持っていれば断られる）。
+  {# 変更操作。確認は操作権なしで受ける。機体の更新の実行は、操作権が空いていれば backend が取る
+     （ほかの端末が持っていれば断られる。取った操作権は更新後の再起動で消える）。
      案内の p もこの中に置く（更新が無効なホストでは update.js がこの div ごと隠す） #}
   <div class="update-actions">
     <p class="placeholder" style="flex-basis: 100%">「更新を確認」で最新を取得します。更新があれば「更新して再起動」を押せるようになります。</p>

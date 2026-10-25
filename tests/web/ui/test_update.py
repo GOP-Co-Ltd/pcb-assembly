@@ -125,7 +125,7 @@ class TestPage:
     def test_actions_are_not_control_gated(self, update_client: TestClient):
         """このページに操作権バーは無い。印を付けると control.js が永久に inert にする.
 
-        機体の更新は、操作権が空いていれば backend が要求で取り、ほかの端末が持っていれば断る。
+        機体の更新の確認は操作権なしで受け、実行は操作権が空いていれば backend が要求で取り、ほかの端末が持っていれば断る。
         """
         body = update_client.get("/update").text
 

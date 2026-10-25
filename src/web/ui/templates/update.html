@@ -1,7 +1,7 @@
 {# 唯一の更新ページ（マシン非依存）。UI サーバー自身と、登録済みの全機体のパネルを並べる。
    frontend 専用機はここからしか更新できない。機体の更新は proxy 経由で各 backend の
-   /api/update/** を呼ぶ（版のずれた機体へも中継される）。操作権は、空いていれば backend が
-   更新の要求で取るので、パネルに data-requires-control は付けない。 #}
+   /api/update/** を呼ぶ（版のずれた機体へも中継される）。確認は操作権なしで受け、実行は
+   操作権が空いていれば backend が要求で取る（再起動で消える）ので、パネルに data-requires-control は付けない。 #}
 {% extends "base.html" %}
 {% block title %}{{ title }} — PCB Assembly WebUI{% endblock %}
 {# サイドバーもマシン制御も無いので 1 列にする（既定の 3 列グリッドのままだと

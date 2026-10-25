@@ -13,6 +13,7 @@ UI の配信は ``web.ui`` の担当。
 - 緊急停止（``POST /api/emergency-stop``）とジョブの中止（``POST /api/jobs/current/abort``、WS の ``abort``）
 - 操作権の奪取（``POST /api/session/control/takeover``）
 - GET 全般と、装置を動かさない計算用の POST
+- 更新の確認（``POST /api/update/check``。remote を fetch するだけで、装置も作業ツリーも変えない）
 
 例外から HTTP ステータスへの変換は ``errors`` に集まっている。
 """
