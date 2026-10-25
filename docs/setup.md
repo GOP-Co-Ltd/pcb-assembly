@@ -75,7 +75,7 @@ OS をインストールした Raspberry Pi 上で、次の順に実行する。
 開発は VSCode でリモートアクセスして行うことを推奨する。
 開発に参加する場合は [CONTRIBUTING](../CONTRIBUTING.md) を参照する。
 
-セットアップ後は [WebUI の使い方](webui.md) へ進む。常駐起動は [運用ガイド](operations.md) を参照する。
+セットアップ後は [立ち上げ](commissioning.md) の順に機体を整え、[WebUI の使い方](webui.md) へ進む。常駐起動は [運用ガイド](operations.md) を参照する。
 
 ## GitHub Actions Runner
 
