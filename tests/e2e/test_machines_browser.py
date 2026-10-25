@@ -1,6 +1,6 @@
-"""一括管理ページ（``/bulk``）の行操作を実ブラウザで確かめる E2E.
+"""機体一覧（``/machines``）の行操作を実ブラウザで確かめる E2E.
 
-SSR テスト（`tests/web/ui/test_bulk.py`）は行の配線までしか見られない。ここでは
+SSR テスト（`tests/web/ui/test_machines_page.py`）は行の配線までしか見られない。ここでは
 行のボタンが ``/m/{machine_id}/api/**`` 経由でその機体の backend に効くことを見る。
 
 - 行で取った操作権は、その機体のページでも自分のものになる（同じセッション cookie）
@@ -52,13 +52,13 @@ def paste_ui(live_server: LiveServer, tmp_path: Path) -> Iterator[LiveUi]:
         running.stop()
 
 
-class TestBulkRow:
+class TestMachinesRow:
     def test_acquire_by_other_client_is_reflected_without_reload(
         self, live_server: LiveServer, paste_ui: LiveUi, browser_page
     ):
-        browser_page.goto(f"{paste_ui.origin}/bulk")
-        row = browser_page.get_by_test_id(f"bulk-row-{E2E_MACHINE_ID}")
-        holder = row.get_by_test_id("bulk-holder")
+        browser_page.goto(f"{paste_ui.origin}/machines")
+        row = browser_page.get_by_test_id(f"machines-row-{E2E_MACHINE_ID}")
+        holder = row.get_by_test_id("machines-holder")
         expect(holder).to_have_text("空き")
 
         # 別のセッションが backend で直接取得する（WS の control_changed が行へ届く）
@@ -70,35 +70,35 @@ class TestBulkRow:
         assert response.status_code == 200
 
         expect(holder).to_contain_text("が保持中")
-        expect(row.get_by_test_id("bulk-acquire")).to_be_disabled()
+        expect(row.get_by_test_id("machines-acquire")).to_be_disabled()
 
     def test_acquire_in_row_is_shared_with_machine_page_and_release(
         self, paste_ui: LiveUi, browser_page
     ):
-        browser_page.goto(f"{paste_ui.origin}/bulk")
-        row = browser_page.get_by_test_id(f"bulk-row-{E2E_MACHINE_ID}")
-        holder = row.get_by_test_id("bulk-holder")
+        browser_page.goto(f"{paste_ui.origin}/machines")
+        row = browser_page.get_by_test_id(f"machines-row-{E2E_MACHINE_ID}")
+        holder = row.get_by_test_id("machines-holder")
         expect(holder).to_have_text("空き")
 
-        row.get_by_test_id("bulk-acquire").click()
+        row.get_by_test_id("machines-acquire").click()
         expect(holder).to_have_text("あなた")
-        expect(row.get_by_test_id("bulk-acquire")).to_be_hidden()
+        expect(row.get_by_test_id("machines-acquire")).to_be_hidden()
 
-        browser_page.goto(f"{paste_ui.base_url}/posctrl")
+        browser_page.goto(f"{paste_ui.base_url}/klipper_status")
         expect(browser_page.locator("body")).to_have_attribute("data-control", "held")
 
-        browser_page.goto(f"{paste_ui.origin}/bulk")
-        row.get_by_test_id("bulk-release").click()
+        browser_page.goto(f"{paste_ui.origin}/machines")
+        row.get_by_test_id("machines-release").click()
         expect(holder).to_have_text("空き")
-        expect(row.get_by_test_id("bulk-release")).to_be_hidden()
+        expect(row.get_by_test_id("machines-release")).to_be_hidden()
 
     def test_paste_run_reaches_backend_job_api(self, paste_ui: LiveUi, browser_page):
-        browser_page.goto(f"{paste_ui.origin}/bulk")
-        row = browser_page.get_by_test_id(f"bulk-row-{E2E_MACHINE_ID}")
-        run = row.get_by_test_id("bulk-paste-run")
+        browser_page.goto(f"{paste_ui.origin}/machines")
+        row = browser_page.get_by_test_id(f"machines-row-{E2E_MACHINE_ID}")
+        run = row.get_by_test_id("machines-paste-run")
         expect(run).to_be_disabled()
 
-        row.get_by_test_id("bulk-acquire").click()
+        row.get_by_test_id("machines-acquire").click()
         expect(run).to_be_enabled()
         browser_page.once("dialog", lambda dialog: dialog.accept())
         run.click()

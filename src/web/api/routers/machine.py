@@ -135,7 +135,7 @@ def post_firmware_restart(
     warning = update.restart_services() or ""
     return FirmwareRestartResponse(
         message=(
-            "ファームウェア再起動を送信しました。"
+            "再起動（復旧）を送信しました。"
             + ("" if warning else restart_scheduled_notice(units))
         ),
         warning=warning,

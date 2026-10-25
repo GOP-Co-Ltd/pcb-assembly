@@ -1,5 +1,7 @@
-{# UI frontend 自身の更新ページ（マシン非依存）。frontend 専用機はここからしか
-   更新できない。操作権の概念が無い層なので data-requires-control は付けない。 #}
+{# 唯一の更新ページ（マシン非依存）。UI サーバー自身と、登録済みの全機体のパネルを並べる。
+   frontend 専用機はここからしか更新できない。機体の更新は proxy 経由で各 backend の
+   /api/update/** を呼ぶ（版のずれた機体へも中継される）。操作権は、空いていれば backend が
+   更新の要求で取るので、パネルに data-requires-control は付けない。 #}
 {% extends "base.html" %}
 {% block title %}{{ title }} — PCB Assembly WebUI{% endblock %}
 {# サイドバーもマシン制御も無いので 1 列にする（既定の 3 列グリッドのままだと
@@ -9,37 +11,49 @@
 <section class="main-pane" data-testid="main-pane">
   <h1>{{ title }}</h1>
   <p class="placeholder">
-    この画面を配信している UI サーバー自身を <code>main</code> の最新へ
-    fast-forward し、依存を同期して再起動します。再起動の間はこのページが
-    一時的に開けなくなります。
+    各ホストのソースを <code>main</code> の最新へ fast-forward し、依存を同期してサービスを再起動します。
+    ジョブの実行中、またはローカルの変更や未 push の commit があるときは更新しません。
+    再起動の間は、その機体のページ（同居機ならこのページも）が一時的に開けなくなります。
   </p>
-  {% with update_status_url = "/api/self-update",
+  <h2>UI サーバー</h2>
+  {% with update_key = "frontend",
+          update_label = "UI サーバー",
+          update_status_url = "/api/self-update",
           update_check_url = "/api/self-update/check",
           update_run_url = "/api/self-update/run",
-          update_transport = "frontend",
-          update_requires_control = False %}
+          update_transport = "frontend" %}
   {% include "partials/update_panel.html" %}
   {% endwith %}
-  <section class="status-card">
-    <h3>機体の更新</h3>
-    {% if machines %}
-    <p>各機体の backend はそれぞれのページから更新します。この UI サーバーを更新する前（両機が同じ版のうち）にバックアップを取っておくと、設定と運用データを戻せます。版が違う機体（更新専用）からは取れません。</p>
-    <ul>
-      {% for machine in machines %}
-      <li>
-        <a href="/m/{{ machine.machine_id }}/dev/update">{{ machine.label }}</a>
-        {# 更新専用の機体へは更新と緊急停止しか中継しない #}
-        {% if not machine.update_only %}
-        （<a href="/m/{{ machine.machine_id }}/api/backup" download
-             data-testid="backup-{{ machine.machine_id }}">バックアップ</a>）
-        {% endif %}
-      </li>
-      {% endfor %}
-    </ul>
-    {% else %}
-    <p class="placeholder">登録されている機体はありません。</p>
-    {% endif %}
-  </section>
+  {# 同居機は UI サーバーと同じ作業リポジトリなので、パネルが 2 枚あっても更新先は 1 つ #}
+  {% if own_machine %}
+  <p class="placeholder" data-testid="update-colocated">
+    このホストは機体 {{ own_machine.machine_id }} を兼ねています（同居機）。UI サーバーと {{ own_machine.machine_id }} の
+    どちらのパネルで更新しても、同じソースが更新され、両方のサービスが再起動します。
+  </p>
+  {% endif %}
+  <h2>機体</h2>
+  {% if machines %}
+  <p class="placeholder">UI サーバーを更新する前（両機が同じ版のうち）にバックアップを取っておくと、設定と運用データを戻せます。版が違う機体（更新専用）からは取れません。</p>
+  {% for machine in machines %}
+  {% with update_key = machine.machine_id,
+          update_label = machine.label,
+          update_status_url = "/m/" ~ machine.machine_id ~ "/api/update/status",
+          update_check_url = "/m/" ~ machine.machine_id ~ "/api/update/check",
+          update_run_url = "/m/" ~ machine.machine_id ~ "/api/update/run",
+          update_transport = "backend" %}
+  {% include "partials/update_panel.html" %}
+  {% endwith %}
+  {# 更新専用の機体へは更新と緊急停止しか中継しない #}
+  {% if machine.update_only %}
+  <p class="placeholder" data-testid="update-only-{{ machine.machine_id }}">{{ machine.label }} は UI サーバーと版が違います（更新専用）。</p>
+  {% else %}
+  <p><a href="/m/{{ machine.machine_id }}/api/backup" download
+        data-testid="backup-{{ machine.machine_id }}">{{ machine.label }} のバックアップをダウンロード</a></p>
+  {% endif %}
+  {% endfor %}
+  {% else %}
+  <p class="placeholder">登録されている機体はありません。</p>
+  {% endif %}
 </section>
 {% endblock %}
 {% block scripts %}

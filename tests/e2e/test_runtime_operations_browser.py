@@ -161,7 +161,7 @@ class TestScopedRuntimeOperations:
     ):
         ui, transport = delayed_operation_ui
         page = browser_page
-        page.goto(f"{ui.base_url}/pasting/dispense_calibration")
+        page.goto(f"{ui.base_url}/dispense_calibration")
         acquire_control(page)
         _start(page, ui)
         transport.pause("params")
@@ -188,7 +188,7 @@ class TestScopedRuntimeOperations:
     ):
         ui, transport = delayed_operation_ui
         page = browser_page
-        page.goto(f"{ui.base_url}/pasting/dispense_calibration")
+        page.goto(f"{ui.base_url}/dispense_calibration")
         acquire_control(page)
         _start(page, ui)
         transport.pause("command")
@@ -206,7 +206,7 @@ class TestScopedRuntimeOperations:
         self, live_ui: LiveUi, browser_page
     ):
         page = browser_page
-        page.goto(f"{live_ui.base_url}/pasting/dispense_calibration")
+        page.goto(f"{live_ui.base_url}/dispense_calibration")
         acquire_control(page)
         _start(page, live_ui, "other_calibration")
 

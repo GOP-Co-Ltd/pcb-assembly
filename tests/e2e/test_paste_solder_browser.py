@@ -108,7 +108,7 @@ def _patch_pad_config_node(
 
 def _open_pasting_pad_editor(page: Any, live_ui: LiveUi, feature: str):
     page.goto(
-        f"{live_ui.base_url}/pasting/{feature}",
+        f"{live_ui.base_url}/{feature}",
         wait_until="domcontentloaded",
     )
     # 変更系（pad 編集・ジョブ開始）は操作権が無いと inert でクリックが届かない
@@ -439,7 +439,7 @@ class TestPasteSolderBrowserRendering:
         tests/web/api/routers/pasting/test_calibration.py::TestPasteDatasetLayout が担当する。
         """
         browser_page.goto(
-            f"{live_ui.base_url}/pasting/paste_volume_calibration",
+            f"{live_ui.base_url}/paste_volume_calibration",
             wait_until="domcontentloaded",
         )
         cells = browser_page.locator("#pdl-view .pdl-cell")
@@ -1114,7 +1114,9 @@ class TestPasteSolderBrowserResponsiveLayout:
         browser_page.set_viewport_size({"width": 1280, "height": 900})
         # localStorage を触る前にオリジンを確保する（実ページを開く。`/m/{id}` 単体は
         # 既定タブへの 307 なので、素の prefix を開くと余計な遷移が挟まる）
-        browser_page.goto(f"{live_ui.base_url}/posctrl", wait_until="domcontentloaded")
+        browser_page.goto(
+            f"{live_ui.base_url}/klipper_status", wait_until="domcontentloaded"
+        )
         browser_page.evaluate("localStorage.removeItem('mc-sidebar-collapsed')")
         _open_paste_solder(browser_page, live_ui)
 

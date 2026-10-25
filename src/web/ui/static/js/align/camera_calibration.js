@@ -1,7 +1,7 @@
 "use strict";
 
 // カメラキャリブレーションページ。square_size を入力時に保存し、次回表示時に復元する。
-// クロップ設定は settings ページの汎用即保存フォームで扱う（このページには置かない）。
+// クロップ設定は設定ページ（machine_config）の汎用即保存フォームで扱う（このページには置かない）。
 
 (() => {
   const { api, debounce } = window.webui;

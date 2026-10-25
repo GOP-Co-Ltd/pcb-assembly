@@ -136,7 +136,7 @@ def delayed_prompt_ui(
 
 
 def _open_prompt(page, ui: LiveUi) -> None:
-    page.goto(f"{ui.base_url}/posctrl/camera_calibration")
+    page.goto(f"{ui.base_url}/camera_calibration")
     acquire_control(page)
     page.locator("#job-run").click()
     expect(page.locator("#jc-prompt-input")).to_have_value("12")
@@ -149,9 +149,7 @@ class TestJobPrompts:
     ):
         ui, transport = delayed_prompt_ui
         page = browser_page
-        page.goto(
-            f"{ui.base_url}/posctrl/camera_calibration", wait_until="domcontentloaded"
-        )
+        page.goto(f"{ui.base_url}/camera_calibration", wait_until="domcontentloaded")
         assert transport.wait_received()
         acquire_control(page)
         page.locator("#job-run").click()
@@ -214,7 +212,7 @@ class TestJobPrompts:
         assert transport.wait_received()
 
         replacement = browser_pages()
-        replacement.goto(f"{ui.base_url}/posctrl/camera_calibration")
+        replacement.goto(f"{ui.base_url}/camera_calibration")
         acquire_control(replacement)
         expect(operator.locator("body")).to_have_attribute("data-control", "viewer")
         transport.resume()

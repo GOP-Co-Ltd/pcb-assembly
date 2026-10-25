@@ -386,6 +386,7 @@ class TestLayoutFieldNamesStayInSync:
             / "ui"
             / "static"
             / "js"
+            / "pasting"
             / "paste_dataset_layout.js"
         ).read_text(encoding="utf-8")
 

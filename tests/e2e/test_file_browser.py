@@ -11,7 +11,7 @@ from tests.web.api.conftest import COPPER_PCB_FIXTURE
 
 
 def _open_file_browser(live_ui: LiveUi, page):
-    page.goto(f"{live_ui.base_url}/pasting/loading")
+    page.goto(f"{live_ui.base_url}/loading")
     acquire_control(page)
     menu = page.get_by_test_id("topbar-menu")
     if menu.get_attribute("open") is None:

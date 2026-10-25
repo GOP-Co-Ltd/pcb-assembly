@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import socket
 from pathlib import Path
 
 import attrs
@@ -26,6 +27,8 @@ class Settings:
     host: str = "0.0.0.0"
     # 同居機では 8080 = UI / 8081 = API に分ける
     port: int = 8080
+    # frontend 自身のホスト名。`/` はこれと同じ machine_id の機体（同居機）を開く
+    hostname: str = attrs.field(factory=socket.gethostname)
     # 静的登録のマシン。実運用では machines_file から読んだ分をアプリ側で足す
     # （テストは直接注入する）
     machines: tuple[MachineEndpoint, ...] = ()

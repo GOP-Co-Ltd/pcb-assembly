@@ -298,9 +298,7 @@ class TestPadTableHeaderOverRealHttp:
     """
 
     def test_static_header_has_only_node_and_enabled_columns(self, live_ui: LiveUi):
-        page = httpx.get(
-            f"{live_ui.base_url}/pasting/paste_solder", timeout=_HTTP_TIMEOUT
-        )
+        page = httpx.get(f"{live_ui.base_url}/paste_solder", timeout=_HTTP_TIMEOUT)
         assert page.status_code == 200
 
         # 設定フィールドの見出しはサーバ定義（fields）から描くため静的 HTML には 2 列だけ

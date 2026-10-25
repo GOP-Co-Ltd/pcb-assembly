@@ -1,6 +1,6 @@
 "use strict";
 
-// 一括管理ページ（/bulk）の行操作。行（[data-row-base]）1 つが機体 1 台に対応する。
+// 機体一覧（/machines）の行操作。行（[data-row-base]）1 つが機体 1 台に対応する。
 // 操作権・状態・WS はすべて機体ごとに別で、行ごとに独立して動く。
 //
 // 宛先: このページはマシン非依存なので、app.js の機体 prefix（BASE）が空になる。
@@ -15,7 +15,7 @@
 // state の値: held = 自分が保持 / viewer = 他の端末が保持 / free = 空き /
 // unknown = 操作権の状態を取得できない（機体が不通など）。
 // state ごとのボタン（隠す = hidden、押せない = 表示したまま disabled）:
-//   state   | 取得     | 解放   | 更新・塗布実行
+//   state   | 取得     | 解放   | 塗布実行
 //   free    | 押せる   | 隠す   | 押せない
 //   viewer  | 押せない | 隠す   | 押せない
 //   held    | 隠す     | 押せる | 押せる
@@ -26,7 +26,7 @@
 // - WS の open と close
 // - WS の control_changed / state_changed
 // - 行のボタン操作が終わったとき（成功・失敗を問わない）
-// 更新の要約（GET /api/update/status）は WS の open のときだけ取り直す。
+// 更新の要約（GET /api/update/status）は WS の open のときだけ取り直す。更新の操作は /update で行う。
 //
 // 表示する値（更新の要約・PCB 名・保持者名）はサーバの応答をそのまま流す。
 
@@ -42,14 +42,13 @@
     const base = row.dataset.rowBase;
     const label = row.dataset.label;
     const part = (id) => row.querySelector(`[data-testid="${id}"]`);
-    const holderEl = part("bulk-holder");
-    const acquireButton = part("bulk-acquire");
-    const releaseButton = part("bulk-release");
-    const updateSummary = part("bulk-update-summary");
-    const updateButton = part("bulk-update");
+    const holderEl = part("machines-holder");
+    const acquireButton = part("machines-acquire");
+    const releaseButton = part("machines-release");
+    const updateSummary = part("machines-update-summary");
     // ペーストの行にだけある
-    const pcbEl = part("bulk-pcb");
-    const runButton = part("bulk-paste-run");
+    const pcbEl = part("machines-pcb");
+    const runButton = part("machines-paste-run");
 
     // 冒頭の state の値（control.js と同じ区分）。最初の応答までは null で、
     // SSR の「確認中…」を残す
@@ -88,7 +87,6 @@
       releaseButton.hidden = state !== "held";
       releaseButton.disabled = pending;
       const blocked = pending || state !== "held";
-      updateButton.disabled = blocked;
       // 不通の機体では前回の PCB を出し続けない
       if (pcbEl) pcbEl.textContent = state === "unknown" ? "---" : pcbFile ?? "PCB未選択";
       if (runButton) runButton.disabled = blocked;
@@ -131,25 +129,6 @@
     );
     releaseButton.addEventListener("click", () =>
       run(async () => applySnapshot(await api("POST", `${base}/api/session/control/release`)))
-    );
-
-    updateButton.addEventListener("click", () =>
-      run(async () => {
-        const status = await api("POST", `${base}/api/update/check`);
-        updateSummary.textContent = status.summary;
-        if (!status.update_available) {
-          toast(`${label}: ${status.summary}`);
-          return;
-        }
-        // 文言はサーバが組んだものをそのまま出す（update.js と同じ）
-        if (!window.confirm(`${status.hostname}\n${status.restart_notice}\n実行しますか？`)) {
-          return;
-        }
-        await api("POST", `${base}/api/update/run`, {
-          expected_head: status.repository.head,
-        });
-        toast(`${label}: 更新を開始しました`);
-      })
     );
 
     if (runButton) {

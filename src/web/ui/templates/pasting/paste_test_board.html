@@ -1,5 +1,4 @@
-{% extends "tab.html" %}
-{% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
+{% extends "feature.html" %}
 {% block main %}
 <div id="paste-test-board" class="ptb-board"
      data-testid="paste-test-board">
@@ -131,5 +130,5 @@
 {% endblock %}
 {% block scripts %}
 {{ super() }}
-<script src="{{ static_asset('js/paste_test_board.js') }}"></script>
+<script src="{{ static_asset('js/pasting/paste_test_board.js') }}"></script>
 {% endblock %}

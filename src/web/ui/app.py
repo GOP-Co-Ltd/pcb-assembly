@@ -177,7 +177,7 @@ def create_app(
         )
 
     # プロキシは pages ルータより先に登録する。逆にすると /m/x/api/session/state が
-    # /m/{machine_id}/{tab}/{feature} に先にマッチして 404 になる
+    # pages ルータの /m/{machine_id}/{tab}/{slug} やキャッチオールに先にマッチする
     app.mount(
         "/m/{machine_id}/api",
         ProxyApp(
@@ -198,11 +198,11 @@ def create_app(
     )
     # prefix なし（全マシンでブラウザキャッシュを共有する）
     app.mount("/static", _NoCacheStaticFiles(directory=_STATIC_DIR), name="static")
-    # pages ルータより先に登録する（後だと /{tab} のキャッチオールに先にマッチし、
+    # pages ルータより先に登録する（後だと /{suffix:path} のキャッチオールに先にマッチし、
     # ドロップダウン更新が HTML を受け取る）
     app.include_router(machines_api.router)
-    # 同上。/update が /{tab} にマッチすると、更新ページの代わりにマシンピッカーが出る
+    # 同上。/update がキャッチオールにマッチすると、更新ページの代わりに自機か機体一覧へ飛ぶ
     app.include_router(update_api.router)
-    # /{tab} のキャッチオールを持つため最後に登録する
+    # キャッチオールを持つため最後に登録する
     app.include_router(pages.router)
     return app

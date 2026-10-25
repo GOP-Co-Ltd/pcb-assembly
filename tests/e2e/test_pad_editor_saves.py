@@ -47,7 +47,7 @@ def delayed_save_ui(
 
 
 def _open_editor(ui: LiveUi, page):
-    page.goto(f"{ui.base_url}/pasting/paste_solder", wait_until="domcontentloaded")
+    page.goto(f"{ui.base_url}/paste_solder", wait_until="domcontentloaded")
     acquire_control(page)
     root = page.locator('tr[data-node-id="L0"]')
     expect(root.locator('input[data-field="ul_per_mm2"]')).to_have_value("0.15")

@@ -1,6 +1,6 @@
 """``GET /api/machines``: マシン登録一覧の同期ダンプ.
 
-`web.ui.pages` の ``/{tab}`` キャッチオールに先にマッチしないよう、アプリでは
+`web.ui.pages` の ``/{suffix:path}`` キャッチオールに先にマッチしないよう、アプリでは
 `pages.router` より先に登録する（`web.ui.app.create_app`）。
 
 mDNS で一覧が増減しても、再読み込みせずにドロップダウンを組み替えるために置く。

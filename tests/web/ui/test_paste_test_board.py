@@ -4,7 +4,7 @@ import re
 
 from fastapi.testclient import TestClient
 
-_PAGE = "/m/uitest/pasting/paste_test_board"
+_PAGE = "/m/uitest/paste_test_board"
 _API = "/m/uitest/api/pasting/test_board"
 
 
@@ -23,7 +23,7 @@ class TestPasteTestBoardPage:
         assert "テスト塗布基板生成" in text
         assert 'data-testid="ptb-pattern-table"' in text
         assert 'data-testid="ptb-preview"' in text
-        assert "js/paste_test_board.js?v=" in text
+        assert "js/pasting/paste_test_board.js?v=" in text
 
     def test_page_actions_do_not_require_machine_control(
         self, frontend_client: TestClient

@@ -21,10 +21,7 @@ from web.contract.models import SettingsField
 from web.ui import layout
 from web.ui.layout import (
     DISPENSE_CALIBRATION_PARAM_GROUPS,
-    FEATURE_TEMPLATES,
     PASTE_VOLUME_CALIBRATION_PARAM_GROUPS,
-    TAB_LABELS,
-    TABS,
 )
 
 _UI_DIR = Path(layout.__file__).parent
@@ -54,53 +51,14 @@ def _js_code_lines(marker: str) -> list[str]:
     ]
 
 
-class TestTabs:
-    """タブの表示知識（欠けるとヘッダ描画やページ描画が KeyError で 500 する）."""
+class TestUpdatePanel:
+    """更新ページは UI サーバーと機体で同じパネルと JS を使う（DOM と JS を分岐させない）."""
 
-    def test_every_tab_has_a_label(self):
-        assert set(TABS) == set(TAB_LABELS)
+    def test_update_page_shares_one_panel_and_script(self):
+        body = (_TEMPLATES_DIR / "update.html").read_text(encoding="utf-8")
 
-    def test_feature_slugs_are_unique_across_tabs(self):
-        """Feature slug は URL とジョブ名の突き合わせに使うので重複させない."""
-        slugs = [slug for features in TABS.values() for slug in features]
-
-        assert len(slugs) == len(set(slugs))
-
-
-class TestFeatureTemplates:
-    """テンプレート割り当て（存在しない名前は描画時 500 になる）."""
-
-    def test_every_declared_feature_has_a_template(self):
-        assert set(FEATURE_TEMPLATES) == {
-            (tab, feature) for tab, features in TABS.items() for feature in features
-        }
-
-    @pytest.mark.parametrize("name", sorted(set(FEATURE_TEMPLATES.values())))
-    def test_template_file_exists(self, name: str):
-        assert (_TEMPLATES_DIR / name).is_file()
-
-    def test_job_templates_are_assigned_to_features(self):
-        """ジョブコンテキストを注入する対象は feature のテンプレートに限る."""
-        assert layout.JOB_TEMPLATES <= set(FEATURE_TEMPLATES.values())
-
-
-class TestSoftwareUpdateFeature:
-    """ソフトウェア更新は dev タブの feature だが**ジョブではない**.
-
-    計画書「3. frontend」: `TABS["dev"]` / `FEATURE_LABELS` / `FEATURE_TEMPLATES` の
-    3 点だけを足して既存 `feature_page` フローに乗せる。`JOB_TEMPLATES` に入れると
-    `feature_page` が backend のジョブ定義を要求し、ジョブではないため 503 になる。
-    """
-
-    def test_update_is_not_a_job_template(self):
-        assert "dev/update.html" not in layout.JOB_TEMPLATES
-
-    def test_both_update_pages_share_one_panel_and_script(self):
-        """Backend 側と frontend 自身のページで DOM と JS を分岐させない."""
-        for name in ("dev/update.html", "update.html"):
-            body = (_TEMPLATES_DIR / name).read_text(encoding="utf-8")
-            assert "partials/update_panel.html" in body, name
-            assert "js/update.js" in body, name
+        assert body.count('{% include "partials/update_panel.html" %}') == 2
+        assert "js/update.js" in body
 
 
 class TestStaticAssets:
@@ -131,7 +89,7 @@ class TestSinglePaneLayout:
 
     `app.css` の `.layout` は「サイドバー / 本文 / マシン制御」の 3 列グリッドで、
     `main-pane` だけを置くと本文が 1 列目（14rem）に押し込まれて読めなくなる。
-    `tab.html` 経由のページは 3 枠すべてを埋めるので宣言しない。
+    `feature.html` 経由のページは 3 枠すべてを埋めるので宣言しない。
     """
 
     def test_sidebarless_pages_declare_single_pane(self):
@@ -176,7 +134,7 @@ class TestMachinePrefixFunnel:
     def test_websocket_url_is_prefixed(self):
         lines = _js_code_lines("new WebSocket(")
 
-        # 機体ページの job_console.js と、一括管理の bulk.js（行ごとに機体を明示）
+        # 機体ページの job_console.js と、機体一覧の machines.js（行ごとに機体を明示）
         assert len(lines) == 2
         assert all("withBase(" in line for line in lines)
 

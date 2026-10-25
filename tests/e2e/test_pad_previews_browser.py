@@ -41,7 +41,7 @@ class TestPadPreviews:
         ui, transport, kind = delayed_preview_ui
         page = browser_page
         select_led_blinker(live_server)
-        page.goto(f"{ui.base_url}/pasting/paste_solder", wait_until="domcontentloaded")
+        page.goto(f"{ui.base_url}/paste_solder", wait_until="domcontentloaded")
         acquire_control(page)
         calculate = page.locator(f"#pad-calculate-{kind}")
         overlay = page.get_by_test_id(f"pad-{kind}-overlay")

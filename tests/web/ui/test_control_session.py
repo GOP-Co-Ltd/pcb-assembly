@@ -99,7 +99,7 @@ class TestSessionCookie:
     def test_html_page_issues_an_httponly_session_cookie(
         self, frontend_client: TestClient
     ):
-        response = frontend_client.get(f"/m/{MACHINE_ID}/posctrl")
+        response = frontend_client.get(f"/m/{MACHINE_ID}/klipper_status")
 
         assert response.status_code == 200, response.text
         (issued,) = _session_cookie_headers(response)
@@ -110,7 +110,9 @@ class TestSessionCookie:
         self, frontend_client: TestClient
     ):
         """`Path` を狭めると MJPEG（`img.src`）と WS に cookie が乗らなくなる."""
-        (issued,) = _session_cookie_headers(frontend_client.get(f"/m/{MACHINE_ID}/dev"))
+        (issued,) = _session_cookie_headers(
+            frontend_client.get(f"/m/{MACHINE_ID}/audio")
+        )
 
         assert "Path=/;" in f"{issued};"
 
@@ -118,10 +120,10 @@ class TestSessionCookie:
         self, frontend_client: TestClient
     ):
         """ページ遷移ごとに発行し直すと、遷移するたび別人になり操作権が離れる."""
-        frontend_client.get(f"/m/{MACHINE_ID}/posctrl")
+        frontend_client.get(f"/m/{MACHINE_ID}/klipper_status")
         first = frontend_client.cookies[SESSION_COOKIE]
 
-        response = frontend_client.get(f"/m/{MACHINE_ID}/pasting")
+        response = frontend_client.get(f"/m/{MACHINE_ID}/paste_test_board")
 
         assert _session_cookie_headers(response) == []
         assert frontend_client.cookies[SESSION_COOKIE] == first
@@ -151,7 +153,7 @@ class TestSessionCookie:
         ブラウザ（= cookie jar を持つ TestClient）の視点で、発行・スコープ・ヘッダ翻訳が
         繋がっていることを 1 本で確かめる。`Path` を機体 prefix に狭めるとここで切れる。
         """
-        page = echo_frontend.get(f"/m/{MACHINE_ID}/posctrl")
+        page = echo_frontend.get(f"/m/{MACHINE_ID}/klipper_status")
         assert _session_cookie_headers(page) != []
         session = echo_frontend.cookies[SESSION_COOKIE]
 

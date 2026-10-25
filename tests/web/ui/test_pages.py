@@ -4,9 +4,9 @@
 `/api/jobs` / `/api/machine_config` から取る（計画書 docs/plans/web-api-ui-split.md の
 「MR2」「MR4」節）。frontend は薄いラッパーなので、ここで押さえるのは次の 5 つに絞る:
 
-- **URL 空間**: `/` の 307、未 prefix URL の 307、`/m/{machine_id}` prefix、プロキシ経路が
-  pages ルータに食われないこと、未知タブ / 未知 feature の 404
-- **backend が居ないとき**: 登録 0 台での案内ページ、到達不能の 503、版ずれの 503、更新専用ページ
+- **URL 空間**: `/` の 307（自機の着地点か機体一覧）、未 prefix URL の 307、`/m/{machine_id}` prefix、
+  旧 URL の 307、プロキシ経路が pages ルータに食われないこと、未知 feature の 404
+- **backend が居ないとき**: 登録 0 台での案内、到達不能の 503、版ずれの 503、更新専用ページ
 - **値を捏造しないこと**: 未記載キーは backend の `resolved` で描き、解決できないときは
   0 で埋めず 503 にする（スライダーの value がそのまま machine.toml へ書き戻るため）
 - **machine.toml が壊れても SSR が 500 しない**（設定の現在値を要る
@@ -16,8 +16,8 @@
 
 表示文字列・DOM id の網羅確認とページ上の実操作は `tests/e2e/` が実ブラウザで持つ。
 
-実体の URL は `/m/{machine_id}/…` だが、既知マシンが 1 台なら未 prefix URL が 307 するので、
-`follow_redirects` 既定 True の `TestClient` では prefix 無しのパスで叩ける。backend の
+実体の URL は `/m/{machine_id}/…` だが、`ui_settings` は同居機（frontend のホスト名 = machine_id）なので
+未 prefix URL が自機へ 307 し、`follow_redirects` 既定 True の `TestClient` では prefix 無しのパスで叩ける。backend の
 Settings を差し替える検証は、その backend を上流に挿した frontend を組む（`_frontend_over`）。
 """
 
@@ -35,41 +35,29 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from pcbasm.config.fields import setting_fields
-from tests.support.backend import standalone_catalog
 from tests.web.ui.conftest import BACKEND_MACHINE_ID
 from web.api.app import create_app as create_backend_app
 from web.api.backend import Backend
 from web.api.env import Env as ApiEnv
 from web.api.jobs.runtime.catalog import JobCatalog
 from web.ui.app import create_app as create_frontend_app
-from web.ui.layout import (
-    BULK_PATH,
-    FEATURE_TEMPLATES,
-    JOB_TEMPLATES,
-    TABS as PAGE_TABS,
-)
+from web.ui.features import FEATURES, TABS, tab_features
 from web.ui.machines import MachineEndpoint
 from web.ui.settings import Settings as UiSettings
 
-TABS = ["dev", "pasting", "posctrl"]
-
 # SSR で描画される全ページ（/ は 307 なので除く）
-ALL_PAGE_URLS = ["/settings"] + [
-    url
-    for tab, features in PAGE_TABS.items()
-    for url in (f"/{tab}", *(f"/{tab}/{feature}" for feature in features))
-]
+ALL_PAGE_URLS = [f"/{feature.slug}" for feature in FEATURES]
 
 # 設定フォームの現在値（ConfigStore / tomlkit）や paste_dispenser・alignment の
 # 現在値をコンテキストに載せるページ。machine.toml がパース不能だと backend の
 # `/api/machine_config` が 500 になり、frontend は 503 ページを返す（直す経路は設定履歴）
 _MACHINE_TOML_DEPENDENT_URLS = frozenset(
     {
-        "/settings",
-        "/pasting/paste_solder",
-        "/pasting/loading",
-        "/pasting/nozzle_cap",
-        "/posctrl/copper_detection",
+        "/machine_config",
+        "/paste_solder",
+        "/loading",
+        "/nozzle_cap",
+        "/copper_detection",
     }
 )
 
@@ -81,11 +69,7 @@ ROBUST_PAGE_URLS = [
 _OVERLAY_RADIO_RE = re.compile(r"<input[^>]*name=\"overlay\"[^>]*>")
 
 # ジョブコンテキスト（job_name / param_specs）が注入される全ページ
-JOB_PAGES = sorted(
-    (tab, feature)
-    for (tab, feature), template in FEATURE_TEMPLATES.items()
-    if template in JOB_TEMPLATES
-)
+JOB_PAGES = sorted(feature.slug for feature in FEATURES if feature.is_job)
 
 
 def _loading_amount_input(default: object) -> str:
@@ -212,29 +196,25 @@ def _frontend_over(
 class TestPages:
     """Jinja2 ページ配信."""
 
-    def test_root_redirects_to_posctrl(
+    def test_root_opens_the_paste_page_of_this_host_machine(
         self, client: TestClient, ui_settings: UiSettings
     ):
-        """MR4: 既知マシンが 1 台なら `/m/{machine_id}/posctrl` へ 307 する.
-
-        リダイレクト先に machine prefix が付く点だけが移設前と違う（従来は
-        `/posctrl`）。prefix が無いと `/{tab}` の入口へ戻ってループする。
-        """
+        """同居機の `:8080` を開くと、クリック無しで自機の塗布ページに着く."""
         response = client.get("/", follow_redirects=False)
 
         assert response.status_code == 307
         machine_id = ui_settings.machines[0].machine_id
-        assert response.headers["location"] == f"/m/{machine_id}/posctrl"
+        assert response.headers["location"] == f"/m/{machine_id}/paste_solder"
 
-    @pytest.mark.parametrize("tab", TABS)
-    def test_tab_page_renders_with_common_chrome(
+    @pytest.mark.parametrize("tab", list(TABS))
+    def test_tab_landing_renders_with_common_chrome(
         self, client: TestClient, backend_settings: ApiEnv, tab: str
     ):
-        response = client.get(f"/{tab}")
+        response = client.get(f"/{tab_features(tab)[0].slug}")
 
         assert response.status_code == 200
         assert "緊急停止" in response.text
-        assert "ファームウェア再起動" in response.text
+        assert "再起動（復旧）" in response.text
         assert "machine-control" in response.text
         assert backend_settings.mainsail_url in response.text
 
@@ -250,7 +230,7 @@ class TestPages:
             backend_settings, pcb_browse_root=backend_settings.pcb_browse_root.parent
         )
         with _frontend_over(ui_settings, evolved) as client:
-            text = client.get("/posctrl").text
+            text = client.get("/klipper_status").text
 
         start = backend_settings.pcb_browse_start.name
         assert f'data-fb-start="{start}"' in text
@@ -272,7 +252,7 @@ class TestPages:
             backend_settings, mainsail_url=None, hostname="paste-01"
         )
         with _frontend_over(ui_settings, settings) as client:
-            text = client.get("/posctrl").text
+            text = client.get("/klipper_status").text
             info = client.get(
                 f"/m/{BACKEND_MACHINE_ID}/api/session/machine-info"
             ).json()
@@ -287,7 +267,7 @@ class TestPages:
         組の値（`reference_point.offsets.*` と座標）は複数の入力に分かれるので `data-pair-
         key` で出る。保存ボタンは持たない（変更した時点で PUT する）。
         """
-        text = client.get("/settings").text
+        text = client.get("/machine_config").text
 
         missing = [
             field.key
@@ -304,7 +284,7 @@ class TestPages:
 
     def test_settings_page_renders_one_panel_per_section(self, client: TestClient):
         """左ナビと右パネルが 1 対 1 で、既定は先頭セクションだけを開く."""
-        text = client.get("/settings").text
+        text = client.get("/machine_config").text
 
         nav_slugs = re.findall(
             r'class="settings-nav-item"[^>]*data-section="([^"]+)"', text
@@ -319,7 +299,7 @@ class TestPages:
 
     def test_alignment_tolerance_is_in_the_alignment_panel(self, client: TestClient):
         """位置合わせ許容誤差はジョブのフォームではなく、設定ページの「位置合わせ」で変える."""
-        text = client.get("/settings").text
+        text = client.get("/machine_config").text
         start = text.index('class="settings-section" data-section="alignment"')
         panel = text[start : text.index('class="settings-section"', start + 1)]
 
@@ -335,7 +315,7 @@ class TestPages:
         ナビと絞り込みをフォームへ入れると、閲覧しかできない端末が設定を**読む**ことも
         できなくなる（`control.js` が form ごと inert にする）。
         """
-        text = client.get("/settings").text
+        text = client.get("/machine_config").text
         form = text[text.index('<form id="machine-settings-form"') :]
         form = form[: form.index("</form>")]
 
@@ -344,10 +324,10 @@ class TestPages:
         assert 'id="settings-filter"' not in form
         assert 'id="settings-filter"' in text
 
-    def test_unknown_tab_returns_404(self, client: TestClient):
-        assert client.get("/no-such-tab").status_code == 404
-
     def test_unknown_feature_returns_404(self, client: TestClient):
+        assert client.get("/no-such-feature").status_code == 404
+
+    def test_unknown_old_slug_returns_404(self, client: TestClient):
         assert client.get("/posctrl/no-such-feature").status_code == 404
 
 
@@ -355,12 +335,12 @@ class TestStaticAssets:
     """CSS / JS のブラウザキャッシュ対策."""
 
     def test_page_renders_versioned_static_asset_urls(self, client: TestClient):
-        text = client.get("/pasting/paste_solder").text
+        text = client.get("/paste_solder").text
 
         assert 'href="/static/app.css?v=' in text
         assert 'src="/static/js/app.js?v=' in text
         assert 'src="/static/js/job_console.js?v=' in text
-        assert 'src="/static/js/pad_editor/index.js?v=' in text
+        assert 'src="/static/js/pasting/pad_editor/index.js?v=' in text
 
     def test_static_assets_require_browser_revalidation(self, client: TestClient):
         response = client.get("/static/app.css")
@@ -371,19 +351,19 @@ class TestStaticAssets:
         )
 
 
-DEV_JOB_FEATURES = (
+GENERIC_JOB_FEATURES = (
     "extract_pcb",
     "make_fill_coverage_pcb",
     "machine_check",
 )
 
 
-class TestDevJobPages:
-    """Phase 3: dev タブのジョブページと klipper_status ページ."""
+class TestGenericJobPages:
+    """汎用のジョブページ（job.html。プレビューを持たない）."""
 
-    @pytest.mark.parametrize("feature", DEV_JOB_FEATURES)
-    def test_dev_job_page_renders_job_console(self, client: TestClient, feature: str):
-        response = client.get(f"/dev/{feature}")
+    @pytest.mark.parametrize("feature", GENERIC_JOB_FEATURES)
+    def test_job_page_renders_job_console(self, client: TestClient, feature: str):
+        response = client.get(f"/{feature}")
 
         assert response.status_code == 200
         assert "job-console" in response.text
@@ -395,24 +375,23 @@ class TestConfigHistoryPage:
     """設定履歴とバックアップの画面（一覧と復元は JS が backend の API で行う）."""
 
     def test_backup_link_points_at_this_machine(self, client: TestClient):
-        body = client.get("/dev/config_history").text
+        body = client.get("/config_history").text
 
         assert 'href="/m/uitest/api/backup"' in body
         assert 'id="config-history-list"' in body
 
 
-POSCTRL_JOB_FEATURES = ("camera_calibration", "board_tour", "orthogonality_test")
+ALIGN_JOB_FEATURES = ("camera_calibration", "board_tour", "orthogonality_test")
 
 
-class TestPosctrlJobPages:
-    """Phase 4: posctrl のジョブページ（計画書 webui-phase4.md「templates /
-    static」節 + spec §10 posctrl 表）."""
+class TestAlignJobPages:
+    """位置合わせ（align）のジョブページ（プレビューと十字線の切替を持つ）."""
 
-    @pytest.mark.parametrize("feature", POSCTRL_JOB_FEATURES)
-    def test_posctrl_job_page_renders_console_preview_and_overlay_switch(
+    @pytest.mark.parametrize("feature", ALIGN_JOB_FEATURES)
+    def test_align_job_page_renders_console_preview_and_overlay_switch(
         self, client: TestClient, feature: str
     ):
-        response = client.get(f"/posctrl/{feature}")
+        response = client.get(f"/{feature}")
 
         assert response.status_code == 200
         assert "job-console" in response.text
@@ -430,7 +409,7 @@ class TestPosctrlJobPages:
             ("camera_preview", "none"),
         ),
     )
-    def test_posctrl_job_page_default_overlay(
+    def test_align_job_page_default_overlay(
         self, client: TestClient, feature: str, expected: str
     ):
         """ツアー系（board_tour / orthogonality_test）は十字線を既定 ON で描画する.
@@ -439,17 +418,17 @@ class TestPosctrlJobPages:
         十字線が出ている必要がある。camera_calibration / camera_preview は素の映像を見る
         ページなので none。
         """
-        assert _checked_overlay(client.get(f"/posctrl/{feature}").text) == expected
+        assert _checked_overlay(client.get(f"/{feature}").text) == expected
 
     def test_camera_calibration_renders_square_size_form_with_default(
         self, client: TestClient
     ):
         """ジョブパラメータフォームは square_size のみ（初回既定値 1.5mm）。専用 JS を読み込む."""
-        text = client.get("/posctrl/camera_calibration").text
+        text = client.get("/camera_calibration").text
 
         assert 'name="square_size"' in text
         assert 'value="1.5"' in text
-        assert "js/camera_calibration.js" in text
+        assert "js/align/camera_calibration.js" in text
         # crop は job param から削除済み（machine.toml 連動の即保存フォームへ移設）
         assert "crop_width" not in text
         assert "crop_height" not in text
@@ -457,7 +436,7 @@ class TestPosctrlJobPages:
     def test_reference_point_setup_page_renders_record_and_quit(
         self, client: TestClient
     ):
-        response = client.get("/posctrl/reference_point_setup")
+        response = client.get("/reference_point_setup")
 
         assert response.status_code == 200
         text = response.text.lower()
@@ -505,14 +484,14 @@ class TestPastingJobPages:
         操作の実体（保存・校正ファイルの選択・測定位置の指定）は e2e が実ブラウザで持つので、
         ここは「設定キーが即保存フォームに載っている」ことだけを見る。
         """
-        text = client.get("/pasting/paste_solder").text
+        text = client.get("/paste_solder").text
 
         assert "data-machine-settings" in text
         assert 'data-endpoint="/api/machine_config"' in text
         assert setting_key in text
 
     def test_loading_page_renders_optional_start_position(self, client: TestClient):
-        text = client.get("/pasting/loading").text
+        text = client.get("/loading").text
 
         assert "実行すると全軸をホーミング" in text
         assert "ローディング位置（任意）" in text
@@ -527,7 +506,7 @@ class TestPastingJobPages:
         既存値を線引きで補正する dispense_calibration とは用途が別（初期値をゼロから
         決めるブートストラップ用）なので併存させる。表の操作は e2e が持つ。
         """
-        text = client.get("/pasting/loading").text
+        text = client.get("/loading").text
 
         assert 'id="loading-mass-calibration"' in text
         assert 'data-job-names="loading"' in text
@@ -536,7 +515,7 @@ class TestPastingJobPages:
         self, client: TestClient
     ):
         """①②③/全実行/終了メニューと、フォームのセクション分けが出る."""
-        text = client.get("/pasting/dispense_calibration").text
+        text = client.get("/dispense_calibration").text
 
         assert "job-param-group" in text
         for legend in (
@@ -561,14 +540,14 @@ class TestPastingJobPages:
 class TestJobParamForms:
     """ジョブの ParamSpec がフォームへ届く（`ParamSpec` を足したのに UI に出ない事故の検出）."""
 
-    @pytest.mark.parametrize(("tab", "feature"), JOB_PAGES)
+    @pytest.mark.parametrize("feature", JOB_PAGES)
     def test_every_job_param_has_an_input(
-        self, client: TestClient, backend_app: FastAPI, tab: str, feature: str
+        self, client: TestClient, backend_app: FastAPI, feature: str
     ):
         definition = backend_app.state.backend.catalog.get(feature)
         assert definition is not None, feature
 
-        text = client.get(f"/{tab}/{feature}").text
+        text = client.get(f"/{feature}").text
 
         missing = [
             spec.name
@@ -589,14 +568,14 @@ class TestSavedJobParamDefaults:
         ("url", "job_name", "defaults", "fragments"),
         (
             pytest.param(
-                "/posctrl/camera_calibration",
+                "/camera_calibration",
                 "camera_calibration",
                 {"square_size": 3.0},
                 ('value="3.0"',),
                 id="camera_calibration",
             ),
             pytest.param(
-                "/pasting/loading",
+                "/loading",
                 "loading",
                 {"amount": 0.2, "rotations": 6.0, "rate": 1.5, "accel": 2.5},
                 (
@@ -608,14 +587,14 @@ class TestSavedJobParamDefaults:
                 id="loading",
             ),
             pytest.param(
-                "/pasting/dispense_calibration",
+                "/dispense_calibration",
                 "dispense_calibration",
                 {"board_width": 30.0, "line_count": 8, "speed_max": 12.0},
                 ('value="30.0"', 'value="8"', 'value="12.0"'),
                 id="dispense_calibration",
             ),
             pytest.param(
-                "/pasting/toolhead_offset",
+                "/toolhead_offset",
                 "toolhead_offset",
                 {"point_count": 7, "point_spacing": 6.25, "edge_margin": 4.75},
                 ('value="7"', 'value="6.25"', 'value="4.75"'),
@@ -654,10 +633,10 @@ class TestJobDefinitionDrivenContext:
     ):
         definition = backend_app.state.backend.catalog.get(feature)
 
-        text = client.get(f"/pasting/{feature}").text
+        text = client.get(f"/{feature}").text
 
         assert ("preview-pane" in text) is definition.provides_preview
-        # pasting の preview は固定 none（overlay 切替は posctrl のページだけ）
+        # pasting の preview は固定 none（overlay 切替は align のページだけ）
         assert "crosshair" not in text
 
     @pytest.mark.parametrize("feature", PASTING_JOB_FEATURES)
@@ -673,7 +652,7 @@ class TestJobDefinitionDrivenContext:
         """
         definition = backend_app.state.backend.catalog.get(feature)
 
-        text = client.get(f"/pasting/{feature}").text
+        text = client.get(f"/{feature}").text
 
         panel = definition.loading
         if panel is None:
@@ -696,7 +675,7 @@ class TestProbeGuidePage:
     """
 
     def test_probe_guide_page_renders_calibration_steps(self, client: TestClient):
-        response = client.get("/pasting/probe_guide")
+        response = client.get("/probe_guide")
 
         assert response.status_code == 200
         # 較正手順（Klipper コンソールで実行するコマンド）と公式ドキュメントリンク
@@ -716,7 +695,7 @@ class TestNozzleCapPage:
         self, partial_nozzle_cap: Path, client: TestClient
     ):
         """X だけ手で書いた状態（設定エラー）でも 500 にせず、「未記録」と理由を出す."""
-        response = client.get("/pasting/nozzle_cap")
+        response = client.get("/nozzle_cap")
 
         assert response.status_code == 200
         assert "未記録" in response.text
@@ -724,7 +703,7 @@ class TestNozzleCapPage:
 
     def test_shows_cleaning_controls_and_settings(self, client: TestClient):
         """記録・試運転・設定変更を同じページで行える（座標は記録ボタンから保存する）."""
-        response = client.get("/pasting/nozzle_cap")
+        response = client.get("/nozzle_cap")
 
         assert response.status_code == 200
         assert 'data-testid="nozzle-clean-current"' in response.text
@@ -742,7 +721,7 @@ class TestNozzleCapPage:
         self, partial_nozzle_clean: Path, client: TestClient
     ):
         """座標の無い `[paste_dispenser.nozzle_clean]` でも 500 にせず「未記録」を出す."""
-        response = client.get("/pasting/nozzle_cap")
+        response = client.get("/nozzle_cap")
 
         assert response.status_code == 200
         assert "未記録" in response.text
@@ -757,7 +736,7 @@ class TestNozzleCapPage:
                 "\n[paste_dispenser.nozzle_clean]\nx = 10.0\ny = 20.0\nz = -30.0\npress_depth = 0.4\n"
             )
 
-        response = client.get("/pasting/nozzle_cap")
+        response = client.get("/nozzle_cap")
 
         # 同じページの設定ラベルに当たらないよう、label 文字列そのものを見る
         assert "(10.00, 20.00, -30.00) mm" in response.text
@@ -778,7 +757,7 @@ class TestMissingSelectionNotice:
     def test_notice_is_shown_until_a_pcb_is_selected(
         self, missing_selection: None, client: TestClient
     ):
-        page = client.get("/posctrl").text
+        page = client.get("/klipper_status").text
         assert 'data-testid="pcb-notice"' in page
         assert "boards/gone.kicad_pcb" in page
 
@@ -788,7 +767,7 @@ class TestMissingSelectionNotice:
         )
         assert response.status_code == 200, response.text
 
-        assert 'data-testid="pcb-notice"' not in client.get("/posctrl").text
+        assert 'data-testid="pcb-notice"' not in client.get("/klipper_status").text
 
 
 class TestBrokenMachineTomlPages:
@@ -816,11 +795,11 @@ class TestBrokenMachineTomlPages:
         original = path.read_text(encoding="utf-8")
         path.write_text(original + '\nbroken_key = "unterminated\n', encoding="utf-8")
 
-        assert 'data-testid="config-error"' in client.get("/posctrl").text
+        assert 'data-testid="config-error"' in client.get("/klipper_status").text
 
         path.write_text(original, encoding="utf-8")
 
-        assert 'data-testid="config-error"' not in client.get("/posctrl").text
+        assert 'data-testid="config-error"' not in client.get("/klipper_status").text
 
     @pytest.mark.parametrize("url", sorted(_MACHINE_TOML_DEPENDENT_URLS))
     def test_machine_toml_dependent_pages_return_503(
@@ -847,7 +826,7 @@ class TestUnsetMachineSettingsShowResolvedValues:
     def test_copper_detection_renders_resolved_canny_values(
         self, machine_toml_without_defaulted_keys: Path, client: TestClient
     ):
-        text = client.get("/posctrl/copper_detection").text
+        text = client.get("/copper_detection").text
 
         assert "canny" in text
         assert "設定に保存" in text
@@ -876,7 +855,7 @@ class TestUnsetMachineSettingsShowResolvedValues:
                 "\n[paste_dispenser.nozzle_clean]\nx = 10.0\ny = 20.0\nz = -30.0\n"
             )
 
-        text = client.get("/pasting/nozzle_cap").text
+        text = client.get("/nozzle_cap").text
 
         # NozzleClean の既定値（press_depth=0.5 / stroke=2.0 / passes=2）
         assert 'name="paste_dispenser.nozzle_clean.press_depth"' in text
@@ -887,7 +866,7 @@ class TestUnsetMachineSettingsShowResolvedValues:
     def test_loading_renders_resolved_paste_density(
         self, machine_toml_without_defaulted_keys: Path, client: TestClient
     ):
-        text = client.get("/pasting/loading").text
+        text = client.get("/loading").text
 
         # PasteDispenser.solder_paste_density の既定値
         assert '<dd>3.780 <span class="unit">mg/uL</span></dd>' in text
@@ -898,7 +877,7 @@ class TestUnsetMachineSettingsShowResolvedValues:
     def test_paste_solder_renders_resolved_refinement_threshold(
         self, machine_toml_without_defaulted_keys: Path, client: TestClient
     ):
-        response = client.get("/pasting/paste_solder")
+        response = client.get("/paste_solder")
 
         assert response.status_code == 200
         assert "逐次位置合わせ対象の最大短辺" in response.text
@@ -948,7 +927,7 @@ class TestUnresolvableMachineSettingsAreNotFabricated:
         machine_toml_without_required_paste_dispenser_key: Path,
         client: TestClient,
     ):
-        response = client.get("/posctrl/copper_detection")
+        response = client.get("/copper_detection")
 
         assert response.status_code == 503
         # 0 を描いたページを見せない（スライダーの value がそのまま PUT される）
@@ -959,7 +938,7 @@ class TestMachineControlCapButton:
     """マシン操作パネルの「キャップ位置へ」ボタン（全機体がペースト機なので常に出す）."""
 
     def test_move_to_cap_button_is_shown(self, client: TestClient):
-        response = client.get("/posctrl")
+        response = client.get("/klipper_status")
 
         assert response.status_code == 200
         assert "mc-move-to-cap" in response.text
@@ -981,7 +960,7 @@ class TestPasteVolumeCalibrationLoading:
         rotation = definition.loading.rotation
         assert rotation is not None
 
-        text = client.get("/pasting/paste_volume_calibration").text
+        text = client.get("/paste_volume_calibration").text
 
         assert 'id="lc-amount"' in text
         for element, name in (
@@ -993,18 +972,6 @@ class TestPasteVolumeCalibrationLoading:
             assert re.search(
                 rf'id="{element}"[^>]*value="{defaults[name]}"', text
             ), element
-
-
-class TestTabsCatalogConsistency:
-    """FEATURE_GROUPS（サイドバー掲載）と catalog（ジョブ登録）の整合."""
-
-    def test_every_job_is_listed_in_feature_groups(self, tmp_path: Path):
-        """Backend が公開する全ジョブに、どこかのタブのページがある."""
-        listed = {slug for slugs in PAGE_TABS.values() for slug in slugs}
-
-        jobs = {definition.name for definition in standalone_catalog(tmp_path).list()}
-
-        assert jobs - listed == set()
 
 
 def _frontend_only(machines: tuple[MachineEndpoint, ...], tmp_path: Path) -> TestClient:
@@ -1031,15 +998,15 @@ class TestMachinePrefixedUrls:
     や別マシンを叩いてしまうため、リンク・フォーム・ ドロップダウンの遷移先すべてに prefix が乗っている必要がある。
     """
 
-    def test_unprefixed_feature_url_redirects_to_the_only_machine(
+    def test_unprefixed_feature_url_redirects_to_this_host_machine(
         self, client: TestClient, ui_settings: UiSettings
     ):
         machine_id = ui_settings.machines[0].machine_id
 
-        response = client.get("/pasting/loading", follow_redirects=False)
+        response = client.get("/loading", follow_redirects=False)
 
         assert response.status_code == 307
-        assert response.headers["location"] == f"/m/{machine_id}/pasting/loading"
+        assert response.headers["location"] == f"/m/{machine_id}/loading"
 
     def test_every_navigation_link_is_machine_prefixed(
         self, client: TestClient, ui_settings: UiSettings
@@ -1052,19 +1019,19 @@ class TestMachinePrefixedUrls:
         machine_id = ui_settings.machines[0].machine_id
         base = f"/m/{machine_id}"
 
-        text = client.get(f"{base}/pasting").text
+        text = client.get(f"{base}/loading").text
 
         assert f'data-machine-base="{base}"' in text
-        assert f'href="{base}/posctrl"' in text
-        assert f'href="{base}/settings"' in text
-        assert f'href="{base}/pasting/loading"' in text
+        assert f'href="{base}/camera_calibration"' in text
+        assert f'href="{base}/machine_config"' in text
+        assert f'href="{base}/height_plane"' in text
         # 未 prefix の内部リンクが 1 本も残っていない（外部リンクは mainsail のみ）。
         # /static は意図的に prefix しない（キャッシュを全マシンで 1 本共有する）。
-        # 一括管理（BULK_PATH）もマシン非依存のページなので prefix しない
+        # 機体一覧もマシン非依存のページなので prefix しない
         internal = [
             href
             for href in re.findall(r'href="(/[^"]*)"', text)
-            if not href.startswith("/static/") and href != BULK_PATH
+            if not href.startswith("/static/") and href != "/machines"
         ]
         assert internal
         assert [href for href in internal if not href.startswith(f"{base}/")] == []
@@ -1074,8 +1041,7 @@ class TestMachinePrefixedUrls:
     ):
         """`/m/{id}/api/session/state` はプロキシに届く（登録順の回帰）.
 
-        pages ルータを先に登録すると `/m/{machine_id}/{tab}/{feature}` が
-        `/m/x/api/session/state` を飲み込み、404 HTML が返って UI 全体が動かなくなる。
+        pages ルータを先に登録すると、キャッチオールがこの URL を飲み込み、UI 全体が動かなくなる。
         """
         machine_id = ui_settings.machines[0].machine_id
 
@@ -1104,58 +1070,94 @@ class TestMachinePrefixedUrls:
         """ドロップダウンの遷移先は「同じページの別マシン」."""
         machine = ui_settings.machines[0]
 
-        text = client.get(f"/m/{machine.machine_id}/posctrl/camera_preview").text
+        text = client.get(f"/m/{machine.machine_id}/camera_preview").text
 
-        assert f'value="/m/{machine.machine_id}/posctrl/camera_preview"' in text
+        assert f'value="/m/{machine.machine_id}/camera_preview"' in text
         assert machine.label in text
 
-    def test_machine_id_alone_redirects_to_the_default_tab(
+    def test_machine_id_alone_redirects_to_the_paste_page(
         self, client: TestClient, ui_settings: UiSettings
     ):
-        """`/m/{id}` 単体は既定タブへ 307 する.
-
-        この登録が `/{tab}/{feature}` より後だと tab="m" / feature=machine_id として
-        食われ、`/m/{id}/m/{id}` へ 307 したうえで 404 になる。
-        """
+        """`/m/{id}` 単体は着地点（塗布）へ 307 する."""
         machine_id = ui_settings.machines[0].machine_id
 
         response = client.get(f"/m/{machine_id}", follow_redirects=False)
 
         assert response.status_code == 307
-        assert response.headers["location"] == f"/m/{machine_id}/posctrl"
+        assert response.headers["location"] == f"/m/{machine_id}/paste_solder"
 
     def test_unknown_machine_returns_404_page_with_the_selector(
         self, client: TestClient, ui_settings: UiSettings
     ):
-        """未知の machine_id は 404 HTML（ドロップダウンから戻れる）."""
-        response = client.get("/m/no-such-machine/posctrl")
+        """未知の machine_id は 404 HTML（ドロップダウンと機体一覧から戻れる）."""
+        response = client.get("/m/no-such-machine/klipper_status")
 
         assert response.status_code == 404
         assert response.headers["content-type"].startswith("text/html")
         assert ui_settings.machines[0].label in response.text
-        # 未知のマシンを base にするとタブが全部 404 になるので prefix は付けない
-        assert 'href="/posctrl"' in response.text
+        # 未知のマシンを base にするとタブが全部 404 になるので、作業分野のタブは出さない
+        assert 'href="/machines"' in response.text
+        assert "/m/no-such-machine/paste_solder" not in response.text
         assert 'data-testid="estop"' not in response.text
+
+
+class TestLegacyUrls:
+    """旧 URL（作り直し前のブックマーク）は 1 規則の 307 で新しい URL へ飛ぶ."""
+
+    @pytest.mark.parametrize(
+        ("old", "new"),
+        [
+            ("/m/uitest/pasting/paste_solder", "/m/uitest/paste_solder"),
+            ("/m/uitest/posctrl/camera_preview", "/m/uitest/camera_preview"),
+            ("/m/uitest/dev/klipper_status", "/m/uitest/klipper_status"),
+            ("/m/uitest/settings", "/m/uitest/machine_config"),
+            ("/m/uitest/dev/update", "/update"),
+            ("/m/uitest/posctrl", "/m/uitest/camera_calibration"),
+            ("/m/uitest/pasting", "/m/uitest/paste_solder"),
+            ("/m/uitest/dev", "/m/uitest/klipper_status"),
+            ("/bulk", "/machines"),
+        ],
+    )
+    def test_old_url_redirects_to_the_new_page(
+        self, client: TestClient, old: str, new: str
+    ):
+        response = client.get(old, follow_redirects=False)
+
+        assert response.status_code == 307
+        assert response.headers["location"] == new
+
+    @pytest.mark.parametrize(
+        "path", ["/m/uitest/pasting/no-such-feature", "/m/uitest/no-such-tab/loading"]
+    )
+    def test_unknown_old_url_returns_404(self, client: TestClient, path: str):
+        assert client.get(path).status_code == 404
+
+    def test_deep_unknown_machine_url_returns_404_instead_of_looping(
+        self, client: TestClient
+    ):
+        """/m/ の下で route に当たらない URL を、マシン非依存の入口として自機へ飛ばさない."""
+        response = client.get("/m/uitest/a/b/c", follow_redirects=False)
+
+        assert response.status_code == 404
 
 
 class TestWithoutMachines:
     """マシン登録 0 台（machine.toml が無いホストでの単独起動）."""
 
     def test_create_app_succeeds_and_serves_guidance(self, tmp_path: Path):
-        """機体設定を一切読まずに起動でき、案内ページを返す.
+        """機体設定を一切読まずに起動でき、機体一覧で登録の仕方を案内する.
 
         frontend が `get_config_dir()` や machine.toml に触ると、機体でない PC で
-        起動できなくなる（MR4 の要件）。`/settings` も backend 無しで開ける。
+        起動できなくなる（MR4 の要件）。
         """
         with _frontend_only((), tmp_path) as client:
             response = client.get("/")
-            settings_response = client.get("/settings")
 
         assert response.status_code == 200
+        assert str(response.url).endswith("/machines")
         assert "machines.toml" in response.text
         # 選ぶ先が無いのでドロップダウンは出さない
         assert 'data-testid="machine-select"' not in response.text
-        assert settings_response.status_code == 200
         assert 'data-testid="estop"' not in response.text
 
 
@@ -1179,7 +1181,7 @@ class TestDefaultBackendPort:
 
         # settings 未指定 = Settings.from_env()（uvicorn --factory と同じ経路）
         with TestClient(create_frontend_app()) as client:
-            response = client.get("/m/alpha/posctrl")
+            response = client.get("/m/alpha/klipper_status")
 
         # 誰も listen していない port なので 503。到達を試みた URL が本文に出る
         assert response.status_code == 503
@@ -1196,22 +1198,41 @@ class TestMultipleMachines:
             MachineEndpoint(machine_id="bravo", host="bravo.local", port=8081),
         )
 
-    def test_root_shows_a_picker_instead_of_redirecting(self, tmp_path: Path):
+    def test_root_opens_the_machine_list_when_no_machine_is_this_host(
+        self, tmp_path: Path
+    ):
+        """UI サーバー専用機（自機の無い frontend）の `/` は機体一覧へ飛ぶ."""
         with _frontend_only(self._machines(), tmp_path) as client:
             response = client.get("/", follow_redirects=False)
+            listing = client.get(response.headers["location"])
 
-        assert response.status_code == 200
+        assert response.status_code == 307
+        assert response.headers["location"] == "/machines"
         for machine in self._machines():
-            assert machine.label in response.text
-        assert 'data-testid="estop"' not in response.text
+            assert machine.label in listing.text
+        assert 'data-testid="estop"' not in listing.text
 
-    def test_picker_options_keep_the_requested_page(self, tmp_path: Path):
-        """未 prefix のページで選ばせるときも遷移先はそのページ."""
+    def test_root_opens_this_host_machine_among_several(self, tmp_path: Path):
+        """同居機は、ほかの機体が登録されていても自機の塗布ページに着く."""
+        settings = UiSettings(
+            machines=self._machines(),
+            machines_file=tmp_path / "absent.toml",
+            discovery_enabled=False,
+            hostname="bravo",
+        )
+        with TestClient(create_frontend_app(settings)) as client:
+            response = client.get("/", follow_redirects=False)
+
+        assert response.status_code == 307
+        assert response.headers["location"] == "/m/bravo/paste_solder"
+
+    def test_machine_list_selector_opens_the_paste_page(self, tmp_path: Path):
+        """マシン非依存のページで選んだ機体は、着地点（塗布）を開く."""
         with _frontend_only(self._machines(), tmp_path) as client:
-            text = client.get("/pasting/loading").text
+            text = client.get("/machines").text
 
-        assert 'value="/m/alpha/pasting/loading"' in text
-        assert 'value="/m/bravo/pasting/loading"' in text
+        assert 'value="/m/alpha/paste_solder"' in text
+        assert 'value="/m/bravo/paste_solder"' in text
 
 
 class TestUnreachableBackendPage:
@@ -1227,7 +1248,7 @@ class TestUnreachableBackendPage:
 
     def test_page_returns_503_html_with_the_machine_selector(self, tmp_path: Path):
         with _frontend_only(self._dead(), tmp_path) as client:
-            response = client.get("/m/dead/posctrl")
+            response = client.get("/m/dead/klipper_status")
 
         assert response.status_code == 503
         assert response.headers["content-type"].startswith("text/html")
@@ -1237,7 +1258,7 @@ class TestUnreachableBackendPage:
 
     def test_page_asks_the_browser_to_retry(self, tmp_path: Path):
         with _frontend_only(self._dead(), tmp_path) as client:
-            response = client.get("/m/dead/posctrl")
+            response = client.get("/m/dead/klipper_status")
 
         assert response.headers["retry-after"] == "5"
 
@@ -1246,7 +1267,7 @@ class TestUpdateOnlyMachinePage:
     """API 版のずれた機体のページ（どの URL も更新専用ページになる）.
 
     proxy はこの機体へ更新と緊急停止だけを中継するので、ページは backend に問い合わせずに描き、
-    更新パネルと緊急停止だけを出す。上流は誰も listen していない port で、到達を試みれば 503 になる。
+    緊急停止と更新ページへの案内だけを出す。上流は誰も listen していない port で、到達を試みれば 503 になる。
     """
 
     @staticmethod
@@ -1258,31 +1279,32 @@ class TestUpdateOnlyMachinePage:
         )
 
     @pytest.mark.parametrize(
-        "path", ["/m/old/posctrl", "/m/old/settings", "/m/old/dev/update"]
+        "path", ["/m/old/paste_solder", "/m/old/machine_config", "/m/old/settings"]
     )
-    def test_every_machine_page_is_the_update_panel(self, tmp_path: Path, path: str):
+    def test_every_machine_page_leads_to_the_update_page(
+        self, tmp_path: Path, path: str
+    ):
         with _frontend_only(self._old(), tmp_path) as client:
             response = client.get(path)
 
         assert response.status_code == 200
         assert 'data-machine-base="/m/old"' in response.text
-        assert 'data-status-url="/api/update/status"' in response.text
+        assert 'data-testid="update-only-detail"' in response.text
+        assert 'href="/update"' in response.text
 
     def test_keeps_the_emergency_stop_but_no_unrelayed_commands(self, tmp_path: Path):
         with _frontend_only(self._old(), tmp_path) as client:
-            text = client.get("/m/old/posctrl").text
+            text = client.get("/m/old/paste_solder").text
 
         assert 'data-testid="estop"' in text
         assert 'data-testid="topbar-menu"' not in text
-        # 操作権は更新の要求で backend が取るので、パネルを閉じない
-        assert '<div class="update-actions">' in text
 
     def test_has_no_tabs_that_lead_back_to_itself(self, tmp_path: Path):
         with _frontend_only(self._old(), tmp_path) as client:
-            text = client.get("/m/old/posctrl").text
+            text = client.get("/m/old/paste_solder").text
 
-        assert 'href="/m/old/posctrl"' not in text
-        assert 'href="/bulk"' in text
+        assert 'href="/m/old/paste_solder"' not in text
+        assert 'href="/machines"' in text
 
 
 class TestBackendContractMismatch:
@@ -1299,7 +1321,7 @@ class TestBackendContractMismatch:
         with _frontend_over(
             ui_settings, backend_settings, catalog=JobCatalog()
         ) as client:
-            response = client.get("/pasting/height_plane")
+            response = client.get("/height_plane")
 
         assert response.status_code == 503
         assert "height_plane" in response.text

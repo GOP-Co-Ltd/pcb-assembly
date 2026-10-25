@@ -1,5 +1,4 @@
-{% extends "tab.html" %}
-{% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
+{% extends "feature.html" %}
 {% block main %}
 <h2>{{ feature_label }}</h2>
 <p class="placeholder">
@@ -17,5 +16,5 @@
 {% block scripts %}
 {{ super() }}
 <script src="{{ static_asset('js/preview.js') }}"></script>
-<script src="{{ static_asset('js/camera_calibration.js') }}"></script>
+<script src="{{ static_asset('js/align/camera_calibration.js') }}"></script>
 {% endblock %}

@@ -94,6 +94,8 @@ def ui_settings(tmp_path: Path) -> Settings:
             ),
         ),
         machines_file=tmp_path / "machines.toml",
+        # 同居機として組む（machine を指定しない URL が、この機体の URL へ 307 する）
+        hostname=BACKEND_MACHINE_ID,
         # 実 LAN を探索しない（探索は tests/web/ui/test_discovery.py と e2e が見る）
         discovery_enabled=False,
         # 自己更新の report / ロックをリポジトリの data/ に落とさない

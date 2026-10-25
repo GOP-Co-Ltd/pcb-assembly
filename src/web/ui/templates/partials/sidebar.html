@@ -1,22 +1,20 @@
 <details class="feature-menu" data-testid="feature-menu" data-responsive-menu="(max-width: 760px)" open>
-  <summary>機能を選択<span>{{ feature_label or tab_labels[active_tab] }}</span></summary>
-  <nav class="features" aria-label="{{ tab_labels[active_tab] }}の機能">
-    {% for label, description, slugs in feature_groups %}
+  <summary>機能を選択<span>{{ feature_label }}</span></summary>
+  <nav class="features" aria-label="{{ tab_label }}の機能">
+    {% for group, items in sidebar_groups %}
     <section class="feature-group">
-      <h3>{{ label }}</h3>
+      <h3>{{ group }}</h3>
       <ul>
-        {% for slug in slugs %}
+        {% for slug, label in items %}
         <li>
-          <a href="{{ base }}/{{ active_tab }}/{{ slug }}"
+          <a href="{{ base }}/{{ slug }}"
              {% if slug == active_feature %}class="active" aria-current="page"{% endif %}>
-            {{ feature_labels[slug] }}
+            {{ label }}
           </a>
         </li>
         {% endfor %}
       </ul>
     </section>
-    {% else %}
-    <p class="placeholder">準備中</p>
     {% endfor %}
   </nav>
 </details>

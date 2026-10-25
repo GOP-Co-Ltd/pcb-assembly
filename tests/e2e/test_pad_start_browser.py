@@ -64,7 +64,7 @@ def live_server(e2e_settings: Env) -> Iterator[LiveServer]:
 
 
 def _edit(ui: LiveUi, page, value: str):
-    page.goto(f"{ui.base_url}/pasting/paste_solder", wait_until="domcontentloaded")
+    page.goto(f"{ui.base_url}/paste_solder", wait_until="domcontentloaded")
     acquire_control(page)
     field = page.locator('tr[data-node-id="L0"] input[data-field="ul_per_mm2"]')
     expect(field).to_have_value("0.15")

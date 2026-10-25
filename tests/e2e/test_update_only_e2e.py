@@ -4,7 +4,7 @@ backend を 2 台立て、片方を版の合う機体、もう片方を版のず
 
 - 版のずれた広告を mDNS で受けた機体は、一覧で更新専用になる
 - proxy は版のずれた機体へ更新と緊急停止だけを中継し、他は 409、WS は handshake で拒む
-- 一括管理の行と機体のページは更新専用になり、そこから実際に更新でき、緊急停止できる
+- 機体一覧の行と機体のページは更新専用になり、更新ページから実際に更新でき、機体のページから緊急停止できる
 
 mDNS を通すのは最初の 1 点だけで、残りは版のずれを静的登録で直接与える（mDNS の使えない環境でも走らせるため）。
 """
@@ -272,41 +272,44 @@ class TestRelayScope:
 
 
 class TestUpdateOnlyInTheBrowser:
-    """一括管理から更新専用ページへ辿り、更新して緊急停止する."""
+    """機体一覧から更新専用ページへ辿り、更新ページで更新して、緊急停止する."""
 
-    def test_bulk_row_leads_to_the_update_page(
+    def test_machine_list_row_leads_to_the_update_only_page(
         self, mixed_stack: MixedStack, browser_page
     ):
         page = browser_page
-        page.goto(f"{mixed_stack.origin}/bulk")
+        page.goto(f"{mixed_stack.origin}/machines")
         expect(
-            page.get_by_test_id(f"bulk-row-{E2E_MACHINE_ID}").get_by_test_id(
-                "bulk-holder"
+            page.get_by_test_id(f"machines-row-{E2E_MACHINE_ID}").get_by_test_id(
+                "machines-holder"
             )
         ).to_have_text("空き", timeout=_UI_TIMEOUT_MS)
-        old_row = page.get_by_test_id(f"bulk-row-{OLD_MACHINE_ID}")
+        old_row = page.get_by_test_id(f"machines-row-{OLD_MACHINE_ID}")
         expect(old_row).to_contain_text("（更新専用）")
 
-        old_row.get_by_role("link", name="更新・緊急停止").click()
+        old_row.get_by_role("link", name="（更新専用）", exact=False).click()
 
         expect(page.get_by_test_id("update-only-detail")).to_be_visible()
         expect(page.get_by_test_id("estop")).to_be_visible()
+        page.get_by_test_id("update-page-link").click()
+        expect(page).to_have_url(f"{mixed_stack.origin}/update")
 
-    def test_old_machine_is_updated_from_its_page(
+    def test_old_machine_is_updated_from_the_update_page(
         self, mixed_stack: MixedStack, sandbox: UpdateSandbox, browser_page
     ):
         target = sandbox.push()
         page = browser_page
-        page.goto(f"{mixed_stack.origin}/m/{OLD_MACHINE_ID}/posctrl")
+        page.goto(f"{mixed_stack.origin}/update")
+        panel = page.get_by_test_id(f"update-panel-{OLD_MACHINE_ID}")
 
-        page.locator("#update-check").click(timeout=_UI_TIMEOUT_MS)
-        expect(page.locator("#update-summary")).to_contain_text(
+        panel.get_by_test_id("update-check").click(timeout=_UI_TIMEOUT_MS)
+        expect(panel.get_by_test_id("update-summary")).to_contain_text(
             "1 件の更新", timeout=_UI_TIMEOUT_MS
         )
         page.once("dialog", lambda dialog: dialog.accept())
-        page.locator("#update-run").click(timeout=_UI_TIMEOUT_MS)
+        panel.get_by_test_id("update-run").click(timeout=_UI_TIMEOUT_MS)
 
-        expect(page.locator("#update-state-label")).to_have_text(
+        expect(panel.get_by_test_id("update-state-label")).to_have_text(
             "再起動しています", timeout=_UI_TIMEOUT_MS
         )
         assert sandbox.head() == target
@@ -315,7 +318,7 @@ class TestUpdateOnlyInTheBrowser:
         self, mixed_stack: MixedStack, browser_page
     ):
         page = browser_page
-        page.goto(f"{mixed_stack.origin}/m/{OLD_MACHINE_ID}/posctrl")
+        page.goto(f"{mixed_stack.origin}/m/{OLD_MACHINE_ID}/paste_solder")
 
         with page.expect_response(
             lambda response: response.url.endswith(

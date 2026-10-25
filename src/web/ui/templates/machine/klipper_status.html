@@ -1,4 +1,4 @@
-{% extends "tab.html" %}
+{% extends "feature.html" %}
 {% block title %}Klipper Status — PCB Assembly WebUI{% endblock %}
 {% block main %}
 <h2>Klipper Status</h2>
@@ -32,5 +32,5 @@
 {% endblock %}
 {% block scripts %}
 {{ super() }}
-<script src="{{ static_asset('js/klipper_status.js') }}"></script>
+<script src="{{ static_asset('js/machine/klipper_status.js') }}"></script>
 {% endblock %}

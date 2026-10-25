@@ -1,5 +1,4 @@
-{% extends "tab.html" %}
-{% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
+{% extends "feature.html" %}
 {% block main %}
 {% import "partials/job_params.html" as job_params %}
 <h2>{{ feature_label }}</h2>
@@ -35,7 +34,7 @@
 {% endblock %}
 {% block scripts %}
 {{ super() }}
-<script src="{{ static_asset('js/loading_controls.js') }}"></script>
-<script src="{{ static_asset('js/calibration_menu.js') }}"></script>
-<script src="{{ static_asset('js/dispense_runtime_params.js') }}"></script>
+<script src="{{ static_asset('js/pasting/loading_controls.js') }}"></script>
+<script src="{{ static_asset('js/pasting/calibration_menu.js') }}"></script>
+<script src="{{ static_asset('js/pasting/dispense_runtime_params.js') }}"></script>
 {% endblock %}

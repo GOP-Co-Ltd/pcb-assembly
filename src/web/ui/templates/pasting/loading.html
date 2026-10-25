@@ -1,6 +1,5 @@
-{% extends "tab.html" %}
+{% extends "feature.html" %}
 {% import "partials/job_params.html" as job_params %}
-{% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
 {% block main %}
 <h2>{{ feature_label }}</h2>
 <p class="job-intro">
@@ -86,5 +85,5 @@
 {% endblock %}
 {% block scripts %}
 {{ super() }}
-<script src="{{ static_asset('js/loading_controls.js') }}"></script>
+<script src="{{ static_asset('js/pasting/loading_controls.js') }}"></script>
 {% endblock %}

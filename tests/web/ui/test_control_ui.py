@@ -11,7 +11,7 @@
   (c) `api()` の 423 の 3 つだけ
 - **`#estop` と `#jc-abort` は絶対にゲートしない**（安全操作）
 - prompt 本文は閲覧者にも見せ、案内（誰の応答待ちか / 操作権が空いている）を出す
-- `settings.html` も `job_console.js` を読む（WS が無いとリース状態が届かない）
+- 設定ページ（`machine/machine_config.html`）も `job_console.js` を読む（WS が無いとリース状態が届かない）
 
 JS にテストランナーが無いので、切替ロジックそのものは**ソースの契約点をピンする**形で
 押さえる（`tests/web/ui/test_layout.py::TestMachinePrefixFunnel` と同じ手段）。
@@ -43,13 +43,12 @@ _CLASS_RE = re.compile(r'\bclass="([^"]+)"')
 # （要素を足すたびに一覧も直すことになり、検出できるのは一覧の更新漏れだけになる）
 _GATED_TEMPLATES = {
     "base.html",
-    "settings.html",
-    "dev/klipper_status.html",
-    "dev/audio.html",
-    "dev/config_history.html",
+    "machine/machine_config.html",
+    "machine/klipper_status.html",
+    "machine/audio.html",
+    "machine/config_history.html",
     "partials/job_form.html",
     "partials/machine_control.html",
-    "partials/update_panel.html",
     "partials/job_console.html",
     "partials/loading_controls.html",
     "partials/calibration_menu.html",
@@ -59,8 +58,8 @@ _GATED_TEMPLATES = {
     "pasting/loading.html",
     "pasting/nozzle_cap.html",
     "pasting/paste_solder.html",
-    "posctrl/copper_detection.html",
-    "posctrl/reference_point_setup.html",
+    "align/copper_detection.html",
+    "align/reference_point_setup.html",
 }
 
 
@@ -108,7 +107,7 @@ class TestFailClosedInitialState:
 
     def test_rendered_page_starts_as_viewer(self, frontend_client: TestClient):
         """SSR は backend へのサーバ間通信なので「自分が保持者か」を判定できない."""
-        response = frontend_client.get(f"/m/{MACHINE_ID}/posctrl")
+        response = frontend_client.get(f"/m/{MACHINE_ID}/klipper_status")
 
         assert response.status_code == 200, response.text
         assert 'data-control="viewer"' in response.text
@@ -166,7 +165,7 @@ class TestGatedElements:
         self, frontend_client: TestClient, element_id: str
     ):
         """緊急停止と中止は閲覧者からも効かなければならない（詰みの回避と安全確認）."""
-        response = frontend_client.get(f"/m/{MACHINE_ID}/pasting/paste_solder")
+        response = frontend_client.get(f"/m/{MACHINE_ID}/paste_solder")
 
         assert response.status_code == 200, response.text
         assert "data-requires-control" not in _element_tag(response.text, element_id)
@@ -174,7 +173,7 @@ class TestGatedElements:
     def test_gated_controls_are_marked_in_the_rendered_page(
         self, frontend_client: TestClient
     ):
-        response = frontend_client.get(f"/m/{MACHINE_ID}/pasting/paste_solder")
+        response = frontend_client.get(f"/m/{MACHINE_ID}/paste_solder")
 
         assert response.status_code == 200, response.text
         for element_id in ("pcb-chip", "firmware-restart", "machine-control"):
@@ -209,11 +208,11 @@ class TestScriptWiring:
 
         assert base_html.index("js/control.js") < base_html.index("{% block scripts %}")
 
-    @pytest.mark.parametrize("suffix", ["posctrl", "settings"])
+    @pytest.mark.parametrize("suffix", ["klipper_status", "machine_config"])
     def test_rendered_pages_load_control_and_websocket(
         self, frontend_client: TestClient, suffix: str
     ):
-        """`/settings` に WS が無いとリース状態（control_changed）が届かない."""
+        """設定ページに WS が無いとリース状態（control_changed）が届かない."""
         response = frontend_client.get(f"/m/{MACHINE_ID}/{suffix}")
 
         assert response.status_code == 200, response.text
@@ -223,7 +222,7 @@ class TestScriptWiring:
     def test_control_lease_bar_is_rendered_on_every_page(
         self, frontend_client: TestClient
     ):
-        response = frontend_client.get(f"/m/{MACHINE_ID}/settings")
+        response = frontend_client.get(f"/m/{MACHINE_ID}/machine_config")
 
         assert response.status_code == 200, response.text
         for element_id in (
@@ -244,7 +243,7 @@ class TestScriptWiring:
         `control.js` の `GET /api/session/state` と取得 POST がプロキシ外へ飛んで 404 になる。
         バーを描くと「押すと必ず失敗する取得ボタン」が出る。
         """
-        response = frontend_client.get("/m/no-such-machine/posctrl")
+        response = frontend_client.get("/m/no-such-machine/klipper_status")
 
         assert response.status_code == 404, response.text
         assert 'id="control-lease"' not in response.text

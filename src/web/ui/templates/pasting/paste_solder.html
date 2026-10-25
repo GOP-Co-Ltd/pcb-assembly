@@ -1,5 +1,4 @@
-{% extends "tab.html" %}
-{% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
+{% extends "feature.html" %}
 {% block main %}
 <div class="pasting-workspace" data-testid="pasting-workspace">
 <h2>{{ feature_label }}</h2>
@@ -65,9 +64,9 @@
 <script src="{{ static_asset('js/preview.js') }}"></script>
 {% endif %}
 {% if loading %}
-<script src="{{ static_asset('js/loading_controls.js') }}"></script>
+<script src="{{ static_asset('js/pasting/loading_controls.js') }}"></script>
 {% endif %}
-<script type="module" src="{{ static_asset('js/pad_editor/index.js') }}"></script>
-<script src="{{ static_asset('js/paste_volume_calibrations.js') }}"></script>
+<script type="module" src="{{ static_asset('js/pasting/pad_editor/index.js') }}"></script>
+<script src="{{ static_asset('js/pasting/paste_volume_calibrations.js') }}"></script>
 <script src="{{ static_asset('js/settings.js') }}"></script>
 {% endblock %}

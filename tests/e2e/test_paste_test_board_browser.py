@@ -15,7 +15,7 @@ _OVERFLOW_MESSAGE = re.compile("超え|収まりません")
 
 def _open_board_generator(page, live_ui: LiveUi) -> None:
     page.goto(
-        f"{live_ui.base_url}/pasting/paste_test_board",
+        f"{live_ui.base_url}/paste_test_board",
         wait_until="domcontentloaded",
     )
     expect(page.locator("#ptb-pattern-rows tr")).to_have_count(

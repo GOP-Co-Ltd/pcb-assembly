@@ -1,0 +1,16 @@
+{# 機能のページの骨格（サイドバー / 本文 / マシン操作パネル）。本文は main ブロックで各ページが描く #}
+{% extends "base.html" %}
+{% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
+{% block content %}
+<aside class="sidebar" data-testid="sidebar">
+  {% include "partials/sidebar.html" %}
+</aside>
+<section class="main-pane" data-testid="main-pane">
+  {% block main %}{% endblock %}
+</section>
+{% include "partials/machine_control.html" %}
+{% endblock %}
+{% block scripts %}
+<script src="{{ static_asset('js/job_console.js') }}"></script>
+<script src="{{ static_asset('js/machine_control.js') }}"></script>
+{% endblock %}

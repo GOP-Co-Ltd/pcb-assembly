@@ -34,7 +34,7 @@ def delayed_save_ui(
 
 def _open_editor(live_server: LiveServer, live_ui: LiveUi, page):
     select_led_blinker(live_server)
-    page.goto(f"{live_ui.base_url}/pasting/paste_solder", wait_until="domcontentloaded")
+    page.goto(f"{live_ui.base_url}/paste_solder", wait_until="domcontentloaded")
     acquire_control(page)
     root = page.locator('tr[data-node-id="L0"]')
     expect(root).to_be_visible()

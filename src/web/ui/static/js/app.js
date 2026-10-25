@@ -14,7 +14,7 @@
 // ここ 1 箇所だけにする（各所の URL literal は backend 相対のまま残す）。
 const BASE = document.body.dataset.machineBase ?? "";
 
-// base を渡すと表示中の機体ではなくその機体宛てにする（マシン非依存の一括管理ページ用）
+// base を渡すと表示中の機体ではなくその機体宛てにする（マシン非依存の機体一覧用）
 function withBase(path, base = BASE) {
   return `${base}${path}`;
 }
@@ -191,6 +191,6 @@ bindTopbarCommand(
 bindTopbarCommand(
   "firmware-restart",
   "/api/machine/firmware-restart",
-  "ファームウェア再起動を送信しました",
-  "ファームウェア再起動失敗"
+  "再起動（復旧）を送信しました",
+  "再起動（復旧）失敗"
 );

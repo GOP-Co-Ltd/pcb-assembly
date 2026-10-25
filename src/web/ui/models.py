@@ -10,7 +10,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-# 更新ページの入口（機体ごとのページはここからリンクする）
+# 唯一の更新ページ（UI サーバー自身と全機体の更新を並べる）
 UPDATE_INDEX_PATH = "/update"
 
 
@@ -44,5 +44,5 @@ class UpdateNoticeResponse(BaseModel):
     label: str = ""
     # tooltip に出す内訳（ホストごとに 1 行）
     detail: str = ""
-    # バッジの遷移先（複数ホストが待っているときは UI サーバーの更新ページ）
+    # バッジの遷移先（更新ページ）
     href: str = UPDATE_INDEX_PATH

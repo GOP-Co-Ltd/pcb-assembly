@@ -1,4 +1,4 @@
-{% extends "tab.html" %}
+{% extends "feature.html" %}
 {% block title %}通知音 — PCB Assembly WebUI{% endblock %}
 {% block main %}
 <h2>通知音</h2>
@@ -33,5 +33,5 @@
 {% block scripts %}
 {{ super() }}
 <script src="{{ static_asset('js/settings.js') }}"></script>
-<script src="{{ static_asset('js/audio.js') }}"></script>
+<script src="{{ static_asset('js/machine/audio.js') }}"></script>
 {% endblock %}

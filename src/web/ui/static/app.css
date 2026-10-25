@@ -365,63 +365,6 @@ h2 {
   font-weight: 600;
 }
 
-.feature-overview-heading p {
-  margin: 0 0 1.25rem;
-  color: var(--muted);
-}
-
-.feature-overview {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
-  gap: 1rem;
-  max-width: 72rem;
-}
-
-.feature-card {
-  min-width: 0;
-  padding: 1rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
-}
-
-.feature-card h3 {
-  margin: 0 0 0.35rem;
-  font-size: 1rem;
-}
-
-.feature-card p {
-  margin: 0 0 0.75rem;
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
-.feature-card ul {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.feature-card li + li {
-  border-top: 1px solid var(--line);
-}
-
-.feature-card a {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  min-height: 2.75rem;
-  padding: 0.6rem 0.25rem;
-  color: var(--accent);
-  text-decoration: none;
-  overflow-wrap: anywhere;
-}
-
-.feature-card a:hover {
-  background: var(--accent-weak);
-}
-
 .main-pane {
   min-width: 0;
   padding: 1rem;
@@ -1274,7 +1217,7 @@ h2 {
 }
 
 /* 失敗した手順の出力。長い 1 行で親を押し広げないよう折り返す。 */
-#update-detail {
+.update-detail {
   max-height: 18rem;
   margin: 0.4rem 0 0;
   padding: 0.5rem;
@@ -2901,26 +2844,26 @@ h2 {
   stroke-dasharray: 0.4 0.4;
 }
 
-/* ---- 一括管理 ---- */
-.bulk-table {
+/* ---- 機体一覧 ---- */
+.machines-table {
   width: 100%;
   border-collapse: collapse;
 }
 
-.bulk-table th,
-.bulk-table td {
+.machines-table th,
+.machines-table td {
   padding: 0.4rem 0.7rem;
   border-top: 1px solid var(--line);
   text-align: left;
   vertical-align: middle;
 }
 
-.bulk-table thead th {
+.machines-table thead th {
   color: var(--muted);
   font-weight: 400;
 }
 
-.bulk-status {
+.machines-status {
   display: inline-block;
   min-width: 8rem;
   margin-right: 0.5rem;

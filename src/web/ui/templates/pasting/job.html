@@ -1,5 +1,4 @@
-{% extends "tab.html" %}
-{% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
+{% extends "feature.html" %}
 {% block main %}
 <h2>{{ feature_label }}</h2>
 {% if show_preview %}
@@ -18,6 +17,6 @@
 <script src="{{ static_asset('js/preview.js') }}"></script>
 {% endif %}
 {% if loading %}
-<script src="{{ static_asset('js/loading_controls.js') }}"></script>
+<script src="{{ static_asset('js/pasting/loading_controls.js') }}"></script>
 {% endif %}
 {% endblock %}

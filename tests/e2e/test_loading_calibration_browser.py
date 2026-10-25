@@ -83,7 +83,7 @@ def delayed_calibration_ui(
 
 
 def _open_calibration(ui: LiveUi, page) -> None:
-    page.goto(f"{ui.base_url}/pasting/loading")
+    page.goto(f"{ui.base_url}/loading")
     acquire_control(page)
     page.locator("#lc-rotations").fill("5")
     page.locator("#lc-mass-mg").fill("10")

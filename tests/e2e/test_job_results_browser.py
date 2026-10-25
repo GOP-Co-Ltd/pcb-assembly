@@ -55,7 +55,7 @@ class TestJobResultActions:
         self, live_ui: LiveUi, browser_page
     ):
         page = browser_page
-        page.goto(f"{live_ui.base_url}/posctrl/camera_calibration")
+        page.goto(f"{live_ui.base_url}/camera_calibration")
         acquire_control(page)
         _calibrate(page, "10")
 
@@ -85,7 +85,7 @@ class TestJobResultActions:
     ):
         ui, transport = delayed_result_ui
         page = browser_page
-        page.goto(f"{ui.base_url}/posctrl/camera_calibration")
+        page.goto(f"{ui.base_url}/camera_calibration")
         acquire_control(page)
         _calibrate(page, "10")
         if delay_response:
