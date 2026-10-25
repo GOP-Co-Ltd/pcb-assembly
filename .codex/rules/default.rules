@@ -2,7 +2,7 @@
 #
 # This generator only performs formal Bash permission migration.
 # Migrate Claude skills, agents, docs, and prose with migrate-claude.
-# Source summary: 169 shell allow rule(s), 23 shell deny rule(s).
+# Source summary: 169 shell allow rule(s), 8 shell deny rule(s).
 # Non-shell Claude permissions are handled by Codex tools/sandbox:
 # Edit(~/.ssh/**), Read(//usr/**), Read(//usr/include/**), Read(~/.ssh/**), WebFetch, WebSearch
 
@@ -14,118 +14,6 @@ prefix_rule(
     decision = "forbidden",
     justification = "Migrated from Claude forbidden permission.",
     match = ["sudo"],
-)
-
-# Source: Bash(docker builder prune:*)
-prefix_rule(
-    pattern = ["docker", "builder", "prune"],
-    decision = "forbidden",
-    justification = "Migrated from Claude forbidden permission.",
-    match = ["docker builder prune"],
-)
-
-# Source: Bash(docker compose down:*)
-prefix_rule(
-    pattern = ["docker", "compose", "down"],
-    decision = "forbidden",
-    justification = "Migrated from Claude forbidden permission.",
-    match = ["docker compose down"],
-)
-
-# Source: Bash(docker container prune:*)
-prefix_rule(
-    pattern = ["docker", "container", "prune"],
-    decision = "forbidden",
-    justification = "Migrated from Claude forbidden permission.",
-    match = ["docker container prune"],
-)
-
-# Source: Bash(docker container rm:*)
-prefix_rule(
-    pattern = ["docker", "container", "rm"],
-    decision = "forbidden",
-    justification = "Migrated from Claude forbidden permission.",
-    match = ["docker container rm"],
-)
-
-# Source: Bash(docker image prune:*)
-prefix_rule(
-    pattern = ["docker", "image", "prune"],
-    decision = "forbidden",
-    justification = "Migrated from Claude forbidden permission.",
-    match = ["docker image prune"],
-)
-
-# Source: Bash(docker image rm:*)
-prefix_rule(
-    pattern = ["docker", "image", "rm"],
-    decision = "forbidden",
-    justification = "Migrated from Claude forbidden permission.",
-    match = ["docker image rm"],
-)
-
-# Source: Bash(docker kill:*)
-prefix_rule(
-    pattern = ["docker", "kill"],
-    decision = "forbidden",
-    justification = "Migrated from Claude forbidden permission.",
-    match = ["docker kill"],
-)
-
-# Source: Bash(docker network prune:*)
-prefix_rule(
-    pattern = ["docker", "network", "prune"],
-    decision = "forbidden",
-    justification = "Migrated from Claude forbidden permission.",
-    match = ["docker network prune"],
-)
-
-# Source: Bash(docker network rm:*)
-prefix_rule(
-    pattern = ["docker", "network", "rm"],
-    decision = "forbidden",
-    justification = "Migrated from Claude forbidden permission.",
-    match = ["docker network rm"],
-)
-
-# Source: Bash(docker rm:*)
-prefix_rule(
-    pattern = ["docker", "rm"],
-    decision = "forbidden",
-    justification = "Migrated from Claude forbidden permission.",
-    match = ["docker rm"],
-)
-
-# Source: Bash(docker rmi:*)
-prefix_rule(
-    pattern = ["docker", "rmi"],
-    decision = "forbidden",
-    justification = "Migrated from Claude forbidden permission.",
-    match = ["docker rmi"],
-)
-
-# Source: Bash(docker system prune:*)
-prefix_rule(
-    pattern = ["docker", "system", "prune"],
-    decision = "forbidden",
-    justification = "Migrated from Claude forbidden permission.",
-    match = ["docker system prune"],
-)
-
-# Source: Bash(docker volume prune:*)
-prefix_rule(
-    pattern = ["docker", "volume", "prune"],
-    decision = "forbidden",
-    justification = "Migrated from Claude forbidden permission.",
-    match = ["docker volume prune"],
-)
-
-# Source: Bash(docker volume rm:*)
-prefix_rule(
-    pattern = ["docker", "volume", "rm"],
-    decision = "forbidden",
-    justification = "Migrated from Claude forbidden permission.",
-    match = ["docker volume rm"],
 )
 
 # Source: Bash(git checkout .)
@@ -166,17 +54,6 @@ prefix_rule(
     decision = "forbidden",
     justification = "Migrated from Claude forbidden permission.",
     match = ["git reset --hard"],
-)
-
-# Source: Bash(make test:*)
-prefix_rule(
-    pattern = [
-        "make",
-        ["test"],
-    ],
-    decision = "forbidden",
-    justification = "Migrated from Claude forbidden permission.",
-    match = ["make test"],
 )
 
 # Source: Bash(rm -fr:*), Bash(rm -rf:*)

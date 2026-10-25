@@ -9,12 +9,6 @@ Claude は実機（カメラ、Klipper 接続のステージ・サーボ・エ�
 実機での確認はユーザーが受け入れ試験（`docs/acceptance.md`）で行い、Claude は golden と fake を通すテストまでを担当する。
 pytest は実機に触れない（`@mark_hardware` のテストは無く、テスト中の Klipper 接続は必ず失敗する）。
 
-実機テストがあった頃の防護層が Claude 側に残っている。撤去は auto mode が自己改変として拒否するので、ユーザーが行う。
-
-- `.claude/hooks/pretooluse-block-hardware-tests.py`（`PreToolUse` / matcher `Bash`）が `make test` / `make run` と、`-m "not hardware"` を伴わない pytest 起動を拒否する
-- `.claude/settings.json` の deny にも `make test` があり、`.codex/rules` へも生成される
-- 残っている間は、テストだけを流すとき `make test-no-hardware` を使い、pytest を直接叩くときは `-m "not hardware"` を付ける
-
 ## フィードバック（規約・好み）
 
 - [try-catch より戻り値バリデーション](feedback_no_try_catch.md) — 入力バリデーションは None 返却パターンを好む、try-catch 不要

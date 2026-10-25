@@ -11,8 +11,7 @@ AGENTS.md の記述を以下のとおり読み替える。
 ### 検証コマンド
 
 - Claude が使う検証も AGENTS.md の標準フローと同じ `make check`
-- pytest は実機に触れない。ただし実機テストがあった頃の防護層（`.claude/settings.json` の deny `Bash(make test:*)` と PreToolUse hook `.claude/hooks/pretooluse-block-hardware-tests.py`）が残っており、`make test` の直接実行と `-m "not hardware"` の無い pytest 起動を止める
-- テストだけを流すときは `make test-no-hardware`、`pytest` を直接叩くときは `-m "not hardware"` を付ける
+- pytest は実機に触れない（テスト中の Klipper 接続と systemctl は必ず失敗する）。テストだけを流すときは `make test`
 - 実機での確認はユーザーが受け入れ試験（`docs/acceptance.md`）で行う
 
 ### 資産の置き場所

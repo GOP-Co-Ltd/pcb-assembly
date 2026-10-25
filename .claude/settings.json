@@ -181,7 +181,6 @@
     "deny": [
       "Read(~/.ssh/**)",
       "Edit(~/.ssh/**)",
-      "Bash(make test:*)",
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
       "Bash(git reset --hard:*)",
@@ -189,21 +188,7 @@
       "Bash(git checkout .)",
       "Bash(rm -rf:*)",
       "Bash(rm -fr:*)",
-      "Bash(sudo:*)",
-      "Bash(docker compose down:*)",
-      "Bash(docker rm:*)",
-      "Bash(docker rmi:*)",
-      "Bash(docker kill:*)",
-      "Bash(docker volume rm:*)",
-      "Bash(docker volume prune:*)",
-      "Bash(docker network rm:*)",
-      "Bash(docker network prune:*)",
-      "Bash(docker image rm:*)",
-      "Bash(docker image prune:*)",
-      "Bash(docker container rm:*)",
-      "Bash(docker container prune:*)",
-      "Bash(docker system prune:*)",
-      "Bash(docker builder prune:*)"
+      "Bash(sudo:*)"
     ],
     "additionalDirectories": [
       "/tmp",
@@ -236,17 +221,6 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/userpromptsubmit-compact-prep-reminder.sh\""
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/pretooluse-block-hardware-tests.py\""
           }
         ]
       }

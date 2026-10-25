@@ -12,8 +12,6 @@ format: ## Run pre-commit hooks
 test: ## Run tests except e2e (hardware is checked by docs/acceptance.md)
 	uv run pytest -v -m "not e2e"
 
-test-no-hardware: test ## Alias of test
-
 test-e2e: ## Run WebUI full-stack E2E (live uvicorn + HTTP/WS/MJPEG)
 	uv run pytest -v -m e2e --timeout=180
 
