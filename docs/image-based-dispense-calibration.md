@@ -144,7 +144,7 @@ g = \frac{\sum_i V_{\mathrm{estimated},i}}{\sum_i V_{\mathrm{command},i}}
 
 ## データ収集
 
-WebUI のはんだ塗布タブの「塗布量校正の生成」（`paste_volume_calibration`）ジョブで行う。
+WebUI の校正タブの「塗布量校正の生成」（`paste_volume_calibration`）ジョブで行う。
 運転者の目的は校正を作ることなので、**収集の最後に直径ベースの校正まで同じ実行で作る**。
 収集した dataset は副産物として残り、`paste_volume_refit` で作り直せる
 （[直径ベースの塗布量校正](paste-volume-diameter-calibration.md) の「WebUI」）。
@@ -473,7 +473,7 @@ document は移行せず「未対応」として拒否する（v1・v2 からの
 ### 生成物と WebUI
 
 - 各配置位置に、抽出したパッド 1 個だけを持つ footprint を置く。元 footprint の silkscreen は複製しない。reference / value 文字は非表示で、reference は通常パッドが `PAD1` からの連番、purge pad が `PURGE`（pad number はすべて `1`）
-- WebUI は「はんだ塗布」タブの「テスト塗布基板生成」。装置を動かさないので操作権は要らない。preview は解決済みの F.Cu / F.Paste と角度を SVG で描き、部品名は hover の tooltip に出す
+- WebUI は「基板」タブの「テスト塗布基板生成」。装置を動かさないので操作権は要らない。preview は解決済みの F.Cu / F.Paste と角度を SVG で描き、部品名は hover の tooltip に出す
 - 配置領域を超えても preview は消さず、はみ出した部分を赤で重ね、配置可能になるまで基板生成を無効にする
 - 設定は `pcbasm-paste-test-board.json`、基板は `pcbasm-paste-test-board.kicad_pcb` としてブラウザへダウンロードする
 - 編集中の設定は機体ごとにブラウザの localStorage に保存し、再読込時にサーバーの Import API で検証・正規化してから復元する。古い schema や不正な内容は破棄して初期設定に戻す。サーバー側には保存しない

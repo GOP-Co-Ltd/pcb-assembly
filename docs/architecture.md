@@ -99,17 +99,20 @@ JS に `fetch()` を直接書かない。機体の prefix が付かず、テス�
 
 ### ページを足す
 
-ページの URL は `/m/{machine_id}/{tab}/{feature}` になる。
-`src/web/ui/layout.py` に登録していない feature は 404 になる。
+ページの URL は `/m/{machine_id}/{feature}` になる。feature slug はジョブ名と同じにする。
+タブ・グループ・テンプレートは `src/web/ui/features.py` の機能表 `FEATURES` だけが持ち、ここに無い feature は 404 になる。
 
-1. `layout.py` の `FEATURE_GROUPS` で、該当タブのグループに feature slug を足す。サイドバーと入口画面に表示される。
-2. `layout.py` の `FEATURE_TEMPLATES` に `(tab, slug)` とテンプレート名を足す。テンプレートは `src/web/ui/templates/` に置く。
+1. `FEATURES` に `Feature(slug, tab, group, template)` を 1 行足す。タブの中ではグループごとに表の順でサイドバーに並ぶ。
+2. テンプレートは `src/web/ui/templates/` の、呼ぶドメインのディレクトリ（`align/`、`pasting/`、`machine/`）に置く。JS も `static/js/` の同じ名前のディレクトリに置く。
 3. ページの種類に応じて、表示名とテンプレートを決める。
 
-| ページの種類 | 表示名                                  | テンプレート                                                                                                     |
-| ------------ | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| ジョブ       | backend の `JobDefinition.label` を使う | `JOB_TEMPLATES` に含まれるもの。汎用の `job.html`（全タブ共用）、`pasting/job.html`、`posctrl/job.html` で足りる |
-| ジョブ以外   | `layout.py` の `FEATURE_LABELS` に足す  | `JOB_TEMPLATES` に入れない。入れると backend にジョブが無いため 503 になる                                       |
+| ページの種類 | 表示名                                  | テンプレート                                                                                   |
+| ------------ | --------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| ジョブ       | backend の `JobDefinition.label` を使う | `label` を書かない。汎用の `job.html`、`pasting/job.html`、`align/job.html` で足りる           |
+| ジョブ以外   | `Feature` の `label` に書く             | `label` を書くとジョブ定義を取りにいかない（書かないと backend にジョブが無いため 503 になる） |
+
+catalog のジョブと機能表の対応は `tests/web/ui/test_features.py` が確かめる。
+作り直し前の URL（`/m/{machine_id}/{旧タブ}/{旧 slug}`）は、`features.py` の `LEGACY` で新しい URL へ 307 する。
 
 ページに追加の値が要るときは、次の順で足す。
 
