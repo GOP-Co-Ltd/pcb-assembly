@@ -99,7 +99,7 @@ class TestMachinesRow:
         browser_page.once("dialog", lambda dialog: dialog.accept())
         run.click()
 
-        expect(browser_page.locator(".toast.error")).to_contain_text(
+        expect(browser_page.get_by_test_id("toast-error")).to_contain_text(
             "PCB ファイルの選択が必要"
         )
 

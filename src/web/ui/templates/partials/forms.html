@@ -8,20 +8,20 @@
       {{ spec.label }}{% if spec.unit %} <span class="unit">[{{ spec.unit }}]</span>{% endif %}
     </label>
     {% if spec.value_type == "choice" %}
-    <select id="param-{{ spec.name }}" name="{{ spec.name }}" data-param-type="choice">
+    <select id="param-{{ spec.name }}" data-testid="param-{{ spec.name }}" name="{{ spec.name }}" data-param-type="choice">
       {% for choice in spec.choices %}
       <option value="{{ choice }}"{% if choice == spec.default %} selected{% endif %}>{{ choice }}</option>
       {% endfor %}
     </select>
     {% elif spec.value_type == "bool" %}
-    <input type="checkbox" id="param-{{ spec.name }}" name="{{ spec.name }}"
+    <input type="checkbox" id="param-{{ spec.name }}" data-testid="param-{{ spec.name }}" name="{{ spec.name }}"
            data-param-type="bool"{% if spec.default %} checked{% endif %}>
     {% elif spec.value_type == "str" %}
-    <input type="text" id="param-{{ spec.name }}" name="{{ spec.name }}"
+    <input type="text" id="param-{{ spec.name }}" data-testid="param-{{ spec.name }}" name="{{ spec.name }}"
            data-param-type="str"{% if spec.optional %} data-param-optional="true"{% endif %}
            value="{{ spec.default if spec.default is not none else '' }}">
     {% else %}
-    <input type="number" id="param-{{ spec.name }}" name="{{ spec.name }}" step="any"
+    <input type="number" id="param-{{ spec.name }}" data-testid="param-{{ spec.name }}" name="{{ spec.name }}" step="any"
            data-param-type="{{ spec.value_type }}"{% if spec.runtime_editable %} data-runtime-editable="true"{% endif %}
            {% if spec.optional %}data-param-optional="true"{% endif %}
            value="{{ spec.default if spec.default is not none else '' }}">

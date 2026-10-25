@@ -38,11 +38,13 @@ def delayed_result_ui(
 
 
 def _calibrate(page, square_size: str) -> None:
-    page.locator("#param-square_size").fill(square_size)
-    page.locator("#job-run").click()
-    page.locator("#jc-prompt-ok").click()
-    expect(page.locator("#jc-status")).to_have_attribute("data-status", "succeeded")
-    expect(page.locator("#jc-apply")).to_be_visible()
+    page.get_by_test_id("param-square_size").fill(square_size)
+    page.get_by_test_id("job-run").click()
+    page.get_by_test_id("jc-prompt-ok").click()
+    expect(page.get_by_test_id("jc-status")).to_have_attribute(
+        "data-status", "succeeded"
+    )
+    expect(page.get_by_test_id("jc-apply")).to_be_visible()
 
 
 class TestJobResultActions:
@@ -59,10 +61,12 @@ class TestJobResultActions:
             data={"params": {"steps": 1, "interval": 0}},
         )
         assert response.status == 201
-        expect(page.locator("#jc-status")).to_have_attribute("data-status", "idle")
-        expect(page.locator("#jc-result")).to_be_hidden()
-        expect(page.locator("#jc-apply-btn")).to_be_hidden()
-        expect(page.locator("#jc-prompt")).to_be_hidden()
+        expect(page.get_by_test_id("jc-status")).to_have_attribute(
+            "data-status", "idle"
+        )
+        expect(page.get_by_test_id("jc-result")).to_be_hidden()
+        expect(page.get_by_test_id("jc-apply-btn")).to_be_hidden()
+        expect(page.get_by_test_id("jc-prompt")).to_be_hidden()
         assert (
             page.request.post(f"{live_ui.base_url}/api/jobs/current/abort").status
             == 200
@@ -85,7 +89,7 @@ class TestJobResultActions:
         _calibrate(page, "10")
         if delay_response:
             transport.delay_response()
-        page.locator(f"#jc-{action}-btn").click()
+        page.get_by_test_id(f"jc-{action}-btn").click()
         assert transport.wait_received()
         config_dir = live_server.settings.config_dir
         saved_files = {
@@ -99,12 +103,14 @@ class TestJobResultActions:
             transport.resume()
         assert pending.value.status == (200 if delay_response else 409)
         if delay_response:
-            expect(page.locator("#toasts")).to_contain_text(
+            expect(page.get_by_test_id("toasts")).to_contain_text(
                 "設定に反映しました" if action == "apply" else "計測結果を破棄しました"
             )
         else:
-            expect(page.locator("#toasts")).to_contain_text("ジョブが切り替わりました")
-        expect(page.locator("#jc-apply")).to_be_visible()
+            expect(page.get_by_test_id("toasts")).to_contain_text(
+                "ジョブが切り替わりました"
+            )
+        expect(page.get_by_test_id("jc-apply")).to_be_visible()
         assert {
             p.name: p.read_bytes() for p in config_dir.iterdir() if p.is_file()
         } == saved_files
@@ -113,6 +119,6 @@ class TestJobResultActions:
         with page.expect_response(
             lambda response: response.url.endswith(f"/api/jobs/last/{action}")
         ) as retried:
-            page.locator(f"#jc-{action}-btn").click()
+            page.get_by_test_id(f"jc-{action}-btn").click()
         assert retried.value.status == 200
-        expect(page.locator("#jc-apply")).to_be_hidden()
+        expect(page.get_by_test_id("jc-apply")).to_be_hidden()

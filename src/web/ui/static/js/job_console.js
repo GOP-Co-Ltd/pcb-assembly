@@ -409,12 +409,14 @@
         input.required = true;
       }
       input.id = "jc-prompt-input";
+      input.dataset.testid = "jc-prompt-input";
       input.setAttribute("aria-labelledby", "jc-prompt-message");
       if (prompt.default !== null && prompt.default !== undefined) input.value = prompt.default;
       field.appendChild(input);
     } else if (prompt.kind === "choice") {
       const select = document.createElement("select");
       select.id = "jc-prompt-input";
+      select.dataset.testid = "jc-prompt-input";
       select.setAttribute("aria-labelledby", "jc-prompt-message");
       for (const choice of prompt.choices) {
         const option = document.createElement("option");

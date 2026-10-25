@@ -1,4 +1,4 @@
-<fieldset id="calibration-menu" class="calibration-menu" data-requires-control
+<fieldset id="calibration-menu" data-testid="calibration-menu" class="calibration-menu" data-requires-control
           data-job-name="{{ job_name }}"
           data-calib-stage="キャリブレーションメニュー">
   <legend>キャリブレーションメニュー</legend>
@@ -6,17 +6,17 @@
     押出/吸引でプライムしてから、各キャリブレーションを実行してください。
   </p>
   <div class="calibration-menu-actions">
-    <button id="calib-rotations-per-ul" type="button" data-calib="rotations_per_ul"
+    <button id="calib-rotations-per-ul" data-testid="calib-rotations-per-ul" type="button" data-calib="rotations_per_ul"
             disabled>① rotations_per_ul</button>
-    <button id="calib-max-dispense-rate" type="button" data-calib="max_dispense_rate"
+    <button id="calib-max-dispense-rate" data-testid="calib-max-dispense-rate" type="button" data-calib="max_dispense_rate"
             disabled>② max_dispense_rate</button>
-    <button id="calib-max-fill-speed" type="button" data-calib="max_fill_speed"
+    <button id="calib-max-fill-speed" data-testid="calib-max-fill-speed" type="button" data-calib="max_fill_speed"
             disabled>③ max_fill_speed</button>
-    <button id="calib-all" type="button" data-calib="all"
+    <button id="calib-all" data-testid="calib-all" type="button" data-calib="all"
             disabled>① → ② → ③ を続けて実行</button>
   </div>
   <div class="calibration-menu-finish">
-    <button id="calib-finish" type="button" data-calib="finish"
+    <button id="calib-finish" data-testid="calib-finish" type="button" data-calib="finish"
             disabled>終了（設定反映へ）</button>
   </div>
 </fieldset>

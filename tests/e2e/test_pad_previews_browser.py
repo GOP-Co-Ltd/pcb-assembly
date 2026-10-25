@@ -43,13 +43,13 @@ class TestPadPreviews:
         select_led_blinker(live_server)
         page.goto(f"{ui.base_url}/paste_solder", wait_until="domcontentloaded")
         acquire_control(page)
-        calculate = page.locator(f"#pad-calculate-{kind}")
+        calculate = page.get_by_test_id(f"pad-calculate-{kind}")
         overlay = page.get_by_test_id(f"pad-{kind}-overlay")
         calculate.click()
         assert transport.wait_received()
 
         with page.expect_response("**/api/pasting/board"):
-            page.locator("#pad-disable-all").click()
+            page.get_by_test_id("pad-disable-all").click()
         assert not any(
             pad["enabled"]
             for pad in get_pad_config(live_server)["pads"]
@@ -65,7 +65,11 @@ class TestPadPreviews:
         expect(calculate).to_be_enabled()
 
         with page.expect_response("**/api/pasting/board"):
-            page.locator("#pad-enable-all").click()
-        expect(page.locator('.pad-disabled[data-layer="Top"]')).to_have_count(0)
+            page.get_by_test_id("pad-enable-all").click()
+        expect(
+            page.locator(
+                '[data-testid="pad-polygon"][data-layer="Top"][data-enabled="false"]'
+            )
+        ).to_have_count(0)
         calculate.click()
         expect(overlay).to_be_attached()

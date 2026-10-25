@@ -31,11 +31,11 @@ class TestCopperDetectionOverBrowser:
         )
         _acquire_control(browser_page)
 
-        for selector, value in (
-            ("#canny-low", "91"),
-            ("#canny-high", "193"),
+        for testid, value in (
+            ("canny-low", "91"),
+            ("canny-high", "193"),
         ):
-            browser_page.locator(selector).evaluate(
+            browser_page.get_by_test_id(testid).evaluate(
                 """(element, value) => {
                     element.value = value;
                     element.dispatchEvent(new Event("input", { bubbles: true }));
@@ -43,7 +43,7 @@ class TestCopperDetectionOverBrowser:
                 value,
             )
 
-        browser_page.locator("#canny-save").click()
+        browser_page.get_by_test_id("canny-save").click()
 
         _wait_machine_field(live_server.base_url, "alignment.canny_low", 91.0)
         _wait_machine_field(live_server.base_url, "alignment.canny_high", 193.0)
@@ -67,7 +67,7 @@ class TestNozzlePositionsOverBrowser:
             "nozzle-clean-test",
             "nozzle-clean-settings",
         ):
-            assert browser_page.locator(f'[data-testid="{testid}"]').count() == 1
+            assert browser_page.get_by_test_id(f"{testid}").count() == 1
 
     def test_clean_record_button_is_gated_by_control(
         self, live_ui: LiveUi, browser_page
@@ -79,7 +79,7 @@ class TestNozzlePositionsOverBrowser:
         browser_page.goto(
             f"{live_ui.base_url}/nozzle_cap", wait_until="domcontentloaded"
         )
-        button = browser_page.locator('[data-testid="nozzle-clean-record"]')
+        button = browser_page.get_by_test_id("nozzle-clean-record")
         button.wait_for(state="visible", timeout=10_000)
         is_inert = "(el) => el.hasAttribute('inert')"
 
@@ -100,15 +100,15 @@ class TestNozzlePositionsOverBrowser:
             f"{live_ui.base_url}/nozzle_cap", wait_until="domcontentloaded"
         )
         _acquire_control(browser_page)
-        button = browser_page.locator('[data-testid="nozzle-clean-test"]')
+        button = browser_page.get_by_test_id("nozzle-clean-test")
         button.wait_for(state="visible", timeout=10_000)
 
         button.click()
 
-        expect(browser_page.locator("#jc-status")).to_have_attribute(
+        expect(browser_page.get_by_test_id("jc-status")).to_have_attribute(
             "data-status", "failed", timeout=60_000
         )
-        expect(browser_page.locator("#jc-log")).to_contain_text(
+        expect(browser_page.get_by_test_id("jc-log")).to_contain_text(
             "ノズルクリーニング位置が未記録です"
         )
         expect(button).to_be_enabled()
@@ -124,8 +124,8 @@ class TestNozzlePositionsOverBrowser:
             f"{live_ui.base_url}/nozzle_cap", wait_until="domcontentloaded"
         )
         _acquire_control(browser_page)
-        field = browser_page.locator(
-            'input[name="paste_dispenser.nozzle_clean.press_depth"]'
+        field = browser_page.get_by_test_id(
+            "nozzle-clean-paste_dispenser.nozzle_clean.press_depth"
         )
         field.wait_for(state="visible", timeout=10_000)
 
@@ -151,19 +151,19 @@ class TestDispenseCalibrationOverBrowser:
             f"{live_ui.base_url}/dispense_calibration",
             wait_until="domcontentloaded",
         )
-        browser_page.locator("#calibration-menu").wait_for(
+        browser_page.get_by_test_id("calibration-menu").wait_for(
             state="visible", timeout=10_000
         )
 
         # ①②③/全実行/終了 のメニューボタン（ジョブ未実行なので全て disabled）
-        for button_id in (
-            "#calib-rotations-per-ul",
-            "#calib-max-dispense-rate",
-            "#calib-max-fill-speed",
-            "#calib-all",
-            "#calib-finish",
+        for testid in (
+            "calib-rotations-per-ul",
+            "calib-max-dispense-rate",
+            "calib-max-fill-speed",
+            "calib-all",
+            "calib-finish",
         ):
-            expect(browser_page.locator(button_id)).to_be_disabled()
+            expect(browser_page.get_by_test_id(testid)).to_be_disabled()
 
 
 class TestPasteVolumeCalibrationSelect:
@@ -197,14 +197,14 @@ class TestPasteVolumeCalibrationSelect:
             wait_until="networkidle",
         )
 
-        field = browser_page.locator("#param-volume_calibration")
+        field = browser_page.get_by_test_id("param-volume_calibration")
         expect(field).to_have_count(1)
         assert field.evaluate("el => el.tagName") == "SELECT"
         assert name in field.evaluate("el => Array.from(el.options).map(o => o.value)")
 
         field.select_option(name)
 
-        details = browser_page.locator('[data-testid="volume-calibration-details"]')
+        details = browser_page.get_by_test_id("volume-calibration-details")
         expect(details).to_contain_text("ノズル")
         expect(details).to_contain_text("総体積誤差")
 
@@ -229,4 +229,7 @@ class TestPasteVolumeCalibrationSelect:
 
         browser_page.reload(wait_until="networkidle")
 
-        assert browser_page.locator("#param-volume_calibration").input_value() == name
+        assert (
+            browser_page.get_by_test_id("param-volume_calibration").input_value()
+            == name
+        )

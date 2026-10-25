@@ -228,9 +228,9 @@ def acquire_control(page: Any, *, timeout_ms: float = _CONTROL_TIMEOUT_MS) -> No
     if open_menu:
         menu.locator("summary").click(timeout=timeout_ms)
     if state == "free":
-        page.locator("#control-acquire").click(timeout=timeout_ms)
+        page.get_by_test_id("control-acquire").click(timeout=timeout_ms)
     elif state == "viewer":
-        page.locator("#control-takeover").click(timeout=timeout_ms)
+        page.get_by_test_id("control-takeover").click(timeout=timeout_ms)
     page.wait_for_function(
         "() => document.body.dataset.control === 'held'", timeout=timeout_ms
     )
@@ -374,3 +374,18 @@ def wait_first_prompt(ws: Any) -> dict[str, Any]:
             pending = event["job"].get("pending_prompt")
             if pending is not None:
                 return pending
+
+
+def pad_row(page: Any, node_id: str) -> Any:
+    """Pad 編集の表で ``node_id`` の行."""
+    return page.locator(f'[data-testid="pad-tree-row"][data-node-id="{node_id}"]')
+
+
+def pad_child_rows(page: Any) -> Any:
+    """Pad 編集の表で、ルート（L0）以外の行."""
+    return page.locator('[data-testid="pad-tree-row"]:not([data-node-id="L0"])')
+
+
+def pad_field(row: Any, testid: str, field: str) -> Any:
+    """Pad 編集の行で ``field`` の欄にある ``testid`` の要素（入力・選択・override の印など）."""
+    return row.locator(f'[data-testid="{testid}"][data-field="{field}"]')

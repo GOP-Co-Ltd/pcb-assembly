@@ -26,13 +26,11 @@ class TestPadEditorReset:
         page = browser_page
         page.goto(f"{live_ui.base_url}/paste_solder", wait_until="domcontentloaded")
         acquire_control(page)
-        expect(page.locator('[data-testid="pad-editor-empty"]')).to_contain_text(
-            "読めません"
-        )
+        expect(page.get_by_test_id("pad-editor-empty")).to_contain_text("読めません")
 
         page.once("dialog", lambda dialog: dialog.accept())
-        page.locator('[data-testid="pad-reset-config"]').click()
+        page.get_by_test_id("pad-reset-config").click()
 
-        expect(page.locator('[data-testid="pad-editor-body"]')).to_be_visible()
-        expect(page.locator('[data-testid="pad-reset-config"]')).to_be_hidden()
+        expect(page.get_by_test_id("pad-editor-body")).to_be_visible()
+        expect(page.get_by_test_id("pad-reset-config")).to_be_hidden()
         assert get_pad_config(live_server)["overrides"] == {}

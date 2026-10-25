@@ -10,8 +10,14 @@ function toast(message, level = true) {
   const container = document.getElementById("toasts");
   if (!container) return;
   const el = document.createElement("div");
-  el.className =
-    level === "warning" ? "toast warning" : level ? "toast" : "toast error";
+  const [className, testid] =
+    level === "warning"
+      ? ["toast warning", "toast-warning"]
+      : level
+        ? ["toast", "toast"]
+        : ["toast error", "toast-error"];
+  el.className = className;
+  el.dataset.testid = testid;
   el.textContent = message;
   container.appendChild(el);
   setTimeout(() => el.remove(), 5000);

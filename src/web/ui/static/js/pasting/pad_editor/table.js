@@ -86,6 +86,7 @@ function renderHeader(tableBody, fields) {
   for (const field of columnFields(fields)) {
     const th = document.createElement("th");
     th.id = `pad-heading-${field.name}`;
+    th.dataset.testid = th.id;
     th.scope = "col";
     th.className = "pad-col-field";
     th.dataset.field = field.name;
@@ -223,6 +224,7 @@ function buildRow(state, actions, node, depth) {
       td = buildValueCell(state, actions, node, field, descendantSummary);
     }
     td.dataset.column = field;
+    td.dataset.testid = "pad-cell";
     tr.appendChild(td);
   }
   return tr;

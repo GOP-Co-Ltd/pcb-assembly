@@ -33,7 +33,7 @@ def _start_completion_notice_job(live_ui: LiveUi, browser_page, job_name: str) -
         wait_until="domcontentloaded",
     )
     _acquire_control(browser_page)
-    form = browser_page.locator("#job-form")
+    form = browser_page.get_by_test_id("job-form")
     form.wait_for(state="visible", timeout=10_000)
     form.evaluate(
         """(element, name) => {
@@ -42,7 +42,7 @@ def _start_completion_notice_job(live_ui: LiveUi, browser_page, job_name: str) -
         }""",
         job_name,
     )
-    browser_page.locator("#job-run").click()
+    browser_page.get_by_test_id("job-run").click()
 
 
 class TestCompletionNoticeOverBrowser:
@@ -59,10 +59,10 @@ class TestCompletionNoticeOverBrowser:
         browser_page.on("request", lambda request: requested_urls.append(request.url))
         _start_completion_notice_job(live_ui, browser_page, "completion_notice_success")
 
-        notice = browser_page.locator("#job-completion-notice")
+        notice = browser_page.get_by_test_id("job-completion-notice")
         notice.wait_for(state="visible", timeout=10_000)
         assert notice.get_attribute("data-status") == "success"
-        expect(browser_page.locator("#job-completion-message")).to_have_text(
+        expect(browser_page.get_by_test_id("job-completion-message")).to_have_text(
             "通知テスト成功が完了しました"
         )
         assert browser_page.title() == f"【成功】{original_title}"
@@ -73,17 +73,17 @@ class TestCompletionNoticeOverBrowser:
             return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) === el;
         }""")
 
-        browser_page.locator("#job-completion-dismiss").click()
+        browser_page.get_by_test_id("job-completion-dismiss").click()
         expect(notice).to_be_hidden()
         assert browser_page.title() == original_title
 
     def test_failure_uses_error_notice_and_title(self, live_ui: LiveUi, browser_page):
         _start_completion_notice_job(live_ui, browser_page, "completion_notice_failure")
 
-        notice = browser_page.locator("#job-completion-notice")
+        notice = browser_page.get_by_test_id("job-completion-notice")
         notice.wait_for(state="visible", timeout=10_000)
         assert notice.get_attribute("data-status") == "error"
-        expect(browser_page.locator("#job-completion-message")).to_have_text(
+        expect(browser_page.get_by_test_id("job-completion-message")).to_have_text(
             "通知テスト失敗に失敗しました: 通知テスト失敗"
         )
         assert browser_page.title().startswith("【失敗】")
@@ -109,7 +109,7 @@ class TestCompletionNoticeOverBrowser:
             timeout=10_000,
         )
 
-        expect(browser_page.locator("#job-completion-notice")).to_be_hidden()
+        expect(browser_page.get_by_test_id("job-completion-notice")).to_be_hidden()
         assert browser_page.title() == original_title
 
     def test_terminal_job_from_before_page_load_does_not_notify(
@@ -136,7 +136,7 @@ class TestCompletionNoticeOverBrowser:
             timeout=10_000,
         )
 
-        expect(browser_page.locator("#job-completion-notice")).to_be_hidden()
+        expect(browser_page.get_by_test_id("job-completion-notice")).to_be_hidden()
         assert browser_page.title() == "はんだ塗布 — PCB Assembly WebUI"
 
 
@@ -153,7 +153,9 @@ class TestPromptDialogOverBrowser:
             wait_until="domcontentloaded",
         )
         _acquire_control(browser_page)
-        browser_page.locator("#job-console").wait_for(state="visible", timeout=10_000)
+        browser_page.get_by_test_id("job-console").wait_for(
+            state="visible", timeout=10_000
+        )
 
         start = httpx.post(
             f"{live_server.base_url}/api/jobs/height_plane",
@@ -162,10 +164,10 @@ class TestPromptDialogOverBrowser:
         )
         assert start.status_code == 201, start.text
 
-        dialog = browser_page.locator("#jc-prompt")
+        dialog = browser_page.get_by_test_id("jc-prompt")
         dialog.wait_for(state="visible", timeout=30_000)
-        ok_button = browser_page.locator("#jc-prompt-ok")
-        no_button = browser_page.locator("#jc-prompt-no")
+        ok_button = browser_page.get_by_test_id("jc-prompt-ok")
+        no_button = browser_page.get_by_test_id("jc-prompt-no")
         ok_button.wait_for(state="visible", timeout=10_000)
         no_button.wait_for(state="visible", timeout=10_000)
 
@@ -195,18 +197,20 @@ class TestPromptDialogOverBrowser:
             f"{live_ui.base_url}/height_plane",
             wait_until="domcontentloaded",
         )
-        browser_page.locator("#job-console").wait_for(state="visible", timeout=10_000)
+        browser_page.get_by_test_id("job-console").wait_for(
+            state="visible", timeout=10_000
+        )
 
         metrics = browser_page.evaluate(
             """(message) => {
-                const dialog = document.getElementById("jc-prompt");
-                document.getElementById("jc-prompt-message").textContent = message;
+                const byTestId = (testid) =>
+                    document.querySelector(`[data-testid="${testid}"]`);
+                const dialog = byTestId("jc-prompt");
+                byTestId("jc-prompt-message").textContent = message;
                 // job_console.js と同じ非モーダル表示（::backdrop で緊急停止を覆わない）
                 dialog.show();
                 dialog.scrollTop = dialog.scrollHeight;
-                const button = document
-                    .getElementById("jc-prompt-ok")
-                    .getBoundingClientRect();
+                const button = byTestId("jc-prompt-ok").getBoundingClientRect();
                 return {
                     dialog: dialog.getBoundingClientRect().height,
                     top: button.top,
@@ -239,7 +243,9 @@ class TestPromptDialogOverBrowser:
             wait_until="domcontentloaded",
         )
         _acquire_control(browser_page)
-        browser_page.locator("#job-console").wait_for(state="visible", timeout=10_000)
+        browser_page.get_by_test_id("job-console").wait_for(
+            state="visible", timeout=10_000
+        )
 
         start = httpx.post(
             f"{live_server.base_url}/api/jobs/height_plane",
@@ -248,7 +254,9 @@ class TestPromptDialogOverBrowser:
         )
         assert start.status_code == 201, start.text
 
-        browser_page.locator("#jc-prompt").wait_for(state="visible", timeout=30_000)
+        browser_page.get_by_test_id("jc-prompt").wait_for(
+            state="visible", timeout=30_000
+        )
         browser_page.keyboard.press("Enter")
 
         wait_until(

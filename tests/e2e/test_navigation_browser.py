@@ -266,10 +266,12 @@ class TestMachineSelectorRefresh:
         # 中継されて 404）。current の判定はサーバ側なのでクエリに載る
         assert fetched.value.url == f"{origin}/api/machines?current={_E2E_MACHINE_ID}"
 
-        options = browser_page.locator('#machine-select option:not([value=""])')
+        options = browser_page.get_by_test_id("machine-select").locator(
+            'option:not([value=""])'
+        )
         expect(options).to_have_text(_machine_labels(origin, current=_E2E_MACHINE_ID))
         # 表示中のマシンが選択されている（登録順では 2 番目なので既定選択とは異なる）
-        expect(browser_page.locator("#machine-select")).to_have_value(
+        expect(browser_page.get_by_test_id("machine-select")).to_have_value(
             f"/m/{_E2E_MACHINE_ID}/klipper_status"
         )
 
@@ -290,7 +292,7 @@ class TestMachineSelectorRefresh:
         expect(options).to_have_text(_machine_labels(origin, current=_E2E_MACHINE_ID))
         expect(options).to_have_count(3)
         expect(options.nth(2)).to_contain_text("discovered-machine")
-        expect(browser_page.locator("#machine-select")).to_have_value(
+        expect(browser_page.get_by_test_id("machine-select")).to_have_value(
             f"/m/{_E2E_MACHINE_ID}/klipper_status"
         )
 
@@ -298,6 +300,6 @@ class TestMachineSelectorRefresh:
         browser_page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
         expect(options).to_have_text(_machine_labels(origin, current=_E2E_MACHINE_ID))
         expect(options).to_have_count(2)
-        expect(browser_page.locator("#machine-select")).to_have_value(
+        expect(browser_page.get_by_test_id("machine-select")).to_have_value(
             f"/m/{_E2E_MACHINE_ID}/klipper_status"
         )

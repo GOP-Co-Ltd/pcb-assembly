@@ -1,4 +1,4 @@
-<fieldset id="loading-controls" class="loading-controls" data-requires-control
+<fieldset id="loading-controls" data-testid="loading-controls" class="loading-controls" data-requires-control
           data-job-name="{{ job_name }}"
           data-loading-stages="{{ loading.stages|tojson|forceescape }}">
   <legend>ローディング</legend>
@@ -7,9 +7,9 @@
       <span class="loading-control-section-title">体積</span>
       <div class="loading-control-group">
         <label for="lc-amount">量 <span class="unit">[uL]</span></label>
-        <input type="number" id="lc-amount" step="any" min="0" value="{{ loading.amount }}">
-        <button id="lc-extrude" type="button" disabled>押出</button>
-        <button id="lc-suck" type="button" disabled>吸引</button>
+        <input type="number" id="lc-amount" data-testid="lc-amount" step="any" min="0" value="{{ loading.amount }}">
+        <button id="lc-extrude" data-testid="lc-extrude" type="button" disabled>押出</button>
+        <button id="lc-suck" data-testid="lc-suck" type="button" disabled>吸引</button>
       </div>
     </div>
     {% if loading.rotation %}
@@ -17,13 +17,13 @@
       <span class="loading-control-section-title">回転</span>
       <div class="loading-control-group loading-control-fields">
         <label for="lc-rotations">回転数 <span class="unit">[rev]</span></label>
-        <input type="number" id="lc-rotations" step="any" min="0"
+        <input type="number" id="lc-rotations" data-testid="lc-rotations" step="any" min="0"
                value="{{ loading.rotation.rotations }}">
         <label for="lc-rate">速度 <span class="unit">[rev/s]</span></label>
-        <input type="number" id="lc-rate" step="any" min="0"
+        <input type="number" id="lc-rate" data-testid="lc-rate" step="any" min="0"
                value="{{ loading.rotation.rate }}">
         <label for="lc-accel">加速度 <span class="unit">[rev/s^2]</span></label>
-        <input type="number" id="lc-accel" step="any" min="0"
+        <input type="number" id="lc-accel" data-testid="lc-accel" step="any" min="0"
                value="{{ loading.rotation.accel }}">
         <label for="lc-retract-rotations">引き戻し回転数 <span class="unit">[rev]</span></label>
         <input type="number" id="lc-retract-rotations" step="any" min="0"

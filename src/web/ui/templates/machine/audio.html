@@ -10,13 +10,13 @@
         data-endpoint="/api/machine_config">
     <div>
       <label for="audio-device">出力デバイス</label>
-      <select id="audio-device" name="audio.device"></select>
+      <select id="audio-device" data-testid="audio-device" name="audio.device"></select>
     </div>
     <div>
       <label for="audio-volume">音量</label>
-      <input id="audio-volume" name="audio.volume"
+      <input id="audio-volume" data-testid="audio-volume" name="audio.volume"
              type="range" min="0" max="1" step="0.05">
-      <output id="audio-volume-value" for="audio-volume"></output>
+      <output id="audio-volume-value" data-testid="audio-volume-value" for="audio-volume"></output>
     </div>
   </form>
 </section>

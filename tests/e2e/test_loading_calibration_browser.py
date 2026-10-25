@@ -85,9 +85,9 @@ def delayed_calibration_ui(
 def _open_calibration(ui: LiveUi, page) -> None:
     page.goto(f"{ui.base_url}/loading")
     acquire_control(page)
-    page.locator("#lc-rotations").fill("5")
-    page.locator("#lc-mass-mg").fill("10")
-    expect(page.locator("#lc-rotations-per-ul")).to_have_text("1.890000")
+    page.get_by_test_id("lc-rotations").fill("5")
+    page.get_by_test_id("lc-mass-mg").fill("10")
+    expect(page.get_by_test_id("lc-rotations-per-ul")).to_have_text("1.890000")
 
 
 class TestCurrentLoadingCalibration:
@@ -103,16 +103,16 @@ class TestCurrentLoadingCalibration:
         _open_calibration(ui, browser_page)
 
         # debounce の待機中から全適用ボタンを塞ぐ。同一 input イベント内で観測する。
-        assert browser_page.locator("#lc-mass-mg").evaluate("""input => {
+        assert browser_page.get_by_test_id("lc-mass-mg").evaluate("""input => {
             input.value = '20';
             input.dispatchEvent(new Event('input', {bubbles: true}));
-            return [...document.querySelectorAll('[id^="lc-apply-"]')]
+            return [...document.querySelectorAll('[data-testid^="lc-apply-"]')]
                 .every(button => button.disabled);
         }""")
         assert transport.wait_received()
-        expect(browser_page.locator("#lc-rotations-per-ul")).to_have_text("-")
-        browser_page.locator("#lc-mass-mg").fill("40")
-        output = browser_page.locator("#lc-rotations-per-ul")
+        expect(browser_page.get_by_test_id("lc-rotations-per-ul")).to_have_text("-")
+        browser_page.get_by_test_id("lc-mass-mg").fill("40")
+        output = browser_page.get_by_test_id("lc-rotations-per-ul")
         expect(output).to_have_text("0.472500")
 
         with browser_page.expect_request_finished(
@@ -125,8 +125,8 @@ class TestCurrentLoadingCalibration:
             "() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))"
         )
         expect(output).to_have_text("0.472500")
-        expect(browser_page.locator("#lc-calibration-message")).to_have_text("")
-        browser_page.locator("#lc-apply-rotations-per-ul").click()
+        expect(browser_page.get_by_test_id("lc-calibration-message")).to_have_text("")
+        browser_page.get_by_test_id("lc-apply-rotations-per-ul").click()
         wait_machine_field(
             live_server.base_url, "paste_dispenser.rotations_per_ul", 0.4725
         )
@@ -137,8 +137,8 @@ class TestCurrentLoadingCalibration:
         ui, transport = delayed_calibration_ui
         _open_calibration(ui, browser_page)
         transport.resume(error=True)
-        browser_page.locator("#lc-mass-mg").fill("20")
-        expect(browser_page.locator("#lc-calibration-message")).to_contain_text(
+        browser_page.get_by_test_id("lc-mass-mg").fill("20")
+        expect(browser_page.get_by_test_id("lc-calibration-message")).to_contain_text(
             "計算サービスが一時的に利用できません"
         )
         for output in (
@@ -147,14 +147,16 @@ class TestCurrentLoadingCalibration:
             "dispense-rate",
             "dispense-accel",
         ):
-            expect(browser_page.locator(f"#lc-{output}")).to_have_text("-")
+            expect(browser_page.get_by_test_id(f"lc-{output}")).to_have_text("-")
         for action in ("rotations-per-ul", "dispense-rate", "dispense-accel", "all"):
-            expect(browser_page.locator(f"#lc-apply-{action}")).to_be_disabled()
+            expect(browser_page.get_by_test_id(f"lc-apply-{action}")).to_be_disabled()
 
-        browser_page.locator("#lc-mass-mg").fill("40")
-        expect(browser_page.locator("#lc-rotations-per-ul")).to_have_text("0.472500")
-        expect(browser_page.locator("#lc-calibration-message")).to_have_text("")
-        browser_page.locator("#lc-apply-rotations-per-ul").click()
+        browser_page.get_by_test_id("lc-mass-mg").fill("40")
+        expect(browser_page.get_by_test_id("lc-rotations-per-ul")).to_have_text(
+            "0.472500"
+        )
+        expect(browser_page.get_by_test_id("lc-calibration-message")).to_have_text("")
+        browser_page.get_by_test_id("lc-apply-rotations-per-ul").click()
         wait_machine_field(
             live_server.base_url, "paste_dispenser.rotations_per_ul", 0.4725
         )

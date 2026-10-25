@@ -48,7 +48,7 @@
         <button type="button" id="pad-export-config" data-testid="pad-export-config">設定を書き出し</button>
         <button type="button" id="pad-import-config-button" data-testid="pad-import-config-button"
                 data-requires-control>設定を読み込み</button>
-        <input id="pad-import-config" type="file" accept="application/json,.json" hidden
+        <input id="pad-import-config" data-testid="pad-import-config" type="file" accept="application/json,.json" hidden
                data-requires-control>
       </div>
       {# 流量キャリブレーションは machine 設定（校正ファイル等）と基板設定（測定位置）に

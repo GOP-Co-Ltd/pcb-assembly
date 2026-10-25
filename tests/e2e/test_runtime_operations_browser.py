@@ -150,7 +150,7 @@ def _start(page, ui: LiveUi, name: str = "dispense_calibration") -> dict:
 
 def _restart(page, ui: LiveUi) -> dict:
     assert page.request.post(f"{ui.base_url}/api/jobs/current/abort").status == 200
-    expect(page.locator("#jc-status")).to_have_attribute("data-status", "aborted")
+    expect(page.get_by_test_id("jc-status")).to_have_attribute("data-status", "aborted")
     return _start(page, ui)
 
 
@@ -164,7 +164,7 @@ class TestScopedRuntimeOperations:
         acquire_control(page)
         _start(page, ui)
         transport.pause("params")
-        field = page.locator("#param-line_length")
+        field = page.get_by_test_id("param-line_length")
         field.fill("29")
         assert transport.wait_received()
         replacement = _restart(page, ui)
@@ -172,7 +172,9 @@ class TestScopedRuntimeOperations:
         with page.expect_response("**/api/jobs/current/params") as rejected:
             transport.resume()
         assert rejected.value.status == 409
-        expect(page.locator("#toasts")).to_contain_text("ジョブが切り替わりました")
+        expect(page.get_by_test_id("toasts")).to_contain_text(
+            "ジョブが切り替わりました"
+        )
         current = page.request.get(f"{ui.base_url}/api/jobs/current").json()["job"]
         assert current["id"] == replacement["id"]
         assert current["params"]["line_length"] == 11.0
@@ -191,15 +193,17 @@ class TestScopedRuntimeOperations:
         acquire_control(page)
         _start(page, ui)
         transport.pause("command")
-        page.locator("#lc-extrude").click()
+        page.get_by_test_id("lc-extrude").click()
         assert transport.wait_received()
         _restart(page, ui)
         transport.resume()
 
-        expect(page.locator("#toasts")).to_contain_text("ジョブが切り替わりました")
-        expect(page.locator("#jc-log")).not_to_contain_text("command:extrude")
-        page.locator("#lc-suck").click()
-        expect(page.locator("#jc-log")).to_contain_text("command:suck")
+        expect(page.get_by_test_id("toasts")).to_contain_text(
+            "ジョブが切り替わりました"
+        )
+        expect(page.get_by_test_id("jc-log")).not_to_contain_text("command:extrude")
+        page.get_by_test_id("lc-suck").click()
+        expect(page.get_by_test_id("jc-log")).to_contain_text("command:suck")
 
     def test_another_job_with_the_same_stage_does_not_enable_this_pages_buttons(
         self, live_ui: LiveUi, browser_page
@@ -209,5 +213,5 @@ class TestScopedRuntimeOperations:
         acquire_control(page)
         _start(page, live_ui, "other_calibration")
 
-        expect(page.locator("#lc-extrude")).to_be_disabled()
-        expect(page.locator("#calib-all")).to_be_disabled()
+        expect(page.get_by_test_id("lc-extrude")).to_be_disabled()
+        expect(page.get_by_test_id("calib-all")).to_be_disabled()

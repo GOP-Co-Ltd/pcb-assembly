@@ -62,7 +62,7 @@ class TestPcbFileBrowser:
 
         file = dialog.get_by_role("button", name=filename)
         expect(file).to_be_visible()
-        assert dialog.locator("#fb-entries").evaluate(
+        assert dialog.get_by_test_id("fb-entries").evaluate(
             "el => el.scrollWidth <= el.clientWidth"
         )
         assert dialog.evaluate("el => el.scrollWidth <= el.clientWidth")
@@ -102,7 +102,7 @@ class TestPcbFileBrowser:
         expect(dialog.get_by_role("status")).to_contain_text(
             "選択できる PCB ファイルやフォルダーがありません"
         )
-        upload = dialog.locator('input[type="file"]')
+        upload = dialog.get_by_test_id("fb-upload-input")
         upload.set_input_files(
             {"name": "invalid.txt", "mimeType": "text/plain", "buffer": b"not a PCB"}
         )

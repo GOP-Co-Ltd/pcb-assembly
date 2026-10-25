@@ -16,6 +16,8 @@ from tests.support.browser import (
     LiveUi,
     acquire_control,
     configure_synthetic_job,
+    pad_field,
+    pad_row,
     select_led_blinker,
     start_app,
 )
@@ -67,7 +69,7 @@ def live_server(e2e_settings: Env) -> Iterator[LiveServer]:
 def _edit(ui: LiveUi, page, value: str):
     page.goto(f"{ui.base_url}/paste_solder", wait_until="domcontentloaded")
     acquire_control(page)
-    field = page.locator('tr[data-node-id="L0"] input[data-field="ul_per_mm2"]')
+    field = pad_field(pad_row(page, "L0"), "pad-setting-input", "ul_per_mm2")
     expect(field).to_have_value("0.15")
     field.fill(value)
     return field
@@ -81,10 +83,10 @@ class TestPadStart:
         page = browser_page
         _edit(live_ui, page, "0.23" if setting == "amount" else "0.15")
         if setting == "purge":
-            page.locator("#pad-initial-purge-amount").fill("0.31")
-        page.locator("#job-run").click()
+            page.get_by_test_id("pad-initial-purge-amount").fill("0.31")
+        page.get_by_test_id("job-run").click()
         expected = "started with:0.23" if setting == "amount" else "purge:0.31"
-        expect(page.locator("#jc-log")).to_contain_text(expected)
+        expect(page.get_by_test_id("jc-log")).to_contain_text(expected)
 
     @pytest.mark.parametrize("value", ["0.23", "-0.23"])
     def test_start_waits_for_inflight_saves_and_recovers_from_rejection(
@@ -100,23 +102,23 @@ class TestPadStart:
             field = _edit(ui, page, value)
             field.press("Enter")
             assert transport.wait_received()
-            page.locator("#job-run").click()
-            expect(page.locator("#job-run")).to_be_disabled()
+            page.get_by_test_id("job-run").click()
+            expect(page.get_by_test_id("job-run")).to_be_disabled()
             assert (
                 httpx.get(f"{live_server.base_url}/api/jobs/current").json()["job"]
                 is None
             )
             transport.resume()
             if value.startswith("-"):
-                expect(page.locator("#job-run")).to_be_enabled()
-                expect(page.locator("#jc-status")).to_have_text("待機中")
+                expect(page.get_by_test_id("job-run")).to_be_enabled()
+                expect(page.get_by_test_id("jc-status")).to_have_text("待機中")
                 assert (
                     httpx.get(f"{live_server.base_url}/api/jobs/current").json()["job"]
                     is None
                 )
                 field.fill("0.23")
-                page.locator("#job-run").click()
-            expect(page.locator("#jc-log")).to_contain_text("started with:0.23")
+                page.get_by_test_id("job-run").click()
+            expect(page.get_by_test_id("jc-log")).to_contain_text("started with:0.23")
 
     @pytest.mark.parametrize("edit", ["selection", "import"])
     def test_start_waits_for_bulk_edits(
@@ -132,7 +134,7 @@ class TestPadStart:
             page = browser_page
             _edit(ui, page, "0.15")
             if edit == "selection":
-                page.locator("#pad-disable-all").click()
+                page.get_by_test_id("pad-disable-all").click()
             else:
                 response = httpx.get(f"{live_server.base_url}/api/pasting/board/export")
                 response.raise_for_status()
@@ -142,17 +144,17 @@ class TestPadStart:
                         level["override"]["ul_per_mm2"] = 0.23
                 imported = tmp_path / "settings.json"
                 imported.write_text(json.dumps(document))
-                page.locator("#pad-import-config").set_input_files(imported)
+                page.get_by_test_id("pad-import-config").set_input_files(imported)
             assert transport.wait_received()
-            page.locator("#job-run").click()
-            expect(page.locator("#job-run")).to_be_disabled()
+            page.get_by_test_id("job-run").click()
+            expect(page.get_by_test_id("job-run")).to_be_disabled()
             assert (
                 httpx.get(f"{live_server.base_url}/api/jobs/current").json()["job"]
                 is None
             )
             transport.resume()
             expected = "disabled:True" if edit == "selection" else "started with:0.23"
-            expect(page.locator("#jc-log")).to_contain_text(expected)
+            expect(page.get_by_test_id("jc-log")).to_contain_text(expected)
 
     @pytest.mark.parametrize("setting", ["height", "purge"])
     def test_incomplete_numeric_edits_block_start_until_corrected(
@@ -161,24 +163,23 @@ class TestPadStart:
         page = browser_page
         _edit(live_ui, page, "0.15")
         if setting == "height":
-            page.locator(
-                'tr[data-node-id="L0"] select[data-field="paste_height"]'
-            ).select_option("manual")
-            field = page.locator(
-                'tr[data-node-id="L0"] input[data-field="paste_height"]'
+            root = pad_row(page, "L0")
+            pad_field(root, "pad-height-mode-select", "paste_height").select_option(
+                "manual"
             )
+            field = pad_field(root, "pad-setting-input", "paste_height")
         else:
-            field = page.locator("#pad-initial-purge-amount")
+            field = page.get_by_test_id("pad-initial-purge-amount")
         field.fill("")
-        page.locator("#job-run").click()
-        expect(page.locator("#toasts")).to_contain_text("入力内容を確認")
+        page.get_by_test_id("job-run").click()
+        expect(page.get_by_test_id("toasts")).to_contain_text("入力内容を確認")
         assert (
             httpx.get(f"{live_server.base_url}/api/jobs/current").json()["job"] is None
         )
         expect(field).to_be_focused()
         field.fill("0.31")
-        page.locator("#job-run").click()
-        expect(page.locator("#jc-log")).to_contain_text("started with:0.15")
+        page.get_by_test_id("job-run").click()
+        expect(page.get_by_test_id("jc-log")).to_contain_text("started with:0.15")
 
     @pytest.mark.parametrize("commit", ["Enter", "Tab"])
     def test_a_rejected_draft_is_retried_before_start(
@@ -189,15 +190,15 @@ class TestPadStart:
         with page.expect_response("**/api/pasting/board/node") as saved:
             field.press(commit)
         assert saved.value.status == 400
-        expect(page.locator("#toasts")).to_contain_text("設定更新失敗")
-        page.locator("#job-run").click()
-        expect(page.locator("#toasts")).to_contain_text("開始しませんでした")
+        expect(page.get_by_test_id("toasts")).to_contain_text("設定更新失敗")
+        page.get_by_test_id("job-run").click()
+        expect(page.get_by_test_id("toasts")).to_contain_text("開始しませんでした")
         assert (
             httpx.get(f"{live_server.base_url}/api/jobs/current").json()["job"] is None
         )
         field.fill("0.23")
-        page.locator("#job-run").click()
-        expect(page.locator("#jc-log")).to_contain_text("started with:0.23")
+        page.get_by_test_id("job-run").click()
+        expect(page.get_by_test_id("jc-log")).to_contain_text("started with:0.23")
 
 
 class TestStartFlushesMachineSettings:
@@ -209,10 +210,10 @@ class TestStartFlushesMachineSettings:
         page = browser_page
         page.goto(f"{live_ui.base_url}/paste_solder", wait_until="domcontentloaded")
         acquire_control(page)
-        page.locator(
-            '[data-testid="auto-threshold-paste_dispenser.auto_line_aspect_ratio"]'
+        page.get_by_test_id(
+            "auto-threshold-paste_dispenser.auto_line_aspect_ratio"
         ).fill("3.5")
 
-        page.locator("#job-run").click()
+        page.get_by_test_id("job-run").click()
 
-        expect(page.locator("#jc-log")).to_contain_text("aspect:3.5")
+        expect(page.get_by_test_id("jc-log")).to_contain_text("aspect:3.5")

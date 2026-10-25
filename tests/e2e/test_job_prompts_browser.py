@@ -137,8 +137,8 @@ def delayed_prompt_ui(
 def _open_prompt(page, ui: LiveUi) -> None:
     page.goto(f"{ui.base_url}/camera_calibration")
     acquire_control(page)
-    page.locator("#job-run").click()
-    expect(page.locator("#jc-prompt-input")).to_have_value("12")
+    page.get_by_test_id("job-run").click()
+    expect(page.get_by_test_id("jc-prompt-input")).to_have_value("12")
 
 
 class TestJobPrompts:
@@ -151,8 +151,8 @@ class TestJobPrompts:
         page.goto(f"{ui.base_url}/camera_calibration", wait_until="domcontentloaded")
         assert transport.wait_received()
         acquire_control(page)
-        page.locator("#job-run").click()
-        field = page.locator("#jc-prompt-input")
+        page.get_by_test_id("job-run").click()
+        field = page.get_by_test_id("jc-prompt-input")
         expect(field).to_have_value("12")
         field.fill("23")
 
@@ -161,44 +161,44 @@ class TestJobPrompts:
         page.evaluate(
             "() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))"
         )
-        expect(page.locator("#jc-status")).to_have_attribute(
+        expect(page.get_by_test_id("jc-status")).to_have_attribute(
             "data-status", "waiting_input"
         )
-        expect(page.locator("#jc-prompt")).to_be_visible()
+        expect(page.get_by_test_id("jc-prompt")).to_be_visible()
         expect(field).to_have_value("23")
-        page.locator("#jc-prompt-ok").click()
-        expect(page.locator("#jc-summary")).to_have_text("accepted:23.0")
+        page.get_by_test_id("jc-prompt-ok").click()
+        expect(page.get_by_test_id("jc-summary")).to_have_text("accepted:23.0")
 
     def test_empty_number_stays_pending_and_explicit_zero_can_be_submitted(
         self, live_ui: LiveUi, browser_page
     ):
         page = browser_page
         _open_prompt(page, live_ui)
-        field = page.locator("#jc-prompt-input")
+        field = page.get_by_test_id("jc-prompt-input")
         field.fill("")
-        page.locator("#jc-prompt-ok").click()
+        page.get_by_test_id("jc-prompt-ok").click()
 
-        expect(page.locator("#jc-prompt")).to_be_visible()
-        expect(page.locator("#jc-status")).to_have_attribute(
+        expect(page.get_by_test_id("jc-prompt")).to_be_visible()
+        expect(page.get_by_test_id("jc-status")).to_have_attribute(
             "data-status", "waiting_input"
         )
         assert field.evaluate("input => input.validity.valueMissing")
         expect(field).to_have_accessible_name("実測値を入力してください")
         field.fill("0")
         field.press("Enter")
-        expect(page.locator("#jc-summary")).to_have_text("accepted:0.0")
-        expect(page.locator("#jc-prompt")).to_be_hidden()
+        expect(page.get_by_test_id("jc-summary")).to_have_text("accepted:0.0")
+        expect(page.get_by_test_id("jc-prompt")).to_be_hidden()
 
     def test_cancellation_does_not_require_a_number(
         self, live_ui: LiveUi, browser_page
     ):
         page = browser_page
         _open_prompt(page, live_ui)
-        page.locator("#jc-prompt-input").fill("")
-        page.locator("#jc-prompt-no").click()
+        page.get_by_test_id("jc-prompt-input").fill("")
+        page.get_by_test_id("jc-prompt-no").click()
 
-        expect(page.locator("#jc-summary")).to_have_text("accepted:False")
-        expect(page.locator("#jc-prompt")).to_be_hidden()
+        expect(page.get_by_test_id("jc-summary")).to_have_text("accepted:False")
+        expect(page.get_by_test_id("jc-prompt")).to_be_hidden()
 
     def test_rejected_answer_keeps_the_prompt_visible_for_both_operators(
         self, delayed_prompt_ui, browser_pages
@@ -206,8 +206,8 @@ class TestJobPrompts:
         ui, transport = delayed_prompt_ui
         operator = browser_pages()
         _open_prompt(operator, ui)
-        operator.locator("#jc-prompt-input").fill("23")
-        operator.locator("#jc-prompt-ok").click()
+        operator.get_by_test_id("jc-prompt-input").fill("23")
+        operator.get_by_test_id("jc-prompt-ok").click()
         assert transport.wait_received()
 
         replacement = browser_pages()
@@ -215,13 +215,13 @@ class TestJobPrompts:
         acquire_control(replacement)
         expect(operator.locator("body")).to_have_attribute("data-control", "viewer")
         transport.resume()
-        expect(operator.locator("#toasts")).to_contain_text("操作権は")
-        expect(operator.locator("#jc-prompt")).to_be_visible()
-        expect(operator.locator("#jc-prompt-input")).to_have_value("23")
-        expect(replacement.locator("#jc-prompt")).to_be_visible()
+        expect(operator.get_by_test_id("toasts")).to_contain_text("操作権は")
+        expect(operator.get_by_test_id("jc-prompt")).to_be_visible()
+        expect(operator.get_by_test_id("jc-prompt-input")).to_have_value("23")
+        expect(replacement.get_by_test_id("jc-prompt")).to_be_visible()
 
-        replacement.locator("#jc-prompt-input").fill("31")
-        replacement.locator("#jc-prompt-ok").click()
+        replacement.get_by_test_id("jc-prompt-input").fill("31")
+        replacement.get_by_test_id("jc-prompt-ok").click()
         for page in (operator, replacement):
-            expect(page.locator("#jc-summary")).to_have_text("accepted:31.0")
-            expect(page.locator("#jc-prompt")).to_be_hidden()
+            expect(page.get_by_test_id("jc-summary")).to_have_text("accepted:31.0")
+            expect(page.get_by_test_id("jc-prompt")).to_be_hidden()

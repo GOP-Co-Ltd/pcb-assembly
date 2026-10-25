@@ -108,7 +108,9 @@ def http_only_ui(
 def _open(page: Any, live_ui: LiveUi) -> None:
     """ジョブコンソールのあるページを開き、操作権の状態がサーバ由来になるまで待つ."""
     page.goto(f"{live_ui.base_url}/{_PROMPT_PAGE}", wait_until="domcontentloaded")
-    page.locator("#job-console").wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+    page.get_by_test_id("job-console").wait_for(
+        state="visible", timeout=_BROWSER_TIMEOUT_MS
+    )
     page.wait_for_function(
         "() => window.webui?.control !== undefined", timeout=_BROWSER_TIMEOUT_MS
     )
@@ -140,9 +142,9 @@ def _wait_control(page: Any, expected: str) -> None:
     )
 
 
-def _is_inert(page: Any, selector: str) -> bool:
+def _is_inert(page: Any, testid: str) -> bool:
     """`inert` 属性が付いているか（`is_enabled()` は inert を見ないので属性を読む）."""
-    return page.locator(selector).evaluate("(el) => el.hasAttribute('inert')")
+    return page.get_by_test_id(testid).evaluate("(el) => el.hasAttribute('inert')")
 
 
 def _job_status(live_server: LiveServer) -> str | None:
@@ -190,13 +192,13 @@ class TestTwoBrowsersOnOneMachine:
         _select_led_blinker(live_server)
         operator, viewer = _operator_and_viewer(live_ui, browser_pages)
 
-        assert not _is_inert(operator, "#firmware-restart")
-        assert not _is_inert(operator, "#machine-control")
+        assert not _is_inert(operator, "firmware-restart")
+        assert not _is_inert(operator, "machine-control")
 
-        assert _is_inert(viewer, "#firmware-restart")
-        assert _is_inert(viewer, "#machine-control")
-        assert _is_inert(viewer, ".jc-prompt-actions")
-        assert _is_inert(viewer, "#jc-prompt-field")
+        assert _is_inert(viewer, "firmware-restart")
+        assert _is_inert(viewer, "machine-control")
+        assert _is_inert(viewer, "jc-prompt-actions")
+        assert _is_inert(viewer, "jc-prompt-field")
 
     def test_gated_controls_are_inert_before_the_server_answers(
         self, live_server: LiveServer, http_only_ui, browser_pages
@@ -217,9 +219,9 @@ class TestTwoBrowsersOnOneMachine:
         assert transport.wait_state_request()
 
         assert page.evaluate("() => document.body.dataset.control") == "viewer"
-        assert _is_inert(page, "#firmware-restart")
-        assert _is_inert(page, "#machine-control")
-        assert not _is_inert(page, "#estop")
+        assert _is_inert(page, "firmware-restart")
+        assert _is_inert(page, "machine-control")
+        assert not _is_inert(page, "estop")
 
         transport.resume_state()
         _wait_control(page, "free")
@@ -234,7 +236,7 @@ class TestTwoBrowsersOnOneMachine:
         viewer.on("request", lambda request: urls.append(request.url))
 
         # 実マウスで押す（inert はポインタイベントを通さないので何も起きない）
-        button = viewer.locator("#firmware-restart")
+        button = viewer.get_by_test_id("firmware-restart")
         box = button.bounding_box(timeout=_BROWSER_TIMEOUT_MS)
         assert box is not None
         viewer.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
@@ -268,9 +270,11 @@ class TestTwoBrowsersOnOneMachine:
         viewer.evaluate("window.scrollTo(0, document.body.scrollHeight)")
 
         # 中止も緊急停止も閲覧者の画面で押せる（inert が付かない）
-        assert not _is_inert(viewer, "#jc-abort")
-        expect(viewer.locator("#jc-abort")).to_be_enabled(timeout=_BROWSER_TIMEOUT_MS)
-        assert not _is_inert(viewer, "#estop")
+        assert not _is_inert(viewer, "jc-abort")
+        expect(viewer.get_by_test_id("jc-abort")).to_be_enabled(
+            timeout=_BROWSER_TIMEOUT_MS
+        )
+        assert not _is_inert(viewer, "estop")
         # 自動スクロールで救済される前に、画面内で指が届き、他の要素に覆われないこと。
         stop = viewer.get_by_test_id("estop")
         expect(stop).to_have_count(1)
@@ -283,7 +287,7 @@ class TestTwoBrowsersOnOneMachine:
         with viewer.expect_response(
             lambda response: response.url.endswith("/api/emergency-stop")
         ) as info:
-            viewer.locator("#estop").click(timeout=_BROWSER_TIMEOUT_MS)
+            viewer.get_by_test_id("estop").click(timeout=_BROWSER_TIMEOUT_MS)
         # Klipper 不通なので 502 になるが、操作権では塞がれない（423 にならない）
         assert info.value.status != 423
         wait_until(
@@ -336,7 +340,7 @@ class TestTwoBrowsersOnOneMachine:
             ).status_code
             == 200
         )
-        assert not _is_inert(page, "#firmware-restart")
+        assert not _is_inert(page, "firmware-restart")
 
         status = page.evaluate(
             """async () => {
@@ -351,7 +355,7 @@ class TestTwoBrowsersOnOneMachine:
 
         assert status == 423
         _wait_control(page, "viewer")
-        assert _is_inert(page, "#firmware-restart")
+        assert _is_inert(page, "firmware-restart")
 
     def test_viewer_can_take_over_the_lease(
         self, live_server: LiveServer, live_ui: LiveUi, browser_pages
@@ -359,11 +363,11 @@ class TestTwoBrowsersOnOneMachine:
         _select_led_blinker(live_server)
         operator, viewer = _operator_and_viewer(live_ui, browser_pages)
 
-        viewer.locator("#control-takeover").click(timeout=_BROWSER_TIMEOUT_MS)
+        viewer.get_by_test_id("control-takeover").click(timeout=_BROWSER_TIMEOUT_MS)
 
         _wait_control(viewer, "held")
         # 元の保持者は再読込なしで閲覧者へ落ちる（control_changed の control.state は
         # backend が接続ごとに詰める）
         _wait_control(operator, "viewer")
-        assert not _is_inert(viewer, "#firmware-restart")
-        assert _is_inert(operator, "#firmware-restart")
+        assert not _is_inert(viewer, "firmware-restart")
+        assert _is_inert(operator, "firmware-restart")

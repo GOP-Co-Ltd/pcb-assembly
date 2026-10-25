@@ -238,6 +238,7 @@
     input.step = step;
     input.value = pattern[field];
     input.dataset.patternField = field;
+    input.dataset.testid = `ptb-pattern-${field}`;
     input.setAttribute("aria-label", label);
     return input;
   }
@@ -280,7 +281,9 @@
         numberInput(pattern, "rotation_count", "1", "回転分割数")
       );
       row.appendChild(countCell);
-      row.appendChild(textCell("—", "ptb-resolved-angles"));
+      const angles = textCell("—", "ptb-resolved-angles");
+      angles.dataset.testid = "ptb-resolved-angles";
+      row.appendChild(angles);
       const repeatCell = document.createElement("td");
       repeatCell.appendChild(
         numberInput(pattern, "repeat_count", "1", "繰り返し数")
@@ -290,6 +293,7 @@
       const remove = document.createElement("button");
       remove.type = "button";
       remove.className = "ptb-remove-pattern";
+      remove.dataset.testid = "ptb-remove-pattern";
       remove.textContent = "削除";
       remove.dataset.removeCatalogId = pattern.catalog_id;
       remove.setAttribute(
@@ -352,15 +356,20 @@
   }
 
   function polygonElement(polygon, className = null) {
+    const kind =
+      className || (polygon.layer === "F.Cu" ? "ptb-copper" : "ptb-paste");
     return svgEl("polygon", {
       points: polygon.points.map((point) => `${point.x},${point.y}`).join(" "),
-      class:
-        className || (polygon.layer === "F.Cu" ? "ptb-copper" : "ptb-paste"),
+      class: kind,
+      "data-testid": kind,
     });
   }
 
   function appendPolygons(target, layout, className = null) {
-    const purge = svgEl("g", { class: "ptb-preview-pad" });
+    const purge = svgEl("g", {
+      class: "ptb-preview-pad",
+      "data-testid": "ptb-preview-purge",
+    });
     const purgeTitle = svgEl("title", {});
     purgeTitle.textContent = "PURGE";
     purge.appendChild(purgeTitle);
@@ -372,6 +381,7 @@
     for (const pad of layout.pads) {
       const element = svgEl("g", {
         class: "ptb-preview-pad",
+        "data-testid": "ptb-preview-pad",
         "aria-label": pad.display_name,
       });
       const title = svgEl("title", {});
@@ -397,6 +407,7 @@
     const definitions = svgEl("defs", {});
     const clip = svgEl("clipPath", {
       id: clipId,
+      "data-testid": clipId,
       clipPathUnits: "userSpaceOnUse",
     });
     clip.appendChild(
@@ -413,6 +424,7 @@
 
     const overflow = svgEl("g", {
       class: "ptb-overflow-layer",
+      "data-testid": "ptb-overflow-layer",
       "clip-path": `url(#${clipId})`,
     });
     appendPolygons(overflow, layout, "ptb-overflow-shape");

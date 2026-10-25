@@ -169,6 +169,7 @@ function ringPath(ring) {
 
 export function applyPadVisual(el, state, enabled) {
   const selected = state.selected.has(el.dataset.padId);
+  el.dataset.enabled = String(enabled);
   el.setAttribute(
     "class",
     `pad${enabled ? " pad-enabled" : " pad-disabled"}${selected ? " pad-selected" : ""}`
@@ -306,7 +307,7 @@ function renderFillPathOverlay(svg, fillPath) {
       const directionTo = fillPathDirectionTarget(path);
       if (!directionTo) continue;
       const markerId = `pad-fill-path-arrow-${markerIndex}`;
-      appendArrowMarker(defs, markerId, FILL_PATH_COLOR, "pad-fill-path-arrow-head");
+      appendArrowMarker(defs, markerId, FILL_PATH_COLOR, "fill-path");
       appendFillPathDirection(group, pad, path[0], directionTo, index, markerId);
       markerIndex += 1;
     }
@@ -452,7 +453,7 @@ function roundAxisValue(value) {
   return Number(value.toFixed(4));
 }
 
-function appendArrowMarker(defs, id, color, className = "pad-route-arrow-head") {
+function appendArrowMarker(defs, id, color, kind = "route") {
   const marker = svgEl("marker", {
     id,
     viewBox: "0 0 10 10",
@@ -464,9 +465,10 @@ function appendArrowMarker(defs, id, color, className = "pad-route-arrow-head") 
   });
   const arrow = svgEl("path", {
     d: "M 0 0 L 10 5 L 0 10 z",
-    class: className,
+    class: `pad-${kind}-arrow-head`,
     fill: color,
   });
+  arrow.dataset.testid = `pad-${kind}-arrow-head`;
   marker.appendChild(arrow);
   defs.appendChild(marker);
 }

@@ -81,12 +81,12 @@
 {% block content %}{% endblock %}
 </main>
 {% include "partials/file_browser.html" %}
-<section id="job-completion-notice" class="job-completion-notice" hidden
+<section id="job-completion-notice" data-testid="job-completion-notice" class="job-completion-notice" hidden
          role="status" aria-live="assertive" aria-atomic="true">
-  <span id="job-completion-message"></span>
-  <button id="job-completion-dismiss" type="button" aria-label="終了通知を閉じる">閉じる</button>
+  <span id="job-completion-message" data-testid="job-completion-message"></span>
+  <button id="job-completion-dismiss" data-testid="job-completion-dismiss" type="button" aria-label="終了通知を閉じる">閉じる</button>
 </section>
-<div id="toasts" class="toasts"></div>
+<div id="toasts" data-testid="toasts" class="toasts"></div>
 {# 共通の部品。api.js（HTTP と保存待ち）→ app.js（トースト等）→ ws.js（WS）の順に window.webui へ足す #}
 <script src="{{ static_asset('js/api.js') }}"></script>
 <script src="{{ static_asset('js/app.js') }}"></script>

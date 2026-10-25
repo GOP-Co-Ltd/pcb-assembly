@@ -9,7 +9,7 @@
     {# ナビと絞り込みはフォームの外に置く。中に入れると操作権の無い端末では
        control.js がフォームごと操作不可にするので、設定を読めなくなる #}
     <div class="settings-search">
-      <input id="settings-filter" type="search" autocomplete="off"
+      <input id="settings-filter" data-testid="settings-filter" type="search" autocomplete="off"
              aria-label="設定の絞り込み" placeholder="設定名・キーで絞り込み">
     </div>
   </header>
@@ -19,6 +19,7 @@
     <nav class="settings-nav" aria-label="設定セクション">
       {% for section in settings_sections %}
       <button type="button" class="settings-nav-item" data-section="{{ section.slug }}"
+              data-testid="settings-nav-{{ section.slug }}"
               {% if loop.first %}aria-current="true"{% endif %}>
         <span>{{ section.label }}</span>
         <span class="settings-nav-count">{{ section.field_count }}</span>
@@ -40,7 +41,7 @@
                 {% for field in group.fields %}
                 <tr data-search="{{ (field.label ~ ' ' ~ field.key)|lower }}">
                   <th title="{{ field.key }}">{{ field.label }}</th>
-                  <td>{{ forms.setting_input(field, "ms") }}</td>
+                  <td>{{ forms.setting_input(field, "ms", testid="ms") }}</td>
                 </tr>
                 {% endfor %}
               </tbody>

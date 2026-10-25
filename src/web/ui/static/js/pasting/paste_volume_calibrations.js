@@ -39,6 +39,7 @@
     const saved = input.value;
     const select = document.createElement("select");
     select.id = input.id;
+    if (input.dataset.testid) select.dataset.testid = input.dataset.testid;
     select.name = input.name;
     if (param) {
       select.dataset.paramType = "str";

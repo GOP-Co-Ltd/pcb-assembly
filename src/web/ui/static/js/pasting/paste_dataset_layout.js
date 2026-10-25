@@ -102,11 +102,14 @@
       view.appendChild(rectEl(data.usable_area, { class: "pdl-usable" }));
     }
     for (const cell of data.grid) {
-      view.appendChild(rectEl(cell, { class: "pdl-grid-cell" }));
+      view.appendChild(
+        rectEl(cell, { class: "pdl-grid-cell", "data-testid": "pdl-grid-cell" })
+      );
     }
     for (const cell of data.cells) {
       const element = rectEl(cell.rect, {
         class: "pdl-cell",
+        "data-testid": "pdl-cell",
         fill: volumeColor(cell.volume_index, data.volumes_ul.length),
       });
       view.appendChild(
@@ -121,7 +124,10 @@
     for (const blank of data.blanks) {
       view.appendChild(
         titled(
-          rectEl(blank.rect, { class: "pdl-cell pdl-blank" }),
+          rectEl(blank.rect, {
+            class: "pdl-cell pdl-blank",
+            "data-testid": "pdl-cell",
+          }),
           `blank ${blank.index}: 真値 0.000 uL`
         )
       );

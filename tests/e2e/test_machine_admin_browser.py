@@ -31,7 +31,7 @@ def _open_settings_section(browser_page, live_ui, slug: str) -> None:
     browser_page.goto(
         f"{live_ui.base_url}/machine_config", wait_until="domcontentloaded"
     )
-    nav_item = browser_page.locator(f'.settings-nav-item[data-section="{slug}"]')
+    nav_item = browser_page.get_by_test_id(f"settings-nav-{slug}")
     nav_item.wait_for(state="visible", timeout=10_000)
     nav_item.click()
 
@@ -53,7 +53,7 @@ class TestSettingsOverBrowser:
     ):
         _open_settings_section(browser_page, live_ui, "probe")
         _acquire_control(browser_page)
-        field = browser_page.locator(f'input[name="{field_name}"]')
+        field = browser_page.get_by_test_id(f"ms-{field_name}")
         field.wait_for(state="visible", timeout=10_000)
 
         field.fill(str(value))
@@ -72,18 +72,18 @@ class TestSettingsOverBrowser:
         browser_page.goto(
             f"{live_ui.base_url}/machine_config", wait_until="domcontentloaded"
         )
-        filter_box = browser_page.locator("#settings-filter")
+        filter_box = browser_page.get_by_test_id("settings-filter")
         filter_box.wait_for(state="visible", timeout=10_000)
 
         filter_box.fill("min_samples")
 
         # 既定で開くのは先頭セクションだけ。他セクションの項目も絞り込みには出る
-        browser_page.locator('input[name="probe.min_samples"]').wait_for(
+        browser_page.get_by_test_id("ms-probe.min_samples").wait_for(
             state="visible", timeout=10_000
         )
         # 先頭セクションに居座る非マッチ項目は消える（絞り込みが効いている証拠。
         # 初期状態で既に hidden な他セクションの項目を見ても空振りになる）
-        browser_page.locator('input[name="paste_dispenser.nozzle_diameter"]').wait_for(
+        browser_page.get_by_test_id("ms-paste_dispenser.nozzle_diameter").wait_for(
             state="hidden", timeout=10_000
         )
 
@@ -92,10 +92,10 @@ class TestSettingsOverBrowser:
     ):
         """絞り込みを消したら直前に選んでいたセクションへ戻り、戻る操作でも切り替わる."""
         _open_settings_section(browser_page, live_ui, "camera")
-        camera_field = browser_page.locator('input[name="camera.width"]')
+        camera_field = browser_page.get_by_test_id("ms-camera.width")
         camera_field.wait_for(state="visible", timeout=10_000)
 
-        filter_box = browser_page.locator("#settings-filter")
+        filter_box = browser_page.get_by_test_id("settings-filter")
         filter_box.fill("min_samples")
         camera_field.wait_for(state="hidden", timeout=10_000)
         filter_box.fill("")
@@ -103,8 +103,8 @@ class TestSettingsOverBrowser:
         # 先頭セクションへ飛ばず、選んでいた camera のまま
         camera_field.wait_for(state="visible", timeout=10_000)
 
-        browser_page.locator('.settings-nav-item[data-section="audio"]').click()
-        browser_page.locator('input[name="audio.volume"]').wait_for(
+        browser_page.get_by_test_id("settings-nav-audio").click()
+        browser_page.get_by_test_id("ms-audio.volume").wait_for(
             state="visible", timeout=10_000
         )
         browser_page.go_back()
@@ -117,9 +117,9 @@ class TestSettingsOverBrowser:
         """float_pair 入力（X/Y 2 連）の編集が [x, y] 配列として保存される."""
         _open_settings_section(browser_page, live_ui, "reference_point")
         _acquire_control(browser_page)
-        pair = 'input[data-pair-key="reference_point.offsets.top_left"]'
-        x_input = browser_page.locator(f'{pair}[data-pair-index="0"]')
-        y_input = browser_page.locator(f'{pair}[data-pair-index="1"]')
+        pair = browser_page.get_by_test_id("ms-reference_point.offsets.top_left")
+        x_input = pair.locator('[data-pair-index="0"]')
+        y_input = pair.locator('[data-pair-index="1"]')
         x_input.wait_for(state="visible", timeout=10_000)
 
         x_input.fill("6.5")
@@ -135,11 +135,8 @@ class TestSettingsOverBrowser:
         """座標は X/Y/Z の 3 つがそろって初めて 1 回で送る（一部だけの座標は書かない）."""
         _open_settings_section(browser_page, live_ui, "paste_dispenser")
         _acquire_control(browser_page)
-        triple = 'input[data-pair-key="paste_dispenser.nozzle_cap.position"]'
-        inputs = [
-            browser_page.locator(f'{triple}[data-pair-index="{index}"]')
-            for index in range(3)
-        ]
+        triple = browser_page.get_by_test_id("ms-paste_dispenser.nozzle_cap.position")
+        inputs = [triple.locator(f'[data-pair-index="{index}"]') for index in range(3)]
         inputs[0].wait_for(state="visible", timeout=10_000)
 
         for control, value in zip(inputs, ("10.5", "20.5", "-3.5"), strict=True):
@@ -165,9 +162,9 @@ class TestAudioPageOverBrowser:
         device = _HIFIBERRY_DEVICE.name
         browser_page.goto(f"{live_ui.base_url}/audio", wait_until="domcontentloaded")
         _acquire_control(browser_page)
-        select = browser_page.locator("#audio-device")
+        select = browser_page.get_by_test_id("audio-device")
         # option はサーバ応答から生成されるので、描画完了を待ってから操作する
-        browser_page.locator(f'#audio-device option[value="{device}"]').wait_for(
+        select.locator(f'option[value="{device}"]').wait_for(
             state="attached", timeout=10_000
         )
         assert select.locator("option").count() == len(FAKE_AUDIO_DEVICES)
@@ -176,11 +173,11 @@ class TestAudioPageOverBrowser:
 
         _wait_machine_field(live_server.base_url, "audio.device", device)
 
-        volume = browser_page.locator("#audio-volume")
+        volume = browser_page.get_by_test_id("audio-volume")
         volume.fill("0.4")
 
         _wait_machine_field(live_server.base_url, "audio.volume", 0.4)
-        expect(browser_page.locator("#audio-volume-value")).to_have_text("40%")
+        expect(browser_page.get_by_test_id("audio-volume-value")).to_have_text("40%")
 
 
 class TestConfigHistoryOverBrowser:
