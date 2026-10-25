@@ -229,7 +229,7 @@ class UpdateRunner:
         if not settings.enabled:
             return None, (
                 "この機体では WebUI からの更新が無効化されています"
-                "（PCBASM_API_UPDATE_ENABLED / PCBASM_UI_UPDATE_ENABLED）。"
+                "（シミュレーション起動 PCBASM_FAKE=1）。"
             )
         with self._guard:
             if self.running:

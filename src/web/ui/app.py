@@ -126,7 +126,6 @@ def create_app(
         else UpdateRunner(
             UpdateSettings(
                 state_dir=settings.update_state_dir,
-                uv_sync_args=settings.update_uv_sync_args,
                 enabled=settings.update_enabled,
             )
         )

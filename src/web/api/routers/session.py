@@ -61,7 +61,7 @@ def build_state_response(backend: Backend, identity: ClientIdentity) -> StateRes
         focus_z=(
             None if machine is None else load_focus_z(machine.camera.calibration_file)
         ),
-        mainsail_url=backend.env.mainsail_url,
+        mainsail_url=_mainsail_url(backend.env),
         preview_clients=backend.camera.client_count,
         job=(
             JobBrief(id=record.id, name=record.name, status=record.status.value)
@@ -89,14 +89,18 @@ def _fb_start(env: Env) -> str:
     return "" if start == "." else start
 
 
-def _default_mainsail_url(machine_id: str) -> str:
-    """``mainsail_url`` 未設定時のフォールバック URL.
+def _mainsail_url(env: Env) -> str:
+    """この機体の Mainsail の URL（fake の機体は空で、リンクを出さない）.
 
     ``machine_id`` は短いホスト名（``socket.gethostname()``）なので、LAN の他端末
     からは mDNS 経由の ``*.local`` しか引けない。裸のホスト名を返すとリモートから
     Mainsail を開けなくなるため ``.local`` を付ける。既にドットを含む
     （FQDN や ``.local`` 付きが注入された）場合は重ねない。
+    fake の機体は実機と同じ machine_id を名乗るので、実機の Mainsail へ導かない。
     """
+    if env.fake:
+        return ""
+    machine_id = resolve_machine_id(env)
     host = machine_id if "." in machine_id else f"{machine_id}.local"
     return f"http://{host}"
 
@@ -125,14 +129,9 @@ def get_machine_info(env: EnvDep) -> MachineInfo:
     書かれた値だけを返す）。``mainsail_url`` はリクエストのホスト名に依存させない
     （プロキシ配下で必ず誤るため）。
     """
-    machine_id = resolve_machine_id(env)
-    # fake の機体は実機と同じ machine_id を名乗るので、実機の Mainsail へ導かない（空ならリンクを出さない）
-    mainsail_url = (
-        "" if env.fake else env.mainsail_url or _default_mainsail_url(machine_id)
-    )
     return MachineInfo(
-        machine_id=machine_id,
-        mainsail_url=mainsail_url,
+        machine_id=resolve_machine_id(env),
+        mainsail_url=_mainsail_url(env),
         fb_start=_fb_start(env),
         api_version=API_VERSION,
     )

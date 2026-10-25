@@ -34,8 +34,8 @@
 3. 別々のターミナルで、config と data を本番に向けて起動する
 
     ```sh
-    PCBASM_CONFIG_DIR=$HOME/pcb-assembly/config PCBASM_API_DATA_DIR=$HOME/pcb-assembly/data make api
-    make ui
+    export PCBASM_CONFIG_DIR=$HOME/pcb-assembly/config PCBASM_DATA_DIR=$HOME/pcb-assembly/data
+    make api  # もう一方のターミナルでも export してから make ui
     ```
 
 4. 下の対応表から、変えた領域の項目を実施する。PR 本文に、実施した項目と対象機、ジャーナルの前後 diff を書く

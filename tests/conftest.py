@@ -20,16 +20,15 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture(autouse=True)
-def disable_mdns_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`Settings.from_env()` 経路の mDNS 広告・探索を全テストで無効にする.
+def fake_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """環境変数から組む起動設定（`from_env`）を、全テストで fake の機体にする.
 
-    共有 fixture は `discovery_enabled=False` を明示的に渡しているが、env から Settings
-    を組むテスト（`uvicorn --factory` と同じ経路の検証）はそれを通らない。 実 LAN
-    へ広告・探索を漏らさないための最後の砦なので、mDNS を実際に使う テストは env ではなくコンストラクタ注入（ランダムなサービス型
-    + `interfaces=["127.0.0.1"]`）で自分の設定を作る。
+    共有 fixture は `discovery_enabled=False` などを明示的に渡しているが、env から組む
+    テスト（`uvicorn --factory` と同じ経路の検証）はそれを通らない。実 LAN へ mDNS を
+    広告・探索せず、リポジトリの更新もさせないための最後の砦。実機の設定を確かめる
+    テストは `PCBASM_FAKE` を外す（設定を組むだけで、起動はしない）。
     """
-    monkeypatch.setenv("PCBASM_API_DISCOVERY_ENABLED", "0")
-    monkeypatch.setenv("PCBASM_UI_DISCOVERY_ENABLED", "0")
+    monkeypatch.setenv("PCBASM_FAKE", "1")
 
 
 @pytest.fixture(autouse=True)

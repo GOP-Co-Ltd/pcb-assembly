@@ -1,4 +1,4 @@
-"""Backend WebAPI の起動時の環境。環境変数による上書きをサポートする."""
+"""Backend WebAPI の起動時の環境（環境変数は config / data の置き場所、port、fake だけ）."""
 
 from __future__ import annotations
 
@@ -8,10 +8,10 @@ from pathlib import Path
 
 import attrs
 
-from pcbasm.config import get_config_dir
+from pcbasm import paths
 from pcbasm.paths import PROJECT_ROOT
 from web.contract.discovery import SERVICE_TYPE
-from web.process import env_fake, env_path, env_words
+from web.process import env_fake
 
 
 @attrs.frozen
@@ -31,8 +31,6 @@ class Env:
     # アップロード保存先。pcb_browse_root 配下かつ pcb_browse_allowed 内であること
     # （保存後にそのまま選択・閲覧できるようにするため）
     pcb_upload_dir: Path = PROJECT_ROOT / "uploads"
-    # None の場合は machine_id（= hostname）ベースで解決する（routers/session.py）
-    mainsail_url: str | None = None
     # backend の自己申告 ID。None なら socket.gethostname() を使う
     # （1 ホストに複数 backend を立てる E2E で区別するための注入口）
     hostname: str | None = None
@@ -54,12 +52,9 @@ class Env:
     # WebUI からのソフトウェア更新（git pull → uv sync → 再起動）。無効にすると
     # 実行系が 403 を返し、ページから操作できなくなる
     update_enabled: bool = True
-    # 素の `uv sync` は dependency group を削除し、lock がずれると uv.lock を書き換える
-    # （web.selfupdate.settings のコメント参照）。機体ごとに増やせるよう env に出す
-    update_uv_sync_args: tuple[str, ...] = ("--locked", "--inexact")
     # 自己更新の report と単一実行ロックの置き場所。data_dir からは導出しない。
     # ロックが守る対象は worktree なので、同居機の api と ui が
-    # PCBASM_API_DATA_DIR の設定に関係なく同じロックを使う必要がある
+    # PCBASM_DATA_DIR の設定に関係なく同じロックを使う必要がある
     update_state_dir: Path = PROJECT_ROOT / "data" / "selfupdate"
 
     @property
@@ -99,62 +94,29 @@ class Env:
     def from_env(cls) -> Env:
         """環境変数を反映した Env を生成する.
 
-        config_dir と data_dir の既定はリポジトリ直下（本番の unit は env を設定しない）。
-
         対応する環境変数:
-            PCBASM_CONFIG_DIR, PCBASM_API_DATA_DIR, PCBASM_API_PCB_ROOT,
-            PCBASM_MAINSAIL_URL, PCBASM_API_PORT,
-            PCBASM_FAKE（"1" で Klipper とカメラを fake にし、mDNS 広告と WebUI からの更新を切り、アップロード先を data_dir に移す）,
-            PCBASM_API_DISCOVERY_ENABLED（"0" で mDNS 広告を無効）,
-            PCBASM_API_UPDATE_ENABLED（"0" で WebUI からの更新を無効）,
-            PCBASM_API_UPDATE_UV_SYNC_ARGS（空白区切り。`uv sync` の引数を丸ごと置換）,
-            PCBASM_API_UPDATE_STATE_DIR
-
-        ``discovery_service_type`` / ``discovery_interfaces`` /
-        ``advertise_addresses`` / ``fake_camera_image`` は env に出さない（テストと E2E は
-        コンストラクタ注入で足りるため、使われない設定項目を増やさない）。
-
-        ``PCBASM_API_PCB_ROOT`` を与えたときは、その root を
-        ``pcb_browse_allowed`` にも追加する（root をわざわざ差し替える運用は
-        「そこを見せる」意図しかなく、追加しないとファイルブラウザが全パス 400 に
-        なる）。既定の 3 パスはそのまま残す。
+            PCBASM_CONFIG_DIR, PCBASM_DATA_DIR（未設定ならリポジトリ直下。本番の unit は設定しない）,
+            PCBASM_API_PORT,
+            PCBASM_FAKE（"1" で Klipper とカメラを fake にし、mDNS 広告と WebUI からの更新を切り、アップロード先を data_dir に移す）
 
         Raises:
             ValueError: PCBASM_API_PORT が整数として解釈できない場合
         """
-        base = cls(
-            config_dir=get_config_dir(),
-            data_dir=env_path("PCBASM_API_DATA_DIR", PROJECT_ROOT / "data"),
-        )
-        fake = env_fake()
-        port_env = os.environ.get("PCBASM_API_PORT")
-        pcb_root_env = os.environ.get("PCBASM_API_PCB_ROOT")
-        pcb_browse_root = Path(pcb_root_env) if pcb_root_env else base.pcb_browse_root
-        # fake の機体は実機と同じリポジトリで動きうるので、アップロードで実機の基板を上書きしない
-        pcb_upload_dir = base.data_dir / "uploads" if fake else base.pcb_upload_dir
+        base = cls(config_dir=paths.config_dir(), data_dir=paths.data_dir())
+        port = os.environ.get("PCBASM_API_PORT")
+        env = attrs.evolve(base, port=int(port)) if port else base
+        if not env_fake():
+            return env
+        # fake の機体は実機と同じリポジトリで動きうるので、アップロードで実機の基板を上書きしない。
+        # 実機と同じ machine_id を名乗るので、実 LAN に広告しない
+        uploads = env.data_dir / "uploads"
         return attrs.evolve(
-            base,
-            pcb_browse_root=pcb_browse_root,
-            pcb_browse_allowed=(
-                *base.pcb_browse_allowed,
-                *((pcb_browse_root,) if pcb_root_env else ()),
-                *((pcb_upload_dir,) if fake else ()),
-            ),
-            pcb_upload_dir=pcb_upload_dir,
-            mainsail_url=os.environ.get("PCBASM_MAINSAIL_URL", base.mainsail_url),
-            port=int(port_env) if port_env else base.port,
-            fake=fake,
-            # fake の機体は実機と同じ machine_id を名乗るので、実 LAN に広告しない
-            discovery_enabled=not fake
-            and os.environ.get("PCBASM_API_DISCOVERY_ENABLED") != "0",
-            update_enabled=not fake
-            and os.environ.get("PCBASM_API_UPDATE_ENABLED") != "0",
-            update_uv_sync_args=env_words(
-                "PCBASM_API_UPDATE_UV_SYNC_ARGS", base.update_uv_sync_args
-            ),
-            update_state_dir=env_path(
-                "PCBASM_API_UPDATE_STATE_DIR", base.update_state_dir
-            ),
+            env,
+            pcb_browse_allowed=(*env.pcb_browse_allowed, uploads),
+            pcb_upload_dir=uploads,
+            fake=True,
+            discovery_enabled=False,
+            update_enabled=False,
         )
 
 

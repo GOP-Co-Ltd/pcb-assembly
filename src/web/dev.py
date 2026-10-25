@@ -1,7 +1,7 @@
 """`make dev`: fake の backend と frontend を、隔離ポートと一時ディレクトリで同時に起動する.
 
 Klipper もカメラも fake にする（``PCBASM_FAKE=1``）。
-設定は data/sim/config を一時ディレクトリへ複製して使い、終了すると一時ディレクトリごと消える。
+設定は data/sim/config を一時ディレクトリへ複製して使い（frontend の machines.toml もそこに置く）、終了すると一時ディレクトリごと消える。
 """
 
 from __future__ import annotations
@@ -36,35 +36,27 @@ def main() -> int:
         root = Path(tmp)
         config_dir = root / "config"
         shutil.copytree(SIM_CONFIG, config_dir)
-        machines = root / "machines.toml"
-        machines.write_text(
+        (config_dir / "machines.toml").write_text(
             f'[[machine]]\nmachine_id = "{MACHINE_ID}"\n'
             f'host = "127.0.0.1"\nport = {api_port}\n',
             encoding="utf-8",
         )
-        env = os.environ | {"PCBASM_FAKE": "1"}
+        env = os.environ | {
+            "PCBASM_FAKE": "1",
+            "PCBASM_CONFIG_DIR": str(config_dir),
+            "PCBASM_DATA_DIR": str(root / "data"),
+        }
         # 子は別のプロセスグループに置き、端末の Ctrl-C は dev.py だけが受けて 1 回だけ転送する
         servers = [
             subprocess.Popen(
                 [sys.executable, "-m", "web.api"],
                 process_group=0,
-                env=env
-                | {
-                    "PCBASM_CONFIG_DIR": str(config_dir),
-                    "PCBASM_API_DATA_DIR": str(root / "data"),
-                    "PCBASM_API_UPDATE_STATE_DIR": str(root / "selfupdate"),
-                    "PCBASM_API_PORT": api_port,
-                },
+                env=env | {"PCBASM_API_PORT": api_port},
             ),
             subprocess.Popen(
                 [sys.executable, "-m", "web.ui"],
                 process_group=0,
-                env=env
-                | {
-                    "PCBASM_UI_MACHINES_FILE": str(machines),
-                    "PCBASM_UI_UPDATE_STATE_DIR": str(root / "selfupdate"),
-                    "PCBASM_UI_PORT": ui_port,
-                },
+                env=env | {"PCBASM_UI_PORT": ui_port},
             ),
         ]
         print(f"http://localhost:{ui_port}/ を開く（Ctrl-C で終了）", flush=True)

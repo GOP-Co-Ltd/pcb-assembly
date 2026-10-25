@@ -131,7 +131,6 @@ def webui_settings(tmp_path: Path, config_dir: Path, pcb_root: Path) -> Env:
         pcb_browse_allowed=(pcb_root,),
         pcb_browse_start=pcb_root,
         pcb_upload_dir=pcb_root / "uploads",
-        mainsail_url="http://mainsail.invalid",
         # 実 LAN へ mDNS を撒かない（探索・広告はこの層のテスト対象ではない）
         discovery_enabled=False,
         # 自己更新の report / ロックをリポジトリの data/ に落とさない

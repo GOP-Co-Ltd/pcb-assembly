@@ -41,7 +41,6 @@ def make_api_settings(root: Path, *, hostname: str) -> Env:
         pcb_browse_allowed=(pcb_root,),
         pcb_browse_start=pcb_root,
         pcb_upload_dir=pcb_root / "uploads",
-        mainsail_url="http://mainsail.invalid",
         hostname=hostname,
         fake_camera_image=FAKE_CAMERA_IMAGE,
         # 実 LAN へ mDNS を撒かない（広告 + 探索の通しは test_discovery_e2e.py が

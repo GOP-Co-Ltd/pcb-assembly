@@ -8,7 +8,6 @@ TOML のパスと属性のパスは一致する（``paste_dispenser.defaults.ul_
 
 from __future__ import annotations
 
-import os
 import tomllib
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -40,7 +39,6 @@ from pcbasm.pasting.params import (
     LineDirection,
     PasteHeight,
 )
-from pcbasm.paths import PROJECT_ROOT
 
 
 def _structure_dispense_mode(value: object, _: object) -> DispenseMode:
@@ -245,16 +243,3 @@ def load_klipper(path: str | Path) -> KlipperConfig:
     if "klipper" not in data:
         raise ConfigError("machine.toml に [klipper] がありません")
     return _structure(data["klipper"], KlipperConfig, "machine.toml.klipper")
-
-
-def get_config_dir() -> Path:
-    """マシン設定ディレクトリを返す.
-
-    ``PCBASM_CONFIG_DIR`` が設定されていればそれを、無ければ
-    ``PROJECT_ROOT/config`` を返す。env は呼び出しごとに読む。
-
-    Returns:
-        マシン設定ディレクトリのパス
-    """
-    value = os.environ.get("PCBASM_CONFIG_DIR")
-    return Path(value) if value else PROJECT_ROOT / "config"

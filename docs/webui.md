@@ -185,37 +185,19 @@ backend プロセスで、ブラウザからは鳴らさない。通知音が鳴
 
 ## 環境変数
 
-backend の環境変数は次のとおり（定義元は `src/web/api/env.py` の `Settings.from_env`）。
+運用で切り替える環境変数は次の 5 つだけ（定義元は `src/pcbasm/paths.py`、`src/web/api/env.py` と
+`src/web/ui/settings.py` の `from_env`）。本番の unit は 1 つも設定しない。
 
-- `PCBASM_API_PORT`: 待ち受けポート（既定 8081）
-- `PCBASM_API_DATA_DIR`: 成果物・状態ファイルの保存先
-- `PCBASM_API_PCB_ROOT`: ファイルブラウザの root（指定すると閲覧許可にも追加される）
-- `PCBASM_FAKE`: `1` で Klipper とカメラを fake にし、mDNS 広告と WebUI からの更新、Mainsail へのリンクを切り、PCB のアップロード先を data_dir の下に移す（`make dev` が使う。frontend でも mDNS 探索と自己更新を切る）
-- `PCBASM_API_DISCOVERY_ENABLED`: `0` で mDNS 広告を無効
-- `PCBASM_API_UPDATE_ENABLED`: `0` で WebUI からの更新を無効（実行系は 403）
-- `PCBASM_API_UPDATE_UV_SYNC_ARGS`: `uv sync` の引数を**丸ごと置き換える**（空白区切り。既定 `--locked --inexact`）。`--locked` を外すと `uv.lock` が書き換わり、以後の更新がすべて中断するので、引数を足すときも既定の 2 つは必ず残す
-- `PCBASM_API_UPDATE_STATE_DIR`: 更新の記録と単一実行ロックの置き場所（既定はリポジトリ直下の `data/selfupdate`）。`PCBASM_API_DATA_DIR` を変えてもこの場所は変わらない。ロックの対象は worktree なので、同居機の backend と frontend が必ず同じファイルを使う
-- `PCBASM_MAINSAIL_URL`: Mainsail へのリンク先
-- `PCBASM_CONFIG_DIR`: マシン設定ディレクトリ（既定 `config/`）の差し替え。pcbasm コア層と共通
+- `PCBASM_CONFIG_DIR`: マシン設定ディレクトリ（既定はリポジトリ直下の `config/`）。frontend はここの `machines.toml` だけを読む
+- `PCBASM_DATA_DIR`: backend の成果物・状態ファイルの保存先（既定はリポジトリ直下の `data/`）
+- `PCBASM_FAKE`: `1` で Klipper とカメラを fake にし、mDNS の広告・探索と WebUI からの更新、Mainsail へのリンクを切り、PCB のアップロード先を data_dir の下に移す（`make dev` が使う）
+- `PCBASM_API_PORT`: backend の待ち受けポート（既定 8081）
+- `PCBASM_UI_PORT`: frontend の待ち受けポート（既定 8080）
 
-backend の待ち受けアドレスは環境変数では変えられない（`PCBASM_API_HOST` は無く、常に
-`0.0.0.0`）。特定アドレスに絞るならファイアウォールか前段のリバースプロキシで行う。
-
-frontend の環境変数は次のとおり（定義元は `src/web/ui/settings.py` の `Settings.from_env`）。
-
-- `PCBASM_UI_HOST` / `PCBASM_UI_PORT`: 待ち受け（既定 `0.0.0.0` / 8080）
-- `PCBASM_UI_MACHINES_FILE`: machines.toml のパス（既定 `config/machines.toml`）
-- `PCBASM_UI_DEFAULT_BACKEND_PORT`: machines.toml で `port` を省いたマシンに使う port（既定 8081）
-- `PCBASM_UI_DISCOVERY_ENABLED`: `0` で mDNS 探索を無効
-- `PCBASM_UI_UPDATE_ENABLED`: `0` で frontend 自身の更新を無効
-- `PCBASM_UI_UPDATE_UV_SYNC_ARGS`: `uv sync` の引数を**丸ごと置き換える**（空白区切り。既定の `--locked --inexact` は残すこと）
-- `PCBASM_UI_UPDATE_STATE_DIR`: 更新の記録と単一実行ロック（既定はリポジトリ直下の `data/selfupdate`。backend の既定と同じ場所）
-- `PCBASM_UI_SSR_TIMEOUT` / `PCBASM_UI_BACKEND_CONNECT_TIMEOUT` / `PCBASM_UI_PROXY_READ_TIMEOUT`: 秒
-
-frontend が `config/` から読むのは `machines.toml` **だけ**（機体設定の `machine.toml` は読まない）。
-そのため frontend は `PCBASM_CONFIG_DIR` を持たず、この変数を変えても `machines.toml` の場所は変わらない
-（既定はリポジトリ直下の `config/machines.toml` 固定）。場所を変えるには
-`PCBASM_UI_MACHINES_FILE` を使う。
+ほかはコード定数である。待ち受けアドレスは常に `0.0.0.0` で、特定アドレスに絞るならファイアウォールか前段の
+リバースプロキシで行う。Mainsail へのリンクは機体のホスト名（`http://<machine_id>.local`）から導く。
+自己更新の `uv sync` の引数（`--locked --inexact`）と、記録・単一実行ロックの置き場所（リポジトリ直下の
+`data/selfupdate`。同居機の backend と frontend が同じロックを使う）も固定である。
 
 ## 困ったとき
 

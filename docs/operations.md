@@ -101,8 +101,7 @@ sudoers ファイルは手で編集せず、`./install.sh services` で作り直
 - 更新後に unit 定義が古いままなら画面に警告が出る。自動では設置しないので、`./install.sh services <対象>` を手で実行する
 - `config/` は git 追跡外なので更新で消えない
 
-`uv sync` の引数は `PCBASM_API_UPDATE_UV_SYNC_ARGS` / `PCBASM_UI_UPDATE_UV_SYNC_ARGS`（空白区切り）で変えられる。
-この変数は既定の引数を丸ごと置き換えるので、`--locked --inexact` を必ず含めてから引数を足す。
+`uv sync` の引数（`--locked --inexact`）はコード定数である。
 `--locked` が無いと `uv.lock` が書き換わり、作業ツリーが dirty になって以後の更新がすべて中断する。
 `--inexact` が無いと、指定しなかった dependency group が消える。
 
@@ -112,7 +111,7 @@ sudoers ファイルは手で編集せず、`./install.sh services` で作り直
     - 古いほうを `/update` から更新して版を揃えると通常の画面に戻る。UI サーバーが古いときは UI サーバーのパネルで更新する
     - 更新専用の機体では操作権を取得も奪取もできない。ほかの端末が操作権を持っていると更新は断られる（423）ので、その端末から更新する。その端末が無ければ ssh で更新する
     - 静的登録（`config/machines.toml`）だけで見えている機体は版を知らないので更新専用にならない。版がずれて画面が 503 になったら ssh で更新する
-- 更新を無効にするには `PCBASM_API_UPDATE_ENABLED=0` / `PCBASM_UI_UPDATE_ENABLED=0` を設定する（更新ページの操作は 403 になる）
+- シミュレーション起動（`PCBASM_FAKE=1`、`make dev`）では更新できない（更新ページの操作は 403 になる）
 
 **信頼境界**: この WebUI に認証は無い（[公開範囲](webui.md#%E5%85%AC%E9%96%8B%E7%AF%84%E5%9B%B2%E7%84%A1%E8%AA%8D%E8%A8%BC%E3%81%A7%E3%81%82%E3%82%8B%E3%81%93%E3%81%A8%E3%81%AE%E6%B3%A8%E6%84%8F)）。
 WebUI からの更新を有効にすると、`main` に push できる者も装置で動くコードを変えられる。

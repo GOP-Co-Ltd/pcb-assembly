@@ -215,7 +215,7 @@ class TestDiscoveryIsolation:
         """`Env.from_env()` 経路（uvicorn --factory と同じ）でも広告しない.
 
         共有 fixture の `discovery_enabled=False` はこの経路を通らない。守っているのは
-        `tests/conftest.py` の autouse fixture（`PCBASM_API_DISCOVERY_ENABLED=0`）だけ
+        `tests/conftest.py` の autouse fixture（`PCBASM_FAKE=1`）だけ
         なので、そこが外れたらここが落ちる（外れると env から Env を組む既存
         テストが運用サービス型で全 IF に広告を出す）。
 
@@ -224,7 +224,7 @@ class TestDiscoveryIsolation:
         この見張りが守っている性質そのもの（実 LAN に広告を出さない）を破る。
         """
         monkeypatch.setenv("PCBASM_CONFIG_DIR", str(config_dir))
-        monkeypatch.setenv("PCBASM_API_DATA_DIR", str(tmp_path / "data"))
+        monkeypatch.setenv("PCBASM_DATA_DIR", str(tmp_path / "data"))
 
         app = create_app(Env.from_env())
 

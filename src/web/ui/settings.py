@@ -1,4 +1,4 @@
-"""UI frontend の起動設定。env による上書きをサポートする."""
+"""UI frontend の起動設定（環境変数は port、fake、machines.toml を置く config の場所だけ）."""
 
 from __future__ import annotations
 
@@ -8,9 +8,10 @@ from pathlib import Path
 
 import attrs
 
+from pcbasm import paths
 from pcbasm.paths import PROJECT_ROOT
 from web.contract.discovery import SERVICE_TYPE
-from web.process import env_fake, env_path, env_words
+from web.process import env_fake
 from web.ui.machines import DEFAULT_BACKEND_PORT, MachineEndpoint
 
 
@@ -18,10 +19,10 @@ from web.ui.machines import DEFAULT_BACKEND_PORT, MachineEndpoint
 class Settings:
     """UI frontend サーバーの設定値.
 
-    backend WebAPI の ``Settings`` と違い ``config_dir`` / ``data_dir`` / PCB ブラウザ /
-    カメラの設定を一切持たない。frontend は machine.toml を読まず（``get_config_dir()``
-    を呼ばず）、装置に関する値はすべて backend から取得するため、機体でないホストでも
-    起動できる。同居機で backend の ``data/webui`` を共有しないのも同じ理由。
+    backend WebAPI の ``Env`` と違い ``config_dir`` / ``data_dir`` / PCB ブラウザ /
+    カメラの設定を一切持たない。frontend が config の場所から読むのは machines.toml だけで、
+    装置に関する値はすべて backend から取得するため、機体でないホストでも起動できる。
+    同居機で backend の ``data/webui`` を共有しないのも同じ理由。
     """
 
     host: str = "0.0.0.0"
@@ -48,7 +49,6 @@ class Settings:
     discovery_interfaces: tuple[str, ...] | None = None
     # frontend 自身のソフトウェア更新（frontend 専用機はここからしか更新できない）
     update_enabled: bool = True
-    update_uv_sync_args: tuple[str, ...] = ("--locked", "--inexact")
     # リポジトリ直下に固定する。ロックで保護する対象は worktree なので、同居機の backend
     # （`web.api.env.Env.update_state_dir`）と必ず同じロックファイルを使う
     update_state_dir: Path = PROJECT_ROOT / "data" / "selfupdate"
@@ -58,53 +58,19 @@ class Settings:
         """環境変数を反映した Settings を生成する.
 
         対応する環境変数:
-            PCBASM_UI_HOST, PCBASM_UI_PORT, PCBASM_UI_MACHINES_FILE,
-            PCBASM_UI_SSR_TIMEOUT, PCBASM_UI_BACKEND_CONNECT_TIMEOUT,
-            PCBASM_UI_PROXY_READ_TIMEOUT, PCBASM_UI_DEFAULT_BACKEND_PORT,
-            PCBASM_FAKE（"1" で mDNS 探索と自己更新を切る）,
-            PCBASM_UI_DISCOVERY_ENABLED（"0" で mDNS 探索を無効）,
-            PCBASM_UI_UPDATE_ENABLED（"0" で自己更新を無効）,
-            PCBASM_UI_UPDATE_UV_SYNC_ARGS（空白区切り）, PCBASM_UI_UPDATE_STATE_DIR
-
-        ``machines`` は env では扱わない（マシン一覧の情報源は ``machines_file`` と
-        mDNS 探索）。``discovery_service_type`` / ``discovery_interfaces`` も env に出さない
-        （テストと E2E はコンストラクタ注入で足りる）。
+            PCBASM_UI_PORT,
+            PCBASM_CONFIG_DIR（machines.toml の場所。未設定ならリポジトリ直下の config/）,
+            PCBASM_FAKE（"1" で mDNS 探索と自己更新を切る）
 
         Raises:
-            ValueError: 数値の env が整数 / 実数として解釈できない場合
+            ValueError: PCBASM_UI_PORT が整数として解釈できない場合
         """
-        base = cls()
-        port = os.environ.get("PCBASM_UI_PORT")
-        ssr_timeout = os.environ.get("PCBASM_UI_SSR_TIMEOUT")
-        connect_timeout = os.environ.get("PCBASM_UI_BACKEND_CONNECT_TIMEOUT")
-        read_timeout = os.environ.get("PCBASM_UI_PROXY_READ_TIMEOUT")
-        backend_port = os.environ.get("PCBASM_UI_DEFAULT_BACKEND_PORT")
         fake = env_fake()
-        return cls(
-            host=os.environ.get("PCBASM_UI_HOST", base.host),
-            port=int(port) if port else base.port,
-            machines_file=env_path("PCBASM_UI_MACHINES_FILE", base.machines_file),
-            ssr_timeout=float(ssr_timeout) if ssr_timeout else base.ssr_timeout,
-            backend_connect_timeout=(
-                float(connect_timeout)
-                if connect_timeout
-                else base.backend_connect_timeout
-            ),
-            proxy_read_timeout=(
-                float(read_timeout) if read_timeout else base.proxy_read_timeout
-            ),
-            default_backend_port=(
-                int(backend_port) if backend_port else base.default_backend_port
-            ),
-            # fake の機体だけを操作させる（実 LAN の機体を混ぜない）
-            discovery_enabled=not fake
-            and os.environ.get("PCBASM_UI_DISCOVERY_ENABLED") != "0",
-            update_enabled=not fake
-            and os.environ.get("PCBASM_UI_UPDATE_ENABLED") != "0",
-            update_uv_sync_args=env_words(
-                "PCBASM_UI_UPDATE_UV_SYNC_ARGS", base.update_uv_sync_args
-            ),
-            update_state_dir=env_path(
-                "PCBASM_UI_UPDATE_STATE_DIR", base.update_state_dir
-            ),
+        # fake の機体だけを操作させる（実 LAN の機体を探さず、更新もしない）
+        settings = cls(
+            machines_file=paths.config_dir() / "machines.toml",
+            discovery_enabled=not fake,
+            update_enabled=not fake,
         )
+        port = os.environ.get("PCBASM_UI_PORT")
+        return attrs.evolve(settings, port=int(port)) if port else settings

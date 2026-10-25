@@ -41,6 +41,7 @@ MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
 
 from __future__ import annotations
 
+import socket
 import time
 from pathlib import Path
 from typing import Any
@@ -75,7 +76,8 @@ class TestStateApi:
         assert data["busy"] is False
         assert data["busy_owner"] is None
         assert data["focus_z"] == -25.0
-        assert data["mainsail_url"] == webui_settings.mainsail_url
+        # machine-info と同じ解決結果（fixture の machine_id はこのホスト名）
+        assert data["mainsail_url"] == f"http://{socket.gethostname()}.local"
         assert data["preview_clients"] == 0  # Phase 2: spec §9
         # fixture の machine.toml に [paste_dispenser.nozzle_cap] / [paste_dispenser.nozzle_clean] が無いので未記録
         assert data["nozzle_cap"] is None
@@ -156,7 +158,7 @@ class TestMachineInfoApi:
         assert response.status_code == 200
         assert response.json() == {
             "machine_id": "paste-01",
-            "mainsail_url": settings.mainsail_url,
+            "mainsail_url": "http://paste-01.local",
             # pcb_browse_start == pcb_browse_root なので初期表示は root
             "fb_start": "",
             # frontend / discovery の互換判定に使う値なので、`web.contract.discovery.API_VERSION`
@@ -168,13 +170,13 @@ class TestMachineInfoApi:
     def test_mainsail_url_resolves_from_machine_id_not_request_host(
         self, webui_settings: Env
     ):
-        """Mainsail_url 未設定時は machine_id から解決し、リクエスト元には追従しない.
+        """Mainsail の URL は machine_id から解決し、リクエスト元には追従しない.
 
         プロキシ配下（frontend 経由）ではリクエストのホスト名が frontend 機を指すため、
         `request.url.hostname` フォールバックは必ず誤る。machine_id は短いホスト名なので
         LAN の他端末からは mDNS の `*.local` しか引けず、`.local` を付けて返す。
         """
-        settings = attrs.evolve(webui_settings, mainsail_url=None, hostname="paste-01")
+        settings = attrs.evolve(webui_settings, hostname="paste-01")
         with TestClient(create_app(settings)) as client:
             info = client.get("/api/session/machine-info").json()
 
@@ -185,9 +187,7 @@ class TestMachineInfoApi:
         self, webui_settings: Env
     ):
         """Machine_id が既にドットを含むなら `.local` を重ねない（FQDN 注入・`.local` 注入）."""
-        settings = attrs.evolve(
-            webui_settings, mainsail_url=None, hostname="paste-01.local"
-        )
+        settings = attrs.evolve(webui_settings, hostname="paste-01.local")
         with TestClient(create_app(settings)) as client:
             info = client.get("/api/session/machine-info").json()
 
@@ -195,9 +195,7 @@ class TestMachineInfoApi:
 
     def test_fake_machine_does_not_link_to_a_real_mainsail(self, webui_settings: Env):
         """Fake の機体は実機と同じ machine_id を名乗るので、そこから Mainsail を導かない."""
-        settings = attrs.evolve(
-            webui_settings, mainsail_url=None, hostname="paste-01", fake=True
-        )
+        settings = attrs.evolve(webui_settings, hostname="paste-01", fake=True)
         with TestClient(create_app(settings)) as client:
             info = client.get("/api/session/machine-info").json()
 

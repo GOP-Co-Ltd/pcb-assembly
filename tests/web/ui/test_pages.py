@@ -218,7 +218,7 @@ class TestPages:
         assert "緊急停止" in response.text
         assert "再起動（復旧）" in response.text
         assert "machine-control" in response.text
-        assert backend_settings.mainsail_url in response.text
+        assert f'href="http://{BACKEND_MACHINE_ID}.local"' in response.text
 
     def test_file_browser_start_path_is_rendered(
         self, ui_settings: UiSettings, backend_settings: ApiEnv
@@ -240,7 +240,7 @@ class TestPages:
     def test_mainsail_link_resolves_from_machine_id_when_unset(
         self, ui_settings: UiSettings, backend_settings: ApiEnv
     ):
-        """PCBASM_MAINSAIL_URL 未設定時は backend の machine_id から `.local` で解決する.
+        """Mainsail のリンクは backend の machine_id から `.local` で解決する.
 
         MR2 で `request.url.hostname` フォールバックは撤去した。frontend を分離すると
         ページ閲覧元は frontend 機になるため、リクエストのホスト名を使うと必ず誤った
@@ -250,9 +250,7 @@ class TestPages:
         MR4: frontend は backend が解決した値をそのまま描く（frontend 側に解決規則を
         持たない）。`/api/session/machine-info` はプロキシ経由で同じ値を返す。
         """
-        settings = attrs.evolve(
-            backend_settings, mainsail_url=None, hostname="paste-01"
-        )
+        settings = attrs.evolve(backend_settings, hostname="paste-01")
         with _frontend_over(ui_settings, settings) as client:
             text = client.get("/klipper_status").text
             info = client.get(
@@ -1227,8 +1225,7 @@ class TestWithoutMachines:
     def test_create_app_succeeds_and_serves_guidance(self, tmp_path: Path):
         """機体設定を一切読まずに起動でき、機体一覧で登録の仕方を案内する.
 
-        frontend が `get_config_dir()` や machine.toml に触ると、機体でない PC で
-        起動できなくなる（MR4 の要件）。
+        frontend が machine.toml に触ると、機体でない PC で 起動できなくなる（MR4 の要件）。
         """
         with _frontend_only((), tmp_path) as client:
             response = client.get("/")
@@ -1242,25 +1239,25 @@ class TestWithoutMachines:
 
 
 class TestDefaultBackendPort:
-    """Port を省略した `machines.toml` の登録に使う port（MR4）.
+    """Port を省略した `machines.toml` の登録には `Settings.default_backend_port` を使う.
 
-    `PCBASM_UI_DEFAULT_BACKEND_PORT` を設定できるのに効かない（`load_machines_file` が
-    module 定数を直参照する）状態は、host しか判らないマシンを扱う MR5 で
+    `load_machines_file` が module 定数を直参照すると、host しか判らないマシンが
     「設定したのに 8081 へ繋ぐ」形で表面化する。
     """
 
-    def test_env_default_port_applies_to_entries_without_a_port(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_default_port_applies_to_entries_without_a_port(self, tmp_path: Path):
         machines_file = tmp_path / "machines.toml"
         machines_file.write_text(
             '[[machine]]\nmachine_id = "alpha"\nhost = "127.0.0.1"\n', encoding="utf-8"
         )
-        monkeypatch.setenv("PCBASM_UI_MACHINES_FILE", str(machines_file))
-        monkeypatch.setenv("PCBASM_UI_DEFAULT_BACKEND_PORT", "19999")
+        settings = UiSettings(
+            machines_file=machines_file,
+            default_backend_port=19999,
+            discovery_enabled=False,
+            update_enabled=False,
+        )
 
-        # settings 未指定 = Settings.from_env()（uvicorn --factory と同じ経路）
-        with TestClient(create_frontend_app()) as client:
+        with TestClient(create_frontend_app(settings)) as client:
             response = client.get("/m/alpha/klipper_status")
 
         # 誰も listen していない port なので 503。到達を試みた URL が本文に出る

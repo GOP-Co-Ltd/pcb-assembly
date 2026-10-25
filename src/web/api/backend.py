@@ -204,7 +204,6 @@ def _update_runner(env: Env) -> UpdateRunner:
     return UpdateRunner(
         UpdateSettings(
             state_dir=env.update_state_dir,
-            uv_sync_args=env.update_uv_sync_args,
             enabled=env.update_enabled,
         )
     )

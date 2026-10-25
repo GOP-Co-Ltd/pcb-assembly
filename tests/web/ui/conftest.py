@@ -61,7 +61,6 @@ def backend_settings(tmp_path: Path, backend_pcb_root: Path) -> ApiEnv:
         pcb_browse_allowed=(backend_pcb_root,),
         pcb_browse_start=backend_pcb_root,
         pcb_upload_dir=backend_pcb_root / "uploads",
-        mainsail_url="http://mainsail.invalid",
         hostname=BACKEND_MACHINE_ID,
         # 実 LAN へ mDNS を撒かない
         discovery_enabled=False,

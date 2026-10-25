@@ -48,7 +48,7 @@ class UpdateSettings:
     # 足した group が更新のたびに消える）、(b) pyproject と lock がずれると uv.lock を
     # 書き換える（tree が dirty になり以後の更新が全部止まる）。既定の引数でこの 2 つを防ぐ
     uv_sync_args: tuple[str, ...] = ("--locked", "--inexact")
-    # 機体ごとに無効化できる安全弁（無効なら start() は何もせず理由を返す）
+    # シミュレーション起動（PCBASM_FAKE=1）で切る安全弁（無効なら start() は何もせず理由を返す）
     enabled: bool = True
     # ハング時に打ち切るまでの上限。git はネットワーク I/O、uv sync は依存の取得を含む。
     # git_timeout は rev-parse / status などローカルで完結する読み取り専用コマンド用

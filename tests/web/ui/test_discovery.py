@@ -157,7 +157,7 @@ class TestDiscoveryIsolation:
         """`Settings.from_env()` 経路（uvicorn --factory と同じ）でも探索しない.
 
         共有 fixture の `discovery_enabled=False` はこの経路を通らない。守っているのは
-        `tests/conftest.py` の autouse fixture（`PCBASM_UI_DISCOVERY_ENABLED=0`）だけ
+        `tests/conftest.py` の autouse fixture（`PCBASM_FAKE=1`）だけ
         なので、そこが外れたらここが落ちる。
 
         lifespan は起動しない（`TestClient` を被せない）。`app.state.discovery` は
@@ -165,7 +165,7 @@ class TestDiscoveryIsolation:
         この見張りが守っている性質そのもの（実 LAN を探索しない）を破る。
         """
         # リポジトリの config/machines.toml を拾って実機の登録を混ぜない
-        monkeypatch.setenv("PCBASM_UI_MACHINES_FILE", str(tmp_path / "absent.toml"))
+        monkeypatch.setenv("PCBASM_CONFIG_DIR", str(tmp_path))
 
         app = create_app()
 

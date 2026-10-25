@@ -7,7 +7,6 @@ import pytest
 from pcbasm.config import (
     ConfigError,
     MachineConfig,
-    get_config_dir,
     load_klipper,
     load_machine,
 )
@@ -713,23 +712,6 @@ class TestProbe:
     def test_board_edge_margin_not_positive_raises(self, board_edge_margin):
         with pytest.raises(ValueError, match="board_edge_marginは正の値"):
             ProbeConfig(min_radius=1.5, board_edge_margin=board_edge_margin)
-
-
-class TestGetConfigDir:
-    """get_config_dir のテスト.
-
-    PCBASM_CONFIG_DIR env が唯一の注入口（コア層には Settings が無い）。
-    """
-
-    def test_defaults_to_project_root_config(self, monkeypatch):
-        monkeypatch.delenv("PCBASM_CONFIG_DIR", raising=False)
-
-        assert get_config_dir() == PROJECT_ROOT / "config"
-
-    def test_reads_env_dir(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("PCBASM_CONFIG_DIR", str(tmp_path / "config"))
-
-        assert get_config_dir() == tmp_path / "config"
 
 
 class TestMachineSettle:
