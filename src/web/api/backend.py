@@ -136,9 +136,7 @@ def open_backend(
         paste_volume_calibration_dir=env.paste_volume_calibration_dir,
     )
     catalog = default_catalog(paste_stores)
-    control = ControlLease(
-        on_change=lambda: events.publish(control_changed_event(control.snapshot()))
-    )
+    control = ControlLease(on_change=lambda: events.publish(control_changed_event()))
     return Backend(
         env=env,
         machine_config=machine_config,

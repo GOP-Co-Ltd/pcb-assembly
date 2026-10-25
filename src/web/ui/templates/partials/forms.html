@@ -1,0 +1,94 @@
+{# 入力欄のマクロ（全ページ共用）。{% import %} で使うため context に依存せず、引数だけで描く。
+   param_field / param_sections はジョブのパラメータ（ParamSpecInfo）、setting_input は machine.toml の設定項目（SettingsField）。
+   保存は JS が受け持つ（ジョブフォームは job_console.js、設定項目は settings.js。どちらも api.js の pendingSaves を通す）。 #}
+
+{% macro param_field(spec) %}
+  <div class="job-param">
+    <label for="param-{{ spec.name }}">
+      {{ spec.label }}{% if spec.unit %} <span class="unit">[{{ spec.unit }}]</span>{% endif %}
+    </label>
+    {% if spec.value_type == "choice" %}
+    <select id="param-{{ spec.name }}" name="{{ spec.name }}" data-param-type="choice">
+      {% for choice in spec.choices %}
+      <option value="{{ choice }}"{% if choice == spec.default %} selected{% endif %}>{{ choice }}</option>
+      {% endfor %}
+    </select>
+    {% elif spec.value_type == "bool" %}
+    <input type="checkbox" id="param-{{ spec.name }}" name="{{ spec.name }}"
+           data-param-type="bool"{% if spec.default %} checked{% endif %}>
+    {% elif spec.value_type == "str" %}
+    <input type="text" id="param-{{ spec.name }}" name="{{ spec.name }}"
+           data-param-type="str"{% if spec.optional %} data-param-optional="true"{% endif %}
+           value="{{ spec.default if spec.default is not none else '' }}">
+    {% else %}
+    <input type="number" id="param-{{ spec.name }}" name="{{ spec.name }}" step="any"
+           data-param-type="{{ spec.value_type }}"{% if spec.runtime_editable %} data-runtime-editable="true"{% endif %}
+           {% if spec.optional %}data-param-optional="true"{% endif %}
+           value="{{ spec.default if spec.default is not none else '' }}">
+    {% endif %}
+    {% if spec.help %}<small class="job-param-help">{{ spec.help }}</small>{% endif %}
+  </div>
+{% endmacro %}
+
+{# ジョブのパラメータを ParamSpec.group のまとまりごとに描く（web.ui.layout.param_sections の結果）。
+   advanced のまとまりは普段は触らない項目なので、既定で畳む #}
+{% macro param_sections(sections) %}
+  {% for section in sections %}
+  {% if section.label is none %}
+  {% for spec in section.specs %}{{ param_field(spec) }}{% endfor %}
+  {% elif section.advanced %}
+  <details class="job-param-advanced" data-testid="job-param-advanced">
+    <summary>{{ section.label }}</summary>
+    <div class="job-param-group">
+      {% for spec in section.specs %}{{ param_field(spec) }}{% endfor %}
+    </div>
+  </details>
+  {% else %}
+  <fieldset class="job-param-group">
+    <legend>{{ section.label }}</legend>
+    {% for spec in section.specs %}{{ param_field(spec) }}{% endfor %}
+  </fieldset>
+  {% endif %}
+  {% endfor %}
+{% endmacro %}
+
+{# machine.toml の設定項目 1 つの入力欄（見出しは呼び出し側が置き、for="{prefix}-{key}" で結ぶ）。
+   値は machine.toml に書かれた値で、未記載なら空欄にして実効値を placeholder に出す（未記載と明示した値を見分けられるようにする）。
+   組の値（float_pair / float_triple）は全部そろったときだけ一度に送る（座標の一部だけを書いた machine.toml は読めない）。
+   picker を渡すと、保存済みの校正から選ぶ欄になる（paste_volume_calibrations.js が <select> に差し替える。picker は空の選択肢の表示名） #}
+{% macro setting_input(field, prefix, testid=none, picker=none) %}
+{% if field.value_type in ('float_pair', 'float_triple') %}
+<div class="settings-pair{% if field.value_type == 'float_triple' %} settings-triple{% endif %}" data-pair-key="{{ field.key }}"
+     {% if testid %}data-testid="{{ testid }}-{{ field.key }}"{% endif %}>
+  {% for axis in (['X', 'Y', 'Z'] if field.value_type == 'float_triple' else ['X', 'Y']) %}
+  <input id="{{ prefix }}-{{ field.key }}-{{ axis|lower }}"
+         data-pair-key="{{ field.key }}"
+         data-pair-index="{{ loop.index0 }}"
+         type="number"
+         step="any"
+         aria-label="{{ field.label }} {{ axis }}"
+         value="{{ field.value[loop.index0] if field.value is not none else '' }}"
+         placeholder="{{ field.resolved[loop.index0] if field.resolved is not none else axis }}">
+  {% endfor %}
+</div>
+{% elif field.value_type == 'choice' %}
+<select id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}" aria-label="{{ field.label }}"
+        {% if testid %}data-testid="{{ testid }}-{{ field.key }}"{% endif %}>
+  {% for choice in field.choices %}
+  <option value="{{ choice.value }}" {% if field.value == choice.value %}selected{% endif %}>{{ choice.label }}</option>
+  {% endfor %}
+</select>
+{% else %}
+<input id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
+       type="{% if field.value_type in ('str', 'float_or_auto') %}text{% else %}number{% endif %}"
+       aria-label="{{ field.label }}"
+       {% if field.value_type == 'int' %}step="1"{% elif field.value_type == 'float' %}step="any"{% endif %}
+       {% if field.minimum is not none %}min="{{ field.minimum }}"{% endif %}
+       value="{{ field.value if field.value is not none else '' }}"
+       placeholder="{{ field.resolved if field.resolved is not none else '未設定' }}"
+       {% if field.clearable %}data-allow-empty="true"{% endif %}
+       {% if picker %}data-calibration-picker data-calibration-empty="{{ picker }}"{% endif %}
+       {% if testid %}data-testid="{{ testid }}-{{ field.key }}"{% endif %}>
+{% endif %}
+{% if field.unit %}<span class="unit">{{ field.unit }}</span>{% endif %}
+{% endmacro %}

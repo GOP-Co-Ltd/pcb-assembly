@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
 
 from pcbasm.geometry import Point3d
 from pcbasm.hal import XYZStage
@@ -18,18 +17,12 @@ from web.api.deps import ControlDep, DevicesDep, LockDep, MachineConfigDep
 from web.api.errors import hal_errors_to_502
 from web.api.lock import MachineLock
 from web.api.machine_config import MachineConfigFile
-from web.api.routers.session import nozzle_clean_payload
-from web.contract.models import NozzleCleanInfo
+from web.api.routers.session import nozzle_cap_payload, nozzle_clean_payload
+from web.contract.models import NozzlePositionInfo
 
 STATUS_TIMEOUT = 10.0  # 位置・homed_axes の読み取りのみ（移動なし）
 
 router = APIRouter(prefix="/api/pasting/nozzle")
-
-
-class NozzleCapPosition(BaseModel):
-    x: float
-    y: float
-    z: float
 
 
 def _record_current_position(
@@ -68,8 +61,8 @@ def record_nozzle_cap(
     devices: DevicesDep,
     machine_config: MachineConfigDep,
     _control: ControlDep,
-) -> NozzleCapPosition:
-    """現在のマシン座標をノズルキャップ位置として記録する."""
+) -> NozzlePositionInfo:
+    """現在のマシン座標をノズルキャップ位置として記録する（表示用の文字列も同じ応答で返す）."""
     saved = _record_current_position(
         lock,
         devices,
@@ -77,7 +70,7 @@ def record_nozzle_cap(
         owner="nozzle-cap-record",
         prefix="paste_dispenser.nozzle_cap",
     )
-    return NozzleCapPosition(x=saved.x, y=saved.y, z=saved.z)
+    return nozzle_cap_payload(saved)
 
 
 @router.post("/clean/record")
@@ -86,7 +79,7 @@ def record_nozzle_clean(
     devices: DevicesDep,
     machine_config: MachineConfigDep,
     _control: ControlDep,
-) -> NozzleCleanInfo:
+) -> NozzlePositionInfo:
     """現在のマシン座標をノズルクリーニング位置として記録する.
 
     記録するのはクリーニング面（先端が触れた高さ）で、押し込みは実行時に設定値ぶん差し引く。

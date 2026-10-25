@@ -1,16 +1,17 @@
 "use strict";
 
-// 設定画面。入力変更を debounce して machine.toml に保存する。
+// machine.toml の即保存フォーム（form[data-machine-settings]）。入力が止まったら項目ごとに保存する。
+// 設定ページと、機能のページに置いた設定欄（はんだ塗布・ノズル位置・通知音）が共用する。
+// 保存は api.js の pendingSaves を通すので、ジョブを始める前に送り終える。
 
 (() => {
-  const { toast, api } = window.webui;
+  const { api, pendingSaves } = window.webui;
   const SAVE_DELAY_MS = 350;
 
-  // 設定画面とはんだ塗布ページの両方で同じ即保存フォームを扱う。
   const forms = document.querySelectorAll("form[data-machine-settings]");
   if (forms.length === 0) return;
 
-  const pendingTimers = new Map();
+  // 同じ項目を続けて保存したとき、先の値が後から届いて上書きしないよう順に送る
   let saveQueue = Promise.resolve();
 
   function parseNumber(text, label) {
@@ -64,40 +65,21 @@
     return group ? group.dataset.pairKey : control.name;
   }
 
-  async function saveValues(endpoint, values) {
-    try {
-      await api("PUT", endpoint, { values });
-    } catch (err) {
-      toast(`保存失敗: ${err.message}`, false);
-    }
-  }
-
-  function enqueueSave(endpoint, values) {
-    saveQueue = saveQueue.then(
-      () => saveValues(endpoint, values),
-      () => saveValues(endpoint, values)
-    );
+  // 読めない入力（数値欄の文字など）も保存の失敗として数える（ジョブを始めさせない）
+  function save(control) {
+    const previous = saveQueue;
+    saveQueue = pendingSaves.run("保存失敗", async () => {
+      const values = valuesForControl(control);
+      if (values === null) return;
+      await previous;
+      await api("PUT", control.form.dataset.endpoint, { values });
+    });
   }
 
   function scheduleSave(control) {
     const key = controlKey(control);
     if (!key || !control.form) return;
-    const endpoint = control.form.dataset.endpoint;
-    clearTimeout(pendingTimers.get(key));
-    pendingTimers.set(
-      key,
-      setTimeout(() => {
-        pendingTimers.delete(key);
-        let values = null;
-        try {
-          values = valuesForControl(control);
-        } catch (err) {
-          toast(`保存失敗: ${err.message}`, false);
-          return;
-        }
-        if (values !== null) enqueueSave(endpoint, values);
-      }, SAVE_DELAY_MS)
-    );
+    pendingSaves.schedule(`machine-settings:${key}`, () => save(control), SAVE_DELAY_MS);
   }
 
   for (const machineForm of forms) {

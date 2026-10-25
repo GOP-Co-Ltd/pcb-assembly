@@ -1,4 +1,5 @@
 {% extends "feature.html" %}
+{% import "partials/forms.html" as forms %}
 {% block main %}
 <h2>{{ feature_label }}</h2>
 <section class="status-card nozzle-position-card">
@@ -21,7 +22,7 @@
   <h4>記録位置</h4>
   <div id="nc-current" data-testid="nozzle-cap-current">
     {%- if nozzle_cap is not none -%}
-    X {{ "%.3f" | format(nozzle_cap.x) }} / Y {{ "%.3f" | format(nozzle_cap.y) }} / Z {{ "%.3f" | format(nozzle_cap.z) }}
+    {{ nozzle_cap.label }}
     {%- else -%}
     未記録
     {%- endif -%}
@@ -82,14 +83,7 @@
         data-machine-settings data-endpoint="/api/machine_config">
     {% for field in nozzle_clean_fields %}
     <label for="ncl-{{ field.key }}">{{ field.label }}
-      <input id="ncl-{{ field.key }}" name="{{ field.key }}" type="number"
-             step="{{ 1 if field.value_type == 'int' else 'any' }}"
-             {% if field.minimum is not none %}min="{{ field.minimum }}"{% endif %}
-             aria-label="{{ field.label }}"
-             value="{{ field.value if field.value is not none else field.resolved if field.resolved is not none else '' }}"
-             placeholder="未設定"
-             data-testid="nozzle-clean-{{ field.key }}">
-      {% if field.unit %}<span class="unit">{{ field.unit }}</span>{% endif %}
+      {{ forms.setting_input(field, "ncl", testid="nozzle-clean") }}
     </label>
     {% endfor %}
   </form>

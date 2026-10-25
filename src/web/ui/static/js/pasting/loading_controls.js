@@ -20,8 +20,6 @@
   const massInput = document.getElementById("lc-mass-mg");
   const massCalibration = document.getElementById("loading-mass-calibration");
   const CALIBRATION_DELAY_MS = 250;
-  // 入力時即保存（/api/jobs/<name>/param-defaults へ POST）の debounce
-  const PARAM_SAVE_DELAY_MS = 400;
   // 設定キー -> 現在値 output id（適用成功時に表示を更新するため）
   const CURRENT_OUTPUT_FOR = {
     "paste_dispenser.rotations_per_ul": "lc-current-rotations-per-ul",
@@ -76,10 +74,12 @@
     jobs.sendCommandOrToast(command);
   }
 
+  // ローディングのページだけ、欄の値をジョブフォームの hidden へ写して送る。
+  // 写した値は入力するそばから次回のフォーム既定値として保存する
+  // （質量キャリブのブートストラップ等、ジョブ未実行でもリロードで復元される）。
   function bindLoadingParamSync() {
     const form = document.getElementById("job-form");
     if (!form || !form.classList.contains("loading-run-form")) return;
-    const jobName = form.dataset.jobName;
     const bindings = [
       ["amount", amountInput],
       ["rotations", rotationsInput],
@@ -93,23 +93,9 @@
         if (target && source) target.value = source.value;
       }
     }
-    // 「実行」を待たず、入力するそばから次回フォーム既定値として保存する
-    // （質量キャリブのブートストラップ等、ジョブ未実行でもリロードで復元される）。
-    const persistDefaults = debounce(() => {
-      if (!jobName) return;
-      const values = {};
-      for (const [name, source] of bindings) {
-        if (!source || source.value === "") continue;
-        const value = Number(source.value);
-        if (Number.isFinite(value)) values[name] = value;
-      }
-      api("POST", `/api/jobs/${jobName}/param-defaults`, { values }).catch(
-        () => {}
-      );
-    }, PARAM_SAVE_DELAY_MS);
     function onInput() {
       sync();
-      persistDefaults();
+      jobs.persistParams(form);
     }
     for (const [, input] of bindings) {
       if (input) input.addEventListener("input", onInput);

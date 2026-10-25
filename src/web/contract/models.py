@@ -43,10 +43,10 @@ class RectInfo(BaseModel):
     height: float
 
 
-class NozzleCleanInfo(BaseModel):
-    """記録されたノズルクリーニング面の位置と、その表示用文字列.
+class NozzlePositionInfo(BaseModel):
+    """記録されたノズル保守位置（キャップ / クリーニング）と、その表示用文字列.
 
-    ``label`` はサーバーが組んで返す（JS に整形させない）。押し込み後の高さは設定値から
+    ``label`` はサーバーが組んで返す（JS とテンプレートに整形させない）。クリーニングの押し込み後の高さは設定値から
     決まるので運ばない（表示するのは記録した面の位置だけ）。
     """
 
@@ -61,6 +61,8 @@ class KlipperStatus(BaseModel):
 
     connected: bool
     position: Position | None = None
+    # 位置の表示用文字列（サーバーが組む）
+    position_label: str | None = None
     homed_axes: str | None = None
     error: str | None = None
 
@@ -182,31 +184,25 @@ class JobBrief(BaseModel):
     status: str
 
 
-class ControlInfo(BaseModel):
-    """操作権リースの公開スナップショット（生の session_id は含まない）.
+type ControlState = Literal["held", "viewer", "free"]
 
-    誰も保持していないときも ``held: false`` の形で返す（null にしないのは、
-    frontend の分岐を減らすため）。「自分が保持者か」は ``key`` を
-    ``ClientInfo.key`` と比べて判定する。
+
+class ControlInfo(BaseModel):
+    """操作権リースの状態を、リクエスト元から見た形で表す（生の session_id は含まない）.
+
+    ``state`` は held（自分が保持）/ viewer（他の端末が保持）/ free（空き）で、backend が
+    リクエスト元ごとに判定する。frontend は自分が保持者かを導出しない。
     """
 
-    key: str | None = None
+    state: ControlState
     display_name: str | None = None
-    held: bool = False
     connections: int = 0
 
 
-class ClientInfo(BaseModel):
-    """リクエスト元クライアント自身の公開キー（`ControlInfo.key` との比較用）."""
-
-    key: str = ""
-
-
 class ControlStateResponse(BaseModel):
-    """/api/session/control/* の戻り（`StateResponse` の control / you と同じ形）."""
+    """/api/session/control/* の戻り（`StateResponse` の control と同じ形）."""
 
     control: ControlInfo
-    you: ClientInfo
 
 
 class StateResponse(BaseModel):
@@ -219,10 +215,9 @@ class StateResponse(BaseModel):
     mainsail_url: str | None
     preview_clients: int
     job: JobBrief | None
-    nozzle_cap: Position | None
+    nozzle_cap: NozzlePositionInfo | None
     control: ControlInfo
-    you: ClientInfo
-    nozzle_clean: NozzleCleanInfo | None
+    nozzle_clean: NozzlePositionInfo | None
     # machine.toml が読めない・検証に通らないときの理由（degraded。直せば次の取得で消える）
     config_error: str | None
     # 起動時に machine.toml を移行したときの知らせ（次の再起動まで出す）

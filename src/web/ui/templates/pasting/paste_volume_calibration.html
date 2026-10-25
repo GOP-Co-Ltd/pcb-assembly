@@ -1,6 +1,5 @@
 {% extends "feature.html" %}
 {% block main %}
-{% import "partials/job_params.html" as job_params %}
 <h2>{{ feature_label }}</h2>
 <p class="job-intro">
   未塗布の銅板にセル格子を敷き、各セルへ 1 点ずつ塗布して塗布前後の画像と計量教師値を集め、
@@ -13,19 +12,9 @@
   入力しないままジョブが終わった場合は「未完了ペーストdatasetの確定」で入力できます。
   ハイパラを変えて作り直すときは「塗布量校正の再フィット」を使います（装置は不要です）。
 </p>
-<form id="job-form" class="job-form paste-volume-calibration-form"
-      data-job-name="{{ job_name }}"
-      data-testid="job-form" data-requires-control>
-  {% for legend, specs in param_groups %}
-  <fieldset class="job-param-group">
-    <legend>{{ legend }}</legend>
-    {% for spec in specs %}
-    {{ job_params.param_field(spec) }}
-    {% endfor %}
-  </fieldset>
-  {% endfor %}
-  <button type="submit" id="job-run" data-testid="job-run">実行</button>
-</form>
+{% with form_class = "paste-volume-calibration-form" %}
+{% include "partials/job_form.html" %}
+{% endwith %}
 <section id="pdl-panel" class="pdl-panel">
   <h3>配置プレビュー</h3>
   <p id="pdl-summary" class="pdl-summary"></p>

@@ -1,4 +1,5 @@
 {% extends "feature.html" %}
+{% import "partials/forms.html" as forms %}
 {% block main %}
 <div class="pasting-workspace" data-testid="pasting-workspace">
 <h2>{{ feature_label }}</h2>
@@ -10,24 +11,12 @@
       data-machine-settings data-endpoint="/api/machine_config">
   {% for field in auto_threshold_fields %}
   <label for="pat-{{ field.key }}">{{ field.label }}
-    <input id="pat-{{ field.key }}" name="{{ field.key }}" type="number" step="any"
-           {% if field.minimum is not none %}min="{{ field.minimum }}"{% endif %}
-           aria-label="{{ field.label }}"
-           value="{{ field.value if field.value is not none else '' }}"
-           placeholder="未設定"
-           data-testid="auto-threshold-{{ field.key }}">
-    {% if field.unit %}<span class="unit">{{ field.unit }}</span>{% endif %}
+    {{ forms.setting_input(field, "pat", testid="auto-threshold") }}
   </label>
   {% endfor %}
   {% for field in pad_refinement_fields %}
   <label for="prf-{{ field.key }}">{{ field.label }}
-    <input id="prf-{{ field.key }}" name="{{ field.key }}" type="number" step="any"
-           {% if field.minimum is not none %}min="{{ field.minimum }}"{% endif %}
-           aria-label="{{ field.label }}"
-           value="{{ field.value if field.value is not none else field.resolved if field.resolved is not none else '' }}"
-           placeholder="未設定"
-           data-testid="pad-refinement-{{ field.key }}">
-    {% if field.unit %}<span class="unit">{{ field.unit }}</span>{% endif %}
+    {{ forms.setting_input(field, "prf", testid="pad-refinement") }}
   </label>
   {% endfor %}
 </form>

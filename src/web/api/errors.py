@@ -20,6 +20,7 @@ from pcbasm.kicad.units import KicadError
 from pcbasm.pasting.overrides import StoredBoardSettingsError
 from pcbasm.pasting.test_board.config import BoardConfigError
 from web.api.control import ControlDeniedError, ControlLease, control_payload
+from web.api.identity import get_identity
 from web.api.lock import BusyError
 from web.api.machine_config import InvalidSettingError
 
@@ -74,7 +75,9 @@ def install_error_handlers(app: FastAPI, control: ControlLease) -> None:
             content={
                 "detail": str(exc),
                 "holder": (
-                    control_payload(holder).model_dump(mode="json")
+                    control_payload(holder, get_identity(request)).model_dump(
+                        mode="json"
+                    )
                     if holder.held
                     else None
                 ),

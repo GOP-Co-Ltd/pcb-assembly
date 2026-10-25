@@ -1,6 +1,5 @@
 {% extends "feature.html" %}
 {% block main %}
-{% import "partials/job_params.html" as job_params %}
 <h2>{{ feature_label }}</h2>
 <p class="job-intro">
   既存の rotations_per_ul を基準に、銅板へ線を引いて ①→②→③ を順に補正します。
@@ -16,18 +15,7 @@
 <p class="job-intro">
   採用した値はその時点で machine.toml に保存され、途中で中止しても残ります。
 </p>
-<form id="job-form" class="job-form dispense-calibration-form" data-requires-control
-      data-job-name="{{ job_name }}" data-testid="job-form">
-  {% for legend, specs in param_groups %}
-  <fieldset class="job-param-group">
-    <legend>{{ legend }}</legend>
-    {% for spec in specs %}
-    {{ job_params.param_field(spec) }}
-    {% endfor %}
-  </fieldset>
-  {% endfor %}
-  <button type="submit" id="job-run" data-testid="job-run">実行</button>
-</form>
+{% include "partials/job_form.html" %}
 {% include "partials/calibration_menu.html" %}
 {% include "partials/loading_controls.html" %}
 {% include "partials/job_console.html" %}

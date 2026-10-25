@@ -1,3 +1,4 @@
+{% import "partials/forms.html" as forms %}
 <section id="pad-editor" class="pad-editor" data-testid="pad-editor">
   {# PCB 未選択時のメッセージ（JS が GET 409 を受けたら表示し、編集 UI を隠す） #}
   <p id="pad-editor-empty" class="pad-editor-empty" data-testid="pad-editor-empty" hidden>
@@ -61,23 +62,9 @@
           {% for field in flow_calibration_fields %}
           {# 文字列の項目は校正ファイル名だけで、保存済みの校正の一覧から選ぶ #}
           <label for="pfc-{{ field.key }}"
-                 {% if field.value_type == 'str' %}class="pad-flow-calibration-file"{% endif %}>{{ field.label }}{% if field.unit %} <span class="unit">[{{ field.unit }}]</span>{% endif %}
-            {% if field.value_type == 'str' %}
-            <input id="pfc-{{ field.key }}" name="{{ field.key }}" type="text"
-                   aria-label="{{ field.label }}"
-                   value="{{ field.value if field.value is not none else '' }}"
-                   placeholder="未設定（補正しません）"
-                   data-calibration-picker data-calibration-empty="補正しない"
-                   {% if field.clearable %}data-allow-empty="true"{% endif %}
-                   data-testid="flow-calibration-{{ field.key }}">
-            {% else %}
-            <input id="pfc-{{ field.key }}" name="{{ field.key }}" type="number" step="any"
-                   {% if field.minimum is not none %}min="{{ field.minimum }}"{% endif %}
-                   aria-label="{{ field.label }}"
-                   value="{{ field.value if field.value is not none else field.resolved if field.resolved is not none else '' }}"
-                   placeholder="未設定"
-                   data-testid="flow-calibration-{{ field.key }}">
-            {% endif %}
+                 {% if field.value_type == 'str' %}class="pad-flow-calibration-file"{% endif %}>{{ field.label }}
+            {{ forms.setting_input(field, "pfc", testid="flow-calibration",
+                                   picker="補正しない" if field.value_type == 'str' else none) }}
           </label>
           {% endfor %}
         </form>

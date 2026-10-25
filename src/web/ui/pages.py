@@ -51,11 +51,7 @@ from web.ui.features import (
     Feature,
     tab_features,
 )
-from web.ui.layout import (
-    DISPENSE_CALIBRATION_PARAM_GROUPS,
-    PASTE_VOLUME_CALIBRATION_PARAM_GROUPS,
-    settings_sections,
-)
+from web.ui.layout import param_sections, settings_sections
 from web.ui.machine_client import BackendGateway, BackendUnavailable, MachineClient
 from web.ui.machines import MachineEndpoint, MachineRegistry
 
@@ -464,32 +460,6 @@ def _loading_context(job: JobSpecInfo, settings: _MachineSettings) -> dict[str, 
     }
 
 
-def _dispense_calibration_context(
-    job: JobSpecInfo, settings: _MachineSettings
-) -> dict[str, Any]:
-    """Dispense_calibration ページ専用コンテキスト（フォームのセクション分け）."""
-    specs_by_name = {spec.name: spec for spec in job.params}
-    return {
-        "param_groups": [
-            (legend, [specs_by_name[name] for name in names])
-            for legend, names in DISPENSE_CALIBRATION_PARAM_GROUPS
-        ]
-    }
-
-
-def _paste_volume_calibration_context(
-    job: JobSpecInfo, settings: _MachineSettings
-) -> dict[str, Any]:
-    """塗布量校正の生成ページ専用コンテキスト（フォームのセクション分け）."""
-    specs_by_name = {spec.name: spec for spec in job.params}
-    return {
-        "param_groups": [
-            (legend, [specs_by_name[name] for name in names])
-            for legend, names in PASTE_VOLUME_CALIBRATION_PARAM_GROUPS
-        ]
-    }
-
-
 def _paste_workspace_context(
     state: StateResponse, settings: _MachineSettings
 ) -> dict[str, Any]:
@@ -554,8 +524,6 @@ _JOB_FEATURE_CONTEXT: dict[
     str, Callable[[JobSpecInfo, _MachineSettings], dict[str, Any]]
 ] = {
     "loading": _loading_context,
-    "dispense_calibration": _dispense_calibration_context,
-    "paste_volume_calibration": _paste_volume_calibration_context,
 }
 
 # feature slug → ページ専用コンテキスト（ジョブ有無に依らない）
@@ -590,7 +558,8 @@ async def feature_page(machine_id: str, slug: str, request: Request) -> Response
         # 提供の有無・ボタンを押せる段階）なので、backend の自己申告をそのまま渡す
         context.update(
             job_name=job.name,
-            param_specs=job.params,
+            param_sections=param_sections(job.params),
+            persists_params=bool(job.persisted_params),
             show_preview=job.provides_preview,
             loading=job.loading,
         )

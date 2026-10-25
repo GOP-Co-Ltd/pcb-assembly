@@ -1,8 +1,7 @@
-{% import "partials/job_params.html" as job_params %}
-<form id="job-form" class="job-form" data-job-name="{{ job_name }}" data-testid="job-form"
-      data-requires-control>
-  {% for spec in param_specs %}
-  {{ job_params.param_field(spec) }}
-  {% endfor %}
+{% import "partials/forms.html" as forms %}
+{# ジョブの開始フォーム。保存済み既定値を持つジョブ（data-persist-params）は、入力したそばから次回の既定値として保存する（job_console.js） #}
+<form id="job-form" class="job-form{% if form_class %} {{ form_class }}{% endif %}" data-job-name="{{ job_name }}"
+      data-testid="job-form" data-requires-control{% if persists_params %} data-persist-params{% endif %}>
+  {{ forms.param_sections(param_sections) }}
   <button type="submit" id="job-run" data-testid="job-run">実行</button>
 </form>

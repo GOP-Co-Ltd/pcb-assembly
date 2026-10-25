@@ -139,11 +139,11 @@ def _summary(path: Path) -> CalibrationSummary:
 class DatasetLayoutRequest(BaseModel):
     """レイアウト設定（フィールド名は収集ジョブの ``ParamSpec`` と一致させる）.
 
-    WebUI はジョブフォームの入力値をそのまま送れる。``shuffle_seed`` は解決せずに
-    渡すので、``0`` の preview は決定論的な配置になる（実行時は別シードで再配置される）。
+    WebUI はジョブフォームの入力値を全部そのまま送る。レイアウトに関係しない項目は無視する。
+    ``shuffle_seed`` は解決せずに渡すので、``0`` の preview は決定論的な配置になる（実行時は別シードで再配置される）。
     """
 
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="ignore", strict=True)
 
     plate_width: float
     plate_height: float

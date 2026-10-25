@@ -21,7 +21,7 @@ from collections.abc import Callable
 import attrs
 
 from web.api.events import Event
-from web.contract.models import ControlInfo
+from web.contract.models import ControlInfo, ControlState
 
 _KEY_LENGTH = 8
 
@@ -50,10 +50,10 @@ class ClientIdentity:
 
 @attrs.frozen
 class LeaseInfo:
-    """操作権リースの公開スナップショット（生 ``session_id`` を含まない）.
+    """操作権リースのスナップショット（生 ``session_id`` を含まない）.
 
-    「自分が保持者か」はこの値だけでは決まらない。クライアントは自身の
-    ``key`` と ``key`` を比較して判定する。
+    「自分が保持者か」はこの値だけでは決まらない。:func:`control_payload` がリクエスト元の
+    ``ClientIdentity.key`` と ``key`` を比べて判定する。
 
     Attributes:
         key: 保持者の公開キー（未保持なら None）
@@ -225,22 +225,23 @@ class ControlLease:
             self._on_change()
 
 
-def control_payload(info: LeaseInfo) -> ControlInfo:
-    """リーススナップショットを API 表現へ変換する（唯一の変換点）."""
+def control_payload(info: LeaseInfo, identity: ClientIdentity) -> ControlInfo:
+    """リーススナップショットを、``identity`` から見た API 表現へ変換する（唯一の変換点）."""
+    state: ControlState
+    if not info.held:
+        state = "free"
+    elif info.key == identity.key:
+        state = "held"
+    else:
+        state = "viewer"
     return ControlInfo(
-        key=info.key,
-        display_name=info.display_name,
-        held=info.held,
-        connections=info.connections,
+        state=state, display_name=info.display_name, connections=info.connections
     )
 
 
-def control_changed_event(info: LeaseInfo) -> Event:
-    """WS の control_changed イベントを組む（全 subscriber へ同一 payload で配る）.
+def control_changed_event() -> Event:
+    """WS の control_changed イベントを組む（保持者が変わったことだけを知らせる）.
 
-    受け取ったクライアントは ``control.key`` を自分の ``you.key`` と比べて「自分が保持者か」を判定する（サーバは接続ごとに payload を作り分けない）。
+    状態は受け手ごとに違うので、``control`` は送信ループが接続ごとに詰める（``routers.jobs``）。
     """
-    return {
-        "type": "control_changed",
-        "control": control_payload(info).model_dump(mode="json"),
-    }
+    return {"type": "control_changed"}

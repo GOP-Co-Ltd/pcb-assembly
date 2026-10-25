@@ -12,6 +12,7 @@ HAL はこのパッケージを import しない。
 | `diagnostics.py` | 装置診断（ジョブ `machine_check`）。Klipper の接続と状態、printer.cfg にジョブの部品が要求する section、カメラの校正（焦点 Z の記録と解像度の一致）、ALSA の再生デバイスを確かめる                      |
 | `commands.py`    | マシン操作パネルの命令 `MachineCommand`（home / jog / move / relax / focus_z / move_to_cap / gcode）と、その G-code を組む `to_gcode`。REST の `/api/machine/command` と対話ジョブの command が共用する |
 | `park.py`        | ノズルキャップへの駐機 `park`（キャップ → PRESENT → M84）。ジョブの終了時に使う                                                                                                                         |
+| `labels.py`      | ステージ座標の表示文字列 `position_label`。操作パネルの現在位置と、記録したノズルキャップ位置を同じ書式で返す（JS とテンプレートで書式を組まない）                                                      |
 
 ## 装置（Devices）
 

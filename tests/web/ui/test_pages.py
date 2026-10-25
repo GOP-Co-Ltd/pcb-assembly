@@ -423,12 +423,12 @@ class TestAlignJobPages:
     def test_camera_calibration_renders_square_size_form_with_default(
         self, client: TestClient
     ):
-        """ジョブパラメータフォームは square_size のみ（初回既定値 1.5mm）。専用 JS を読み込む."""
+        """ジョブパラメータフォームは square_size のみ（初回既定値 1.5mm）。入力は次回の既定値として即保存する."""
         text = client.get("/camera_calibration").text
 
         assert 'name="square_size"' in text
         assert 'value="1.5"' in text
-        assert "js/align/camera_calibration.js" in text
+        assert "data-persist-params" in text
         # crop は job param から削除済み（machine.toml 連動の即保存フォームへ移設）
         assert "crop_width" not in text
         assert "crop_height" not in text
@@ -535,6 +535,20 @@ class TestPastingJobPages:
         ):
             assert f'id="{bid}"' in text
         assert "calibration_menu.js" in text
+
+    def test_advanced_param_group_is_collapsed_by_default(self, client: TestClient):
+        """ParamSpec.group が advanced のまとまり（円検出のハイパラ）は既定で畳んで描く."""
+        text = client.get("/paste_volume_calibration").text
+
+        advanced = re.search(
+            r'<details class="job-param-advanced"([^>]*)>(.*?)</details>', text, re.S
+        )
+        assert advanced is not None
+        assert "open" not in advanced.group(1)
+        assert "<summary>円検出のハイパラ</summary>" in advanced.group(2)
+        assert 'id="param-min_contrast"' in advanced.group(2)
+        assert 'id="param-plate_width"' not in advanced.group(2)
+        assert "<legend>銅板</legend>" in text
 
 
 class TestJobParamForms:
@@ -741,6 +755,20 @@ class TestNozzleCapPage:
         # 同じページの設定ラベルに当たらないよう、label 文字列そのものを見る
         assert "(10.00, 20.00, -30.00) mm" in response.text
 
+    def test_shows_recorded_cap_label_from_server(
+        self, config_dir: Path, client: TestClient
+    ):
+        """キャップ位置も、サーバーが組んだ label をそのまま出す（テンプレートで書式を組まない）."""
+        path = config_dir / "machine.toml"
+        with path.open("a", encoding="utf-8") as machine_toml:
+            machine_toml.write(
+                "\n[paste_dispenser.nozzle_cap]\nx = 10.0\ny = 20.0\nz = -3.5\n"
+            )
+
+        response = client.get("/nozzle_cap")
+
+        assert "X10.000 Y20.000 Z-3.500" in response.text
+
 
 class TestMissingSelectionNotice:
     """起動時に選択していた PCB が無ければ、選択を解除したことを全ページに出す."""
@@ -844,10 +872,10 @@ class TestUnsetMachineSettingsShowResolvedValues:
     def test_nozzle_clean_form_renders_resolved_values(
         self, config_dir: Path, client: TestClient
     ):
-        """位置だけ記録した状態でも、動作設定は既定値で描く.
+        """位置だけ記録した状態でも、動作設定は既定値を placeholder に描く.
 
-        記録直後がこの状態なので、ここで空欄になると既定値で動いているのに「未設定」に
-        見える。既定値の出所は backend の `resolved` だけに保つ。
+        記録直後がこの状態なので、「未設定」と出すと既定値で動いているのにそう見えない。
+        値には入れない（未記載と明示した値を見分けられるようにする）。既定値の出所は backend の `resolved` だけに保つ。
         """
         path = config_dir / "machine.toml"
         with path.open("a", encoding="utf-8") as machine_toml:
@@ -859,9 +887,9 @@ class TestUnsetMachineSettingsShowResolvedValues:
 
         # NozzleClean の既定値（press_depth=0.5 / stroke=2.0 / passes=2）
         assert 'name="paste_dispenser.nozzle_clean.press_depth"' in text
-        assert 'value="0.5"' in text
-        assert 'value="2.0"' in text
-        assert 'value="2"' in text
+        assert 'placeholder="0.5"' in text
+        assert 'placeholder="2.0"' in text
+        assert 'placeholder="2"' in text
 
     def test_loading_renders_resolved_paste_density(
         self, machine_toml_without_defaulted_keys: Path, client: TestClient
@@ -887,7 +915,8 @@ class TestUnsetMachineSettingsShowResolvedValues:
         )
         assert input_tag is not None
         assert 'type="number"' in input_tag.group()
-        assert 'value="0.4"' in input_tag.group()
+        assert 'value=""' in input_tag.group()
+        assert 'placeholder="0.4"' in input_tag.group()
         assert '<span class="unit">mm</span>' in response.text
 
 

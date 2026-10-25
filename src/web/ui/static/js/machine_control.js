@@ -8,7 +8,7 @@
 //   （送信先が REST か WS かの違いのみで、操作系は共通）
 
 (() => {
-  const { toast, api, svgEl, formatPosition } = window.webui;
+  const { toast, api, svgEl } = window.webui;
   const sidebar = document.getElementById("mc-sidebar");
   const panel = document.getElementById("machine-control");
   if (!sidebar || !panel) return;
@@ -67,7 +67,7 @@
       return;
     }
     const p = status.position;
-    positionEl.textContent = `位置: ${formatPosition(p)}`;
+    positionEl.textContent = `位置: ${status.position_label}`;
     homedEl.textContent = `homed: ${status.homed_axes || "なし"}`;
     // 座標欄は現在位置を常時表示する（編集中の欄は上書きしない）
     for (const input of absInputs) {

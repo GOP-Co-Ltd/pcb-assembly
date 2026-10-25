@@ -3,16 +3,16 @@
 // 機体一覧（/machines）の行操作。行（[data-row-base]）1 つが機体 1 台に対応する。
 // 操作権・状態・WS はすべて機体ごとに別で、行ごとに独立して動く。
 //
-// 宛先: このページはマシン非依存なので、app.js の機体 prefix（BASE）が空になる。
+// 宛先: このページはマシン非依存なので、api.js の機体 prefix（BASE）が空になる。
 // 行の base は data-row-base の値（"/m/<machine_id>"）。
 // - HTTP: api() に `${base}/api/...` をそのまま渡す（api() は空の BASE しか付けない）
-// - WS: api() を通らないので、withBase("/api/jobs/ws", base) で機体宛ての URL を組む
+// - WS: ws.js の connectEvents に base を渡す
 //
 // 行ごとに WS を張り続ける理由: 他の端末による取得・解放や PCB の選び直しを、
 // ポーリングせずに WS のイベントで知るため。操作権は WS が切れても失効しない
 // （外れるのは解放・奪取・backend の再起動だけ）。
 //
-// state の値: held = 自分が保持 / viewer = 他の端末が保持 / free = 空き /
+// state の値: held = 自分が保持 / viewer = 他の端末が保持 / free = 空き（ここまでは backend の control.state）/
 // unknown = 操作権の状態を取得できない（機体が不通など）。
 // state ごとのボタン（隠す = hidden、押せない = 表示したまま disabled）:
 //   state   | 取得     | 解放   | 塗布実行
@@ -31,7 +31,7 @@
 // 表示する値（更新の要約・PCB 名・保持者名）はサーバの応答をそのまま流す。
 
 (() => {
-  const { toast, api, createBackoff, withBase } = window.webui;
+  const { toast, api, connectEvents } = window.webui;
 
   // 塗布実行で開始するジョブ。パラメータは送らない（ジョブ定義の既定値で動く）
   const PASTE_JOB = "paste_solder";
@@ -54,22 +54,13 @@
     // SSR の「確認中…」を残す
     let state = null;
     let holderName = "";
-    let myKey = null;
     let pcbFile = null;
     // 要求の送信中はその行のボタンを押せなくする（二重送信を防ぐ）
     let pending = false;
 
     function applySnapshot(data) {
-      if (data.you?.key) myKey = data.you.key;
-      const control = data.control ?? null;
-      if (!control) {
-        state = "unknown";
-      } else if (!control.held) {
-        state = "free";
-      } else {
-        state = control.key === myKey ? "held" : "viewer";
-      }
-      holderName = control?.display_name || "他の端末";
+      state = data.control.state;
+      holderName = data.control.display_name || "他の端末";
       if ("pcb_file" in data) pcbFile = data.pcb_file;
       render();
     }
@@ -143,28 +134,19 @@
       );
     }
 
-    const backoff = createBackoff(1000, 30000);
-
-    function connect() {
-      const proto = location.protocol === "https:" ? "wss" : "ws";
-      const socket = new WebSocket(`${proto}://${location.host}${withBase("/api/jobs/ws", base)}`);
-      socket.addEventListener("open", () => {
-        backoff.reset();
+    connectEvents({
+      base,
+      onOpen: () => {
         // 切断中のイベントは届いていない。更新後の再起動から戻ったときもここを通る
         refresh();
         refreshUpdate();
-      });
-      socket.addEventListener("message", (event) => {
-        if (REFRESH_EVENTS.has(JSON.parse(event.data).type)) refresh();
-      });
-      socket.addEventListener("close", () => {
-        // 機体が落ちたなら GET も失敗し、行が unknown になる
-        refresh();
-        setTimeout(connect, backoff.next());
-      });
-    }
-
-    connect();
+      },
+      onEvent: (event) => {
+        if (REFRESH_EVENTS.has(event.type)) refresh();
+      },
+      // 機体が落ちたなら GET も失敗し、行が unknown になる
+      onClose: refresh,
+    });
   }
 
   document.querySelectorAll("[data-row-base]").forEach(setupRow);

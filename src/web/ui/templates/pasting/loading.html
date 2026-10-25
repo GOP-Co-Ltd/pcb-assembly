@@ -1,5 +1,5 @@
 {% extends "feature.html" %}
-{% import "partials/job_params.html" as job_params %}
+{% import "partials/forms.html" as forms %}
 {% block main %}
 <h2>{{ feature_label }}</h2>
 <p class="job-intro">
@@ -7,7 +7,8 @@
   移動が済むと下の「ローディング」欄のボタンが押せるようになります。
   押出・吸引でペーストを送り、済んだら「ローディング終了」を押します。
 </p>
-<form id="job-form" class="job-form loading-run-form" data-requires-control
+{# 回転押出などの値は「ローディング」欄の入力を hidden へ写して送る（loading_controls.js）。次回の既定値として即保存する #}
+<form id="job-form" class="job-form loading-run-form" data-requires-control{% if persists_params %} data-persist-params{% endif %}
       data-job-name="{{ job_name }}" data-testid="job-form">
   {% for spec in loading_control_specs %}
   <input type="hidden" id="param-{{ spec.name }}" name="{{ spec.name }}"
@@ -17,7 +18,7 @@
   <fieldset class="job-param-group loading-position">
     <legend>ローディング位置（任意）</legend>
     {% for spec in loading_position_specs %}
-    {{ job_params.param_field(spec) }}
+    {{ forms.param_field(spec) }}
     {% endfor %}
     <small class="job-param-help">空欄の軸はホーミング後の位置を維持します。</small>
   </fieldset>

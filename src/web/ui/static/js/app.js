@@ -1,23 +1,7 @@
 "use strict";
 
-// 全ページ共通の JS。base.html が最初に読み込み、共通関数を window.webui に公開する。
-// 他のモジュールは fetch を直接呼ばず、宛先に応じて次の関数を使う
-// （tests/web/ui/test_layout.py が静的に検査する）。
-// - 表示中の機体の backend（"/api/..." / "/artifacts/..."）: api() / downloadApi()
-// - frontend 自身（/api/machines, /api/self-update/**, /api/update-notice）: frontendApi() / frontendJson()
-// - WS・<img>・リンクなどブラウザが直接開く backend の URL: withBase() で機体 prefix を付ける
-
-// ---- machine prefix ----
-
-// サーバが組んだ機体 prefix（"/m/<machine_id>"）。マシン非依存のページでは空。
-// backend 相対のパス（"/api/..." / "/artifacts/..."）を機体宛てに直す処理は
-// ここ 1 箇所だけにする（各所の URL literal は backend 相対のまま残す）。
-const BASE = document.body.dataset.machineBase ?? "";
-
-// base を渡すと表示中の機体ではなくその機体宛てにする（マシン非依存の機体一覧用）
-function withBase(path, base = BASE) {
-  return `${base}${path}`;
-}
+// 全ページ共通の JS。api.js の後に読み込み、共通の部品を window.webui に足す。
+// HTTP と保存待ちは api.js、WS は ws.js が受け持つ。
 
 // ---- shared helpers ----
 
@@ -31,76 +15,6 @@ function toast(message, level = true) {
   el.textContent = message;
   container.appendChild(el);
   setTimeout(() => el.remove(), 5000);
-}
-
-async function fetchApi(method, url, body) {
-  const options = { method };
-  if (body instanceof FormData) {
-    // multipart は fetch が boundary 付き Content-Type を自動設定する
-    options.body = body;
-  } else if (body !== undefined) {
-    options.headers = { "Content-Type": "application/json" };
-    options.body = JSON.stringify(body);
-  }
-  const res = await fetch(withBase(url), options);
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    const err = new Error(data.detail || `${res.status} ${res.statusText}`);
-    err.status = res.status;
-    err.data = data;
-    // 423 = 操作権を持っていない。UI 全体の状態を即座に閲覧モードへ切り替える
-    if (res.status === 423) window.webui.control?.onDenied(data);
-    throw err;
-  }
-  return res;
-}
-
-async function api(method, url, body) {
-  const res = await fetchApi(method, url, body);
-  return res.json().catch(() => ({}));
-}
-
-async function downloadApi(method, url, body) {
-  const res = await fetchApi(method, url, body);
-  const disposition = res.headers.get("Content-Disposition") ?? "";
-  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
-  const quoted = disposition.match(/filename="([^"]+)"/i)?.[1];
-  const plain = disposition.match(/filename=([^;\s]+)/i)?.[1];
-  const filename = encoded
-    ? decodeURIComponent(encoded)
-    : quoted ?? plain ?? "download";
-  const objectUrl = URL.createObjectURL(await res.blob());
-  const link = document.createElement("a");
-  link.href = objectUrl;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(objectUrl);
-  return filename;
-}
-
-// frontend 自身のエンドポイント（/api/machines, /api/self-update/**, /api/update-notice）を呼ぶ。
-// machine prefix は付けない（付けると backend へ中継されて 404 になる）。
-// fetch() の呼び出しをこのファイルに限定するための入口でもある（tests/web/ui/test_layout.py）。
-async function frontendApi(method, url, body) {
-  const options = { method, headers: { Accept: "application/json" } };
-  if (body !== undefined) {
-    options.headers["Content-Type"] = "application/json";
-    options.body = JSON.stringify(body);
-  }
-  const res = await fetch(url, options);
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    const err = new Error(data.detail || `${res.status} ${res.statusText}`);
-    err.status = res.status;
-    throw err;
-  }
-  return res.json().catch(() => ({}));
-}
-
-async function frontendJson(url) {
-  return frontendApi("GET", url);
 }
 
 function svgEl(tag, attrs) {
@@ -136,23 +50,7 @@ function createBackoff(baseMs, maxMs) {
   };
 }
 
-function formatPosition(p) {
-  return `X${p.x.toFixed(3)} Y${p.y.toFixed(3)} Z${p.z.toFixed(3)}`;
-}
-
-// expose for other scripts
-window.webui = {
-  toast,
-  api,
-  downloadApi,
-  frontendApi,
-  frontendJson,
-  svgEl,
-  debounce,
-  createBackoff,
-  formatPosition,
-  withBase,
-};
+Object.assign(window.webui, { toast, svgEl, debounce, createBackoff });
 
 // ---- topbar safety controls ----
 
@@ -161,7 +59,7 @@ async function postTopbarCommand(button, url, successMessage, failurePrefix) {
   try {
     // 何を再起動したかはサーバが文言まで組んで返す（組み立てを JS に複製しない）。
     // 文言を返さないコマンド（緊急停止）では呼び出し側の既定文言を使う
-    const result = await api("POST", url);
+    const result = await window.webui.api("POST", url);
     toast(result.message || successMessage);
     if (result.warning) toast(result.warning, "warning");
   } catch (err) {

@@ -1,59 +1,23 @@
 "use strict";
 
 // データセット収集の配置プレビュー。
+// ジョブフォームの入力をそのまま送り（どの項目が配置に効くかは backend が知っている）、
 // 総点数・撮影枚数・容量・配置は backend の /api/pasting/calibration/dataset-layout が
 // 算出したものをそのまま描く（ここで再導出しない）。SVG 座標は銅板 mm をそのまま
 // viewBox に使うので、ここでの座標変換は描画のための計算だけになる。
 (() => {
-  const { api, debounce, svgEl } = window.webui;
+  const { api, debounce, jobs, svgEl } = window.webui;
 
   const panel = document.getElementById("pdl-panel");
-  if (!panel) return;
+  const form = document.getElementById("job-form");
+  if (!panel || !form) return;
 
   const view = document.getElementById("pdl-view");
   const summaryBox = document.getElementById("pdl-summary");
   const errorBox = document.getElementById("pdl-error");
   const legendBox = document.getElementById("pdl-legend");
 
-  // リクエストのキーは収集ジョブの ParamSpec 名と一致する（サーバが extra=forbid なので
-  // レイアウトに関係しない paste_height / paste_id は送らない）。
-  const FIELDS = [
-    "plate_width",
-    "plate_height",
-    "edge_margin",
-    "cell_size",
-    "cell_gap",
-    "crop_size",
-    "volume_min",
-    "volume_max",
-    "volume_divisions",
-    "samples_per_volume",
-    "blank_count",
-    "view_count",
-    "view_offset",
-    "shuffle_seed",
-  ];
-  const INT_FIELDS = new Set([
-    "volume_divisions",
-    "samples_per_volume",
-    "blank_count",
-    "view_count",
-    "shuffle_seed",
-  ]);
   const MARGIN_MM = 2;
-
-  function collect() {
-    const body = {};
-    for (const name of FIELDS) {
-      const input = document.getElementById(`param-${name}`);
-      if (!input) return null;
-      const value = Number(input.value);
-      // 空欄・非数はサーバへ送らない（クライアント検証は UX 最小限に留める）
-      if (input.value === "" || !Number.isFinite(value)) return null;
-      body[name] = INT_FIELDS.has(name) ? Math.trunc(value) : value;
-    }
-    return body;
-  }
 
   // 吐出量の表示（小数点 3 桁。サーバ値の書式化だけで再導出はしない）
   function volumeText(value) {
@@ -167,9 +131,16 @@
   // 応答が入れ替わって古い配置を描かないための世代番号
   let generation = 0;
 
+  // 必須の数値欄が空のあいだ（入力途中）は取り直さない（クライアント検証は UX 最小限に留める）
+  function incomplete() {
+    return [...form.querySelectorAll('input[type="number"]')].some(
+      (input) => input.value === "" && input.dataset.paramOptional !== "true"
+    );
+  }
+
   async function refresh() {
-    const body = collect();
-    if (body === null) return;
+    if (incomplete()) return;
+    const body = jobs.formParams(form);
     const issued = ++generation;
     let data;
     try {
@@ -185,13 +156,8 @@
     renderView(data);
   }
 
-  // 配置に影響する入力が変わったときだけ再取得する（円検出のハイパーパラメータや保存名では取り直さない）
-  const WATCHED = new Set(FIELDS);
+  // フォームの入力が変わるたびに取り直す（配置に効かない項目でも、同じ配置が返るだけ）
   const schedule = debounce(refresh, 250);
-  for (const event of ["input", "change"]) {
-    document.addEventListener(event, (evt) => {
-      if (WATCHED.has(evt.target?.name)) schedule();
-    });
-  }
+  for (const event of ["input", "change"]) form.addEventListener(event, schedule);
   refresh();
 })();

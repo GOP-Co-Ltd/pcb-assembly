@@ -21,9 +21,9 @@ MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
 
 契約:
 
-- `POST /api/session/control/{acquire,release,takeover,name}` は
-  `{"control": {...}, "you": {"key": ...}}` を返す（`GET /api/session/state` の同名フィールドと
-  同じ形）。`/api/session/state` は `control`（未保持でも `held: false` の形）と `you` を足す
+- `POST /api/session/control/{acquire,release,takeover,name}` は `{"control": {...}}` を返す
+  （`GET /api/session/state` の同名フィールドと同じ形）。`control.state` はリクエスト元から見た
+  操作権の状態（held / viewer / free）で、frontend は自分が保持者かを導出しない
 - セッション同定はヘッダ `X-Pcbasm-Session` → cookie `pcbasm_session` → `anonymous`、
   表示名はヘッダ `X-Pcbasm-Client-Name`（quote 済み）→ cookie `pcbasm_name` →
   `名前未設定 (<key>)`。壊れた入力は例外にせずフォールバックする
@@ -99,7 +99,13 @@ class TestStateApi:
 
         data = client.get("/api/session/state").json()
 
-        assert data["nozzle_cap"] == {"x": 10.0, "y": 20.0, "z": -3.5}
+        # 表示文字列はサーバーが組んで返す（JS とテンプレートに整形させない）
+        assert data["nozzle_cap"] == {
+            "x": 10.0,
+            "y": 20.0,
+            "z": -3.5,
+            "label": "X10.000 Y20.000 Z-3.500",
+        }
 
     def test_partially_recorded_nozzle_cap_reports_the_config_error(
         self, partial_nozzle_cap: Path, client: TestClient
@@ -156,7 +162,7 @@ class TestMachineInfoApi:
             # frontend / discovery の互換判定に使う値なので、`web.contract.discovery.API_VERSION`
             # を import せずリテラルで固定する（import すると同語反復になり、うっかりの
             # バンプが無音で通る）。バンプは意図的な契約変更なのでここも同時に更新する
-            "api_version": 15,
+            "api_version": 16,
         }
 
     def test_mainsail_url_resolves_from_machine_id_not_request_host(
@@ -210,10 +216,7 @@ class TestMachineInfoApi:
 ALICE = {"X-Pcbasm-Session": "alice-session", "X-Pcbasm-Client-Name": quote("田中")}
 BOB = {"X-Pcbasm-Session": "bob-session", "X-Pcbasm-Client-Name": quote("鈴木")}
 
-ALICE_KEY = ClientIdentity("alice-session", "田中").key
-BOB_KEY = ClientIdentity("bob-session", "鈴木").key
-
-FREE_CONTROL = {"key": None, "display_name": None, "held": False, "connections": 0}
+FREE_CONTROL = {"state": "free", "display_name": None, "connections": 0}
 
 # WS イベントの待ち時間上限（ハングをテスト失敗に変えるための締切）
 _WS_DEADLINE = 15.0
@@ -337,18 +340,12 @@ def _register_commanded(app: FastAPI, name: str) -> None:
 class TestControlEndpoints:
     """POST /api/session/control/{acquire,release,takeover,name} のワイヤ契約."""
 
-    def test_acquire_returns_control_and_you(self, client: TestClient):
+    def test_acquire_returns_control_held_by_the_caller(self, client: TestClient):
         response = client.post("/api/session/control/acquire", headers=ALICE)
 
         assert response.status_code == 200
         assert response.json() == {
-            "control": {
-                "key": ALICE_KEY,
-                "display_name": "田中",
-                "held": True,
-                "connections": 0,
-            },
-            "you": {"key": ALICE_KEY},
+            "control": {"state": "held", "display_name": "田中", "connections": 0}
         }
 
     def test_release_frees_the_lease(self, client: TestClient):
@@ -372,8 +369,8 @@ class TestControlEndpoints:
         response = client.post("/api/session/control/release", headers=BOB)
 
         assert response.status_code == 200
-        assert response.json()["control"]["key"] == ALICE_KEY
-        assert response.json()["you"] == {"key": BOB_KEY}
+        assert response.json()["control"]["state"] == "viewer"
+        assert _control(client, ALICE)["state"] == "held"
 
     def test_acquire_by_second_client_returns_423_with_holder(self, client: TestClient):
         assert (
@@ -386,12 +383,7 @@ class TestControlEndpoints:
         assert response.status_code == 423
         assert response.json() == {
             "detail": "操作権は〈田中〉が保持しています",
-            "holder": {
-                "key": ALICE_KEY,
-                "display_name": "田中",
-                "held": True,
-                "connections": 0,
-            },
+            "holder": {"state": "viewer", "display_name": "田中", "connections": 0},
         }
 
     def test_takeover_wins_against_the_holder(self, client: TestClient):
@@ -403,8 +395,9 @@ class TestControlEndpoints:
         response = client.post("/api/session/control/takeover", headers=BOB)
 
         assert response.status_code == 200
-        assert response.json()["control"]["key"] == BOB_KEY
+        assert response.json()["control"]["state"] == "held"
         assert response.json()["control"]["display_name"] == "鈴木"
+        assert _control(client, ALICE)["state"] == "viewer"
         # 奪われた側は変更系を実行できなくなる
         assert (
             client.post("/api/machine/firmware-restart", headers=ALICE).status_code
@@ -433,31 +426,34 @@ class TestControlEndpoints:
         response = client.post("/api/session/control/name", headers=BOB)
 
         assert response.status_code == 200
-        assert response.json()["control"]["key"] == ALICE_KEY
+        assert response.json()["control"]["state"] == "viewer"
+        assert response.json()["control"]["display_name"] == "田中"
 
 
 class TestStateControlFields:
-    """GET /api/session/state の control / you（frontend が「自分が保持者か」を決める材料）."""
+    """GET /api/session/state の control（backend がリクエスト元ごとに状態を判定する）."""
 
-    def test_free_lease_is_reported_as_held_false(self, client: TestClient):
+    def test_free_lease_is_reported_as_free(self, client: TestClient):
         data = client.get("/api/session/state", headers=ALICE).json()
 
         assert data["control"] == FREE_CONTROL
-        assert data["you"] == {"key": ALICE_KEY}
 
-    def test_holder_is_visible_to_the_viewer(self, client: TestClient):
+    def test_holder_and_viewer_each_see_their_own_state(self, client: TestClient):
         assert (
             client.post("/api/session/control/acquire", headers=ALICE).status_code
             == 200
         )
 
-        data = client.get("/api/session/state", headers=BOB).json()
-
-        assert data["control"]["key"] == ALICE_KEY
-        assert data["control"]["display_name"] == "田中"
-        assert data["you"] == {"key": BOB_KEY}
-        # 保持者判定は key の比較で行う（サーバは接続ごとに payload を作り分けない）
-        assert data["control"]["key"] != data["you"]["key"]
+        assert _control(client, ALICE) == {
+            "state": "held",
+            "display_name": "田中",
+            "connections": 0,
+        }
+        assert _control(client, BOB) == {
+            "state": "viewer",
+            "display_name": "田中",
+            "connections": 0,
+        }
 
     def test_pcb_selection_response_reports_the_caller_as_holder(
         self, client: TestClient
@@ -469,8 +465,7 @@ class TestStateControlFields:
         )
 
         assert response.status_code == 200
-        assert response.json()["control"]["key"] == ALICE_KEY
-        assert response.json()["you"] == {"key": ALICE_KEY}
+        assert response.json()["control"]["state"] == "held"
 
 
 class TestIdentityResolution:
@@ -481,7 +476,7 @@ class TestIdentityResolution:
 
         assert response.status_code == 200
         anonymous = ClientIdentity("anonymous", "").key
-        assert response.json()["control"]["key"] == anonymous
+        assert response.json()["control"]["state"] == "held"
         assert response.json()["control"]["display_name"] == f"名前未設定 ({anonymous})"
 
     def test_cookies_are_used_when_headers_are_absent(self, client: TestClient):
@@ -492,11 +487,11 @@ class TestIdentityResolution:
         )
 
         assert response.json()["control"] == {
-            "key": ClientIdentity("cookie-session", "佐藤").key,
+            "state": "held",
             "display_name": "佐藤",
-            "held": True,
             "connections": 0,
         }
+        assert _control(client, {"Cookie": cookie})["state"] == "held"
 
     def test_header_wins_over_cookie(self, client: TestClient):
         response = client.post(
@@ -508,10 +503,13 @@ class TestIdentityResolution:
             },
         )
 
-        assert response.json()["control"]["key"] == (
-            ClientIdentity("header-session", "").key
-        )
         assert response.json()["control"]["display_name"] == "ヘッダ名"
+        assert (
+            _control(client, {"X-Pcbasm-Session": "header-session"})["state"] == "held"
+        )
+        assert _control(client, {"X-Pcbasm-Session": "cookie-session"})["state"] == (
+            "viewer"
+        )
 
     @pytest.mark.parametrize(
         "raw_name",
@@ -585,7 +583,8 @@ class TestGateCoverage:
         )
 
         anonymous = ClientIdentity("anonymous", "").key
-        assert _control(client, ALICE)["key"] == anonymous
+        assert _control(client, {})["state"] == "held"
+        assert _control(client, ALICE)["display_name"] == f"名前未設定 ({anonymous})"
 
     def test_denied_machine_control_is_423_not_502(self, client: TestClient):
         """リース拒否は 502 でなく 423 で返り、frontend が保持者を表示できる."""
@@ -634,9 +633,12 @@ class TestWebSocketControl:
         # 切断は finally で必ず登録解除される（自動解放はしないのでリースは保持のまま）
         control = _control(client, ALICE)
         assert control["connections"] == 0
-        assert control["held"] is True
+        assert control["state"] == "held"
 
-    def test_control_changed_is_broadcast_to_every_subscriber(self, client: TestClient):
+    def test_control_changed_carries_each_subscribers_own_state(
+        self, client: TestClient
+    ):
+        """全員へ届き、``control.state`` は受け手ごとに backend が判定して詰める."""
         with (
             client.websocket_connect("/api/jobs/ws", headers=ALICE) as alice_ws,
             client.websocket_connect("/api/jobs/ws", headers=BOB) as bob_ws,
@@ -646,12 +648,10 @@ class TestWebSocketControl:
                 == 200
             )
 
-            for ws in (alice_ws, bob_ws):
+            for ws, state in ((alice_ws, "held"), (bob_ws, "viewer")):
                 message = _receive_type(ws, "control_changed")
-                # 全員へ同一 payload（自分かどうかは you.key と比べて各自が判定する）
-                assert message["control"]["key"] == ALICE_KEY
+                assert message["control"]["state"] == state
                 assert message["control"]["display_name"] == "田中"
-                assert message["control"]["held"] is True
 
     def test_viewer_respond_prompt_yields_error_without_closing(
         self, client: TestClient, app: FastAPI
@@ -790,7 +790,7 @@ class TestNoAutoRelease:
         with client.websocket_connect("/api/jobs/ws", headers=ALICE):
             pass
 
-        assert _control(client, BOB)["held"] is True
+        assert _control(client, BOB)["state"] == "viewer"
         assert (
             client.post("/api/session/control/acquire", headers=BOB).status_code == 423
         )
@@ -803,7 +803,7 @@ class TestNoAutoRelease:
             )
 
         with TestClient(create_app(webui_settings)) as restarted:
-            assert _control(restarted, BOB)["held"] is False
+            assert _control(restarted, BOB)["state"] == "free"
 
 
 class TestControlDoesNotBlockJobs:

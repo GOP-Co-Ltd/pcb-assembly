@@ -970,6 +970,23 @@ h2 {
   font-size: 0.9rem;
 }
 
+/* 普段は触らない項目のまとまり（既定で畳む） */
+.job-param-advanced {
+  max-width: 42rem;
+  margin: 0 0 0.9rem;
+}
+
+.job-param-advanced > summary {
+  cursor: pointer;
+  color: var(--accent, var(--muted));
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.job-param-advanced > .job-param-group {
+  margin: 0.4rem 0 0;
+}
+
 #job-run {
   width: fit-content;
   min-width: 6rem;
@@ -2723,6 +2740,10 @@ h2 {
 .paste-volume-calibration-form .job-param-group {
   grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
   gap: 0.55rem 1.1rem;
+  max-width: none;
+}
+
+.paste-volume-calibration-form .job-param-advanced {
   max-width: none;
 }
 

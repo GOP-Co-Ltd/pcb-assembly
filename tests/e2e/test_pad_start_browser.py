@@ -1,4 +1,4 @@
-"""ジョブは編集したパッド設定の保存を待ち、保存拒否時には開始しない。"""
+"""ジョブは編集した設定（パッド・machine.toml）の保存を待ち、保存拒否時には開始しない。"""
 
 import json
 from collections.abc import Iterator
@@ -39,6 +39,7 @@ def live_server(e2e_settings: Env) -> Iterator[LiveServer]:
         ctx.log(f"started with:{model.levels[0].patch.to_dict()['ul_per_mm2']}")
         ctx.log(f"purge:{ctx.machine.paste_dispenser.initial_purge_ul}")
         ctx.log(f"disabled:{any(level.enabled is False for level in model.levels)}")
+        ctx.log(f"aspect:{ctx.machine.paste_dispenser.auto_line_aspect_ratio}")
         ctx.next_command(timeout=None)
 
     configure_synthetic_job(app, "paste_solder", run)
@@ -197,3 +198,21 @@ class TestPadStart:
         field.fill("0.23")
         page.locator("#job-run").click()
         expect(page.locator("#jc-log")).to_contain_text("started with:0.23")
+
+
+class TestStartFlushesMachineSettings:
+    """機能のページに置いた machine.toml の設定欄も、ジョブを始める前に保存し終える（古い設定のまま走らせない）."""
+
+    def test_start_flushes_a_debounced_machine_setting(
+        self, live_ui: LiveUi, browser_page
+    ):
+        page = browser_page
+        page.goto(f"{live_ui.base_url}/paste_solder", wait_until="domcontentloaded")
+        acquire_control(page)
+        page.locator(
+            '[data-testid="auto-threshold-paste_dispenser.auto_line_aspect_ratio"]'
+        ).fill("3.5")
+
+        page.locator("#job-run").click()
+
+        expect(page.locator("#jc-log")).to_contain_text("aspect:3.5")

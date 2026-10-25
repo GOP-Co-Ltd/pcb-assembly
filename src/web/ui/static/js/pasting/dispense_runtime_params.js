@@ -1,70 +1,57 @@
 "use strict";
 
-// 吐出量キャリブの実行中パラメータ編集。data-runtime-editable な input を編集すると
-// PUT /api/jobs/current/params で実行中ジョブへ即反映する（debounce でまとめ送り）。
+// 吐出量キャリブの実行中パラメータ編集（dispense_calibration のページで読む）。
+// data-runtime-editable な欄を編集すると PUT /api/jobs/current/params で
+// 実行中ジョブへ即反映する（保存は pendingSaves を通す）。
 // このフォームのジョブがアクティブ（非終端 かつ accepts_commands）な間だけ送る。
 // 切替時は送信待ちを破棄し、送信した要求にも対象 ID を付ける。未実行時は何もしない
-// （従来どおり起動時の persisted_params 経路に任せる）。
+// （次回の既定値はジョブフォームの即保存が受け持つ）。
 // 検証・ドメインロジックはサーバ（runtime_editable / 正値 / 型 / 負 offset）が持つ。
 // ここは空欄スキップと Number.isFinite のパース可否だけを見て、サーバの 400 を toast する。
 
 (() => {
-  const { toast, api, debounce, jobs } = window.webui;
+  const { api, jobs, pendingSaves } = window.webui;
   const form = document.getElementById("job-form");
-  if (!form || !form.classList.contains("dispense-calibration-form")) return;
-  if (!jobs) return;
+  if (!form || !jobs) return;
 
   const inputs = [...form.querySelectorAll('input[data-runtime-editable="true"]')];
   if (inputs.length === 0) return;
 
   const SAVE_DELAY_MS = 400;
+  const keyOf = (input) => `runtime-params:${input.name}`;
 
   let activeJobId = null;
-  const pending = new Map();
 
   function update(job) {
     const nextId = jobs.commandReady(job, { name: form.dataset.jobName })
       ? job.id : null;
-    if (nextId !== activeJobId) pending.clear();
+    if (nextId !== activeJobId) {
+      for (const input of inputs) pendingSaves.cancel(keyOf(input));
+    }
     activeJobId = nextId;
   }
 
   jobs.onUpdate(update);
   update(jobs.currentJob());
 
-  const scheduleSave = debounce(flush, SAVE_DELAY_MS);
-
-  async function flush() {
-    // 実行中（アクティブ）でなければ送らずに破棄する。未実行時のフォーム既定は
-    // 起動時に送られるので、ここでの編集をライブ反映するのは実行中だけでよい。
-    const expectedJobId = activeJobId;
-    if (expectedJobId === null) {
-      pending.clear();
-      return;
-    }
-    const values = {};
-    for (const [name, raw] of pending) {
-      if (raw === "") continue;
-      const value = Number(raw);
-      if (Number.isFinite(value)) values[name] = value;
-    }
-    pending.clear();
-    if (Object.keys(values).length === 0) return;
-    try {
-      await api("PUT", "/api/jobs/current/params", {
-        values, persist: true, expected_job_id: expectedJobId,
-      });
-    } catch (err) {
-      // サーバの 400（固定キー / 負値 / 型不一致）を表示する。
-      toast(err.message, false);
-    }
+  function save(input, expectedJobId) {
+    if (input.value === "" || activeJobId !== expectedJobId) return;
+    const value = Number(input.value);
+    if (!Number.isFinite(value)) return;
+    pendingSaves.run("実行中の変更を反映できません", () =>
+      api("PUT", "/api/jobs/current/params", {
+        values: { [input.name]: value },
+        persist: true,
+        expected_job_id: expectedJobId,
+      })
+    );
   }
 
   for (const input of inputs) {
     input.addEventListener("input", () => {
-      if (activeJobId === null) return;
-      pending.set(input.name, input.value);
-      scheduleSave();
+      const expectedJobId = activeJobId;
+      if (expectedJobId === null) return;
+      pendingSaves.schedule(keyOf(input), () => save(input, expectedJobId), SAVE_DELAY_MS);
     });
   }
 })();

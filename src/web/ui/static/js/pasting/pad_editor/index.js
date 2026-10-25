@@ -8,7 +8,6 @@ import {
   l4NodeIdForPad,
   padsUnderNode,
 } from "./model.js";
-import { createPendingSaves } from "./saves.js";
 import { renderTable as renderHierarchyTable } from "./table.js";
 import {
   applyPadVisual,
@@ -30,9 +29,9 @@ import {
   const root = document.getElementById("pad-editor");
   if (!root) return;
 
-  const { api, downloadApi, toast } = window.webui;
+  // 保存はページ共通の保存待ちを通す。ジョブを始める前に job_console.js が送り終える
+  const { api, downloadApi, toast, pendingSaves: saves } = window.webui;
   const DEBOUNCE_MS = 300;
-  const saves = createPendingSaves((error) => toast(error.message, false));
   // 追加モード中にこの距離まで近づけてクリックしたら、その測定位置を消す [mm]
   const FLOW_CALIBRATION_HIT_MM = 0.5;
   const configUrl = "/api/pasting/board";
@@ -772,8 +771,6 @@ import {
       if (initialPurgeAmount?.value !== initialPurgeAmount?.defaultValue) {
         commitInitialPurgeAmount();
       }
-      const failure = await saves.flush();
-      if (failure) throw new Error(`保存できなかったため開始しませんでした。${failure.message}`);
     });
     window.webui.jobs.onUpdate((job) => {
       const active = window.webui.jobs.isActive(job);

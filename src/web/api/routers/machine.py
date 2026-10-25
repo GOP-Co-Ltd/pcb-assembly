@@ -12,8 +12,10 @@ import httpx
 from fastapi import APIRouter, HTTPException
 
 from pcbasm.gcode import GCode
+from pcbasm.geometry import Point3d
 from pcbasm.hal import KlipperClient, XYZStage
 from pcbasm.machine.commands import COMMAND_TIMEOUT, to_gcode
+from pcbasm.machine.labels import position_label
 from web.api.deps import (
     ControlDep,
     DevicesDep,
@@ -46,9 +48,11 @@ def fetch_status(klipper: KlipperClient) -> KlipperStatus:
         homed_axes = klipper.get_status("toolhead", "homed_axes")
     except (httpx.HTTPError, RuntimeError, KeyError) as exc:
         return KlipperStatus(connected=False, error=str(exc) or type(exc).__name__)
+    point = Point3d(position[0], position[1], position[2])
     return KlipperStatus(
         connected=True,
-        position=Position(x=position[0], y=position[1], z=position[2]),
+        position=Position.model_validate(point, from_attributes=True),
+        position_label=position_label(point),
         homed_axes=homed_axes,
     )
 

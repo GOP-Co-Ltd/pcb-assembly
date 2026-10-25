@@ -10,6 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from pcbasm.geometry import Point3d
+from pcbasm.machine.labels import position_label
 from pcbasm.pasting.labels import clean_position_label
 from pcbasm.vision import load_focus_z
 from web.api.backend import Backend
@@ -18,26 +19,29 @@ from web.api.deps import BackendDep, EnvDep, IdentityDep, LeaseDep
 from web.api.env import Env, resolve_machine_id
 from web.contract.discovery import API_VERSION
 from web.contract.models import (
-    ClientInfo,
     ControlStateResponse,
     JobBrief,
     MachineInfo,
-    NozzleCleanInfo,
-    Position,
+    NozzlePositionInfo,
     StateResponse,
 )
 
 router = APIRouter(prefix="/api/session")
 
 
-def nozzle_clean_payload(position: Point3d) -> NozzleCleanInfo:
-    """クリーニング位置を API 表現へ変換する（唯一の変換点）.
+def _nozzle_position_payload(position: Point3d, label: str) -> NozzlePositionInfo:
+    """記録したノズル保守位置を API 表現へ変換する（表示文字列は ``pcbasm`` が組んだもの）."""
+    return NozzlePositionInfo(x=position.x, y=position.y, z=position.z, label=label)
 
-    表示文字列は `pcbasm` が組んだものをそのまま詰める。
-    """
-    return NozzleCleanInfo(
-        x=position.x, y=position.y, z=position.z, label=clean_position_label(position)
-    )
+
+def nozzle_cap_payload(position: Point3d) -> NozzlePositionInfo:
+    """キャップ位置の API 表現（唯一の変換点）."""
+    return _nozzle_position_payload(position, position_label(position))
+
+
+def nozzle_clean_payload(position: Point3d) -> NozzlePositionInfo:
+    """クリーニング位置の API 表現（唯一の変換点）."""
+    return _nozzle_position_payload(position, clean_position_label(position))
 
 
 def build_state_response(backend: Backend, identity: ClientIdentity) -> StateResponse:
@@ -50,8 +54,7 @@ def build_state_response(backend: Backend, identity: ClientIdentity) -> StateRes
     cap = None if dispenser is None else dispenser.nozzle_cap.position
     clean = None if dispenser is None else dispenser.nozzle_clean.position
     return StateResponse(
-        control=control_payload(backend.control.snapshot()),
-        you=ClientInfo(key=identity.key),
+        control=control_payload(backend.control.snapshot(), identity),
         pcb_file=pcb.as_posix() if pcb else None,
         busy=owner is not None,
         busy_owner=owner,
@@ -65,7 +68,7 @@ def build_state_response(backend: Backend, identity: ClientIdentity) -> StateRes
             if record is not None
             else None
         ),
-        nozzle_cap=None if cap is None else Position(x=cap.x, y=cap.y, z=cap.z),
+        nozzle_cap=None if cap is None else nozzle_cap_payload(cap),
         nozzle_clean=None if clean is None else nozzle_clean_payload(clean),
         config_error=config_error,
         config_notice=backend.machine_config.notice,
@@ -101,9 +104,7 @@ def _default_mainsail_url(machine_id: str) -> str:
 def _control_response(
     info: LeaseInfo, identity: ClientIdentity
 ) -> ControlStateResponse:
-    return ControlStateResponse(
-        control=control_payload(info), you=ClientInfo(key=identity.key)
-    )
+    return ControlStateResponse(control=control_payload(info, identity))
 
 
 @router.get("/state")
@@ -111,7 +112,7 @@ def get_state(backend: BackendDep, identity: IdentityDep) -> StateResponse:
     """選択 PCB・装置の使用状況・直近ジョブ・操作権などのアプリ状態を返す.
 
     閲覧は自由なので操作権でゲートしない。
-    ``control.key`` と ``you.key`` が一致すれば、リクエスト元が操作権の保持者である。
+    ``control.state`` はリクエスト元から見た操作権の状態（held / viewer / free）。
     """
     return build_state_response(backend, identity)
 

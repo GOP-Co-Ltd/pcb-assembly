@@ -129,7 +129,7 @@ def _release_control(live_server: LiveServer) -> None:
         f"{live_server.base_url}/api/session/control/release", timeout=_HTTP_TIMEOUT
     )
     assert response.status_code == 200, response.text
-    assert response.json()["control"]["held"] is False
+    assert response.json()["control"]["state"] == "free"
 
 
 def _wait_control(page: Any, expected: str) -> None:
@@ -250,7 +250,7 @@ class TestTwoBrowsersOnOneMachine:
             timeout=_HTTP_TIMEOUT,
         )
         assert denied.status_code == 423, denied.text
-        assert denied.json()["holder"]["held"] is True
+        assert denied.json()["holder"]["state"] == "viewer"
 
     @pytest.mark.parametrize("width", [1280, 390])
     def test_viewer_can_stop_a_running_job(
@@ -362,8 +362,8 @@ class TestTwoBrowsersOnOneMachine:
         viewer.locator("#control-takeover").click(timeout=_BROWSER_TIMEOUT_MS)
 
         _wait_control(viewer, "held")
-        # 元の保持者は再読込なしで閲覧者へ落ちる（control_changed の同一 payload を
-        # 各クライアントが you.key と比べて判定する）
+        # 元の保持者は再読込なしで閲覧者へ落ちる（control_changed の control.state は
+        # backend が接続ごとに詰める）
         _wait_control(operator, "viewer")
         assert not _is_inert(viewer, "#firmware-restart")
         assert _is_inert(operator, "#firmware-restart")

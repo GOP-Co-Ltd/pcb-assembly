@@ -22,7 +22,7 @@ MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
 
 Klipper ステータス・可動域・緊急停止・ファームウェア再起動（計画書「routers」節）:
 
-- GET /api/machine/status は常に 200。接続失敗は connected=false + error
+- GET /api/machine/status は常に 200。接続失敗は connected=false + error。位置の表示文字列 position_label も返す
 - POST /api/emergency-stop は接続不能で 502（ロック・操作権に妨げられないことは tests/repo/test_update_contract.py）
 - POST /api/machine/firmware-restart は接続不能で 502、ロック非経由、
   先頭で jobs.request_abort()
@@ -241,6 +241,19 @@ class TestKlipperStatus:
         assert data["connected"] is False
         assert data["error"]
         assert data["position"] is None
+
+    def test_position_label_is_built_by_the_server(
+        self, client: TestClient, mount_klipper: Callable[[FakeKlipper], None]
+    ):
+        """表示文字列はサーバーが組む（JS に座標の書式を持たせない）."""
+        klipper = FakeKlipper()
+        klipper.set_status("gcode_move", "gcode_position", [10.0, 20.5, -3.25, 0.0])
+        mount_klipper(klipper)
+
+        data = client.get("/api/machine/status").json()
+
+        assert data["position"] == {"x": 10.0, "y": 20.5, "z": -3.25}
+        assert data["position_label"] == "X10.000 Y20.500 Z-3.250"
 
 
 @pytest.mark.usefixtures("unreachable_klipper")

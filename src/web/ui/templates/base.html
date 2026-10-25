@@ -82,9 +82,12 @@
   <button id="job-completion-dismiss" type="button" aria-label="終了通知を閉じる">閉じる</button>
 </section>
 <div id="toasts" class="toasts"></div>
+{# 共通の部品。api.js（HTTP と保存待ち）→ app.js（トースト等）→ ws.js（WS）の順に window.webui へ足す #}
+<script src="{{ static_asset('js/api.js') }}"></script>
 <script src="{{ static_asset('js/app.js') }}"></script>
+<script src="{{ static_asset('js/ws.js') }}"></script>
 <script src="{{ static_asset('js/file_browser.js') }}"></script>
-{# 全ページで読む（操作権の状態はどのページでも要る）。app.js の後、かつ子テンプレートの
+{# 全ページで読む（操作権の状態はどのページでも要る）。共通の部品の後、かつ子テンプレートの
    scripts ブロックで読む job_console.js より前（window.webui.control を先に定義する） #}
 <script src="{{ static_asset('js/control.js') }}"></script>
 <script src="{{ static_asset('js/machine_selector.js') }}"></script>

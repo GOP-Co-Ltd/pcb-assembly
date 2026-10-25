@@ -491,5 +491,5 @@ def _has_body(headers: Headers) -> bool:
 
 
 def _error_response(status_code: int, detail: str) -> JSONResponse:
-    # app.js の既存トーストが読む {"detail": …} 形に合わせる
+    # api.js の api() がエラー文に使う {"detail": …} 形に合わせる
     return JSONResponse(status_code=status_code, content={"detail": detail})

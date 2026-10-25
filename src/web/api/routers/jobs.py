@@ -12,7 +12,12 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from pcbasm.validators import is_finite_number
-from web.api.control import ClientIdentity, ControlDeniedError, ControlLease
+from web.api.control import (
+    ClientIdentity,
+    ControlDeniedError,
+    ControlLease,
+    control_payload,
+)
 from web.api.deps import (
     CatalogDep,
     ControlDep,
@@ -39,7 +44,6 @@ from web.contract.models import (
     JobSummary,
     LoadingPanelInfo,
     LoadingRotationInfo,
-    ParamGroupInfo,
     ParamSpecInfo,
     PromptInfo,
 )
@@ -149,26 +153,7 @@ def job_spec_info(
         name=definition.name,
         label=definition.label,
         params=[
-            ParamSpecInfo(
-                name=spec.name,
-                label=spec.label,
-                value_type=spec.value_type,
-                default=spec.default,
-                choices=list(spec.choices),
-                unit=spec.unit,
-                help=spec.help,
-                runtime_editable=spec.runtime_editable,
-                minimum=spec.minimum,
-                optional=spec.optional,
-                group=(
-                    None
-                    if spec.group is None
-                    else ParamGroupInfo(
-                        label=spec.group.label, advanced=spec.group.advanced
-                    )
-                ),
-            )
-            for spec in specs
+            ParamSpecInfo.model_validate(spec, from_attributes=True) for spec in specs
         ],
         requires_pcb=definition.requires_pcb,
         uses_machine=definition.uses_machine,
@@ -371,7 +356,9 @@ async def jobs_websocket(websocket: WebSocket) -> None:
     lease.connect(identity)
     try:
         await websocket.accept()
-        sender = asyncio.create_task(_send_loop(websocket, jobs, catalog, events))
+        sender = asyncio.create_task(
+            _send_loop(websocket, jobs, catalog, events, lease, identity)
+        )
         receiver = asyncio.create_task(
             _receive_loop(websocket, jobs, events, lease, identity)
         )
@@ -396,20 +383,33 @@ async def _send_loop(
     jobs: JobManager,
     catalog: JobCatalog,
     events: asyncio.Queue[dict[str, Any]],
+    lease: ControlLease,
+    identity: ClientIdentity,
 ) -> None:
-    """購読キューのイベントを送信する（job_status は送信時に最新化）."""
+    """購読キューのイベントを送信する.
+
+    job_status は送信時に最新化し、control_changed にはこの接続から見た操作権の状態を詰める。
+    """
     while True:
         event = await events.get()
-        if event.get("type") == "job_status":
-            record = jobs.current()
-            if record is None or record.id != event.get("job_id"):
-                continue  # 新ジョブに置き換わった後の旧イベントは捨てる
-            event = {
-                "type": "job_status",
-                "job": job_summary(record, catalog.get(record.name)).model_dump(
-                    mode="json"
-                ),
-            }
+        match event.get("type"):
+            case "job_status":
+                record = jobs.current()
+                if record is None or record.id != event.get("job_id"):
+                    continue  # 新ジョブに置き換わった後の旧イベントは捨てる
+                event = {
+                    "type": "job_status",
+                    "job": job_summary(record, catalog.get(record.name)).model_dump(
+                        mode="json"
+                    ),
+                }
+            case "control_changed":
+                event = {
+                    "type": "control_changed",
+                    "control": control_payload(lease.snapshot(), identity).model_dump(
+                        mode="json"
+                    ),
+                }
         await websocket.send_json(event)
 
 

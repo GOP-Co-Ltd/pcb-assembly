@@ -177,7 +177,7 @@ class TestControlGate:
 
         state = update_client.get("/api/session/state", headers=BOB).json()
 
-        assert state["control"]["held"] is False
+        assert state["control"]["state"] == "free"
 
 
 class TestRun:

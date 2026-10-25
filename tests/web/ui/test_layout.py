@@ -17,12 +17,8 @@ from pathlib import Path
 import pytest
 
 from tests.support.backend import standalone_catalog
-from web.contract.models import SettingsField
+from web.contract.models import ParamGroupInfo, ParamSpecInfo, SettingsField
 from web.ui import layout
-from web.ui.layout import (
-    DISPENSE_CALIBRATION_PARAM_GROUPS,
-    PASTE_VOLUME_CALIBRATION_PARAM_GROUPS,
-)
 
 _UI_DIR = Path(layout.__file__).parent
 _TEMPLATES_DIR = _UI_DIR / "templates"
@@ -107,7 +103,7 @@ class TestSinglePaneLayout:
 
 
 class TestMachinePrefixFunnel:
-    """機体 prefix の付与点は `app.js` の `withBase()` 1 箇所（計画書の設計判断 #4）.
+    """機体 prefix の付与点は `api.js` の `withBase()` 1 箇所（計画書の設計判断 #4）.
 
     JS にテストランナーが無く、prefix を素通りする経路（新しい直接 `fetch`・
     prefix を忘れた WS URL・成果物 URL）は静的にしか検出できない。素通りすると
@@ -121,22 +117,28 @@ class TestMachinePrefixFunnel:
             if "fetch(" in path.read_text(encoding="utf-8")
         }
 
-        # app.js = api() / frontendJson() の funnel だけ。通知音は Pi の ALSA で鳴る
+        # api.js = api() / frontendJson() の funnel だけ。通知音は Pi の ALSA で鳴る
         # ので、ブラウザが wav を fetch する経路はもう無い
-        assert callers == {"app.js"}
+        assert callers == {"api.js"}
 
     def test_the_funnel_prefixes_from_the_body_dataset(self):
-        app_js = (_JS_DIR / "app.js").read_text(encoding="utf-8")
+        api_js = (_JS_DIR / "api.js").read_text(encoding="utf-8")
 
-        assert "document.body.dataset.machineBase" in app_js
-        assert "fetch(withBase(url)" in app_js
+        assert "document.body.dataset.machineBase" in api_js
+        assert "fetch(withBase(url)" in api_js
 
-    def test_websocket_url_is_prefixed(self):
+    def test_websocket_is_opened_in_one_place_with_the_prefix(self):
+        """WS を張るのは ws.js だけ（機体のページも機体一覧もそれを使う）."""
+        callers = {
+            path.name
+            for path in _js_files()
+            if "new WebSocket(" in path.read_text(encoding="utf-8")
+        }
         lines = _js_code_lines("new WebSocket(")
 
-        # 機体ページの job_console.js と、機体一覧の machines.js（行ごとに機体を明示）
-        assert len(lines) == 2
-        assert all("withBase(" in line for line in lines)
+        assert callers == {"ws.js"}
+        assert len(lines) == 1
+        assert "withBase(" in lines[0]
 
     def test_artifact_urls_are_prefixed_once(self):
         lines = _js_code_lines("artifact.url")
@@ -200,52 +202,50 @@ class TestSettingsSections:
         assert [section.field_count for section in sections] == [3, 1]
 
 
-class TestParamGroupCoverage:
-    """フォームのセクション分けがジョブのパラメータを漏れなく含むことのピン.
+def _spec(name: str, group: ParamGroupInfo | None) -> ParamSpecInfo:
+    return ParamSpecInfo(name=name, label=name, value_type="float", group=group)
 
-    書き忘れた項目はフォームから消える（既定値で走るので気付きにくい）。
 
-    存在しない項目名を書くとページ描画が KeyError で 500 になる。
+class TestParamSections:
+    """`param_sections()` は backend が返した順のまま、ParamSpec.group のまとまりへ分ける."""
 
-    セクションの見出しと中身は、ジョブが宣言する ParamSpec.group と同じにする。
-    """
+    def test_groups_specs_in_the_backend_order(self):
+        plate = ParamGroupInfo(label="銅板")
+        detection = ParamGroupInfo(label="円検出", advanced=True)
+        specs = [
+            _spec("width", plate),
+            _spec("min_area", detection),
+            _spec("height", plate),
+        ]
 
-    @pytest.mark.parametrize(
-        ("job_name", "groups"),
-        [
-            ("paste_volume_calibration", PASTE_VOLUME_CALIBRATION_PARAM_GROUPS),
-            ("dispense_calibration", DISPENSE_CALIBRATION_PARAM_GROUPS),
-        ],
-    )
-    def test_groups_cover_every_job_param_exactly_once(
-        self,
-        tmp_path: Path,
-        job_name: str,
-        groups: tuple[tuple[str, tuple[str, ...]], ...],
-    ):
-        definition = standalone_catalog(tmp_path).get(job_name)
-        grouped = [name for _, names in groups for name in names]
+        sections = layout.param_sections(specs)
 
-        assert sorted(grouped) == sorted(spec.name for spec in definition.params)
-        assert len(grouped) == len(set(grouped))
+        assert [
+            (section.label, section.advanced, [spec.name for spec in section.specs])
+            for section in sections
+        ] == [
+            ("銅板", False, ["width", "height"]),
+            ("円検出", True, ["min_area"]),
+        ]
 
-    @pytest.mark.parametrize(
-        ("job_name", "groups"),
-        [
-            ("paste_volume_calibration", PASTE_VOLUME_CALIBRATION_PARAM_GROUPS),
-            ("dispense_calibration", DISPENSE_CALIBRATION_PARAM_GROUPS),
-        ],
-    )
-    def test_groups_match_the_jobs_param_groups(
-        self,
-        tmp_path: Path,
-        job_name: str,
-        groups: tuple[tuple[str, tuple[str, ...]], ...],
-    ):
-        definition = standalone_catalog(tmp_path).get(job_name)
-        declared: dict[str, set[str]] = {}
-        for spec in definition.params:
-            assert spec.group is not None, spec.name
-            declared.setdefault(spec.group.label, set()).add(spec.name)
+    def test_ungrouped_specs_form_one_unlabeled_section(self):
+        sections = layout.param_sections([_spec("a", None), _spec("b", None)])
 
-        assert declared == {legend: set(names) for legend, names in groups}
+        assert [(section.label, len(section.specs)) for section in sections] == [
+            (None, 2)
+        ]
+
+    def test_every_job_declares_each_group_contiguously(self, tmp_path: Path):
+        """ジョブはまとまりごとに続けて宣言する（フォームの並びが宣言の並びと一致する）.
+
+        飛び飛びに宣言すると、`param_sections` がまとめた時点で項目の並びが宣言と変わる。
+        group の無い項目も 1 つのまとまり（無題）として扱う。
+        """
+        for definition in standalone_catalog(tmp_path).list():
+            keys = [
+                (spec.group.label, spec.group.advanced) if spec.group else None
+                for spec in definition.params
+            ]
+            runs = [key for i, key in enumerate(keys) if i == 0 or keys[i - 1] != key]
+
+            assert len(runs) == len(set(runs)), definition.name

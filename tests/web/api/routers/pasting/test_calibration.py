@@ -42,7 +42,7 @@ from fastapi.testclient import TestClient
 
 from pcbasm.pasting.paste_volume.calibration import CALIBRATION_SUFFIX
 from tests.support.backend import standalone_catalog
-from tests.support.paths import PROJECT_ROOT, TESTING_DATA_DIR
+from tests.support.paths import TESTING_DATA_DIR
 from web.api.env import Env
 from web.api.routers.pasting.calibration import DatasetLayoutRequest
 
@@ -341,10 +341,11 @@ class TestPasteDatasetLayout:
         # 板の使用可能域そのものが引けない設定でだけ usable_area も落ちる
         assert (body["usable_area"] is not None) is keeps_usable_area
 
-    def test_unknown_key_is_rejected(self, client: TestClient):
-        response = client.post(_LAYOUT_URL, json={**_BODY, "nope": 1.0})
+    def test_other_job_params_are_ignored(self, client: TestClient):
+        """WebUI はジョブフォームの入力を全部送る。配置に効かない項目は無視する."""
+        body = _post(client, paste_id="SAC305", min_contrast=40.0)
 
-        assert response.status_code == 422
+        assert body == _post(client)
 
     def test_missing_key_is_rejected(self, client: TestClient):
         body = dict(_BODY)
@@ -362,10 +363,12 @@ class TestPasteDatasetLayout:
 
 
 class TestLayoutFieldNamesStayInSync:
-    """レイアウト項目名がジョブ・API・JS の 3 箇所でずれないことのピン.
+    """レイアウト項目名がジョブと API でずれないことのピン.
 
-    ジョブへレイアウト項目を足して API / JS を忘れると、preview が黙ってその項目を
+    ジョブへレイアウト項目を足して API を忘れると、preview が黙ってその項目を
     無視する（サーバは既定値で計算し、画面は正しそうに見えてしまう）。
+
+    JS はジョブフォームの入力を全部送るので、項目名を持たない。
     """
 
     def test_request_model_covers_every_layout_job_param(self, tmp_path: Path):
@@ -377,18 +380,3 @@ class TestLayoutFieldNamesStayInSync:
         }
 
         assert set(DatasetLayoutRequest.model_fields) == layout_params
-
-    def test_frontend_sends_every_layout_field(self):
-        source = (
-            PROJECT_ROOT
-            / "src"
-            / "web"
-            / "ui"
-            / "static"
-            / "js"
-            / "pasting"
-            / "paste_dataset_layout.js"
-        ).read_text(encoding="utf-8")
-
-        for name in DatasetLayoutRequest.model_fields:
-            assert f'"{name}"' in source, name
