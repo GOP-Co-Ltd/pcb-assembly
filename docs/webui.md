@@ -17,10 +17,7 @@ API・ジョブ・ページを足す開発者は [アーキテクチャ](archite
 
 ```sh
 make api      # backend WebAPI 起動
-make api-dev  # 開発用（auto-reload）
-
 make ui       # UI frontend 起動
-make ui-dev   # 開発用（auto-reload）
 
 make dev      # Klipper もカメラも fake にした backend（8099）と frontend（8098）を一時ディレクトリで起動
 ```
@@ -113,9 +110,8 @@ port = 8081               # 省略時 8081
 API 版がずれているか（更新専用）だけを探索側で埋める。
 
 frontend が `machines.toml` を読むのは起動時の 1 回だけなので、編集したら frontend を
-再起動する（実行中に更新されるのは mDNS 探索の分だけ）。`scripts/setup-machine-config.sh` が案内する
-`mv config config.bak.<ts>` で `config/` を作り直すと、`machines.toml` も一緒に退避される。
-ファイルが無くてもエラーにはならず静的登録 0 台になるので、退避先から戻す。
+再起動する（実行中に更新されるのは mDNS 探索の分だけ）。`config/` を退避して作り直すと、
+`machines.toml` も一緒に退避される。ファイルが無くてもエラーにはならず静的登録 0 台になるので、退避先から戻す。
 
 mDNS には生存判定が無く、電源を切った機体は最大 75 分ほど一覧に残る。到達できない
 マシンを選ぶと 503 ページになる。

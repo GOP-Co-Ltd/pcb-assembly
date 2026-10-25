@@ -1,18 +1,7 @@
 help:  ## Show help
 	@grep -E '^[.0-9a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
 
-.PHONY: clean
-clean: ## Clean generated artifacts without traversing .git or .venv
-	rm -rf dist
-	find . -type d \( -name .git -o -name .venv \) -prune -o \
-		-type d \( -name __pycache__ -o -name .pytest_cache -o -name .ipynb_checkpoints \) \
-		-prune -exec rm -rf -- {} +
-	find . -type d \( -name .git -o -name .venv \) -prune -o \
-		-type f \( -name '*.pyc' -o -name '*.pyo' -o -name .DS_Store \) \
-		-exec rm -f -- {} +
-	rm -f .coverage
-
-setup: clean  ## Setup development environment
+setup: ## Setup development environment
 	uv venv --clear --system-site-packages
 	uv sync --locked --all-extras
 	uv run pre-commit install
@@ -40,14 +29,8 @@ migrate-codex-check: ## Check whether generated Codex rules are current
 type: ## Run type check
 	uv run pyright
 
-api-dev: ## Run backend WebAPI dev server (auto-reload)
-	uv run uvicorn web.api.app:create_app --factory --reload --host 0.0.0.0 --port 8081
-
 api: ## Run backend WebAPI server
 	uv run python -m web.api
-
-ui-dev: ## Run UI frontend dev server (auto-reload)
-	uv run uvicorn web.ui.app:create_app --factory --reload --host 0.0.0.0 --port 8080
 
 ui: ## Run UI frontend server
 	uv run python -m web.ui

@@ -71,11 +71,11 @@ class UpdateSandbox:
         (self.unit_dir / unit).write_text(text, encoding="utf-8")
 
     def rendered_unit(self, target: str) -> str:
-        """`web-service.sh render <target>` の出力（現在のソースが期待する unit）."""
+        """`install.sh render <target>` の出力（現在のソースが期待する unit）."""
         import subprocess
 
         return subprocess.run(
-            [str(self.clone / "scripts" / "web-service.sh"), "render", target],
+            [str(self.clone / "install.sh"), "render", target],
             capture_output=True,
             text=True,
             check=True,
@@ -213,7 +213,7 @@ def make_update_sandbox(
     active_state: str = "active",
     wrap_sudo_listing: bool = False,
     restart_exit_code: int = 0,
-    with_service_script: bool = False,
+    with_installer: bool = False,
 ) -> UpdateSandbox:
     """実 git の origin / clone / publisher とスタブ実行ファイルを作る.
 
@@ -226,8 +226,8 @@ def make_update_sandbox(
         active_state: その答え（`failed` など再起動対象の判定を試すのに使う）
         wrap_sudo_listing: `sudo -l` の出力を実機と同じ 80 桁で折り返すか
         restart_exit_code: 再起動呼び出しの終了コード（非 0 = sudo が実際に拒否）
-        with_service_script: 実物の `scripts/web-service.sh` を clone へ複製するか
-            （unit 定義の差分チェックを走らせたいときだけ True）
+        with_installer: 実物の unit の生成器（`install.sh` と雛形、旧版向けの
+            `scripts/web-service.sh`）を clone へ複製するか（unit 定義の差分チェックを走らせたいときだけ True）
 
     Returns:
         組み立てた sandbox
@@ -251,10 +251,14 @@ def make_update_sandbox(
     git(root, "clone", str(bare), str(publisher))
     _configure(publisher)
 
-    if with_service_script:
-        scripts = clone / "scripts"
-        scripts.mkdir(exist_ok=True)
-        shutil.copy2(PROJECT_ROOT / "scripts" / "web-service.sh", scripts)
+    if with_installer:
+        for path in (
+            "install.sh",
+            "deploy/systemd/pcbasm.service.in",
+            "scripts/web-service.sh",
+        ):
+            (clone / path).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(PROJECT_ROOT / path, clone / path)
 
     bin_dir = root / "bin"
     log = root / "calls.log"

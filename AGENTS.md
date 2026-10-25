@@ -64,8 +64,8 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
     `/m/{machine_id}/api/**` の backend 中継）
 
 ブラウザ操作 UI は上記 2 プロセスに分かれる。開発・運用の操作は WebUI のジョブとして
-提供する。リポジトリ直下の `scripts/` にはセットアップ・運用スクリプトと
-`migrate_codex.py` を置く。
+提供する。ホストの導入は `install.sh`（雛形は `deploy/`）で行い、`scripts/` には
+`migrate_codex.py` と旧版の自己更新向けの互換スクリプトを置く。
 
 ## 開発コマンド
 
@@ -76,8 +76,8 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 - `make test-no-hardware`: ハードウェア・E2E を除外
 - `make test-e2e`: WebUI E2E
 - `make run`: format → test → type（test は実機テストを含む）
-- `make api` / `make api-dev`: backend WebAPI 起動（port 8081、dev は auto-reload）
-- `make ui` / `make ui-dev`: UI frontend 起動（port 8080、dev は auto-reload）
+- `make api`: backend WebAPI 起動（port 8081）
+- `make ui`: UI frontend 起動（port 8080）
 - `make dev`: Klipper もカメラも fake にした backend と frontend を同時に起動（隔離ポート 8099 / 8098 と一時ディレクトリ、手動・ブラウザ確認用）
 - `make migrate-codex`: Claude Bash 権限から Codex rules を再生成
 - `make migrate-codex-check`: Codex rules の同期確認

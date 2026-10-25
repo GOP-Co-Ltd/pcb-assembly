@@ -108,7 +108,7 @@ def open_backend(
     if not machine_config.path.is_file():
         raise RuntimeError(
             f"machine.toml がありません: {machine_config.path} "
-            f"（./scripts/setup-machine-config.sh を実行してください）"
+            f"（./install.sh machine を実行してください）"
         )
     machine_config.migrate()
     _, config_error = machine_config.machine_or_error()

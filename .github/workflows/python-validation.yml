@@ -15,6 +15,8 @@ on:
       # テストが読む画像・基板・設定と、実際に起動する運用スクリプト
       - "data/testing/**"
       - "scripts/**"
+      - install.sh
+      - "deploy/**"
       - Makefile
       - github-runner/setup.sh
       - pyproject.toml

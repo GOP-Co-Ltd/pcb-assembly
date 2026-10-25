@@ -793,7 +793,7 @@ class TestMachineDetection:
 
 @pytest.mark.parametrize(
     "path",
-    sorted((PROJECT_ROOT / "data" / "config-templates").glob("*/machine.toml")),
+    sorted((PROJECT_ROOT / "deploy" / "templates").glob("*/machine.toml")),
     ids=lambda path: path.parent.name,
 )
 class TestTemplates:

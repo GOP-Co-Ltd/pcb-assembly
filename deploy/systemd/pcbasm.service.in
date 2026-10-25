@@ -1,0 +1,23 @@
+[Unit]
+Description=@DESCRIPTION@
+Wants=network-online.target
+After=network-online.target
+# 起動失敗の再試行を打ち切らせない。WebUI からの自己更新はロールバックしないので、
+# start-limit-hit で停止すると復旧手段が ssh だけになる。
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@USER@
+Group=@GROUP@
+WorkingDirectory=@PROJECT_ROOT@
+Environment="HOME=@HOME@"
+Environment="PATH=@PATH@"
+ExecStart=@MAKE@ @TARGET@
+Restart=on-failure
+RestartSec=5
+# 停止に手間取っても既定の 90 秒は待たない（自己更新の restart が復帰待ちを食い潰す）
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

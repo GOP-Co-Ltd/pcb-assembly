@@ -35,9 +35,9 @@
     （= リポジトリが dirty にならない）。
   </p>
   <p>
-    較正値を残したい場合は
-    <code>data/config-templates/&lt;マシン名&gt;.&lt;用途&gt;/printer.cfg</code>
-    に手で反映してコミットする。
+    較正値は機体ごとの値なので、機種のテンプレート
+    <code>deploy/templates/&lt;機種&gt;/printer.cfg</code>
+    には書き戻さない（バックアップには printer.cfg の実体が入る）。
   </p>
 </section>
 <section class="status-card">

@@ -5,25 +5,24 @@
 ## systemd サービス
 
 backend と frontend は別 unit（`pcbasm-api.service` / `pcbasm-ui.service`）。
-`scripts/web-service.sh` は `sudo` を付けずに実行する（必要な操作はスクリプト内で `sudo` する）。
-対象（`api` / `ui` / `all`）を省略すると `api` を操作する。
+`install.sh` の services 段が unit と更新用 sudoers を設置して起動する。`sudo` を付けずに実行する（必要な操作は段の中で `sudo` する）。
 
-ホストの構成ごとに install する対象を決める。
+ホストの構成ごとに設置する対象を決める。全段実行（`./install.sh`）は同居機として両方を置く。
 
-| ホストの構成                              | install コマンド                       |
-| ----------------------------------------- | -------------------------------------- |
-| 同居機（backend と frontend を置く 1 台） | `./scripts/web-service.sh install all` |
-| 機体（backend だけ）                      | `./scripts/web-service.sh install api` |
-| frontend 専用機（frontend だけ）          | `./scripts/web-service.sh install ui`  |
+| ホストの構成                              | コマンド                    |
+| ----------------------------------------- | --------------------------- |
+| 同居機（backend と frontend を置く 1 台） | `./install.sh services`     |
+| 機体（backend だけ）                      | `./install.sh services api` |
+| frontend 専用機（frontend だけ）          | `./install.sh services ui`  |
 
 ```bash
-./scripts/web-service.sh start ui     # 起動（stop / restart / status も同じ形）
-./scripts/web-service.sh remove all   # サービス登録を削除
-./scripts/web-service.sh render api   # unit テキストを標準出力へ（systemd に触らない）
+./install.sh render api                 # unit テキストを標準出力へ（systemd に触らない）
+sudo systemctl restart pcbasm-ui        # 起動・停止・状態は systemctl で行う（stop / status も同じ形）
+journalctl -u pcbasm-api -n 200         # ログ
 ```
 
+- 再実行しても、unit が変わっていなければ再起動しない（変わっていれば置き換えて再起動する）
 - `render` は読み取り専用で、`sudo` も systemctl も要らない。設置済み unit との差分確認に使う
-- `all` を対象にした `start` / `stop` / `restart` は、未登録の unit を警告して読み飛ばす
 
 起動順の依存は付けていない。frontend が backend より先に起動してよい（未起動の backend を選んだページが 503 になるだけ）。
 
@@ -67,14 +66,13 @@ PCB のアップロードでは、選択状態の保存が失敗してもアッ�
 ### セットアップ（1 台につき 1 回）
 
 ```bash
-./scripts/install-update-sudoers.sh show     # 設置する内容を確認する（特権不要）
-./scripts/install-update-sudoers.sh install  # 再起動に必要な NOPASSWD を設置する
-./scripts/web-service.sh install <対象>      # unit 定義を最新にする（対象は「systemd サービス」の表）
+./install.sh render sudoers      # 設置する内容を確認する（特権不要）
+./install.sh services <対象>      # sudoers と unit 定義を最新にする（対象は「systemd サービス」の表）
 ```
 
 sudoers で許可するのは次の 3 通りの固定 argv だけ。
 ワイルドカードを足さない（`sudo` の glob は `/` にも一致するため、`*` を 1 つ入れると任意コマンドを root で実行できてしまう）。
-sudoers ファイルは手で編集せず、`install-update-sudoers.sh` で作り直す。
+sudoers ファイルは手で編集せず、`./install.sh services` で作り直す。
 
 ```text
 /usr/bin/systemctl restart --no-block pcbasm-api.service
@@ -100,7 +98,7 @@ sudoers ファイルは手で編集せず、`install-update-sudoers.sh` で作�
 - 同居機では backend と frontend を両方再起動するので、画面の接続も一度切れる
 - 同居機では、更新ページの「UI サーバー」と自機のパネルが同じソースを指す。どちらで更新しても両方が更新されるので、片方だけ押せばよい
 - git LFS のファイルは取得しない。必要なら ssh して `git lfs pull` を手で実行する
-- 更新後に unit 定義が古いままなら画面に警告が出る。自動では install しないので、`web-service.sh install <対象>` を手で実行する
+- 更新後に unit 定義が古いままなら画面に警告が出る。自動では設置しないので、`./install.sh services <対象>` を手で実行する
 - `config/` は git 追跡外なので更新で消えない
 
 `uv sync` の引数は `PCBASM_API_UPDATE_UV_SYNC_ARGS` / `PCBASM_UI_UPDATE_UV_SYNC_ARGS`（空白区切り）で変えられる。

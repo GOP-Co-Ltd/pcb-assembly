@@ -25,13 +25,12 @@ Python は `pyproject.toml` で 3.12 以上を要求し、型チェック・整�
 システム Python 3.13 を対象とする。
 
 環境は [セットアップ](docs/setup.md) の手順で作る。
-その途中の `scripts/install-softwares.sh` が Git LFS の実体取得と `make setup` まで行う。
+`./install.sh` の packages 段が Git LFS の実体を取得し、python 段が `make setup` まで行う。
 
 | したいこと                          | コマンド                        |
 | ----------------------------------- | ------------------------------- |
 | `.venv` を作り直す                  | `make setup`                    |
 | 既存の `.venv` へ依存関係を同期する | `uv sync --locked --all-groups` |
-| 生成物とキャッシュだけを消す        | `make clean`                    |
 
 `make setup` は既存の `.venv` を消して作り直す。
 venv は `--system-site-packages` が必要で、uv の `python-preference = "only-system"`

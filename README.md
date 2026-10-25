@@ -44,7 +44,7 @@ WebUI は装置を実際に動かす。変更操作の前に画面で操作権�
 | 不具合を報告し、コードを変更・検証する | [CONTRIBUTING](CONTRIBUTING.md)                                                    |
 | 変更を実機で確かめる                   | [実機受け入れ試験](docs/acceptance.md)                                             |
 | コードの責務と依存方向を知る           | [アーキテクチャ](docs/architecture.md)                                             |
-| マシン設定テンプレートを扱う           | [設定テンプレート](data/config-templates/README.md)                                |
+| マシン設定テンプレートを扱う           | [設定テンプレート](deploy/templates/README.md)                                     |
 | 塗布量校正の原理・実測結果を確認する   | [直径ベースの塗布量校正](docs/paste-volume-diameter-calibration.md)                |
 | 画像収集・校正の設計背景を調べる       | [画像ベース吐出量キャリブレーション要件](docs/image-based-dispense-calibration.md) |
 | CI 用の専用 Raspberry Pi を構築する    | [GitHub Actions Runner](github-runner/README.md)                                   |

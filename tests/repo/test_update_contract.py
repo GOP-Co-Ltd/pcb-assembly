@@ -83,7 +83,7 @@ RESPONSE_FIELDS: dict[type[BaseModel], set[str]] = {
     UpdateRunResponse: {"run_id", "run"},
 }
 
-SUDOERS_SCRIPT = PROJECT_ROOT / "scripts" / "install-update-sudoers.sh"
+INSTALL = PROJECT_ROOT / "install.sh"
 
 ALICE = {"X-Pcbasm-Session": "alice-session"}
 BOB = {"X-Pcbasm-Session": "bob-session"}
@@ -153,7 +153,7 @@ class TestServiceRestart:
             systemctl_bin=defaults.systemctl_bin.default,
         )
         sudoers = subprocess.run(
-            ["bash", str(SUDOERS_SCRIPT), "show"],
+            [str(INSTALL), "render", "sudoers"],
             capture_output=True,
             text=True,
             timeout=10,

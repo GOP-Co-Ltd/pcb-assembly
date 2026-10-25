@@ -243,7 +243,7 @@ class TestUnitDriftWarning:
     """
 
     def test_outdated_unit_file_is_reported_as_a_warning(self, tmp_path: Path):
-        sandbox = make_update_sandbox(tmp_path / "drift", with_service_script=True)
+        sandbox = make_update_sandbox(tmp_path / "drift", with_installer=True)
         sandbox.install_unit(API_UNIT, "[Service]\nExecStart=/bin/true\n")
         sandbox.install_unit(UI_UNIT, sandbox.rendered_unit("ui"))
         sandbox.push()
@@ -259,7 +259,7 @@ class TestUnitDriftWarning:
         assert "web-service.sh install" in report.warnings[0]
 
     def test_current_unit_files_produce_no_warning(self, tmp_path: Path):
-        sandbox = make_update_sandbox(tmp_path / "current", with_service_script=True)
+        sandbox = make_update_sandbox(tmp_path / "current", with_installer=True)
         sandbox.install_unit(API_UNIT, sandbox.rendered_unit("api"))
         sandbox.install_unit(UI_UNIT, sandbox.rendered_unit("ui"))
         sandbox.push()

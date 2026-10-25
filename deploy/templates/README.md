@@ -1,19 +1,19 @@
 # マシン設定テンプレート
 
-新規セットアップ用のマシン設定の初期値を置く。`./scripts/setup-machine-config.sh` がここから
-`config/` を作る。
+新しい機体のマシン設定の初期値を機種ごとに置く。`./install.sh machine` がここから
+`config/` と `printer.cfg` を作る。
 
 ## 設定ファイルの置き場所と役割
 
 マシン設定は 4 か所に分かれている。どれが「正」かを間違えないこと。
 
-| 場所                                       | 役割                                                         | git        |
-| ------------------------------------------ | ------------------------------------------------------------ | ---------- |
-| `config/`（リポジトリルート）              | **実機の稼働設定。WebUI とジョブが読み書きする正**           | 追跡しない |
-| `data/config-templates/<マシン名>.<用途>/` | 新規セットアップ用の初期値スナップショット                   | 追跡する   |
-| `data/testing/config/`                     | WebUI / E2E 用フィクスチャ（Klipper port 7126 = 非リッスン） | 追跡する   |
-| `data/testing/machine.toml`                | pcbasm コア層の単体テスト用フィクスチャ                      | 追跡する   |
-| `~/printer_data/config/printer.cfg`        | **Klipper の正。`SAVE_CONFIG` もここに書く**                 | 追跡しない |
+| 場所                                | 役割                                                         | git        |
+| ----------------------------------- | ------------------------------------------------------------ | ---------- |
+| `config/`（リポジトリルート）       | **実機の稼働設定。WebUI とジョブが読み書きする正**           | 追跡しない |
+| `deploy/templates/<機種>/`          | 新しい機体の初期値（機種で共通の値だけ）                     | 追跡する   |
+| `data/testing/config/`              | WebUI / E2E 用フィクスチャ（Klipper port 7126 = 非リッスン） | 追跡する   |
+| `data/testing/machine.toml`         | pcbasm コア層の単体テスト用フィクスチャ                      | 追跡する   |
+| `~/printer_data/config/printer.cfg` | **Klipper の正。`SAVE_CONFIG` もここに書く**                 | 追跡しない |
 
 テスト用の `machine.toml` が 2 系統あるのは用途が違うため。`data/testing/config/machine.toml`（79 行）は
 「マシン設定ディレクトリ」として丸ごと `tmp_path` に複製され、WebUI / E2E が読み書きする。コメント保持
@@ -26,18 +26,19 @@
 ## テンプレートの構成
 
 ```
-data/config-templates/
-└── <マシン名>.<用途>/
-    ├── machine.toml  # Klipper 以外のハードウェア設定
-    └── printer.cfg   # Klipper 設定
+deploy/templates/
+├── usaremino/      # cartesian（001 と 002）
+│   ├── machine.toml  # Klipper 以外のハードウェア設定
+│   └── printer.cfg   # Klipper 設定
+└── kurousagi/      # inversed_corexy
 ```
 
-`machine.toml` と `printer.cfg` の両方を持つディレクトリだけが
-`./scripts/setup-machine-config.sh` の選択肢に出る。
+`machine.toml` と `printer.cfg` の両方を持つディレクトリだけが `./install.sh machine` の選択肢に出る。
 
-**カメラキャリブレーション結果はテンプレートに含めない。** 機体固有の実測値であり、
-別の機体に配ると誤った `pixel_per_mm` で動くことになる。セットアップ後に WebUI の
-camera_calibration ジョブを実行し、Apply で `config/` に生成させる。
+**個体の実測値はテンプレートに含めない。** カメラキャリブレーション結果、ツールヘッドの実測オフセット、
+ノズルキャップとクリーニングの位置、ロードセルの較正値（`counts_per_gram` / `reference_tare_counts`）、
+`SAVE_CONFIG` のブロックは機体ごとに違い、別の機体に配ると誤った値で動く。テンプレートには設計値と出発値だけを書き、
+セットアップ後に [立ち上げ](../../docs/commissioning.md) の順に WebUI で実測して `config/` へ書かせる。
 
 `machine.toml` の `[camera] calibration_file` はファイル名のみで書く。設定ディレクトリからの
 相対パスとして解決されるため、`config/` へコピーした後もそのまま動く。テンプレートでは
@@ -65,42 +66,30 @@ WebUI の設定ページからも編集できる。
 
 ## 命名規則
 
-`<マシン名>.<用途>` — 用途は今は `paste`（はんだペースト塗布）だけ。
-
-- マシン名は小文字のスネークケース（例: `kurousagi`）
-- 例: `kurousagi.paste`
+ディレクトリ名は機種名（小文字のスネークケース。例: `kurousagi`）。
 
 ## セットアップ
 
 ```sh
-./scripts/setup-machine-config.sh
+./install.sh machine
 sudo systemctl restart klipper
 ```
 
-スクリプトは実行内容を表示してから確認を取り、以下を行う。
+`machine` 段は以下を行う。何度実行しても同じ結果になる。
 
-1. `config/` に `machine.toml` を配置する
-2. `printer.cfg` を `~/printer_data/config/printer.cfg` へ実ファイルとして配置する
-3. 2 で配置した `printer.cfg` の `[mcu] serial` を実機の `/dev/serial/by-id/*` に書き換える
+1. `config/machine.toml` が無ければ、選んだ機種のものを置く
+2. `~/printer_data/config/printer.cfg` が無いか、KIAUH が置いた stub（`kinematics: none`）なら、
+    `printer.cfg.bak.<日時>` へ退避してから選んだ機種のものを実ファイルとして置く
+3. 2 で置いた `printer.cfg` の `[mcu] serial` を実機の `/dev/serial/by-id/*` に書き換える
 4. `config/printer.cfg` に 2 へのシンボリックリンクを張る（リポジトリから閲覧するため）
 
-4 は毎回張り直す（何度実行しても同じ結果）。
-
-**既存の `config/machine.toml` は常に保持される（上書きしない）。** WebUI が実測値を書き込む
-正であり、上書きすると操作者の設定が黙って巻き戻る。テンプレートから作り直したい場合は
-退避してから再実行する。
+**既存の `config/machine.toml` と、stub でない `printer.cfg` には触らない。** どちらも WebUI や
+`SAVE_CONFIG` が実測値を書き込む正であり、上書きすると操作者の設定が黙って巻き戻る。
+テンプレートから作り直したい場合は、そのファイルを退避してから再実行する。
 
 ```sh
-mv config config.bak && ./scripts/setup-machine-config.sh
+mv config config.bak && ./install.sh machine
 ```
-
-**既存の `~/printer_data/config/printer.cfg` は退避のうえ上書きするかを確認する（既定は上書き）。**
-本スクリプトは Klipper インストール直後に走らせるのが通常の使い方で、そこには
-`kinematics: none` の stub が既に置かれている。既定を保持にすると、テンプレートが永久に
-反映されない。既存は `printer.cfg.bak.<日時>` へ退避されるため、取り違えても復旧できる。
-
-稼働中の機体で `SAVE_CONFIG` の較正値（`load_cell_probe` の `counts_per_gram` や
-`position_endstop`）が蓄積している場合は、確認プロンプトに `n` と答えて保持する。
 
 ### `[mcu] serial` の自動設定
 
@@ -119,13 +108,13 @@ mv config config.bak && ./scripts/setup-machine-config.sh
 ## テンプレートの追加
 
 ```sh
-mkdir data/config-templates/<マシン名>.<用途>
-# machine.toml と printer.cfg を置く（キャリブレーション結果は含めない）
+mkdir deploy/templates/<機種>
+# machine.toml と printer.cfg を置く（個体の実測値は含めない）
 # printer.cfg の [mcu] serial は placeholder のままにする
-git add data/config-templates/<マシン名>.<用途>
+git add deploy/templates/<機種>
 ```
 
-`./scripts/setup-machine-config.sh` の選択肢に自動で現れる。
+`./install.sh machine` の選択肢に自動で現れる。
 
 ## machine.toml の最小例
 
@@ -158,26 +147,12 @@ Klipper は `~/printer_data/config/printer.cfg` を直接読み、`SAVE_CONFIG` 
 書き戻す。したがってリポジトリ側で printer.cfg を追跡することはできない（シンボリックリンク越しの
 `SAVE_CONFIG` はリンクを壊すか、リポジトリを常時 dirty にするかのどちらかになる）。
 
-`data/config-templates/<マシン名>.<用途>/printer.cfg` は
-**セットアップ時点のスナップショットであり、実機とは drift する。これは意図した仕様。**
+`deploy/templates/<機種>/printer.cfg` は
+**セットアップ時点の出発点であり、実機とは drift する。これは意図した仕様。**
 
-意味のあるチューニング（キネマティクス・ドライバ設定・`load_cell_probe` の較正など）を実機で
-行ったら、テンプレートへ書き戻してコミットする。
-
-```sh
-cp ~/printer_data/config/printer.cfg data/config-templates/kurousagi.paste/printer.cfg
-git diff data/config-templates/kurousagi.paste/printer.cfg  # 意図した差分か確認
-```
-
-書き戻すと `[mcu] serial` に実機の ID が入るため、placeholder
-（`/dev/serial/by-id/<your-mcu-id>`）へ戻してからコミットする。
-
-`#*# <---------------------- SAVE_CONFIG ---------------------->` 以降は Klipper が自動生成する
-較正値ブロック。テンプレートに含めても含めなくてもよいが、含めるなら「どの実機のいつの値か」を
-コミットメッセージに残す。
-
-この書き戻しが頻繁で煩わしくなったら `scripts/setup-machine-config.sh` に snapshot サブコマンドを足す。
-現時点では `cp` 1 行で足りるため用意していない。
+機種で共通のチューニング（キネマティクス・ドライバ設定など）を実機で詰めたら、その差分だけを
+テンプレートへ書き戻してコミットする。`[mcu] serial`、ロードセルの較正値、`SAVE_CONFIG` のブロックは
+個体の値なので書き戻さない（機体の `printer.cfg` はバックアップに実体が入る）。
 
 カメラキャリブレーション結果の JSON も同様に `config/` に置かれ追跡されないが、こちらは
 **テンプレートへ書き戻さない**（機体固有の実測値であり、別の機体に配ると誤った `pixel_per_mm`

@@ -1,19 +1,20 @@
 #!/bin/bash
-# Raspberry Pi のカメラ・スピーカーと Klipper MCU firmware を対話形式で設定する。
+# Raspberry Pi のカメラ・スピーカーと Klipper MCU firmware を対話形式で設定する（install.sh hardware が呼ぶ）。
+# 再実行すると、boot 設定の管理ブロックを置き換える。
 
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-FIRMWARE_FILE="${PROJECT_ROOT}/klipper/firmwares/btt-skr-pico-v1-usb.klipper.uf2"
+FIRMWARE_FILE="${PROJECT_ROOT}/deploy/firmware/btt-skr-pico-v1-usb.klipper.uf2"
 CAMERA_BLOCK_BEGIN="# BEGIN pcb-assembly camera"
 CAMERA_BLOCK_END="# END pcb-assembly camera"
 SPEAKER_BLOCK_BEGIN="# BEGIN pcb-assembly speaker"
 SPEAKER_BLOCK_END="# END pcb-assembly speaker"
 MEDIA_USER="${SUDO_USER:-${USER:-$(id -un)}}"
-RPI_RP2_VOLUME="${PCBASM_RPI_RP2_VOLUME:-/media/${MEDIA_USER}/RPI-RP2}"
-SERIAL_BY_ID_DIR="${PCBASM_SERIAL_BY_ID_DIR:-/dev/serial/by-id}"
-VOLUME_WAIT_SECONDS="${PCBASM_VOLUME_WAIT_SECONDS:-60}"
-SERIAL_WAIT_SECONDS="${PCBASM_SERIAL_WAIT_SECONDS:-30}"
+RPI_RP2_VOLUME="/media/${MEDIA_USER}/RPI-RP2"
+SERIAL_BY_ID_DIR="/dev/serial/by-id"
+VOLUME_WAIT_SECONDS=60
+SERIAL_WAIT_SECONDS=30
 # 選択肢に出す dtoverlay 名と説明（"overlay|説明"）。先頭が本装置の標準構成。
 CAMERA_OVERLAYS=(
     "ov9281|グローバルシャッター・モノクロ"
@@ -98,9 +99,7 @@ read_overlay() {
 }
 
 detect_boot_config() {
-    if [ -n "${PCBASM_BOOT_CONFIG:-}" ]; then
-        printf '%s' "$PCBASM_BOOT_CONFIG"
-    elif [ -f /boot/firmware/config.txt ]; then
+    if [ -f /boot/firmware/config.txt ]; then
         printf '%s' /boot/firmware/config.txt
     elif [ -f /boot/config.txt ]; then
         printf '%s' /boot/config.txt
@@ -159,10 +158,10 @@ write_boot_config() {
     temporary_file="$(mktemp)"
     backup_file="${boot_config}.pcbasm.bak"
     strip_managed_blocks "$boot_config" "$temporary_file"
+    # [all] も管理ブロックの中に置く（外に足すと再実行のたびに増える）
     {
-        echo ""
-        echo "[all]"
         echo "$CAMERA_BLOCK_BEGIN"
+        echo "[all]"
         echo "camera_auto_detect=0"
         echo "dtoverlay=${camera_overlay}"
         echo "$CAMERA_BLOCK_END"
@@ -316,12 +315,7 @@ main() {
     fi
 
     echo ""
-    echo "ハードウェア設定が完了しました。boot 設定の反映には再起動が必要です。"
-    read -rp "今すぐ Raspberry Pi を再起動しますか? [y/N]: " answer || answer=""
-    case "$answer" in
-        [yY]) sudo reboot ;;
-        *) echo "後で次のコマンドを実行してください: sudo reboot" ;;
-    esac
+    echo "ハードウェア設定が完了しました。boot 設定の反映には再起動が必要です（sudo reboot）。"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
