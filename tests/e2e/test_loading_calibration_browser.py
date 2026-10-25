@@ -11,7 +11,7 @@ from playwright.sync_api import expect
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from tests.e2e.conftest import (
+from tests.support.browser import (
     E2E_MACHINE_ID,
     LiveServer,
     LiveUi,
@@ -19,7 +19,7 @@ from tests.e2e.conftest import (
     start_app,
     wait_machine_field,
 )
-from tests.support.settings import make_ui_settings
+from tests.support.web import make_ui_settings
 from web.ui.app import create_app
 from web.ui.machines import MachineEndpoint
 

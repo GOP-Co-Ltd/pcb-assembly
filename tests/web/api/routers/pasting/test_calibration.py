@@ -41,8 +41,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from pcbasm.pasting.paste_volume.calibration import CALIBRATION_SUFFIX
-from tests.support.backend import standalone_catalog
-from tests.support.paths import TESTING_DATA_DIR
+from tests.support.paths import PASTE_VOLUME_CALIBRATION
+from tests.support.web import standalone_catalog
 from web.api.env import Env
 from web.api.routers.pasting.calibration import DatasetLayoutRequest
 
@@ -51,7 +51,7 @@ class TestLoadingCalibration:
     """GET /api/pasting/calibration/mass-flow."""
 
     def test_density_comes_from_machine_config(self, client: TestClient):
-        # mass=10, rotations=5, density=3.78（data/testing/config/machine.toml 由来）
+        # mass=10, rotations=5, density=3.78（tests/data/config/machine.toml 由来）
         # → rotations_per_ul = 1.89。density 配線が正しいことのピン。
         response = client.get(
             "/api/pasting/calibration/mass-flow",
@@ -131,13 +131,10 @@ class TestLoadingCalibration:
                 assert body[key] is not None, key
 
 
-CALIBRATION_V1 = TESTING_DATA_DIR / "schemas" / "paste_volume_calibration_v1.json"
-
-
 def _write(root: Path, stem: str, *, document: dict | None = None) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     payload = (
-        json.loads(CALIBRATION_V1.read_text(encoding="utf-8"))
+        json.loads(PASTE_VOLUME_CALIBRATION.read_text(encoding="utf-8"))
         if document is None
         else document
     )
@@ -228,7 +225,7 @@ class TestListCalibrations:
     def test_reports_an_unsupported_schema_version(
         self, client: TestClient, calibration_dir: Path
     ):
-        document = json.loads(CALIBRATION_V1.read_text(encoding="utf-8"))
+        document = json.loads(PASTE_VOLUME_CALIBRATION.read_text(encoding="utf-8"))
         document["schema_version"] = 99
         _write(calibration_dir, "future", document=document)
 

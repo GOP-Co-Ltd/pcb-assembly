@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from playwright.sync_api import expect
 
-from tests.e2e.conftest import (
+from tests.support.browser import (
     LiveServer,
     LiveUi,
     acquire_control as _acquire_control,

@@ -8,9 +8,8 @@ import attrs
 import cv2
 import pytest
 
-from tests.support.backend import job_manager
-from tests.web.api.conftest import decode_jpeg, jpeg_payload
-from tests.web.api.jobs.conftest import WaitUntil, answer_next_prompt
+from tests.support.polling import wait_until
+from tests.support.web import answer_next_prompt, decode_jpeg, job_manager, jpeg_payload
 from web.api.backend import Backend
 from web.api.camera import CameraFeed
 from web.api.env import Env
@@ -44,7 +43,6 @@ class TestHeightPlaneFrontFlow:
         camera_backend: Backend,
         fake_camera_settings: Env,
         copper_pcb_path: Path,
-        wait_until: WaitUntil,
     ):
         """計画点 PNG 生成 + diagnostics / /artifacts/ log → confirm False で中止.
 
@@ -89,7 +87,6 @@ class TestHeightPlaneFrontFlow:
         camera_backend: Backend,
         fake_camera_settings: Env,
         copper_pcb_path: Path,
-        wait_until: WaitUntil,
     ):
         """Confirm 待ち中は planned_points プレビューを TTL で生カメラに戻さない."""
         camera = CameraFeed(
@@ -125,7 +122,6 @@ class TestHeightPlaneFrontFlow:
         manager: JobManager,
         camera_backend: Backend,
         copper_pcb_path: Path,
-        wait_until: WaitUntil,
     ):
         """Confirm True → セットアップで Klipper 不通 → FAILED + ロック解放."""
         camera_backend.selection.select(copper_pcb_path)

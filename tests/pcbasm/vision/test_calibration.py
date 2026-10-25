@@ -12,7 +12,7 @@ from pcbasm.vision.calibration import (
     CheckerboardCalibrator,
     load_focus_z,
 )
-from tests.support.paths import TESTING_DATA_DIR
+from tests.support.paths import CHECKERBOARD_IMAGE
 
 
 class TestCameraCalibration:
@@ -110,7 +110,7 @@ class TestCheckerboardCalibrator:
     @pytest.fixture
     def checkerboard_image(self) -> Image:
         """5x5内部コーナー、1マス約66.7pxのチェッカーボード画像(400x400)."""
-        return Image.load(TESTING_DATA_DIR / "checkerboard.png")
+        return Image.load(CHECKERBOARD_IMAGE)
 
     @pytest.fixture
     def calibrator(self) -> CheckerboardCalibrator:

@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from pcbasm.hal.fake import FakeAudioPlayer
 from pcbasm.kicad import load_board
-from tests.support.backend import devices_with_audio
+from tests.support.web import devices_with_audio
 from web.api.app import create_app
 from web.api.env import Env
 

@@ -32,26 +32,26 @@ from pcbasm.pasting.paste_volume.runtime_correction import (
     run_flow_calibration,
 )
 from pcbasm.pasting.session import PasteSession
-from tests.golden.conftest import (
+from tests.golden.scenarios import Scenario, scenarios_of
+from tests.support import polling
+from tests.support.golden import (
     BOARD_PLACEMENT,
     CAMERA_MODEL,
     FLOW_POINTS,
     GOLDEN_DIR,
     JOBS,
-    LED_BLINKER,
+    assert_document,
+    assert_transcript,
     board_shapes,
     enable_flow_calibration,
     finish,
     scene_camera,
     wait_operator,
 )
-from tests.golden.scenarios import Scenario, scenarios_of
-from tests.helpers import build_paste_volume_session
-from tests.support import polling
-from tests.support.golden import assert_document, assert_transcript
 from tests.support.paste_session import full_board_correction
-from tests.support.paths import TESTING_DATA_DIR
-from tests.web.api.jobs.conftest import answer_next_prompt, register_synthetic
+from tests.support.paste_volume import build_paste_volume_session
+from tests.support.paths import LED_BLINKER_PCB, PASTE_DATASET_PENDING
+from tests.support.web import answer_next_prompt, register_synthetic
 from web.api.backend import Backend
 from web.api.env import Env
 from web.api.jobs.pasting.dispense_calibration import CALIBRATION_MENU_STAGE
@@ -62,7 +62,6 @@ from web.api.jobs.runtime.record import JobRecord
 from web.api.jobs.steps import LOADING_STAGE
 
 ARTIFACTS = GOLDEN_DIR / "artifacts"
-PENDING_PIN = TESTING_DATA_DIR / "schemas" / "paste_dataset_pending_v1.json"
 # 保存名に時刻を足させない（suffix まで書いた名前はそのまま保存名になる）
 SAVE_NAME = f"golden{CALIBRATION_SUFFIX}"
 
@@ -218,14 +217,14 @@ class TestFlowCalibration:
         scenario: Scenario,
     ):
         """paste_solder の運転時補正だけを合成ジョブで走らせ、rotations_per_ul の補正値を出す."""
-        enable_flow_calibration(job_settings, job_backend, LED_BLINKER)
+        enable_flow_calibration(job_settings, job_backend, LED_BLINKER_PCB)
         mount_camera(
             scene_camera(machine_klipper, scenario.rotation, shapes=led_blinker_shapes)
         )
         outcomes: list[FlowCalibrationOutcome | None] = []
 
         def run(ctx: JobContext) -> None:
-            pcb = load_board(LED_BLINKER)
+            pcb = load_board(LED_BLINKER_PCB)
             plan, error = plan_flow_calibration(
                 config=ctx.machine.paste_dispenser.volume_correction,
                 points=FLOW_POINTS,
@@ -303,7 +302,7 @@ class TestPasteDatasetFinalize:
         machine_klipper: FakeKlipper,
     ):
         """未完了 session の pending.json と計量質量から metadata.json を書いて確定する."""
-        document = json.loads(PENDING_PIN.read_text(encoding="utf-8"))
+        document = json.loads(PASTE_DATASET_PENDING.read_text(encoding="utf-8"))
         incomplete = job_settings.paste_dataset_dir / f"{self.STEM}.incomplete"
         for target in (*document["samples"], *document["blanks"]):
             for view in target["views"]:

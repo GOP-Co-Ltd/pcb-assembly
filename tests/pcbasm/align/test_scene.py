@@ -10,7 +10,7 @@ from pcbasm.board import Board, Layer
 from pcbasm.config.reference_point import CornerOffsetsConfig, ReferencePointConfig
 from pcbasm.geometry import Compose, Point2d, Shift
 from pcbasm.kicad import load_board
-from tests.support.paths import TESTING_DATA_DIR
+from tests.support.paths import LED_BLINKER_PCB
 
 REFERENCE = ReferencePointConfig(
     x=30.0,
@@ -28,7 +28,7 @@ PLACEMENT = Shift(10.0, 20.0)
 
 @pytest.fixture(scope="module")
 def board() -> Board:
-    return load_board(TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb")
+    return load_board(LED_BLINKER_PCB)
 
 
 class TestPlacedOnReference:

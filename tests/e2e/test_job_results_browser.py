@@ -7,15 +7,10 @@ import attrs
 import pytest
 from playwright.sync_api import expect
 
-from tests.e2e.conftest import (
-    E2E_MACHINE_ID,
-    LiveServer,
-    LiveUi,
-    acquire_control,
-)
 from tests.e2e.network import DelayedHttp, delayed_ui
-from tests.support.settings import make_api_settings
-from tests.web.api.conftest import CHECKERBOARD_CAMERA_IMAGE
+from tests.support.browser import E2E_MACHINE_ID, LiveServer, LiveUi, acquire_control
+from tests.support.paths import CHECKERBOARD_IMAGE
+from tests.support.web import make_api_settings
 from web.api.env import Env
 from web.api.machine_config import MachineConfigFile
 
@@ -26,7 +21,7 @@ def e2e_settings(tmp_path: Path) -> Env:
     MachineConfigFile(settings.config_dir).write(
         {"camera.crop.width": 400, "camera.crop.height": 400}
     )
-    return attrs.evolve(settings, fake_camera_image=CHECKERBOARD_CAMERA_IMAGE)
+    return attrs.evolve(settings, fake_camera_image=CHECKERBOARD_IMAGE)
 
 
 @pytest.fixture

@@ -17,11 +17,10 @@ from fastapi.testclient import TestClient
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper
 from pcbasm.machine.devices import Devices
-from tests.golden.conftest import GOLDEN_DIR, finish
 from tests.support import polling
-from tests.support.golden import assert_transcript
-from tests.web.api.jobs.conftest import register_synthetic
-from tests.web.update_support import make_update_sandbox
+from tests.support.golden import GOLDEN_DIR, assert_transcript, finish
+from tests.support.selfupdate import make_update_sandbox
+from tests.support.web import register_synthetic
 from web.api.app import create_app
 from web.api.backend import Backend
 from web.api.env import Env

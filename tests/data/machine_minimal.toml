@@ -1,6 +1,9 @@
+# machine.toml の最小版。pcbasm の単体テストがパスを渡して読む（完全版は config/machine.toml）
+# Klipper は非リッスンの port 7126 を指し、誤って実機の Moonraker（7125）へつながない
+
 [klipper]
-host = "192.168.1.100"
-port = 7125
+host = "127.0.0.1"
+port = 7126
 
 [paste_dispenser]
 rotations_per_ul = 1.0

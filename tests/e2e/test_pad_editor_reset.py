@@ -3,8 +3,8 @@
 from playwright.sync_api import expect
 
 from pcbasm.pasting.overrides import BoardOverrides
-from tests.e2e.conftest import (
-    LED_BLINKER_PCB,
+from tests.support.browser import (
+    SELECTED_LED_BLINKER,
     LiveServer,
     LiveUi,
     acquire_control,
@@ -19,7 +19,7 @@ class TestPadEditorReset:
     ):
         select_led_blinker(live_server)
         data_dir = live_server.settings.webui_data_dir
-        board_id = BoardOverrides(data_dir).board_id(LED_BLINKER_PCB)
+        board_id = BoardOverrides(data_dir).board_id(SELECTED_LED_BLINKER)
         path = data_dir / "board_settings" / f"{board_id}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("{}", encoding="utf-8")

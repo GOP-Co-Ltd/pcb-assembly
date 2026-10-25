@@ -24,18 +24,18 @@ import httpx
 import pytest
 from playwright.sync_api import expect
 
-from tests.e2e.conftest import (
+from tests.support.browser import (
     E2E_MACHINE_ID as _E2E_MACHINE_ID,
     LiveServer,
     LiveUi,
     start_app as _start_app,
 )
 from tests.support.polling import wait_until
-from tests.support.settings import (
+from tests.support.selfupdate import UpdateSandbox, make_update_sandbox
+from tests.support.web import (
     make_api_settings as _make_api_settings,
     make_ui_settings as _make_ui_settings,
 )
-from tests.web.update_support import UpdateSandbox, make_update_sandbox
 from web.api.app import create_app
 from web.selfupdate.runner import UpdateRunner
 from web.ui.app import create_app as create_ui_app

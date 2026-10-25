@@ -35,7 +35,7 @@ import attrs
 import pytest
 
 from tests.support.polling import before_deadline, wait_until
-from tests.web.selfupdate.conftest import (
+from tests.support.selfupdate import (
     call_log,
     git,
     head,

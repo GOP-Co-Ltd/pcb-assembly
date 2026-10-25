@@ -1,6 +1,6 @@
 """塗布前後画像から円の直径を測る検出器の公開契約.
 
-実素材は ``data/testing/paste-volume/``（出典は同 directory の README）。合成画像では
+実素材は ``tests/data/paste-volume/``（出典は同 directory の README）。合成画像では
 銅板テクスチャ・照明ムラ・ペーストの質感が再現できないので、実データで固める。
 
 OpenCV のバージョンで下位桁が動きうるため、具体的な小数値はピンしない。固定するのは
@@ -18,17 +18,17 @@ from pcbasm.pasting.paste_volume.detect import (
     measure_dot,
 )
 from pcbasm.vision.image import ImageArray
-from tests.support.paths import TESTING_DATA_DIR
-
-MATERIAL_DIR = TESTING_DATA_DIR / "paste-volume"
-PIXEL_PER_MM = 28.677782176153425
+from tests.support.paste_volume import (
+    PASTE_VOLUME_MATERIAL_DIR,
+    PASTE_VOLUME_PIXEL_PER_MM,
+)
 
 # 素材の指令量が小さい順。直径もこの順で並ぶ
 VOLUME_ORDER = ("small", "medium", "large")
 
 
 def _load(name: str, phase: str, view: int) -> ImageArray:
-    path = MATERIAL_DIR / name / phase / f"{view:02d}.png"
+    path = PASTE_VOLUME_MATERIAL_DIR / name / phase / f"{view:02d}.png"
     image = cv2.imread(str(path))
     assert image is not None, path
     return image
@@ -39,7 +39,7 @@ def _measure(name: str, view: int = 0, **overrides: float | int) -> DotMeasureme
     measurement, error = measure_dot(
         _load(name, "pre", view),
         _load(name, "post", view),
-        pixel_per_mm=PIXEL_PER_MM,
+        pixel_per_mm=PASTE_VOLUME_PIXEL_PER_MM,
         spec=spec,
     )
 
@@ -117,7 +117,7 @@ class TestMeasureDotRejections:
         measurement, error = measure_dot(
             _load("large", "pre", 0),
             _load("large", "post", 0)[:10, :10],
-            pixel_per_mm=PIXEL_PER_MM,
+            pixel_per_mm=PASTE_VOLUME_PIXEL_PER_MM,
         )
 
         assert measurement is None
@@ -138,7 +138,9 @@ class TestMeasureDotRejections:
     def test_rejects_a_single_channel_image(self):
         gray = cv2.cvtColor(_load("large", "pre", 0), cv2.COLOR_BGR2GRAY)
 
-        measurement, error = measure_dot(gray, gray, pixel_per_mm=PIXEL_PER_MM)
+        measurement, error = measure_dot(
+            gray, gray, pixel_per_mm=PASTE_VOLUME_PIXEL_PER_MM
+        )
 
         assert measurement is None
         assert error is not None
@@ -147,7 +149,7 @@ class TestMeasureDotRejections:
         measurement, error = measure_dot(
             _load("large", "pre", 0),
             _load("large", "post", 0),
-            pixel_per_mm=PIXEL_PER_MM,
+            pixel_per_mm=PASTE_VOLUME_PIXEL_PER_MM,
             spec=DotDetectionSpec(min_area_px=-1),
         )
 
@@ -158,7 +160,9 @@ class TestMeasureDotRejections:
         """はんだが写っていないのは正常系（blank と同じ扱い）."""
         pre = _load("blank", "pre", 0)
 
-        measurement, error = measure_dot(pre, pre, pixel_per_mm=PIXEL_PER_MM)
+        measurement, error = measure_dot(
+            pre, pre, pixel_per_mm=PASTE_VOLUME_PIXEL_PER_MM
+        )
 
         assert error is None
         assert measurement is not None
@@ -173,7 +177,7 @@ class TestMeasureDotIsScaleAware:
         halved, error = measure_dot(
             _load("large", "pre", 0),
             _load("large", "post", 0),
-            pixel_per_mm=PIXEL_PER_MM / 2.0,
+            pixel_per_mm=PASTE_VOLUME_PIXEL_PER_MM / 2.0,
         )
 
         assert error is None

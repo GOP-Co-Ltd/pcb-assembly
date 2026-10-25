@@ -12,7 +12,10 @@ from pcbasm.vision.detection import (
     validate_paste_diameters,
 )
 from pcbasm.vision.dot import DotDetectionSpec
-from tests.helpers import PASTE_VOLUME_MATERIAL_DIR, PASTE_VOLUME_PIXEL_PER_MM
+from tests.support.paste_volume import (
+    PASTE_VOLUME_MATERIAL_DIR,
+    PASTE_VOLUME_PIXEL_PER_MM,
+)
 
 
 class TestCircleDetector:
@@ -232,7 +235,7 @@ class TestCircleDetector:
         return Image(np.full((200, 200, 3), 255, dtype=np.uint8))
 
 
-# 実素材 `data/testing/paste-volume/` の参考直径 [mm]（出典は同 directory の README）。
+# 実素材 `tests/data/paste-volume/` の参考直径 [mm]（出典は同 directory の README）。
 # OpenCV のバージョンで下位桁が動きうるので広めの許容で突き合わせる
 MATERIAL_DIAMETER_MM: tuple[tuple[str, float], ...] = (
     ("small", 0.587),
@@ -270,7 +273,7 @@ def _shifted(image: Image, dx: int, dy: int) -> Image:
 class TestPasteDotDetector:
     """塗布痕（暗い円）を単一フレームの背景差分 + Otsu で検出する契約.
 
-    実素材は ``data/testing/paste-volume/`` の塗布後画像。合成画像では銅板テクスチャ・
+    実素材は ``tests/data/paste-volume/`` の塗布後画像。合成画像では銅板テクスチャ・
     照明ムラ・ペーストの質感が再現できないので、検出できる/できないの要件は実素材で固める。
     """
 

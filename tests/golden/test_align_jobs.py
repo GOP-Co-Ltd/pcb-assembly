@@ -16,10 +16,15 @@ from pcbasm.geometry import Point2d
 from pcbasm.hal import Camera
 from pcbasm.hal.fake import Checkerboard, FakeKlipper
 from pcbasm.vision import CameraCalibration, CameraModel, safe_move_distance
-from tests.golden.conftest import CAMERA_MODEL, JOBS, finish, scene_camera
 from tests.golden.scenarios import Scenario, scenarios_of
-from tests.support.golden import assert_transcript
-from tests.web.api.jobs.conftest import answer_next_prompt
+from tests.support.golden import (
+    CAMERA_MODEL,
+    JOBS,
+    assert_transcript,
+    finish,
+    scene_camera,
+)
+from tests.support.web import answer_next_prompt
 from web.api.backend import Backend
 from web.api.env import Env
 from web.api.jobs.runtime.manager import JobManager

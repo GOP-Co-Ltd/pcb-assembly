@@ -28,6 +28,8 @@ from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper
 from pcbasm.machine.commands import COMMAND_TIMEOUT
 from pcbasm.pasting.applicator import build_applicator
+from tests.support.polling import wait_until
+from tests.support.web import ManagerFactory, register_synthetic
 from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition
 from web.api.jobs.runtime.context import JobContext
 from web.api.jobs.runtime.manager import JobManager
@@ -43,13 +45,10 @@ from web.api.jobs.steps import (
     parse_loading_command,
 )
 
-from .conftest import ManagerFactory, WaitUntil, register_synthetic
-
 
 def _run_handler_job(
     manager: JobManager,
     catalog: JobCatalog,
-    wait_until: WaitUntil,
     commands: list[dict[str, Any]],
 ) -> tuple[JobRecord, list[bool]]:
     """合成ジョブ内で handle_machine_command を順に呼び、戻り値列を返す."""
@@ -87,24 +86,22 @@ class TestHandleMachineCommand:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        wait_until: WaitUntil,
         command: dict[str, Any],
     ):
         """マシン操作でない type の command は False（ジョブ固有コマンドの後段判定に委ねる）."""
-        record, results = _run_handler_job(manager, catalog, wait_until, [command])
+        record, results = _run_handler_job(manager, catalog, [command])
 
         assert record.status == JobStatus.SUCCEEDED
         assert results == [False]
         assert record.log_lines == ()
 
     def test_malformed_machine_command_logs_the_field_and_returns_true(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         """マシン操作の type で形が誤っていれば、誤ったフィールドを log して True（継続）."""
         record, results = _run_handler_job(
             manager,
             catalog,
-            wait_until,
             [{"type": "jog", "axis": "x", "distance": "abc"}],
         )
 
@@ -116,27 +113,22 @@ class TestHandleMachineCommand:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        wait_until: WaitUntil,
         config_dir: Path,
     ):
         """校正ファイルが無ければ focus_z コマンドは移動せず log のみ（True）."""
         (config_dir / "ov9281_test_fixture.json").unlink()
 
-        record, results = _run_handler_job(
-            manager, catalog, wait_until, [{"type": "focus_z"}]
-        )
+        record, results = _run_handler_job(manager, catalog, [{"type": "focus_z"}])
 
         assert record.status == JobStatus.SUCCEEDED  # 送信しないので不通でも成功
         assert results == [True]
         assert "フォーカス" in "\n".join(record.log_lines)
 
     def test_move_without_axes_is_logged_and_returns_true(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         """実行できない命令（move の軸なし）は ValueError を log して True（継続）."""
-        record, results = _run_handler_job(
-            manager, catalog, wait_until, [{"type": "move"}]
-        )
+        record, results = _run_handler_job(manager, catalog, [{"type": "move"}])
 
         assert record.status == JobStatus.SUCCEEDED  # 送信しないので不通でも成功
         assert results == [True]
@@ -157,27 +149,24 @@ class TestHandleMachineCommand:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        wait_until: WaitUntil,
         command: dict[str, Any],
     ):
         """認識した type は送信を試み、Klipper 不通の例外は伝播 → FAILED."""
-        record, results = _run_handler_job(manager, catalog, wait_until, [command])
+        record, results = _run_handler_job(manager, catalog, [command])
 
         assert record.status == JobStatus.FAILED
         assert record.error  # 接続エラーが error に載る
         assert results == []  # True を返す前に送信例外で中断
 
     def test_move_to_cap_without_recorded_cap_logs_and_returns_true(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         """キャップ未記録なら move_to_cap は移動せず log のみ（True）.
 
         nozzle-cap-parking 計画書「WebUI」節: ジョブ中 WS ミラー。未対応だと 「未知コマンド」で UX
         が破綻するため、未記録でも処理済み（True）にする。
         """
-        record, results = _run_handler_job(
-            manager, catalog, wait_until, [{"type": "move_to_cap"}]
-        )
+        record, results = _run_handler_job(manager, catalog, [{"type": "move_to_cap"}])
 
         assert record.status == JobStatus.SUCCEEDED  # 送信しないので不通でも成功
         assert results == [True]
@@ -187,7 +176,6 @@ class TestHandleMachineCommand:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        wait_until: WaitUntil,
         config_dir: Path,
     ):
         """キャップ記録済みは移動を送信し、Klipper 不通の例外は伝播 → FAILED."""
@@ -198,9 +186,7 @@ class TestHandleMachineCommand:
             encoding="utf-8",
         )
 
-        record, results = _run_handler_job(
-            manager, catalog, wait_until, [{"type": "move_to_cap"}]
-        )
+        record, results = _run_handler_job(manager, catalog, [{"type": "move_to_cap"}])
 
         assert record.status == JobStatus.FAILED
         assert record.error  # 接続エラーが error に載る
@@ -352,7 +338,6 @@ class TestLoadingLoopNotification:
         self,
         make_manager: ManagerFactory,
         catalog: JobCatalog,
-        wait_until: WaitUntil,
         audio_player: FakeAudioPlayer,
     ):
         manager = make_manager(catalog)

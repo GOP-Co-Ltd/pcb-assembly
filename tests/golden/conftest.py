@@ -5,136 +5,26 @@
 ``open_klipper`` は塞いだままなので、``Devices`` を通らずに Klipper を作る経路があればテストが落ちる。
 """
 
-import json
 import shutil
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
 from shapely import Polygon
 
-from pcbasm.align.scene import board_scene
-from pcbasm.board import Board
-from pcbasm.config import MachineConfig, load_machine
-from pcbasm.geometry import Compose, Point2d, Rotation, Shift
 from pcbasm.hal import Camera
-from pcbasm.hal.fake import Checkerboard, FakeAudioPlayer, FakeKlipper, SceneCamera
+from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper
 from pcbasm.kicad import load_board
 from pcbasm.kicad.build import generate_grid_pcb
 from pcbasm.machine.devices import Devices
-from pcbasm.pasting.hierarchy import PadHierarchy
-from pcbasm.pasting.overrides import BoardOverrides
-from pcbasm.pasting.paste_volume.calibration import (
-    CALIBRATION_SUFFIX,
-    parse_calibration,
-    write_calibration,
-)
-from pcbasm.vision import CameraModel
-from tests.support import polling
-from tests.support.backend import job_manager
-from tests.support.paths import TESTING_DATA_DIR
+from tests.support.golden import CONFIG_FILES, board_shapes
+from tests.support.paths import LED_BLINKER_PCB
+from tests.support.web import job_manager
 from web.api.backend import Backend, open_backend
 from web.api.env import Env
 from web.api.jobs.runtime.catalog import JobCatalog
 from web.api.jobs.runtime.manager import JobManager
-from web.api.jobs.runtime.record import JobRecord, JobStatus
 from web.api.machine_config import MachineConfigFile
-
-GOLDEN_DIR = Path(__file__).parent
-JOBS = GOLDEN_DIR / "jobs"
-CONFIG_FILES = (GOLDEN_DIR / "machine.toml", GOLDEN_DIR / "camera_calibration.json")
-CAMERA_MODEL = CameraModel.load(GOLDEN_DIR / "camera_calibration.json")
-DISPENSER = load_machine(GOLDEN_DIR / "machine.toml").paste_dispenser
-LED_BLINKER = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
-CALIBRATION_PIN = TESTING_DATA_DIR / "schemas" / "paste_volume_calibration_v1.json"
-# 運転時補正で塗る点（board 座標）。pad の無い下側のベタに、crop が重ならない間隔で置く
-FLOW_POINTS = (Point2d(5.0, 20.0), Point2d(10.0, 20.0), Point2d(15.0, 20.0))
-
-# 基板の実際の置き方（board → 機械座標）。左上の基準円は reference_point から 0.3 mm ほどずれる
-BOARD_PLACEMENT = Compose([Rotation(0.3), Shift(6.2, 10.5)])
-# 基準円に対する銅箔のずれ（銅箔照合が測る変位）
-COPPER_OFFSET = Shift(0.04, -0.03)
-
-
-def board_shapes(pcb: Board, machine: MachineConfig) -> list[Polygon]:
-    """基板を BOARD_PLACEMENT に置いたときの、4 隅の基準円と TOP 銅箔を機械座標で返す."""
-    return board_scene(
-        pcb,
-        machine.reference_point,
-        BOARD_PLACEMENT,
-        Compose([BOARD_PLACEMENT, COPPER_OFFSET]),
-    )
-
-
-def scene_camera(
-    klipper: FakeKlipper,
-    rotation: float,
-    *,
-    shapes: Sequence[Polygon] = (),
-    checkerboard: Checkerboard | None = None,
-    pixel_per_mm: float = CAMERA_MODEL.pixel_per_mm,
-) -> SceneCamera:
-    """校正ファイルと machine.toml のとおりに、klipper の位置から見える画像を描くカメラ.
-
-    ``pixel_per_mm`` を校正と変えると、校正の後でカメラの倍率が変わった機体を模せる。
-    """
-    return SceneCamera(
-        klipper,
-        pixel_per_mm=pixel_per_mm,
-        toolhead=Point2d(DISPENSER.toolhead.x, DISPENSER.toolhead.y),
-        rotations_per_ul=DISPENSER.rotations_per_ul,
-        rotation=rotation,
-        size=CAMERA_MODEL.image_size,
-        shapes=shapes,
-        checkerboard=checkerboard,
-    )
-
-
-def finish(
-    backend: Backend, record: JobRecord, status: JobStatus = JobStatus.SUCCEEDED
-) -> None:
-    """終了時の駐機が済む（装置のロックが外れる）まで待ち、ジョブの終わり方を確かめる."""
-    polling.wait_until(
-        lambda: record.status.terminal and backend.lock.owner is None, timeout=120.0
-    )
-    assert record.status == status, record.error
-
-
-def wait_operator(
-    record: JobRecord, audio_player: FakeAudioPlayer, stage: str, calls: int = 1
-) -> None:
-    """``stage`` にいて、ジョブ開始からの入力待ち音が通算 ``calls`` 回鳴る（入口で滞留コマンドを捨て終える）まで待つ."""
-    polling.wait_until(
-        lambda: record.progress_stage == stage
-        and sum(sound == "prompt" for sound, *_ in audio_player.played) >= calls,
-        timeout=60.0,
-    )
-
-
-def enable_flow_calibration(settings: Env, backend: Backend, pcb: Path) -> None:
-    """校正ファイルと基板ごとの測定点を置き、運転時補正を有効にする."""
-    calibration, error = parse_calibration(
-        json.loads(CALIBRATION_PIN.read_text(encoding="utf-8"))
-    )
-    assert calibration is not None, error
-    name = f"golden{CALIBRATION_SUFFIX}"
-    write_calibration(settings.paste_volume_calibration_dir / name, calibration)
-    MachineConfigFile(settings.config_dir).write(
-        {
-            "paste_dispenser.volume_correction.calibration_file": name,
-            "paste_dispenser.volume_correction.settle_seconds": 0.0,
-        }
-    )
-    board = load_board(pcb)
-    store = BoardOverrides(settings.webui_data_dir)
-    model = store.load_or_init(
-        pcb.name, backend.machine_config.machine().paste_dispenser
-    )
-    store.save(
-        pcb.name,
-        model.with_flow_calibration_points(FLOW_POINTS),
-        board_signature=PadHierarchy.build(board.components, board.pads).signature(),
-    )
 
 
 @pytest.fixture
@@ -233,7 +123,7 @@ def grid_shapes(
 @pytest.fixture
 def led_blinker_shapes(place_board: Callable[[Path], list[Polygon]]) -> list[Polygon]:
     """led_blinker（高さ計測できる TOP のベタを持つ）を選び、置いた基板の基準円と銅箔を返す."""
-    return place_board(LED_BLINKER)
+    return place_board(LED_BLINKER_PCB)
 
 
 @pytest.fixture

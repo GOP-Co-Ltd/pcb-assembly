@@ -22,7 +22,7 @@ from fastapi.testclient import TestClient
 from pcbasm.config.audio import DEFAULT_AUDIO_DEVICE, DEFAULT_AUDIO_VOLUME
 from pcbasm.hal import AudioPlaybackError
 from pcbasm.hal.fake import FAKE_AUDIO_DEVICES, FakeAudioPlayer
-from tests.support.backend import devices_with_audio
+from tests.support.web import devices_with_audio
 from web.api.app import create_app
 from web.api.env import Env
 

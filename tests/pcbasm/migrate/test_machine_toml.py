@@ -15,7 +15,7 @@ from pcbasm.migrate.machine_toml import (
     migrate_machine_toml,
     migrate_text,
 )
-from tests.support.paths import TESTING_CONFIG_DIR
+from tests.support.paths import TEST_CONFIG_DIR
 
 BEFORE = Path(__file__).with_name("machine-before-M.toml")
 
@@ -205,7 +205,7 @@ class TestMigrateMachineToml:
         assert migrate_text(text) == (text, [])
 
     def test_current_layout_needs_no_migration(self):
-        text = (TESTING_CONFIG_DIR / "machine.toml").read_text()
+        text = (TEST_CONFIG_DIR / "machine.toml").read_text()
 
         assert migrate_text(text) == (text, [])
 

@@ -54,7 +54,7 @@ from fastapi.testclient import TestClient
 from starlette.testclient import WebSocketTestSession
 
 from tests.support.polling import before_deadline
-from tests.web.api.jobs.conftest import register_synthetic
+from tests.support.web import register_synthetic
 from web.api.app import create_app
 from web.api.backend import Backend
 from web.api.control import ClientIdentity

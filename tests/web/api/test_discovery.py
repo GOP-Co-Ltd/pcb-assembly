@@ -24,7 +24,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from zeroconf import ServiceInfo
 
-from tests.helpers import random_service_type
+from tests.support.web import random_service_type
 from web.api.app import create_app
 from web.api.discovery import (
     ServiceAdvertiser,

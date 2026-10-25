@@ -9,7 +9,7 @@
 - frontend には操作権が無い。守るのは `expected_head` / flock / `enabled` / `confirm`
   の多層で、**いずれも認証ではない**
 
-モックは使わない（`tests/web/update_support.py` の実 git + スタブ実行ファイル）。
+モックは使わない（`tests/support/selfupdate.py` の実 git + スタブ実行ファイル）。
 """
 
 from __future__ import annotations
@@ -26,9 +26,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from pcbasm.hal.fake import FakeAudioPlayer
-from tests.support.backend import devices_with_audio
 from tests.support.polling import before_deadline
-from tests.web.update_support import UpdateSandbox, make_update_sandbox
+from tests.support.selfupdate import UpdateSandbox, make_update_sandbox
+from tests.support.web import devices_with_audio
 from web.api.app import create_app as create_backend_app
 from web.api.env import Env as ApiEnv
 from web.selfupdate.runner import UpdateRunner

@@ -15,9 +15,8 @@ from pcbasm.pasting.hierarchy import PadHierarchy
 from pcbasm.pasting.overrides import BoardSession, PasteSettingsModel
 from pcbasm.pasting.params import PasteParams
 from pcbasm.pasting.plan import PastePlan, plan_paste
-from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR
+from tests.support.paths import LED_BLINKER_PCB, TEST_CONFIG_DIR
 
-_LED_BLINKER = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
 _BASE = PasteParams(
     dispense_mode="auto",
     line_direction="unconstrained",
@@ -36,7 +35,7 @@ _ENABLED = VolumeCorrectionConfig(calibration_file="cal.paste-volume.json")
 
 @pytest.fixture(scope="module")
 def pcb() -> Board:
-    return load_board(_LED_BLINKER)
+    return load_board(LED_BLINKER_PCB)
 
 
 @pytest.fixture(scope="module")
@@ -57,7 +56,7 @@ def _plan(
     volume_correction: VolumeCorrectionConfig = _DISABLED,
 ) -> PastePlan:
     config = attrs.evolve(
-        load_machine(TESTING_CONFIG_DIR / "machine.toml").paste_dispenser,
+        load_machine(TEST_CONFIG_DIR / "machine.toml").paste_dispenser,
         initial_purge_ul=initial_purge_ul,
         volume_correction=volume_correction,
     )

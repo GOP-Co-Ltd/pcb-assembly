@@ -13,14 +13,14 @@ from pcbasm.config import load_machine
 from pcbasm.kicad import load_board
 from pcbasm.pasting.hierarchy import PadHierarchy
 from pcbasm.pasting.overrides import BoardOverrides
-from tests.support.paths import TESTING_DATA_DIR
+from tests.support.paths import TEST_DATA_DIR
 
 GOLDEN_DIR = Path(__file__).parent
 BOARD_SETTINGS = GOLDEN_DIR / "board_settings_v1.json"
 
 
 def _hierarchy(name: str) -> PadHierarchy:
-    pcb = load_board(TESTING_DATA_DIR / name / f"{name}.kicad_pcb")
+    pcb = load_board(TEST_DATA_DIR / name / f"{name}.kicad_pcb")
     return PadHierarchy.build(pcb.components, pcb.pads)
 
 

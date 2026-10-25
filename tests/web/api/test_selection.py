@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.web.api.conftest import COPPER_PCB_FIXTURE, REAL_PCB_FIXTURE
+from tests.support.paths import FILL_COVERAGE_PCB, LED_BLINKER_PCB
 from web.api.env import Env
 from web.api.lock import BusyError, MachineLock
 from web.api.selection import BoardCache, Selection
@@ -36,18 +36,18 @@ def selection(webui_settings: Env, lock: MachineLock) -> Selection:
 class TestBoardCache:
     def test_unchanged_file_is_not_read_again(self, tmp_path: Path):
         path = tmp_path / "board.kicad_pcb"
-        shutil.copy(COPPER_PCB_FIXTURE, path)
+        shutil.copy(LED_BLINKER_PCB, path)
         cache = BoardCache()
 
         assert cache.get(path) is cache.get(path)
 
     def test_file_replaced_under_the_same_name_is_read_again(self, tmp_path: Path):
         path = tmp_path / "board.kicad_pcb"
-        shutil.copy(COPPER_PCB_FIXTURE, path)
+        shutil.copy(LED_BLINKER_PCB, path)
         cache = BoardCache()
         before = cache.get(path)
 
-        shutil.copy(REAL_PCB_FIXTURE, path)
+        shutil.copy(FILL_COVERAGE_PCB, path)
         after = cache.get(path)
 
         assert {pad.designator for pad in before.pads} >= {"U1", "R1"}
@@ -55,7 +55,7 @@ class TestBoardCache:
 
     def test_forget_reads_again_even_if_the_file_is_unchanged(self, tmp_path: Path):
         path = tmp_path / "board.kicad_pcb"
-        shutil.copy(COPPER_PCB_FIXTURE, path)
+        shutil.copy(LED_BLINKER_PCB, path)
         cache = BoardCache()
         before = cache.get(path)
 

@@ -1,6 +1,6 @@
 """ホスト構成ごとの自己更新の振る舞い（実機でしか出ない差分の回帰テスト）.
 
-`tests/web/selfupdate/` の契約テストは「同居機・sudoers 設置済み・sudo の listing が
+ほかの契約テストは「同居機・sudoers 設置済み・sudo の listing が
 折り返さない」という 1 つの形しか見ていない。ここはそれ以外の形を固定する:
 
 - **frontend 専用機**（`pcbasm-ui.service` だけが active。picamera2 / pcbnew が無い）
@@ -10,12 +10,7 @@
 - preflight を通ったあとに **sudo が実際に再起動を拒否**する場合
 
 スタブが実物より甘いと「実装の仮定をミラーしたテスト」になるので、
-`tests/web/update_support.py` 側でこれらの実挙動を再現している。
-
-**配置がミラーレイアウト外なのは意図的**: 対応する `tests/web/selfupdate/` は
-spec-test-author が所有する契約テストのディレクトリで、そこへ後から足すと
-「どちらが契約か」が混ざる。`tests/web/update_support.py`（router / frontend / E2E が
-共有する sandbox）と同じ階層に置き、契約の**外側**の回帰であることを位置で示す。
+`tests/support/selfupdate.py` 側でこれらの実挙動を再現している。
 """
 
 from __future__ import annotations
@@ -26,7 +21,7 @@ import attrs
 import pytest
 
 from tests.support.polling import before_deadline
-from tests.web.update_support import make_update_sandbox
+from tests.support.selfupdate import make_update_sandbox
 from web.selfupdate.report import UpdateState, UpdateStep, status_payload
 from web.selfupdate.runner import UpdateRunner
 from web.selfupdate.service import UNIT_NAMES

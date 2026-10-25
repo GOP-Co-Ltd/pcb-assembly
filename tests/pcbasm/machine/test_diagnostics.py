@@ -29,9 +29,9 @@ from pcbasm.machine.diagnostics import (
 )
 from pcbasm.vision import CameraCalibration, Image
 from tests.support.moonraker import FakeMoonraker
-from tests.support.paths import TESTING_DATA_DIR
+from tests.support.paths import MINIMAL_MACHINE_TOML
 
-MACHINE = load_machine(TESTING_DATA_DIR / "machine.toml")
+MACHINE = load_machine(MINIMAL_MACHINE_TOML)
 
 
 def _frame(width: int, height: int) -> Image:
@@ -51,7 +51,7 @@ class TestCheckKlipper:
             ("プローブ", True),
             ("駐機", True),
         ]
-        assert checks[0].detail == "192.168.1.100:7125"
+        assert checks[0].detail == "127.0.0.1:7126"
         assert checks[1].detail == "X 0〜300 / Y 0〜300 / Z -5〜50 mm、最大 100 mm/s"
         assert checks[3].detail == "[load_cell_probe] があります"
         assert klipper.sent == ()
@@ -91,14 +91,14 @@ class TestCheckKlipper:
             "state_message": "Lost communication with MCU 'mcu'",
         }
         klipper = MoonrakerKlipper(
-            "192.168.1.100", 7125, transport=httpx.MockTransport(moonraker.handle)
+            "127.0.0.1", 7126, transport=httpx.MockTransport(moonraker.handle)
         )
 
         checks = check_klipper(klipper, MACHINE)
 
         assert (checks[0].ok, checks[0].detail) == (
             False,
-            "192.168.1.100:7125 の Klipper が shutdown です: "
+            "127.0.0.1:7126 の Klipper が shutdown です: "
             "Lost communication with MCU 'mcu'",
         )
         assert all(check.ok for check in checks[1:])
@@ -107,7 +107,7 @@ class TestCheckKlipper:
         moonraker = FakeMoonraker()
         moonraker.up = False
         klipper = MoonrakerKlipper(
-            "192.168.1.100", 7125, transport=httpx.MockTransport(moonraker.handle)
+            "127.0.0.1", 7126, transport=httpx.MockTransport(moonraker.handle)
         )
 
         checks = check_klipper(klipper, MACHINE)
@@ -115,7 +115,7 @@ class TestCheckKlipper:
         assert [(check.name, check.ok) for check in checks] == [
             ("Klipper の接続", False)
         ]
-        assert "192.168.1.100:7125 に接続できません" in checks[0].detail
+        assert "127.0.0.1:7126 に接続できません" in checks[0].detail
 
 
 def _save_calibration(path: Path, z_position: float | None) -> Path:

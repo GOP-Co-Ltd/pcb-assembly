@@ -21,19 +21,19 @@ from pcbasm.gcode import GCodeLike
 from pcbasm.hal import Camera
 from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper, StepperMove
 from pcbasm.kicad.build import generate_rect_pcb, save_board
-from tests.golden.conftest import (
+from tests.golden.scenarios import Scenario, scenarios_of
+from tests.support.golden import (
     CAMERA_MODEL,
     DISPENSER,
     JOBS,
-    LED_BLINKER,
+    assert_transcript,
     enable_flow_calibration,
     finish,
     scene_camera,
     wait_operator,
 )
-from tests.golden.scenarios import Scenario, scenarios_of
-from tests.support.golden import assert_transcript
-from tests.web.api.jobs.conftest import answer_next_prompt
+from tests.support.paths import LED_BLINKER_PCB
+from tests.support.web import answer_next_prompt
 from web.api.backend import Backend
 from web.api.env import Env
 from web.api.jobs.runtime.manager import JobManager
@@ -171,7 +171,7 @@ class TestPasteSolder:
         scenario: Scenario,
     ):
         """運転時補正の測定点を塗って撮り、補正した rotations_per_ul で pad を塗る."""
-        enable_flow_calibration(job_settings, job_backend, LED_BLINKER)
+        enable_flow_calibration(job_settings, job_backend, LED_BLINKER_PCB)
 
         run(scenario)
 

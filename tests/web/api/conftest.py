@@ -1,12 +1,10 @@
 """WebUI テスト共有フィクスチャ.
 
-tmp_path に `data/testing/config` をコピーした Env を `create_app` に注入し、
+tmp_path に tests/data/config をコピーした Env を `create_app` に注入し、
 `fastapi.testclient.TestClient` で実 HTTP 経路を検証する。
 
 - `open_klipper` は root conftest が塞いでいる。Moonraker 不通の経路を確かめるテストは
   `unreachable_klipper` を要求する
-- `data/testing/config/machine.toml` は WebUI / E2E 用（コメント保持・欠落キーの
-  テスト素材を含む）。pcbasm コア層の単体テストが使う `data/testing/machine.toml` とは別物
 - 通知音は `FakeAudioPlayer` を持つ装置を注入する。既定の `AlsaAudioPlayer` だと完了通知付き
   ジョブが実 `aplay` を起動して実スピーカーが鳴るため
 - Env は env ではなく直接構築して注入する（env はプロセスグローバルで leak するため）
@@ -17,62 +15,28 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import attrs
-import cv2
-import numpy as np
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from pcbasm.hal.fake import FakeAudioPlayer
-from pcbasm.vision import ImageArray
-from tests.helpers import copy_testing_config
-from tests.support.backend import devices_with_audio
-from tests.support.paths import TESTING_DATA_DIR
+from tests.support.paths import (
+    CHECKERBOARD_IMAGE,
+    FAKE_CAMERA_IMAGE,
+    FILL_COVERAGE_PCB,
+    LED_BLINKER_PCB,
+)
+from tests.support.web import copy_test_config, devices_with_audio
 from web.api.app import create_app
 from web.api.backend import Backend, open_backend
 from web.api.env import Env
 from web.api.machine_config import MachineConfigFile
 
-FAKE_CAMERA_IMAGE = TESTING_DATA_DIR / "webui" / "fake_camera.png"
-
-# 5x5 内部コーナー・1 マス約 66.7px のチェッカーボード（400x400）。
-# square_size=10mm で pixel_per_mm ≈ 6.67（tests/pcbasm/vision/test_calibration.py
-# と同一素材）。camera_calibration ジョブのフル結合テストに使う
-CHECKERBOARD_CAMERA_IMAGE = TESTING_DATA_DIR / "checkerboard.png"
-
-REAL_PCB_FIXTURE = TESTING_DATA_DIR / "fill_coverage" / "fill_coverage.kicad_pcb"
-
-# TOP 銅箔ゾーンを持つ実 PCB（fill_coverage は pads のみで銅箔ゾーンが無く、
-# height_plane の probe 点サンプリングが成立しない。Phase 5 で追加）
-COPPER_PCB_FIXTURE = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
-
-
-def jpeg_payload(part: bytes) -> bytes:
-    """MJPEG の 1 パート（boundary 行 + ヘッダ + JPEG + CRLF）から JPEG bytes を取り出す."""
-    _, _, body = part.partition(b"\r\n\r\n")
-    return body.rstrip(b"\r\n")
-
-
-def decode_jpeg(data: bytes) -> ImageArray | None:
-    """JPEG bytes を BGR 配列に復号する（復号できなければ None）."""
-    return cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
-
-
-def _camera_settings(webui_settings: Env, image: Path) -> Env:
-    """固定画像カメラ（FakeCamera）を有効化した Env を作る."""
-    return attrs.evolve(webui_settings, fake_camera_image=image)
-
-
-def _lifespan_client(app: FastAPI) -> Iterator[TestClient]:
-    """Lifespan 起動込みの TestClient（client 系 fixture の共通形）."""
-    with TestClient(app) as test_client:
-        yield test_client
-
 
 @pytest.fixture
 def config_dir(tmp_path: Path) -> Path:
-    """`data/testing/config` を tmp_path へコピーした単一 config ディレクトリ."""
-    return copy_testing_config(tmp_path)
+    """`tests/data/config` を tmp_path へコピーした単一 config ディレクトリ."""
+    return copy_test_config(tmp_path)
 
 
 @pytest.fixture
@@ -102,7 +66,7 @@ def real_pcb_path(pcb_root: Path) -> Path:
     """
     destination = pcb_root / "real" / "fill_coverage.kicad_pcb"
     destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy(REAL_PCB_FIXTURE, destination)
+    shutil.copy(FILL_COVERAGE_PCB, destination)
     return Path("real/fill_coverage.kicad_pcb")
 
 
@@ -114,7 +78,7 @@ def copper_pcb_path(pcb_root: Path) -> Path:
     """
     destination = pcb_root / "real" / "led_blinker.kicad_pcb"
     destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy(COPPER_PCB_FIXTURE, destination)
+    shutil.copy(LED_BLINKER_PCB, destination)
     return Path("real/led_blinker.kicad_pcb")
 
 
@@ -163,7 +127,8 @@ def app(
 
 @pytest.fixture
 def client(app: FastAPI) -> Iterator[TestClient]:
-    yield from _lifespan_client(app)
+    with TestClient(app) as test_client:
+        yield test_client
 
 
 @pytest.fixture
@@ -194,7 +159,7 @@ def camera_backend(
 @pytest.fixture
 def fake_camera_settings(webui_settings: Env) -> Env:
     """FakeCamera（固定画像アセット）を使う Env。preview / FrameHub 結合テスト用."""
-    return _camera_settings(webui_settings, FAKE_CAMERA_IMAGE)
+    return attrs.evolve(webui_settings, fake_camera_image=FAKE_CAMERA_IMAGE)
 
 
 @pytest.fixture
@@ -212,7 +177,8 @@ def fake_camera_app(
 
 @pytest.fixture
 def fake_camera_client(fake_camera_app: FastAPI) -> Iterator[TestClient]:
-    yield from _lifespan_client(fake_camera_app)
+    with TestClient(fake_camera_app) as test_client:
+        yield test_client
 
 
 @pytest.fixture
@@ -226,7 +192,7 @@ def fake_camera_backend(
 @pytest.fixture
 def checkerboard_camera_settings(webui_settings: Env) -> Env:
     """チェッカーボード固定画像カメラの Env。camera_calibration ジョブの結合テスト用."""
-    return _camera_settings(webui_settings, CHECKERBOARD_CAMERA_IMAGE)
+    return attrs.evolve(webui_settings, fake_camera_image=CHECKERBOARD_IMAGE)
 
 
 @pytest.fixture
@@ -246,4 +212,5 @@ def checkerboard_camera_app(
 def checkerboard_camera_client(
     checkerboard_camera_app: FastAPI,
 ) -> Iterator[TestClient]:
-    yield from _lifespan_client(checkerboard_camera_app)
+    with TestClient(checkerboard_camera_app) as test_client:
+        yield test_client

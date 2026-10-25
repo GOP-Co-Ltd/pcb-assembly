@@ -10,7 +10,7 @@ from pathlib import Path
 import attrs
 import pytest
 
-from tests.web.api.conftest import COPPER_PCB_FIXTURE
+from tests.support.paths import LED_BLINKER_PCB
 from web.api.backend import Backend, open_backend
 from web.api.env import Env
 
@@ -41,8 +41,8 @@ class TestFakeCamera:
         self, fake_backend: Backend, webui_settings: Env
     ):
         empty = self._center_at_reference(fake_backend)
-        shutil.copy(COPPER_PCB_FIXTURE, webui_settings.pcb_browse_root)
+        shutil.copy(LED_BLINKER_PCB, webui_settings.pcb_browse_root)
 
-        fake_backend.selection.select(Path(COPPER_PCB_FIXTURE.name))
+        fake_backend.selection.select(Path(LED_BLINKER_PCB.name))
 
         assert self._center_at_reference(fake_backend) > empty

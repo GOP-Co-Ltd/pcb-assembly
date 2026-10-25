@@ -8,7 +8,7 @@ import attrs
 from pcbasm.config import MachineConfig, load_machine
 from pcbasm.config.fields import XYZ, setting_fields
 from pcbasm.pasting.params import DISPENSE_MODES, LINE_DIRECTIONS
-from tests.support.paths import TESTING_DATA_DIR
+from tests.support.paths import MINIMAL_MACHINE_TOML
 
 
 def _by_key():
@@ -20,7 +20,7 @@ class TestSettingFields:
         keys = [field.key for field in setting_fields()]
 
         assert len(keys) == len(set(keys))
-        machine = load_machine(TESTING_DATA_DIR / "machine.toml")
+        machine = load_machine(MINIMAL_MACHINE_TOML)
         for field in setting_fields():
             field.resolve(machine)
 
@@ -100,7 +100,7 @@ class TestSettingFields:
         ]
 
     def test_resolve_reads_the_effective_value(self):
-        machine = load_machine(TESTING_DATA_DIR / "machine.toml")
+        machine = load_machine(MINIMAL_MACHINE_TOML)
         fields = _by_key()
 
         assert fields["paste_dispenser.motion.lift_height"].resolve(machine) == (

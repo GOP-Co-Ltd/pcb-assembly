@@ -2,7 +2,7 @@
 
 ``plan_dot_grid`` が返す :class:`DotGridPlan` を対象に、
 record_pre → record_execution → record_post → finalize が schema v3 と同じキー集合
-（``data/testing/schemas/paste_dataset_metadata_v3.json``）を書くことを検証する。
+（``tests/data/schemas/paste_dataset_metadata_v3.json``）を書くことを検証する。
 """
 
 import json
@@ -40,9 +40,8 @@ from pcbasm.pasting.paste_volume.dataset.recorder import (
 from pcbasm.pasting.paste_volume.dataset.store import PasteDatasetStore
 from pcbasm.vision.crop import RectCrop
 from tests.support.camera_model import make_camera_model
-from tests.support.paths import TESTING_DATA_DIR
+from tests.support.paths import PASTE_DATASET_METADATA
 
-METADATA_V3 = TESTING_DATA_DIR / "schemas" / "paste_dataset_metadata_v3.json"
 STARTED_AT = datetime(2026, 9, 8, 14, 30, 52, 123456, tzinfo=UTC)
 DENSITY = 3.78
 PASTE_HEIGHT_MM = 0.2
@@ -240,7 +239,7 @@ class TestPasteDatasetRecorder:
         session = recorder.finalize(measured_mass_mg=MEASURED_MASS_MG, run=_run_info())
 
         payload = json.loads((session / "metadata.json").read_text(encoding="utf-8"))
-        expected = json.loads(METADATA_V3.read_text(encoding="utf-8"))
+        expected = json.loads(PASTE_DATASET_METADATA.read_text(encoding="utf-8"))
         assert _key_paths(payload) == _key_paths(expected)
         parsed, error = parse_metadata(payload)
         assert error is None

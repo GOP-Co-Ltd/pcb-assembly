@@ -27,13 +27,17 @@ from zeroconf import IPVersion, ServiceInfo
 from zeroconf.asyncio import AsyncZeroconf
 
 from pcbasm.hal.fake import FakeAudioPlayer
-from tests.e2e.conftest import E2E_MACHINE_ID, LiveServer, RunningServer, start_app
-from tests.helpers import random_service_type, skip_if_no_mdns
-from tests.support.backend import devices_with_audio
+from tests.support.browser import E2E_MACHINE_ID, LiveServer, RunningServer, start_app
 from tests.support.polling import wait_until
-from tests.support.settings import make_api_settings, make_ui_settings
-from tests.web.api.jobs.conftest import register_gated
-from tests.web.update_support import UpdateSandbox, make_update_sandbox
+from tests.support.selfupdate import UpdateSandbox, make_update_sandbox
+from tests.support.web import (
+    devices_with_audio,
+    make_api_settings,
+    make_ui_settings,
+    random_service_type,
+    register_gated,
+    skip_if_no_mdns,
+)
 from web.api.app import create_app
 from web.contract.discovery import API_VERSION, TXT_KEY_API, TXT_KEY_ID
 from web.selfupdate.runner import UpdateRunner

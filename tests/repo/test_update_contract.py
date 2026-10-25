@@ -19,8 +19,7 @@ from pydantic import BaseModel
 
 from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper
 from pcbasm.paths import PROJECT_ROOT
-from tests.support.backend import devices_with_audio
-from tests.support.settings import make_api_settings, make_ui_settings
+from tests.support.web import devices_with_audio, make_api_settings, make_ui_settings
 from web.api.app import create_app as create_backend_app
 from web.contract.update import (
     UpdateRepositoryInfo,

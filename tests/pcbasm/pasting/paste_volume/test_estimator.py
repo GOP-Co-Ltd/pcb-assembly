@@ -24,15 +24,17 @@ from pcbasm.pasting.paste_volume.estimator import (
     load_diameter_estimator,
 )
 from pcbasm.vision.image import ImageArray
-from tests.support.paths import TESTING_DATA_DIR
-
-PIN = TESTING_DATA_DIR / "schemas" / "paste_volume_calibration_v1.json"
-MATERIAL_DIR = TESTING_DATA_DIR / "paste-volume"
-PIXEL_PER_MM = 28.677782176153425
+from tests.support.paste_volume import (
+    PASTE_VOLUME_MATERIAL_DIR,
+    PASTE_VOLUME_PIXEL_PER_MM,
+)
+from tests.support.paths import PASTE_VOLUME_CALIBRATION
 
 
 def _calibration() -> PasteVolumeCalibration:
-    calibration, error = parse_calibration(json.loads(PIN.read_text(encoding="utf-8")))
+    calibration, error = parse_calibration(
+        json.loads(PASTE_VOLUME_CALIBRATION.read_text(encoding="utf-8"))
+    )
 
     assert error is None, error
     assert calibration is not None
@@ -40,7 +42,9 @@ def _calibration() -> PasteVolumeCalibration:
 
 
 def _load(name: str, phase: str, view: int = 0) -> ImageArray:
-    image = cv2.imread(str(MATERIAL_DIR / name / phase / f"{view:02d}.png"))
+    image = cv2.imread(
+        str(PASTE_VOLUME_MATERIAL_DIR / name / phase / f"{view:02d}.png")
+    )
     assert image is not None
     return image
 
@@ -49,7 +53,7 @@ def _predict(name: str, view: int = 0) -> PasteVolumePrediction:
     return DiameterVolumeEstimator(_calibration()).predict(
         _load(name, "pre", view),
         _load(name, "post", view),
-        pixel_per_mm=PIXEL_PER_MM,
+        pixel_per_mm=PASTE_VOLUME_PIXEL_PER_MM,
     )
 
 
@@ -105,7 +109,9 @@ class TestPredictRejections:
         )
 
         prediction = DiameterVolumeEstimator(narrowed).predict(
-            _load("small", "pre"), _load("small", "post"), pixel_per_mm=PIXEL_PER_MM
+            _load("small", "pre"),
+            _load("small", "post"),
+            pixel_per_mm=PASTE_VOLUME_PIXEL_PER_MM,
         )
 
         assert prediction.accepted is False
@@ -115,7 +121,7 @@ class TestPredictRejections:
         prediction = DiameterVolumeEstimator(_calibration()).predict(
             _load("large", "pre"),
             _load("large", "post")[:10, :10],
-            pixel_per_mm=PIXEL_PER_MM,
+            pixel_per_mm=PASTE_VOLUME_PIXEL_PER_MM,
         )
 
         assert prediction.accepted is False
@@ -132,7 +138,7 @@ class TestPredictRejections:
         prediction = DiameterVolumeEstimator(_calibration()).predict(
             _load("large", "pre"),
             _load("large", "post"),
-            pixel_per_mm=PIXEL_PER_MM / 2.0,
+            pixel_per_mm=PASTE_VOLUME_PIXEL_PER_MM / 2.0,
         )
 
         assert prediction.accepted is False
@@ -150,7 +156,7 @@ class TestPredictViews:
                 (_load("large", "pre", view), _load("large", "post", view))
                 for view in (0, 1)
             ],
-            pixel_per_mm=PIXEL_PER_MM,
+            pixel_per_mm=PASTE_VOLUME_PIXEL_PER_MM,
         )
 
         assert prediction.accepted is True
@@ -165,7 +171,7 @@ class TestPredictViews:
                 (_load("blank", "pre"), _load("blank", "post")),
                 (_load("large", "pre"), _load("large", "post")),
             ],
-            pixel_per_mm=PIXEL_PER_MM,
+            pixel_per_mm=PASTE_VOLUME_PIXEL_PER_MM,
         )
 
         assert prediction.accepted is True
@@ -174,7 +180,7 @@ class TestPredictViews:
     def test_no_views_at_all_is_told_apart_from_an_empty_cell(self):
         """View を渡していないことと、塗布が写っていないことは原因が別."""
         prediction = DiameterVolumeEstimator(_calibration()).predict_views(
-            [], pixel_per_mm=PIXEL_PER_MM
+            [], pixel_per_mm=PASTE_VOLUME_PIXEL_PER_MM
         )
 
         assert prediction.accepted is False
@@ -192,9 +198,13 @@ class TestPredictViews:
             for name in ("small", "medium", "large")
         ]
 
-        aggregated = estimator.predict_views(views, pixel_per_mm=PIXEL_PER_MM)
+        aggregated = estimator.predict_views(
+            views, pixel_per_mm=PASTE_VOLUME_PIXEL_PER_MM
+        )
         per_view = sorted(
-            estimator.predict(pre, post, pixel_per_mm=PIXEL_PER_MM).mean_volume_ul
+            estimator.predict(
+                pre, post, pixel_per_mm=PASTE_VOLUME_PIXEL_PER_MM
+            ).mean_volume_ul
             for pre, post in views
         )
 

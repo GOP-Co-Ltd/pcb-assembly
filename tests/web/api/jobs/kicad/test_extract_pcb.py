@@ -13,7 +13,7 @@ from pathlib import Path
 import cv2
 import pytest
 
-from tests.web.api.jobs.conftest import WaitUntil
+from tests.support.polling import wait_until
 from web.api.backend import Backend
 from web.api.env import Env
 from web.api.jobs.runtime.manager import JobManager
@@ -37,7 +37,6 @@ class TestExtractPcb:
         camera_backend: Backend,
         real_pcb_path: Path,
         fake_camera_settings: Env,
-        wait_until: WaitUntil,
     ):
         camera_backend.selection.select(real_pcb_path)
 

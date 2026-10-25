@@ -7,15 +7,15 @@ import httpx
 import pytest
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, expect
 
-from tests.e2e.conftest import (
-    LED_BLINKER_PCB,
+from tests.e2e.network import DelayedHttp, delayed_ui
+from tests.support.browser import (
+    SELECTED_LED_BLINKER,
     LiveServer,
     LiveUi,
     acquire_control,
     get_pad_config,
     select_led_blinker,
 )
-from tests.e2e.network import DelayedHttp, delayed_ui
 
 
 @pytest.fixture
@@ -26,7 +26,7 @@ def saved_pad(live_server: LiveServer) -> None:
         json={
             "node": "L0",
             "values": {"ul_per_mm2": 0.15},
-            "expected_pcb": LED_BLINKER_PCB,
+            "expected_pcb": SELECTED_LED_BLINKER,
         },
         timeout=10,
     )

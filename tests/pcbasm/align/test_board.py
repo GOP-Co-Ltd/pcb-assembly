@@ -34,10 +34,9 @@ from pcbasm.hal.fake import FakeCamera, FakeKlipper, SceneCamera
 from pcbasm.kicad import load_board
 from pcbasm.vision import Image, Offset
 from tests.support.camera_model import make_camera_model
-from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR
+from tests.support.paths import LED_BLINKER_PCB, TEST_CONFIG_DIR
 
 PPM = 10.0
-LED_BLINKER = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
 
 
 def _fit(
@@ -284,7 +283,7 @@ def _session(
     )
     return RegionAlignmentSession(
         BoardFrame(board=board, camera_model=camera_model, board_transform=placement),
-        machine or load_machine(TESTING_CONFIG_DIR / "machine.toml"),
+        machine or load_machine(TEST_CONFIG_DIR / "machine.toml"),
         klipper=klipper,
         stage=XYZStage(klipper),
         camera=camera,
@@ -303,7 +302,7 @@ class TestRegionAlignmentSessionKlipperRefusal:
     @pytest.fixture
     def session(self, klipper: FakeKlipper) -> RegionAlignmentSession:
         frame = Image(np.zeros((480, 640, 3), dtype=np.uint8))
-        return _session(klipper, FakeCamera([frame]), board=load_board(LED_BLINKER))
+        return _session(klipper, FakeCamera([frame]), board=load_board(LED_BLINKER_PCB))
 
     def test_align_raises_klipper_error(
         self, klipper: FakeKlipper, session: RegionAlignmentSession
@@ -351,7 +350,7 @@ def _align_on_scene(
         fail_klipper: Klipper がすべての送信を Moonraker の 400 で断る
         max_passes: 1 領域の再計測の上限回数の上書き
     """
-    board = load_board(LED_BLINKER)
+    board = load_board(LED_BLINKER_PCB)
     klipper = FakeKlipper()
     camera = SceneCamera(
         klipper,
@@ -367,7 +366,7 @@ def _align_on_scene(
     )
     if fail_klipper:
         klipper.fail_on(lambda gcode: True)
-    machine = load_machine(TESTING_CONFIG_DIR / "machine.toml")
+    machine = load_machine(TEST_CONFIG_DIR / "machine.toml")
     if max_passes is not None:
         machine = attrs.evolve(
             machine, alignment=attrs.evolve(machine.alignment, max_passes=max_passes)

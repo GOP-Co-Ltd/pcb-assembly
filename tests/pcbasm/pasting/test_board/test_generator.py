@@ -20,7 +20,6 @@ from pcbasm.pasting.test_board.config import (
 from pcbasm.pasting.test_board.generator import (
     BoardGenerator,
 )
-from tests.helpers import make_paste_test_board_offset_pad_root
 from tests.pcbasm.pasting.test_board.support import (
     CUSTOM_A,
     QFN,
@@ -28,6 +27,7 @@ from tests.pcbasm.pasting.test_board.support import (
     R1206,
     custom_pad,
 )
+from tests.support.kicad import make_paste_test_board_offset_pad_root
 
 
 class TestBoardGenerator:

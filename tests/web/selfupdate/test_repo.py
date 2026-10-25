@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.web.selfupdate.conftest import git, head, local_commit, push_commit
+from tests.support.selfupdate import git, head, local_commit, push_commit
 from web.selfupdate.repo import (
     RepoState,
     capture_state,

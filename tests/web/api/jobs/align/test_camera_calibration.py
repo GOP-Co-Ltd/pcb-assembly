@@ -16,8 +16,8 @@ import pytest
 
 from pcbasm.hal.fake import FakeAudioPlayer
 from pcbasm.vision import CameraCalibration, Image
-from tests.support.backend import devices_with_audio, job_manager
-from tests.web.api.jobs.conftest import WaitUntil, answer_next_prompt
+from tests.support.polling import wait_until
+from tests.support.web import answer_next_prompt, devices_with_audio, job_manager
 from web.api.backend import Backend, open_backend
 from web.api.env import Env
 from web.api.jobs.runtime.manager import JobManager
@@ -66,7 +66,6 @@ class TestCameraCalibrationJob:
         self,
         checkerboard_manager: JobManager,
         checkerboard_camera_settings: Env,
-        wait_until: WaitUntil,
     ):
         """チェッカーボード画像で SUCCEEDED まで完走し Apply payload を返す.
 
@@ -112,7 +111,7 @@ class TestCameraCalibrationJob:
         assert payload.files[0].filename == filename
 
     def test_decline_first_prompt_aborts_without_apply(
-        self, checkerboard_manager: JobManager, wait_until: WaitUntil
+        self, checkerboard_manager: JobManager
     ):
         """撮影確認に「いいえ」→ ABORTED（Apply なし）."""
         record = checkerboard_manager.start("camera_calibration", CHECKERBOARD_PARAMS)
@@ -123,9 +122,7 @@ class TestCameraCalibrationJob:
         assert record.status == JobStatus.ABORTED
         assert record.apply_available is False
 
-    def test_undetectable_image_logs_warning_and_reprompts(
-        self, manager: JobManager, wait_until: WaitUntil
-    ):
+    def test_undetectable_image_logs_warning_and_reprompts(self, manager: JobManager):
         """検出不能画像（fake_camera.png）→ 警告 log 後に再 prompt で継続できる.
 
         jobs/conftest の manager は既定の fake_camera.png（チェッカーボード なし）を使う。再

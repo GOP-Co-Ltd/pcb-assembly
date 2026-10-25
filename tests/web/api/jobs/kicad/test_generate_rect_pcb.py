@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from pcbasm.kicad import load_board
-from tests.web.api.jobs.conftest import WaitUntil
+from tests.support.polling import wait_until
 from web.api.env import Env
 from web.api.jobs.runtime.manager import JobManager
 from web.api.jobs.runtime.record import JobStatus
@@ -18,7 +18,6 @@ class TestGenerateRectPcb:
         self,
         manager: JobManager,
         fake_camera_settings: Env,
-        wait_until: WaitUntil,
     ):
         record = manager.start("generate_rect_pcb", {"width": 50.0, "height": 20.0})
         # 実 pcbnew 読込は Raspberry Pi では数十秒かかり得る

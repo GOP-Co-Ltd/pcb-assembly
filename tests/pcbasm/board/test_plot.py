@@ -4,9 +4,7 @@ import cv2
 
 from pcbasm.board.plot import render_pcb
 from pcbasm.kicad import load_board
-from tests.support.paths import TESTING_DATA_DIR
-
-FILL_COVERAGE_PCB = TESTING_DATA_DIR / "fill_coverage" / "fill_coverage.kicad_pcb"
+from tests.support.paths import FILL_COVERAGE_PCB
 
 
 class TestRenderPcb:

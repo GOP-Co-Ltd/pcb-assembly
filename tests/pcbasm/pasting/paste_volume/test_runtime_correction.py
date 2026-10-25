@@ -42,7 +42,7 @@ from tests.support.paste_session import (
     paste_session,
     uniform_frame,
 )
-from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR
+from tests.support.paths import PASTE_VOLUME_CALIBRATION, TEST_CONFIG_DIR
 
 OUTLINE = Polygon([(0.0, 0.0), (40.0, 0.0), (40.0, 30.0), (0.0, 30.0)])
 ENABLED = VolumeCorrectionConfig(calibration_file="cal.paste-volume.json")
@@ -365,7 +365,6 @@ class TestOutcomeSummary:
         assert "頭打ち" in _outcome(clamped=True).summary()
 
 
-CALIBRATION_PIN = TESTING_DATA_DIR / "schemas" / "paste_volume_calibration_v1.json"
 POINTS = (Point2d(10.0, 6.0), Point2d(13.0, 6.0), Point2d(16.0, 6.0))
 _MOVE_RE = re.compile(r"MANUAL_STEPPER STEPPER=paste_dispenser MOVE=(\S+)(.*)")
 _ROTATION_DISTANCE = float(
@@ -416,7 +415,7 @@ class TestRunFlowCalibration:
     def _write_calibration(root: Path) -> str:
         """検証用のピン済み校正を保存し、ファイル名を返す."""
         calibration, error = parse_calibration(
-            json.loads(CALIBRATION_PIN.read_text(encoding="utf-8"))
+            json.loads(PASTE_VOLUME_CALIBRATION.read_text(encoding="utf-8"))
         )
         assert error is None, error
         assert calibration is not None
@@ -432,7 +431,7 @@ class TestRunFlowCalibration:
         settle_seconds: float = 0.0,
         prime_extra_delay: float = 0.0,
     ) -> _Ran:
-        machine = load_machine(TESTING_CONFIG_DIR / "machine.toml")
+        machine = load_machine(TEST_CONFIG_DIR / "machine.toml")
         machine = attrs.evolve(
             machine,
             paste_dispenser=attrs.evolve(
@@ -520,7 +519,7 @@ class TestRunFlowCalibration:
         )
 
         retract_ul = load_machine(
-            TESTING_CONFIG_DIR / "machine.toml"
+            TEST_CONFIG_DIR / "machine.toml"
         ).paste_dispenser.motion.retract_amount
         expected = retract_ul + VolumeCorrectionConfig().amount_ul
         assert ran.dispensed == pytest.approx([expected] * len(POINTS))

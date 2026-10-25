@@ -20,9 +20,8 @@ from pcbasm.pasting.capture import PointCapturer
 from pcbasm.pasting.session import PasteSession
 from pcbasm.vision import Image
 from tests.support.camera_model import make_camera_model
-from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR
+from tests.support.paths import LED_BLINKER_PCB, TEST_CONFIG_DIR
 
-LED_BLINKER = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
 PPM = 10.0
 RESOLUTION = (640, 480)
 FOCUS_Z = 12.0
@@ -47,13 +46,13 @@ def _session(
     camera: FakeCamera, klipper: FakeKlipper, machine: MachineConfig | None = None
 ) -> PasteSession:
     board_frame = BoardFrame(
-        board=load_board(LED_BLINKER),
+        board=load_board(LED_BLINKER_PCB),
         camera_model=make_camera_model(PPM, RESOLUTION, focus_z=FOCUS_Z),
         board_transform=Shift(BOARD_SHIFT.x, BOARD_SHIFT.y),
     )
     return PasteSession.from_board_frame(
         board_frame,
-        machine or load_machine(TESTING_CONFIG_DIR / "machine.toml"),
+        machine or load_machine(TEST_CONFIG_DIR / "machine.toml"),
         klipper=klipper,
         stage=XYZStage(klipper),
         camera=camera,
@@ -222,7 +221,7 @@ def _machine_with_settle(
 ) -> MachineConfig:
     """検証用 machine.toml の末尾に `[settle]` を足した MachineConfig を作る."""
     path = tmp_path / "machine.toml"
-    source = (TESTING_CONFIG_DIR / "machine.toml").read_text(encoding="utf-8")
+    source = (TEST_CONFIG_DIR / "machine.toml").read_text(encoding="utf-8")
     path.write_text(
         f"{source}\n[settle]\nmove_sec = {move_sec}\nprobe_sec = {probe_sec}\n",
         encoding="utf-8",

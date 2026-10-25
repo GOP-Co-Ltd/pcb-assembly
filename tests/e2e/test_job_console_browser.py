@@ -6,7 +6,7 @@ import httpx
 import pytest
 from playwright.sync_api import expect
 
-from tests.e2e.conftest import (
+from tests.support.browser import (
     TERMINAL as _TERMINAL,
     LiveServer,
     LiveUi,

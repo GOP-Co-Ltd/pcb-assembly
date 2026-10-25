@@ -4,7 +4,7 @@
 その値とは ``total`` と sample の ``measured_volume_ul`` の 2 つ。
 blank の ``measured_volume_ul`` は常に 0.0 なので質量に依存しない。
 
-on-disk 契約の出典は ``data/testing/schemas/paste_dataset_pending_v1.json``
+on-disk 契約の出典は ``tests/data/schemas/paste_dataset_pending_v1.json``
 （同じ収集の完成形が ``paste_dataset_metadata_v3.json``）。この 2 ファイルを
 ``finalize_pending`` が計量質量 1 つで結ぶことを検証する。
 """
@@ -26,11 +26,9 @@ from pcbasm.pasting.paste_volume.dataset.pending import (
     finalize_pending,
     parse_pending,
 )
-from tests.support.paths import TESTING_DATA_DIR
+from tests.support.paths import PASTE_DATASET_METADATA, PASTE_DATASET_PENDING
 
-METADATA_V3 = TESTING_DATA_DIR / "schemas" / "paste_dataset_metadata_v3.json"
-PENDING_V1 = TESTING_DATA_DIR / "schemas" / "paste_dataset_pending_v1.json"
-# PENDING_V1 と METADATA_V3 は同じ収集で、質量 0.945 mg / 密度 3.78 が対応する
+# PASTE_DATASET_PENDING と PASTE_DATASET_METADATA は同じ収集で、質量 0.945 mg / 密度 3.78 が対応する
 MEASURED_MASS_MG = 0.945
 
 
@@ -40,7 +38,7 @@ def _document(path: Path) -> dict[str, Any]:
 
 def _pending(payload: dict[str, Any] | None = None) -> PasteDatasetPending:
     pending, error = parse_pending(
-        _document(PENDING_V1) if payload is None else payload
+        _document(PASTE_DATASET_PENDING) if payload is None else payload
     )
 
     assert error is None, error
@@ -49,7 +47,7 @@ def _pending(payload: dict[str, Any] | None = None) -> PasteDatasetPending:
 
 
 def _metadata() -> PasteDatasetMetadata:
-    metadata, error = parse_metadata(_document(METADATA_V3))
+    metadata, error = parse_metadata(_document(PASTE_DATASET_METADATA))
 
     assert error is None, error
     assert metadata is not None
@@ -70,10 +68,10 @@ class TestParsePending:
     def test_round_trips_through_to_dict(self):
         document = json.loads(json.dumps(_pending().to_dict()))
 
-        assert document == _document(PENDING_V1)
+        assert document == _document(PASTE_DATASET_PENDING)
 
     def test_rejects_unknown_schema_version(self):
-        payload = _document(PENDING_V1) | {"schema_version": 2}
+        payload = _document(PASTE_DATASET_PENDING) | {"schema_version": 2}
 
         pending, error = parse_pending(payload)
 
@@ -83,7 +81,7 @@ class TestParsePending:
 
     @pytest.mark.parametrize("key", ["total", "unexpected"])
     def test_rejects_extra_key(self, key: str):
-        payload = _document(PENDING_V1) | {key: 1.0}
+        payload = _document(PASTE_DATASET_PENDING) | {key: 1.0}
 
         pending, error = parse_pending(payload)
 
@@ -91,7 +89,7 @@ class TestParsePending:
         assert error is not None
 
     def test_rejects_sample_that_still_carries_a_measured_volume(self):
-        payload = _document(PENDING_V1)
+        payload = _document(PASTE_DATASET_PENDING)
         payload["samples"][0]["measured_volume_ul"] = 0.15
 
         pending, error = parse_pending(payload)
@@ -143,7 +141,7 @@ class TestFinalizePending:
         assert "質量" in error
 
     def test_rejects_a_document_without_any_dispense(self):
-        payload = _document(PENDING_V1)
+        payload = _document(PASTE_DATASET_PENDING)
         payload["samples"] = []
 
         metadata, error = finalize_pending(

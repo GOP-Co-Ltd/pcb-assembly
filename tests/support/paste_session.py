@@ -25,9 +25,8 @@ from pcbasm.pasting.prepare import PasteCorrection
 from pcbasm.pasting.session import PasteSession
 from pcbasm.vision import Image, Offset
 from tests.support.camera_model import make_camera_model
-from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR
+from tests.support.paths import LED_BLINKER_PCB, TEST_CONFIG_DIR
 
-LED_BLINKER = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
 PPM = 10.0
 RESOLUTION = (640, 480)
 FOCUS_Z = 12.0
@@ -56,16 +55,16 @@ def paste_session(
 ) -> PasteSession:
     """計測済みの `PasteSession`（board は原点から (100, 50) へ載っている）.
 
-    ``machine`` を省くと testing の machine.toml を使う。
+    ``machine`` を省くと tests/data/config の machine.toml を使う。
     """
     board_frame = BoardFrame(
-        board=load_board(LED_BLINKER),
+        board=load_board(LED_BLINKER_PCB),
         camera_model=make_camera_model(PPM, RESOLUTION, focus_z=FOCUS_Z),
         board_transform=Shift(100.0, 50.0),
     )
     return PasteSession.from_board_frame(
         board_frame,
-        machine or load_machine(TESTING_CONFIG_DIR / "machine.toml"),
+        machine or load_machine(TEST_CONFIG_DIR / "machine.toml"),
         klipper=klipper,
         stage=XYZStage(klipper),
         camera=camera,

@@ -3,7 +3,7 @@
 点塗布データセットは塗布後のはんだ円径が事前に分からないため mask を保存しない。
 store が作るのは ``pre/`` と ``post/`` だけで、``mask/`` は生成しない。
 
-Metadata は ``data/testing/schemas/paste_dataset_metadata_v3.json`` を
+Metadata は ``tests/data/schemas/paste_dataset_metadata_v3.json`` を
 :func:`parse_metadata` で読み戻して使う（on-disk 契約を唯一の出典にする）。
 """
 
@@ -31,10 +31,8 @@ from pcbasm.pasting.paste_volume.dataset.store import (
     rescuable_sessions,
 )
 from pcbasm.vision.crop import RectCrop
-from tests.support.paths import TESTING_DATA_DIR
+from tests.support.paths import PASTE_DATASET_METADATA, PASTE_DATASET_PENDING
 
-METADATA_V3 = TESTING_DATA_DIR / "schemas" / "paste_dataset_metadata_v3.json"
-PENDING_V1 = TESTING_DATA_DIR / "schemas" / "paste_dataset_pending_v1.json"
 STARTED_AT = datetime(2026, 9, 8, 14, 30, 52, 123456, tzinfo=UTC)
 STEM = "plate-40x40-20260908T143052.123+0000"
 CROP_SIZE_PX = 9
@@ -42,7 +40,7 @@ VIEWS = (DatasetView(number=0), DatasetView(number=1, offset_x_mm=1.0))
 
 
 def _payload() -> dict[str, object]:
-    return json.loads(METADATA_V3.read_text(encoding="utf-8"))
+    return json.loads(PASTE_DATASET_METADATA.read_text(encoding="utf-8"))
 
 
 def _parsed(payload: dict[str, object]) -> PasteDatasetMetadata:
@@ -59,7 +57,7 @@ def _metadata() -> PasteDatasetMetadata:
 
 
 def _pending_payload() -> dict[str, object]:
-    return json.loads(PENDING_V1.read_text(encoding="utf-8"))
+    return json.loads(PASTE_DATASET_PENDING.read_text(encoding="utf-8"))
 
 
 def _pending() -> PasteDatasetPending:

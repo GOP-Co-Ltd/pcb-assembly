@@ -19,9 +19,9 @@ import httpx
 import pytest
 
 from pcbasm.paths import PROJECT_ROOT
-from tests.e2e.conftest import TERMINAL
+from tests.support.browser import TERMINAL
+from tests.support.paths import LED_BLINKER_PCB
 from tests.support.polling import wait_until
-from tests.web.api.conftest import COPPER_PCB_FIXTURE
 from web.dev import SIM_CONFIG
 
 
@@ -101,7 +101,7 @@ class TestMakeDev:
             assert api.post("/api/session/control/acquire").status_code == 200
             selected = api.put(
                 "/api/selection/pcb-file",
-                json={"path": str(COPPER_PCB_FIXTURE.relative_to("/"))},
+                json={"path": str(LED_BLINKER_PCB.relative_to("/"))},
             )
             assert selected.status_code == 200, selected.text
             started = api.post("/api/jobs/paste_solder", json={"params": {}})

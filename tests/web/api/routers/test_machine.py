@@ -46,9 +46,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeAudioPlayer, FakeKlipper
-from tests.support.backend import devices_with_audio
-from tests.web.api.jobs.conftest import register_gated
-from tests.web.update_support import UpdateSandbox, make_update_sandbox
+from tests.support.selfupdate import UpdateSandbox, make_update_sandbox
+from tests.support.web import devices_with_audio, register_gated
 from web.api.app import create_app
 from web.api.backend import Backend
 from web.api.env import Env

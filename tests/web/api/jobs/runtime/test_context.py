@@ -28,9 +28,14 @@ import pytest
 
 from pcbasm.hal.fake import FakeAudioPlayer
 from pcbasm.vision import Image
-from tests.support.backend import job_manager
-from tests.web.api.conftest import COPPER_PCB_FIXTURE, decode_jpeg, jpeg_payload
-from tests.web.api.jobs.conftest import WaitUntil, register_synthetic as _register
+from tests.support.paths import LED_BLINKER_PCB
+from tests.support.polling import wait_until
+from tests.support.web import (
+    decode_jpeg,
+    job_manager,
+    jpeg_payload,
+    register_synthetic as _register,
+)
 from web.api.backend import Backend
 from web.api.camera import CameraFeed
 from web.api.env import Env
@@ -44,7 +49,7 @@ class TestContextProperties:
     """Params / pcb_path / machine / artifacts_dir."""
 
     def test_params_are_validated_with_defaults_filled(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         captured: list[dict[str, object]] = []
 
@@ -71,7 +76,6 @@ class TestContextProperties:
         catalog: JobCatalog,
         camera_backend: Backend,
         real_pcb_path: Path,
-        wait_until: WaitUntil,
     ):
         camera_backend.selection.select(real_pcb_path)
         captured: list[Path | None] = []
@@ -91,7 +95,7 @@ class TestContextProperties:
         assert pcb_path.name == "fill_coverage.kicad_pcb"
 
     def test_pcb_path_and_source_pcb_are_none_without_selection(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         """PCB 未選択なら絶対パスも相対 source_pcb も None."""
         captured: list[tuple[Path | None, str | None]] = []
@@ -110,7 +114,6 @@ class TestContextProperties:
         manager: JobManager,
         catalog: JobCatalog,
         fake_camera_settings: Env,
-        wait_until: WaitUntil,
     ):
         captured: list[Path] = []
 
@@ -135,7 +138,6 @@ class TestSourcePcb:
         catalog: JobCatalog,
         camera_backend: Backend,
         real_pcb_path: Path,
-        wait_until: WaitUntil,
     ):
         camera_backend.selection.select(real_pcb_path)
         captured: list[str | None] = []
@@ -162,7 +164,6 @@ class TestBoard:
         camera_backend: Backend,
         pcb_root: Path,
         real_pcb_path: Path,
-        wait_until: WaitUntil,
     ):
         camera_backend.selection.select(real_pcb_path)
         captured: list[set[str]] = []
@@ -180,7 +181,7 @@ class TestBoard:
 
         assert "CONCAVE_L" in designators()
 
-        shutil.copy(COPPER_PCB_FIXTURE, pcb_root / real_pcb_path)
+        shutil.copy(LED_BLINKER_PCB, pcb_root / real_pcb_path)
 
         assert "CONCAVE_L" not in designators()
         assert "U1" in captured[-1]
@@ -190,7 +191,7 @@ class TestLogAndProgress:
     """Log / progress の record への反映."""
 
     def test_log_lines_are_appended_to_record(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         def run(ctx: JobContext) -> None:
             ctx.log("1 行目")
@@ -208,7 +209,6 @@ class TestLogAndProgress:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        wait_until: WaitUntil,
         stage: str,
         percent: float | None,
     ):
@@ -232,7 +232,6 @@ class TestFrame:
         self,
         camera_backend: Backend,
         catalog: JobCatalog,
-        wait_until: WaitUntil,
     ):
         # TTL を長くした CameraFeed で「直近のジョブ提供フレーム優先」を
         # 決定的に観測する
@@ -286,7 +285,6 @@ class TestOpenCamera:
         manager: JobManager,
         catalog: JobCatalog,
         camera_backend: Backend,
-        wait_until: WaitUntil,
     ):
         sizes: list[tuple[int, int]] = []
         running_during: list[bool] = []
@@ -312,7 +310,6 @@ class TestOpenCamera:
         manager: JobManager,
         catalog: JobCatalog,
         camera_backend: Backend,
-        wait_until: WaitUntil,
     ):
         """With ブロック内の例外でも hub は解放される（FAILED で停止漏れなし）."""
 
@@ -332,7 +329,7 @@ class TestNextCommand:
     """next_command（abort 連動は test_manager.py）."""
 
     def test_next_command_returns_none_on_timeout(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         captured: list[dict[str, object] | None] = []
 
@@ -351,7 +348,6 @@ def _prompts_of(
     manager: JobManager,
     record: JobRecord,
     answers: list[object],
-    wait_until: WaitUntil,
 ) -> list[PromptSpec]:
     """応答待ちを 1 件ずつ待って answers の順に答え、出た PromptSpec を返す."""
     specs: list[PromptSpec] = []
@@ -375,7 +371,7 @@ class TestConfirm:
     """confirm: 2 択のボタンで尋ね、true 側なら True."""
 
     def test_buttons_carry_the_given_labels_and_default_to_true(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         results: list[bool] = []
 
@@ -389,7 +385,7 @@ class TestConfirm:
 
         _register(catalog, run)
         record = manager.start("synthetic", {})
-        specs = _prompts_of(manager, record, [True, False], wait_until)
+        specs = _prompts_of(manager, record, [True, False])
 
         assert record.status == JobStatus.SUCCEEDED, record.error
         assert results == [True, False]
@@ -403,7 +399,7 @@ class TestConfirm:
         ]
 
     def test_while_waiting_callback_runs_during_the_wait(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         """応答待ちの間ライブフレームを流し続けられる（直行性テストの十字線の常時表示）."""
         polls: list[int] = []
@@ -414,7 +410,7 @@ class TestConfirm:
         _register(catalog, run)
         record = manager.start("synthetic", {})
         wait_until(lambda: len(polls) >= 2, timeout=60.0)
-        _prompts_of(manager, record, [True], wait_until)
+        _prompts_of(manager, record, [True])
 
         assert record.status == JobStatus.SUCCEEDED, record.error
 
@@ -430,7 +426,6 @@ class TestRequire:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        wait_until: WaitUntil,
         answer: bool,
         status: JobStatus,
     ):
@@ -442,7 +437,7 @@ class TestRequire:
 
         _register(catalog, run)
         record = manager.start("synthetic", {})
-        [spec] = _prompts_of(manager, record, [answer], wait_until)
+        [spec] = _prompts_of(manager, record, [answer])
 
         assert record.status == status
         assert reached == ([True] if answer else [])
@@ -450,9 +445,7 @@ class TestRequire:
 
 
 class TestChoose:
-    def test_returns_the_chosen_option(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
-    ):
+    def test_returns_the_chosen_option(self, manager: JobManager, catalog: JobCatalog):
         chosen: list[str] = []
 
         def run(ctx: JobContext) -> None:
@@ -460,7 +453,7 @@ class TestChoose:
 
         _register(catalog, run)
         record = manager.start("synthetic", {})
-        [spec] = _prompts_of(manager, record, ["top"], wait_until)
+        [spec] = _prompts_of(manager, record, ["top"])
 
         assert record.status == JobStatus.SUCCEEDED, record.error
         assert chosen == ["top"]
@@ -478,7 +471,6 @@ class TestAskPositive:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        wait_until: WaitUntil,
         audio_player: FakeAudioPlayer,
     ):
         """計量入力のように装置の前を離れた作業者を呼び戻す用途なので、聞き直すたびに鳴らす."""
@@ -489,7 +481,7 @@ class TestAskPositive:
 
         _register(catalog, run)
         record = manager.start("synthetic", {})
-        specs = _prompts_of(manager, record, [-1.0, 110.5], wait_until)
+        specs = _prompts_of(manager, record, [-1.0, 110.5])
 
         assert record.status == JobStatus.SUCCEEDED, record.error
         assert answers == [110.5]
@@ -497,9 +489,7 @@ class TestAskPositive:
         assert "正の数値を入力してください" in "\n".join(record.log_lines)
         assert [sound for sound, *_ in audio_player.played] == ["prompt", "prompt"]
 
-    def test_cancel_button_returns_none(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
-    ):
+    def test_cancel_button_returns_none(self, manager: JobManager, catalog: JobCatalog):
         answers: list[float | None] = []
 
         def run(ctx: JobContext) -> None:
@@ -507,7 +497,7 @@ class TestAskPositive:
 
         _register(catalog, run)
         record = manager.start("synthetic", {})
-        [spec] = _prompts_of(manager, record, [False], wait_until)
+        [spec] = _prompts_of(manager, record, [False])
 
         assert record.status == JobStatus.SUCCEEDED, record.error
         assert answers == [None]

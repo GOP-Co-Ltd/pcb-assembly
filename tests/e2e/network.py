@@ -10,13 +10,8 @@ from threading import Event
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from tests.e2e.conftest import (
-    E2E_MACHINE_ID,
-    LiveServer,
-    LiveUi,
-    start_app,
-)
-from tests.support.settings import make_ui_settings
+from tests.support.browser import E2E_MACHINE_ID, LiveServer, LiveUi, start_app
+from tests.support.web import make_ui_settings
 from web.ui.app import create_app
 from web.ui.machines import MachineEndpoint
 

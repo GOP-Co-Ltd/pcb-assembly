@@ -44,7 +44,7 @@ from starlette.testclient import WebSocketTestSession
 from pcbasm.vision import CameraCalibration
 from tests.support import polling
 from tests.support.job_demo import register_job_demo
-from tests.web.api.jobs.conftest import register_gated, register_synthetic
+from tests.support.web import register_gated, register_synthetic
 from web.api.backend import Backend
 from web.api.jobs.runtime.catalog import ParamSpec
 from web.api.jobs.runtime.context import JobContext

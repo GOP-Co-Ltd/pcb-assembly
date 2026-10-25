@@ -1,106 +1,20 @@
-"""`web.api.jobs` テスト共有フィクスチャ・共有ヘルパ.
+"""`web.api.jobs` テストの fixture.
 
-計画書 webui-phase3.md「公開インターフェース案」が契約。JobManager は
-実 Backend の装置・ロック・選択・カメラ・machine.toml と結合する（モックなし）。
-
-worker スレッドとの同期は threading.Event ゲート付きの合成ジョブと
-`wait_until` のポーリングで決定的に行う（sleep 固定値依存のアサート禁止）。
+JobManager は実 Backend の装置・ロック・選択・カメラ・machine.toml と結合する。
+worker スレッドとの同期は、threading.Event のゲート付きの合成ジョブと `tests.support.polling.wait_until` のポーリングで決定的に行う。
 machine_config / camera_backend（fake camera 付き）fixture は tests/web/api/conftest.py にある。
 """
 
 from __future__ import annotations
 
-import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 
 import pytest
 
-from tests.support import polling
-from tests.support.backend import job_manager
+from tests.support.web import ManagerFactory, job_manager
 from web.api.backend import Backend
-from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition, ParamSpec
-from web.api.jobs.runtime.context import JobContext
+from web.api.jobs.runtime.catalog import JobCatalog
 from web.api.jobs.runtime.manager import JobManager
-from web.api.jobs.runtime.record import JobRecord, JobResult, PromptSpec
-
-type WaitUntil = Callable[..., None]
-type ManagerFactory = Callable[..., JobManager]
-
-
-def answer_next_prompt(
-    record: JobRecord,
-    manager: JobManager,
-    answer: object,
-    answered: set[str],
-    *,
-    timeout: float = 60.0,
-) -> PromptSpec:
-    """未応答の prompt を待って answer を返し、その prompt を返す（応答済み id は answered で管理）."""
-    polling.wait_until(
-        lambda: (pending := record.pending_prompt) is not None
-        and pending[0] not in answered,
-        timeout=timeout,
-    )
-    pending = record.pending_prompt
-    assert pending is not None
-    manager.respond_prompt(pending[0], answer)
-    answered.add(pending[0])
-    return pending[1]
-
-
-def register_synthetic(
-    catalog: JobCatalog,
-    run: Callable[[JobContext], JobResult | None],
-    *,
-    name: str = "synthetic",
-    label: str = "合成ジョブ",
-    params: tuple[ParamSpec, ...] = (),
-    requires_pcb: bool = False,
-    uses_machine: bool = False,
-    notify_on_completion: bool = False,
-    accepts_commands: bool = False,
-    persisted_params: tuple[str, ...] = (),
-) -> None:
-    """合成ジョブを catalog へ登録する（テスト専用の共通形）."""
-    catalog.register(
-        JobDefinition(
-            name=name,
-            label=label,
-            run=run,
-            params=params,
-            requires_pcb=requires_pcb,
-            uses_machine=uses_machine,
-            notify_on_completion=notify_on_completion,
-            accepts_commands=accepts_commands,
-            persisted_params=persisted_params,
-        )
-    )
-
-
-def register_gated(
-    catalog: JobCatalog,
-    *,
-    name: str = "gated",
-    uses_machine: bool = False,
-    accepts_commands: bool = False,
-    notify_on_completion: bool = False,
-) -> threading.Event:
-    """gate.set() で成功終了し、abort 要求は checkpoint で拾う合成ジョブを登録する."""
-    gate = threading.Event()
-
-    def run(ctx: JobContext) -> None:
-        while not gate.wait(timeout=0.02):
-            ctx.checkpoint()
-
-    register_synthetic(
-        catalog,
-        run,
-        name=name,
-        uses_machine=uses_machine,
-        accepts_commands=accepts_commands,
-        notify_on_completion=notify_on_completion,
-    )
-    return gate
 
 
 @pytest.fixture
@@ -130,9 +44,3 @@ def make_manager(camera_backend: Backend) -> Iterator[ManagerFactory]:
 @pytest.fixture
 def manager(make_manager: ManagerFactory, catalog: JobCatalog) -> JobManager:
     return make_manager(catalog)
-
-
-@pytest.fixture
-def wait_until() -> WaitUntil:
-    """条件成立までポーリングする共有ポーラ（tests.support.polling.wait_until）を返す."""
-    return polling.wait_until

@@ -28,13 +28,13 @@ from pcbasm.geometry import Point3d
 from pcbasm.migrate.machine_toml import migrate_text
 from pcbasm.pasting.params import DispenseMotion, PasteParams
 from pcbasm.paths import PROJECT_ROOT
-from tests.support.paths import TESTING_DATA_DIR
+from tests.support.paths import MINIMAL_MACHINE_TOML, TEST_DATA_DIR
 
 
 def _write_with(tmp_path: Path, extra: str = "", **replace: str) -> Path:
     """検証用 machine.toml の文字列を置き換え、末尾に ``extra`` を足して書く."""
     path = tmp_path / "machine.toml"
-    source = (TESTING_DATA_DIR / "machine.toml").read_text()
+    source = (MINIMAL_MACHINE_TOML).read_text()
     for old, new in replace.items():
         assert old in source
         source = source.replace(old, new, 1)
@@ -91,9 +91,9 @@ class TestMachine:
     """Machineクラスのテスト."""
 
     def test_load_config(self):
-        machine = load_machine(TESTING_DATA_DIR / "machine.toml")
+        machine = load_machine(MINIMAL_MACHINE_TOML)
 
-        assert machine.klipper == KlipperConfig(host="192.168.1.100", port=7125)
+        assert machine.klipper == KlipperConfig(host="127.0.0.1", port=7126)
         assert machine.paste_dispenser == PasteDispenserConfig(
             rotations_per_ul=1.0,
             nozzle_diameter=0.21,
@@ -121,7 +121,7 @@ class TestMachine:
             fps=30.0,
             format="YUYV",
             crop=CameraCropConfig(width=400, height=400),
-            calibration_file=TESTING_DATA_DIR / "calibration.json",
+            calibration_file=TEST_DATA_DIR / "calibration.json",
         )
         assert machine.reference_point == ReferencePointConfig(
             x=23.1,
@@ -150,7 +150,7 @@ class TestMachine:
             load_machine(path)
 
     def test_reference_marker_tolerance_defaults_to_half_a_millimetre(self):
-        machine = load_machine(TESTING_DATA_DIR / "machine.toml")
+        machine = load_machine(MINIMAL_MACHINE_TOML)
 
         assert machine.reference_point.diameter_tolerance_mm == pytest.approx(0.5)
 
@@ -167,7 +167,7 @@ class TestMachine:
             load_machine(path)
 
     def test_alignment_defaults_when_section_absent(self):
-        machine = load_machine(TESTING_DATA_DIR / "machine.toml")
+        machine = load_machine(MINIMAL_MACHINE_TOML)
 
         assert machine.alignment == AlignmentConfig()
         assert machine.alignment.tolerance == pytest.approx(0.1)
@@ -188,7 +188,7 @@ class TestMachine:
     def test_optional_keys_fall_back_to_defaults(
         self, tmp_path, removed_line: str, attribute: str, expected: float
     ):
-        source = (TESTING_DATA_DIR / "machine.toml").read_text()
+        source = (MINIMAL_MACHINE_TOML).read_text()
         if removed_line:
             source = source.replace(removed_line, "")
         path = tmp_path / "machine.toml"
@@ -199,7 +199,7 @@ class TestMachine:
         assert attrgetter(attribute)(dispenser) == pytest.approx(expected)
 
     def test_alignment_section_overrides_defaults(self, tmp_path):
-        source = (TESTING_DATA_DIR / "machine.toml").read_text()
+        source = (MINIMAL_MACHINE_TOML).read_text()
         path = tmp_path / "machine.toml"
         path.write_text(
             source + "\n[alignment]\ntolerance = 0.05\n"
@@ -220,7 +220,7 @@ class TestMachine:
 
     @pytest.mark.parametrize("amount", [0.25, 0.0], ids=["explicit", "zero-disables"])
     def test_initial_purge_ul_reads_explicit_value(self, tmp_path, amount: float):
-        source = (TESTING_DATA_DIR / "machine.toml").read_text()
+        source = (MINIMAL_MACHINE_TOML).read_text()
         path = tmp_path / "machine.toml"
         path.write_text(
             source.replace(
@@ -315,7 +315,7 @@ class TestMachine:
         assert dispenser.defaults.dispense_mode == "micro_line"
 
     def test_missing_required_section_is_a_config_error(self, tmp_path):
-        source = (TESTING_DATA_DIR / "machine.toml").read_text()
+        source = (MINIMAL_MACHINE_TOML).read_text()
         path = tmp_path / "machine.toml"
         path.write_text(source.split("[probe]")[0], encoding="utf-8")
 
@@ -361,7 +361,7 @@ class TestLoadKlipper:
     def test_reads_klipper_even_when_the_rest_is_invalid(self, tmp_path):
         path = _write_with(tmp_path, **{"lift_height = 3.0": "lift_height = 0.0"})
 
-        assert load_klipper(path) == KlipperConfig(host="192.168.1.100", port=7125)
+        assert load_klipper(path) == KlipperConfig(host="127.0.0.1", port=7126)
 
     def test_missing_section_is_a_config_error(self, tmp_path):
         path = tmp_path / "machine.toml"
@@ -427,7 +427,7 @@ class TestMachineAudio:
         assert machine.audio == AudioConfig(device="plughw:CARD=X,DEV=0", volume=0.75)
 
     def test_defaults_whole_config_when_section_is_absent(self):
-        assert load_machine(TESTING_DATA_DIR / "machine.toml").audio == AudioConfig()
+        assert load_machine(MINIMAL_MACHINE_TOML).audio == AudioConfig()
 
 
 class TestAlignmentRegionSettings:
@@ -600,7 +600,7 @@ class TestNozzlePosition:
     """
 
     def test_missing_section_is_untaught(self, section: str):
-        dispenser = load_machine(TESTING_DATA_DIR / "machine.toml").paste_dispenser
+        dispenser = load_machine(MINIMAL_MACHINE_TOML).paste_dispenser
 
         assert getattr(dispenser, section).position is None
 
@@ -718,7 +718,7 @@ class TestMachineSettle:
     """`[settle]`: 装置の静定待ち（セクションごと省略可）."""
 
     def test_defaults_whole_section_when_absent(self):
-        machine = load_machine(TESTING_DATA_DIR / "machine.toml")
+        machine = load_machine(MINIMAL_MACHINE_TOML)
 
         assert machine.settle == SettleConfig()
 
@@ -742,7 +742,7 @@ class TestMachineDetection:
     """`[detection]`: 統計検出のサンプリング（セクションごと省略可）."""
 
     def test_defaults_whole_section_when_absent(self):
-        machine = load_machine(TESTING_DATA_DIR / "machine.toml")
+        machine = load_machine(MINIMAL_MACHINE_TOML)
 
         assert machine.detection == DetectionConfig()
 

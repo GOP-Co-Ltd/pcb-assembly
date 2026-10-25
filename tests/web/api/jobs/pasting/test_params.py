@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.support.backend import standalone_catalog
+from tests.support.web import standalone_catalog
 from web.api.jobs.runtime.catalog import JobCatalog
 
 

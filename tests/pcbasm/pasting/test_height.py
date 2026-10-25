@@ -27,12 +27,10 @@ from pcbasm.pasting.height import (
     render_height_plane,
     render_planned_points,
 )
-from tests.support.paths import TESTING_DATA_DIR
+from tests.support.paths import LED_BLINKER_PCB
 
 _SAMPLING_KWARGS = {"min_radius": 1.5, "min_samples": 3, "max_samples": 9}
 _BOARD_EDGE_MARGIN = 2.5
-# TOP 銅箔ゾーンを持つ実 PCB（基板背景の銅箔描画を含む）
-LED_BLINKER_PCB = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
 # 基板座標を写した移動先がどれも可動域に収まる printer.cfg
 _WIDE_LIMITS = {
     **FAKE_PRINTER_CONFIG,

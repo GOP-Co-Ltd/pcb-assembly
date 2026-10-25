@@ -14,13 +14,13 @@ import httpx
 import pytest
 from playwright.sync_api import expect
 
-from tests.e2e.conftest import (
+from tests.support.browser import (
     E2E_MACHINE_ID as _E2E_MACHINE_ID,
     LiveServer,
     LiveUi,
     start_app as _start_app,
 )
-from tests.support.settings import make_ui_settings as _make_ui_settings
+from tests.support.web import make_ui_settings as _make_ui_settings
 from web.ui.app import create_app as create_ui_app
 from web.ui.machines import MachineEndpoint, MachineRegistry
 

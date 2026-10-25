@@ -37,7 +37,7 @@ from fastapi.testclient import TestClient
 from pcbasm.commissioning import STEPS
 from pcbasm.config.fields import setting_fields
 from pcbasm.machine.diagnostics import Check, save_checks
-from tests.web.ui.conftest import BACKEND_MACHINE_ID
+from tests.support.web import BACKEND_MACHINE_ID
 from web.api.app import create_app as create_backend_app
 from web.api.backend import Backend
 from web.api.env import Env as ApiEnv

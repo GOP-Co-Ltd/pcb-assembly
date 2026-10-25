@@ -34,7 +34,7 @@ from tests.support.paste_session import (
     paste_session,
     uniform_frame,
 )
-from tests.support.paths import TESTING_CONFIG_DIR
+from tests.support.paths import TEST_CONFIG_DIR
 
 # クリーニング位置（マシン座標）。fake の可動域 x/y 0-300・z -5..50 の内側
 CLEAN_POSITION = Point3d(50.0, 60.0, 1.0)
@@ -65,7 +65,7 @@ _STEPPER_MOVE_RE = re.compile(r"MANUAL_STEPPER STEPPER=paste_dispenser MOVE=(\S+
 
 
 def _dispenser():
-    return load_machine(TESTING_CONFIG_DIR / "machine.toml").paste_dispenser
+    return load_machine(TEST_CONFIG_DIR / "machine.toml").paste_dispenser
 
 
 def _blocking_loads_ul(klipper: FakeKlipper) -> list[float]:

@@ -4,8 +4,6 @@
 ディスペンサー・カメラ）を物理的に動かしうるコマンドを止める最後の砦なので、 判定ロジックの回帰をここでピンする。フックの公開契約は「stdin
 に PreToolUse の JSON を受け、拒否するときだけ stdout に permissionDecision=deny
 を書く」であり、 内部関数ではなくその契約を実プロセス起動で検証する。
-
-`tests/test_package.py` と同じくミラーレイアウト外のトップレベルテスト （`src/` に対応物が無い成果物のため）。
 """
 
 from __future__ import annotations

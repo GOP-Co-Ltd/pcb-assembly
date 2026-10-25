@@ -16,9 +16,9 @@ from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FakeKlipper
 from pcbasm.pasting.plate import CopperPlate, write_rect_board
 from pcbasm.pasting.session import PasteSession
-from tests.support.paths import TESTING_DATA_DIR
+from tests.support.paths import MINIMAL_MACHINE_TOML
 
-MACHINE = load_machine(TESTING_DATA_DIR / "machine.toml")
+MACHINE = load_machine(MINIMAL_MACHINE_TOML)
 
 # 機械 XY に対して z = 0.01x + 0.02y で傾いた面
 TILTED = HeightPlane(

@@ -7,8 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from tests.support.paths import PROJECT_ROOT
-from tests.web.api.jobs.conftest import WaitUntil, answer_next_prompt
+from tests.support.paths import PASTE_DATASET_PENDING
+from tests.support.polling import wait_until
+from tests.support.web import answer_next_prompt
 from web.api.env import Env
 from web.api.jobs.runtime.manager import JobManager
 from web.api.jobs.runtime.record import JobStatus
@@ -26,11 +27,7 @@ class TestPasteDatasetFinalize:
 
     def _incomplete_session(self, settings: Env) -> Path:
         """pending.json と、それが参照する capture を持つ未完了 session を作る."""
-        document = json.loads(
-            (
-                PROJECT_ROOT / "data/testing/schemas/paste_dataset_pending_v1.json"
-            ).read_text(encoding="utf-8")
-        )
+        document = json.loads(PASTE_DATASET_PENDING.read_text(encoding="utf-8"))
         session = settings.paste_dataset_dir / f"{self.STEM}.incomplete"
         for phase in ("pre", "post"):
             (session / phase).mkdir(parents=True)
@@ -47,7 +44,6 @@ class TestPasteDatasetFinalize:
         self,
         manager: JobManager,
         fake_camera_settings: Env,
-        wait_until: WaitUntil,
     ):
         incomplete = self._incomplete_session(fake_camera_settings)
 
@@ -68,9 +64,7 @@ class TestPasteDatasetFinalize:
         assert (session / "pre" / "000001.00.png").is_file()
         assert not (session / "pending.json").exists()
 
-    def test_fails_when_no_session_can_be_rescued(
-        self, manager: JobManager, wait_until: WaitUntil
-    ):
+    def test_fails_when_no_session_can_be_rescued(self, manager: JobManager):
         record = manager.start(
             "paste_dataset_finalize", {"measured_mass": self.MEASURED_MASS_MG}
         )
@@ -86,7 +80,6 @@ class TestPasteDatasetFinalize:
         self,
         manager: JobManager,
         fake_camera_settings: Env,
-        wait_until: WaitUntil,
         mass: float,
     ):
         self._incomplete_session(fake_camera_settings)

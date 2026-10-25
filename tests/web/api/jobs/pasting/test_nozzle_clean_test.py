@@ -12,7 +12,7 @@ import pytest
 
 from pcbasm.gcode import GCodeLike
 from pcbasm.hal.fake import FakeKlipper
-from tests.web.api.jobs.conftest import WaitUntil
+from tests.support.polling import wait_until
 from web.api.backend import Backend
 from web.api.jobs.runtime.manager import JobManager
 from web.api.jobs.runtime.record import JobRecord, JobStatus
@@ -48,7 +48,7 @@ def _record_clean_position(config_dir: Path, x: float) -> None:
 class TestNozzleCleanTest:
     @pytest.fixture
     def run(
-        self, manager: JobManager, camera_backend: Backend, wait_until: WaitUntil
+        self, manager: JobManager, camera_backend: Backend
     ) -> Callable[[], JobRecord]:
         """ジョブを始め、終了時の駐機が済む（装置のロックが外れる）まで待つ関数を返す."""
 

@@ -21,7 +21,7 @@ from typing import Any, override
 import httpx
 from websockets.sync.client import connect
 
-from tests.e2e.conftest import (
+from tests.support.browser import (
     TERMINAL as _TERMINAL,
     LiveServer,
     LiveUi,
@@ -32,7 +32,7 @@ from tests.e2e.conftest import (
     wait_machine_field as _wait_machine_field,
 )
 from tests.support.polling import wait_until
-from tests.web.api.conftest import decode_jpeg, jpeg_payload
+from tests.support.web import decode_jpeg, jpeg_payload
 from web.api.routers.pasting.board import ResolvedSettings
 
 _HTTP_TIMEOUT = 10.0

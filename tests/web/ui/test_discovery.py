@@ -15,7 +15,7 @@ import pytest
 from fastapi import FastAPI
 from zeroconf import ServiceInfo
 
-from tests.helpers import random_service_type
+from tests.support.web import random_service_type
 from web.contract.discovery import API_VERSION, SERVICE_TYPE
 from web.ui.app import create_app
 from web.ui.discovery import MachineDiscovery, endpoint_from_service_info

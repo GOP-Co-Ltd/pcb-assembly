@@ -34,7 +34,7 @@ from starlette.applications import Starlette
 from starlette.routing import Mount
 from starlette.types import Receive, Scope, Send
 
-from tests.support.paths import TESTING_DATA_DIR
+from tests.support.paths import FILL_COVERAGE_PCB
 from web.api.env import Env as ApiEnv
 from web.ui.machine_client import BackendGateway
 from web.ui.machines import MachineEndpoint, MachineRegistry
@@ -43,7 +43,6 @@ from web.ui.settings import Settings
 
 # tests/web/ui/conftest.py の静的登録 1 台と同じ id
 MACHINE_ID = "uitest"
-REAL_PCB = TESTING_DATA_DIR / "fill_coverage" / "fill_coverage.kicad_pcb"
 
 # エコー上流が必ず返すヘッダ。プロキシが落とす / 残すことを確かめる材料
 _ECHO_STATUS = 201
@@ -304,7 +303,7 @@ class TestRelayToRealBackend:
         self, backend_client: TestClient, backend_settings: ApiEnv
     ):
         """実 .kicad_pcb をプロキシ経由で送り、bytes が一致することを確かめる."""
-        with REAL_PCB.open("rb") as pcb:
+        with FILL_COVERAGE_PCB.open("rb") as pcb:
             response = backend_client.post(
                 f"/m/{MACHINE_ID}/api/selection/pcb-file/upload",
                 files={"file": ("uploaded.kicad_pcb", pcb, "application/octet-stream")},
@@ -312,7 +311,7 @@ class TestRelayToRealBackend:
 
         assert response.status_code == 201, response.text
         uploaded = backend_settings.pcb_upload_dir / "uploaded.kicad_pcb"
-        assert uploaded.read_bytes() == REAL_PCB.read_bytes()
+        assert uploaded.read_bytes() == FILL_COVERAGE_PCB.read_bytes()
 
     def test_backend_conflict_is_relayed_with_owner(
         self, backend_client: TestClient, backend_app: FastAPI

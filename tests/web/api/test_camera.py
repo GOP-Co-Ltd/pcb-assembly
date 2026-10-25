@@ -28,17 +28,14 @@ import pytest
 
 from pcbasm.machine.devices import open_devices
 from pcbasm.vision import Image, ImageArray
-from tests.support.paths import TESTING_DATA_DIR
+from tests.support.paths import TEST_DATA_DIR
+from tests.support.web import decode_jpeg, jpeg_payload
 from web.api.backend import Backend
 from web.api.camera import CameraFeed
 from web.api.env import Env
 from web.api.machine_config import MachineConfigFile
 
-from .conftest import decode_jpeg, jpeg_payload
-
-REFLECTIVE_BOARD_IMAGE = (
-    TESTING_DATA_DIR / "vision" / "copper" / "reflective_board_0.png"
-)
+REFLECTIVE_BOARD_IMAGE = TEST_DATA_DIR / "vision" / "copper" / "reflective_board_0.png"
 
 
 @pytest.fixture

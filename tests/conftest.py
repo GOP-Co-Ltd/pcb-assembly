@@ -1,9 +1,8 @@
 """全テスト共通の fixture.
 
-``pcbasm.hal`` は picamera2 を、``tests.helpers`` は pcbnew を import するため、
-Raspberry Pi と KiCAD が無い環境では読み込めない。root conftest が module 冒頭で
-それらを import すると、実機に依存しないテストの collect まで巻き込んで失敗する。
-実機依存の import はそれを必要とする fixture の中だけで行う。
+``pcbasm.hal`` は picamera2 を、``tests.support.kicad`` は pcbnew を import するため、Raspberry Pi と KiCAD が無い環境では読み込めない。
+root conftest が module 冒頭でそれらを import すると、それらに依存しないテストの collect まで巻き込んで失敗する。
+それらの import は、必要とする fixture の中だけで行う。
 """
 
 from __future__ import annotations
@@ -141,8 +140,8 @@ def forbid_real_systemctl(monkeypatch: pytest.MonkeyPatch, refusing_bin: str) ->
 def paste_test_board_footprint_root(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> Path:
-    """System KiCad inventoryに依存しない実 ``*.pretty`` library."""
-    from tests.helpers import make_paste_test_board_footprint_root
+    """System の KiCad library に依存しない実 ``*.pretty`` library."""
+    from tests.support.kicad import make_paste_test_board_footprint_root
 
     return make_paste_test_board_footprint_root(
         tmp_path_factory.mktemp("paste-test-board") / "footprints"

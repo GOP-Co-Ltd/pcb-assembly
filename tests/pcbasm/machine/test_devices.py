@@ -17,17 +17,15 @@ from pcbasm.hal.fake import FAKE_MACHINE_PRINTER_CONFIG, FakeCamera, FakeKlipper
 from pcbasm.machine.devices import Devices, open_devices
 from pcbasm.machine.journal import Journal
 from pcbasm.vision import Image
-from tests.helpers import copy_testing_config
 from tests.support import polling
 from tests.support.moonraker import FakeMoonraker
-from tests.support.paths import TESTING_DATA_DIR
-
-FAKE_CAMERA_IMAGE = TESTING_DATA_DIR / "webui" / "fake_camera.png"
+from tests.support.paths import FAKE_CAMERA_IMAGE
+from tests.support.web import copy_test_config
 
 
 @pytest.fixture
 def config_path(tmp_path: Path) -> Path:
-    return copy_testing_config(tmp_path) / "machine.toml"
+    return copy_test_config(tmp_path) / "machine.toml"
 
 
 @pytest.fixture

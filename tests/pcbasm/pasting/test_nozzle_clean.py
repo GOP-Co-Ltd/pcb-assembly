@@ -55,7 +55,7 @@ from pcbasm.pasting.nozzle_clean import (
     wipe_points,
 )
 from pcbasm.pasting.params import DispenseMotion, PasteParams
-from tests.support.paths import TESTING_DATA_DIR
+from tests.support.paths import MINIMAL_MACHINE_TOML
 
 # FAKE_PRINTER_CONFIG: x,y ∈ [0,300] / z ∈ [-5,50] / max_velocity = 100
 CENTER_X = 68.0
@@ -345,7 +345,7 @@ class TestResolveNozzleClean:
 
     def _machine(self, tmp_path: Path, extra: str) -> MachineConfig:
         path = tmp_path / "machine.toml"
-        source = (TESTING_DATA_DIR / "machine.toml").read_text()
+        source = (MINIMAL_MACHINE_TOML).read_text()
         path.write_text(f"{source}\n{extra}", encoding="utf-8")
         return load_machine(path)
 

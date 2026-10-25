@@ -26,7 +26,7 @@ from pcbasm.pasting.paste_volume.evaluate import (
     evaluation_lines,
 )
 from pcbasm.pasting.paste_volume.fit import fit_session
-from tests.helpers import build_paste_volume_session
+from tests.support.paste_volume import build_paste_volume_session
 
 STEM = "plate-47.5x20-20260909T145923.452+0900"
 

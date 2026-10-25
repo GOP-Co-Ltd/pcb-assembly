@@ -7,7 +7,7 @@ import pytest
 from playwright.sync_api import expect
 
 from pcbasm.hal.fake import FAKE_AUDIO_DEVICES
-from tests.e2e.conftest import (
+from tests.support.browser import (
     E2E_MACHINE_ID as _E2E_MACHINE_ID,
     LiveServer,
     LiveUi,

@@ -1,6 +1,6 @@
 """Dataset metadata schema v3（DTO・strict parse・体積配分・view 検証）の公開契約.
 
-``data/testing/schemas/paste_dataset_metadata_v3.json`` が on-disk 形状のピン。
+``tests/data/schemas/paste_dataset_metadata_v3.json`` が on-disk 形状のピン。
 
 v2 からの破壊的変更（パージ廃止：``purge`` セクションと ``config`` の
 ``purge_cell_size_mm`` / ``initial_purge_ul`` を除き、インタラクティブローディングの
@@ -22,10 +22,9 @@ from pcbasm.pasting.paste_volume.dataset.metadata import (
     allocate_volume_by_rotations,
     parse_metadata,
 )
-from tests.support.paths import TESTING_DATA_DIR
+from tests.support.paths import PASTE_DATASET_METADATA, TEST_DATA_DIR
 
-METADATA_V1 = TESTING_DATA_DIR / "schemas" / "paste_dataset_metadata_v1.json"
-METADATA_V3 = TESTING_DATA_DIR / "schemas" / "paste_dataset_metadata_v3.json"
+METADATA_V1 = TEST_DATA_DIR / "schemas" / "paste_dataset_metadata_v1.json"
 
 CONFIG_KEYS = {
     "rotations_per_ul",
@@ -63,7 +62,7 @@ SAMPLE_KEYS = {
 
 
 def _load_v3() -> dict[str, object]:
-    return json.loads(METADATA_V3.read_text(encoding="utf-8"))
+    return json.loads(PASTE_DATASET_METADATA.read_text(encoding="utf-8"))
 
 
 def _json_roundtrip(metadata: PasteDatasetMetadata) -> dict[str, object]:
@@ -142,7 +141,7 @@ class TestMetadataOnDiskShape:
         return _load_v3()
 
     def test_fixture_file_declares_kind_and_current_schema_version(self):
-        assert Path(METADATA_V3).is_file()
+        assert Path(PASTE_DATASET_METADATA).is_file()
         payload = _load_v3()
 
         assert payload["kind"] == "pcbasm-paste-volume-dataset"

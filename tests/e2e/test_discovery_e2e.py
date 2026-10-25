@@ -33,12 +33,13 @@ import attrs
 import httpx
 import pytest
 
-from tests.e2e.conftest import (
-    LiveServer,
-    start_app,
+from tests.support.browser import LiveServer, start_app
+from tests.support.web import (
+    make_api_settings,
+    make_ui_settings,
+    random_service_type,
+    skip_if_no_mdns,
 )
-from tests.helpers import random_service_type, skip_if_no_mdns
-from tests.support.settings import make_api_settings, make_ui_settings
 from web.api.app import create_app as create_backend_app
 from web.api.discovery import ServiceAdvertiser
 from web.api.env import Env

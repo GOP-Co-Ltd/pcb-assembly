@@ -19,9 +19,9 @@ import tomlkit
 from pcbasm.config.audio import AudioConfig
 from pcbasm.hal import AudioPlaybackError
 from pcbasm.hal.fake import FakeAudioPlayer
-from tests.web.api.jobs.conftest import (
+from tests.support.polling import wait_until
+from tests.support.web import (
     ManagerFactory,
-    WaitUntil,
     answer_next_prompt,
     register_gated as _register_gated,
     register_synthetic as _register,
@@ -52,7 +52,6 @@ class TestPresentOnTermination:
         manager: JobManager,
         catalog: JobCatalog,
         camera_backend: Backend,
-        wait_until: WaitUntil,
     ):
         _register(catalog, lambda ctx: None, uses_machine=True)
         record = manager.start("synthetic", {})
@@ -69,7 +68,6 @@ class TestPresentOnTermination:
         manager: JobManager,
         catalog: JobCatalog,
         camera_backend: Backend,
-        wait_until: WaitUntil,
     ):
         def run(ctx: JobContext) -> None:
             raise RuntimeError("意図的な失敗")
@@ -91,7 +89,6 @@ class TestPresentOnTermination:
         manager: JobManager,
         catalog: JobCatalog,
         camera_backend: Backend,
-        wait_until: WaitUntil,
         config_dir: Path,
     ):
         """キャップ記録済み（paste）はキャップ駐機経路になり、失敗ログは退避文言のみ.
@@ -122,7 +119,6 @@ class TestPresentOnTermination:
         manager: JobManager,
         catalog: JobCatalog,
         camera_backend: Backend,
-        wait_until: WaitUntil,
     ):
         """uses_machine=False（dev ジョブ相当）では終了処理を試行しない."""
         _register(catalog, lambda ctx: None, uses_machine=False)
@@ -154,7 +150,6 @@ class TestAudioCompletionNotification:
         make_manager: ManagerFactory,
         catalog: JobCatalog,
         config_dir: Path,
-        wait_until: WaitUntil,
         audio_player: FakeAudioPlayer,
     ):
         config = _configure_audio(config_dir)
@@ -173,7 +168,6 @@ class TestAudioCompletionNotification:
         make_manager: ManagerFactory,
         catalog: JobCatalog,
         config_dir: Path,
-        wait_until: WaitUntil,
         audio_player: FakeAudioPlayer,
     ):
         config = _configure_audio(config_dir)
@@ -195,7 +189,6 @@ class TestAudioCompletionNotification:
         make_manager: ManagerFactory,
         catalog: JobCatalog,
         config_dir: Path,
-        wait_until: WaitUntil,
         audio_player: FakeAudioPlayer,
     ):
         _configure_audio(config_dir)
@@ -215,7 +208,6 @@ class TestAudioCompletionNotification:
         make_manager: ManagerFactory,
         catalog: JobCatalog,
         config_dir: Path,
-        wait_until: WaitUntil,
         audio_player: FakeAudioPlayer,
     ):
         """`notify_on_completion` はブラウザ通知専用で、完了音を左右しない."""
@@ -235,7 +227,6 @@ class TestAudioCompletionNotification:
         self,
         make_manager: ManagerFactory,
         catalog: JobCatalog,
-        wait_until: WaitUntil,
         audio_player: FakeAudioPlayer,
     ):
         """`[audio]` を書かない fixture でも既定デバイス・既定音量で鳴る."""
@@ -258,7 +249,6 @@ class TestAudioCompletionNotification:
         make_manager: ManagerFactory,
         catalog: JobCatalog,
         config_dir: Path,
-        wait_until: WaitUntil,
         caplog: pytest.LogCaptureFixture,
         audio_player: FakeAudioPlayer,
     ):
@@ -303,7 +293,6 @@ class TestAudioOperatorNotification:
         make_manager: ManagerFactory,
         catalog: JobCatalog,
         config_dir: Path,
-        wait_until: WaitUntil,
         audio_player: FakeAudioPlayer,
     ):
         config = _configure_audio(config_dir)
@@ -334,7 +323,6 @@ class TestAudioOperatorNotification:
         make_manager: ManagerFactory,
         catalog: JobCatalog,
         config_dir: Path,
-        wait_until: WaitUntil,
         audio_player: FakeAudioPlayer,
     ):
         """コマンド待ち（prompt を出さないオペレータ待ち）用の明示通知."""
@@ -358,7 +346,6 @@ class TestAudioOperatorNotification:
         make_manager: ManagerFactory,
         catalog: JobCatalog,
         config_dir: Path,
-        wait_until: WaitUntil,
         audio_player: FakeAudioPlayer,
     ):
         """Abort 済みなら鳴らさない（死んだジョブの前へ呼び戻さないため）."""

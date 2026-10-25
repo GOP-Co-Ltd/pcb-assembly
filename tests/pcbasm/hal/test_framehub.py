@@ -22,10 +22,8 @@ import pytest
 from pcbasm.hal import FrameHub
 from pcbasm.hal.fake import FakeCamera
 from pcbasm.vision import CircleDetector, Image
-from tests.support.paths import TESTING_DATA_DIR
+from tests.support.paths import FAKE_CAMERA_IMAGE
 from tests.support.polling import wait_until
-
-FAKE_CAMERA_IMAGE = TESTING_DATA_DIR / "webui" / "fake_camera.png"
 
 
 class CaptureFailure(Exception):

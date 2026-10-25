@@ -1,6 +1,6 @@
 """1 session を計測して校正へ組み立てる経路の公開契約.
 
-実素材 ``data/testing/paste-volume/`` の pre/post を、schema v3 の metadata から
+実素材 ``tests/data/paste-volume/`` の pre/post を、schema v3 の metadata から
 参照する session として組み立てて通す。合成画像では銅板テクスチャと照明ムラが
 再現できず、blank ガードの効きを確かめられない。
 
@@ -17,7 +17,7 @@ import pytest
 from pcbasm.pasting.paste_volume.dataset.reader import DatasetSession
 from pcbasm.pasting.paste_volume.detect import DotDetectionSpec
 from pcbasm.pasting.paste_volume.fit import fit_session, measure_session
-from tests.helpers import (
+from tests.support.paste_volume import (
     PASTE_VOLUME_DISPENSED,
     PASTE_VOLUME_PIXEL_PER_MM,
     build_paste_volume_session,

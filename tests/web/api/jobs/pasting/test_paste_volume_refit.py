@@ -7,8 +7,9 @@ from pathlib import Path
 import cv2
 
 from pcbasm.pasting.paste_volume.calibration import list_calibrations, load_calibration
-from tests.helpers import build_paste_volume_session
-from tests.web.api.jobs.conftest import WaitUntil, answer_next_prompt
+from tests.support.paste_volume import build_paste_volume_session
+from tests.support.polling import wait_until
+from tests.support.web import answer_next_prompt
 from web.api.env import Env
 from web.api.jobs.runtime.manager import JobManager
 from web.api.jobs.runtime.record import JobRecord, JobStatus
@@ -35,7 +36,6 @@ class TestPasteVolumeRefit:
         self,
         manager: JobManager,
         fake_camera_settings: Env,
-        wait_until: WaitUntil,
     ):
         self._session(fake_camera_settings)
 
@@ -57,7 +57,6 @@ class TestPasteVolumeRefit:
         self,
         manager: JobManager,
         fake_camera_settings: Env,
-        wait_until: WaitUntil,
     ):
         """保存名なし = ハイパラ探索。図とまとめだけ出し、保存先は汚さない.
 
@@ -88,7 +87,6 @@ class TestPasteVolumeRefit:
         self,
         manager: JobManager,
         fake_camera_settings: Env,
-        wait_until: WaitUntil,
     ):
         self._session(fake_camera_settings, blank_material="large")
 
@@ -105,7 +103,6 @@ class TestPasteVolumeRefit:
         self,
         manager: JobManager,
         fake_camera_settings: Env,
-        wait_until: WaitUntil,
     ):
         self._session(fake_camera_settings, blank_material="large")
 
@@ -115,9 +112,7 @@ class TestPasteVolumeRefit:
 
         assert record.status == JobStatus.SUCCEEDED, record.error
 
-    def test_fails_when_no_completed_dataset_exists(
-        self, manager: JobManager, wait_until: WaitUntil
-    ):
+    def test_fails_when_no_completed_dataset_exists(self, manager: JobManager):
         record = self._start(manager)
         wait_until(lambda: record.status.terminal, timeout=60.0)
 
@@ -130,7 +125,6 @@ class TestPasteVolumeRefit:
         self,
         manager: JobManager,
         fake_camera_settings: Env,
-        wait_until: WaitUntil,
     ):
         self._session(fake_camera_settings)
 

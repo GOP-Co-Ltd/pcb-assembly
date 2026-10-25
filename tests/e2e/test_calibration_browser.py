@@ -7,13 +7,14 @@ from playwright.sync_api import expect
 
 from pcbasm.pasting.paste_volume.calibration import CALIBRATION_SUFFIX
 from pcbasm.paths import PROJECT_ROOT
-from tests.e2e.conftest import (
+from tests.support.browser import (
     LiveServer,
     LiveUi,
     acquire_control as _acquire_control,
     session_headers as _session_headers,
     wait_machine_field as _wait_machine_field,
 )
+from tests.support.paths import PASTE_VOLUME_CALIBRATION
 
 _HTTP_TIMEOUT = 10.0
 
@@ -181,9 +182,7 @@ class TestPasteVolumeCalibrationSelect:
         root.mkdir(parents=True, exist_ok=True)
         name = f"{stem}{CALIBRATION_SUFFIX}"
         (root / name).write_text(
-            (
-                PROJECT_ROOT / "data/testing/schemas/paste_volume_calibration_v1.json"
-            ).read_text(encoding="utf-8"),
+            (PASTE_VOLUME_CALIBRATION).read_text(encoding="utf-8"),
             encoding="utf-8",
         )
         return name

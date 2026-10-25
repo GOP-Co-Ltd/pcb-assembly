@@ -1,6 +1,6 @@
 """校正ファイル（schema v1）の DTO・strict parse・永続化の公開契約.
 
-on-disk の出典は ``data/testing/schemas/paste_volume_calibration_v1.json``。
+on-disk の出典は ``tests/data/schemas/paste_volume_calibration_v1.json``。
 検出ハイパラと係数は不可分（違うハイパラで測った直径に係数を当てても意味がない）
 なので、同じ document へ一緒に持つことを固める。
 """
@@ -26,13 +26,11 @@ from pcbasm.pasting.paste_volume.calibration import (
     write_calibration,
 )
 from pcbasm.paths import PROJECT_ROOT
-from tests.support.paths import TESTING_DATA_DIR
-
-PIN = TESTING_DATA_DIR / "schemas" / "paste_volume_calibration_v1.json"
+from tests.support.paths import PASTE_VOLUME_CALIBRATION
 
 
 def _document() -> dict:
-    return json.loads(PIN.read_text(encoding="utf-8"))
+    return json.loads(PASTE_VOLUME_CALIBRATION.read_text(encoding="utf-8"))
 
 
 def _parsed() -> PasteVolumeCalibration:

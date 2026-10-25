@@ -23,9 +23,9 @@ from pcbasm.pasting.dispense_calibration.mass import RotationsPerUlRound
 from pcbasm.pasting.dispense_calibration.procedure import FlowCalibrationProcedure
 from pcbasm.pasting.plate import CopperPlate
 from pcbasm.pasting.session import PasteSession
-from tests.support.paths import TESTING_DATA_DIR
+from tests.support.paths import MINIMAL_MACHINE_TOML
 
-MACHINE = load_machine(TESTING_DATA_DIR / "machine.toml")
+MACHINE = load_machine(MINIMAL_MACHINE_TOML)
 ROTATION_DISTANCE = float(
     FAKE_PRINTER_CONFIG["manual_stepper paste_dispenser"]["rotation_distance"]
 )

@@ -9,8 +9,9 @@ import pytest
 from playwright.sync_api import expect
 
 from pcbasm.hal.fake import FakeAudioPlayer
-from tests.e2e.conftest import (
-    LED_BLINKER_PCB,
+from tests.e2e.network import delayed_ui
+from tests.support.browser import (
+    SELECTED_LED_BLINKER,
     LiveServer,
     LiveUi,
     acquire_control,
@@ -18,8 +19,7 @@ from tests.e2e.conftest import (
     select_led_blinker,
     start_app,
 )
-from tests.e2e.network import delayed_ui
-from tests.support.backend import devices_with_audio
+from tests.support.web import devices_with_audio
 from web.api.app import create_app
 from web.api.env import Env
 from web.api.jobs.runtime.context import JobContext
@@ -56,7 +56,7 @@ def live_server(e2e_settings: Env) -> Iterator[LiveServer]:
             json={
                 "node": "L0",
                 "values": {"ul_per_mm2": 0.15},
-                "expected_pcb": LED_BLINKER_PCB,
+                "expected_pcb": SELECTED_LED_BLINKER,
             },
         ).raise_for_status()
         yield live

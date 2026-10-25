@@ -6,14 +6,14 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import expect
 
-from tests.e2e.conftest import (
+from tests.e2e.network import DelayedHttp, delayed_ui
+from tests.support.browser import (
     LiveServer,
     LiveUi,
     acquire_control,
     get_pad_config,
     select_led_blinker,
 )
-from tests.e2e.network import DelayedHttp, delayed_ui
 
 
 @pytest.fixture

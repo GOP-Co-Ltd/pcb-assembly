@@ -30,10 +30,9 @@ from pcbasm.pasting.toolhead_offset import (
 )
 from pcbasm.vision import Image
 from tests.support.camera_model import make_camera_model
-from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR
+from tests.support.paths import LED_BLINKER_PCB, TEST_CONFIG_DIR
 
 CALIBRATED_AT = datetime(2026, 7, 17, 12, 0, 0)
-LED_BLINKER = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
 PPM = 10.0
 FOCUS_Z = 12.0
 BOARD_SHIFT = Point2d(100.0, 50.0)
@@ -357,7 +356,7 @@ def _procedure(
     diameter_min: float,
 ) -> ToolheadOffsetProcedure:
     board_frame = BoardFrame(
-        board=load_board(LED_BLINKER),
+        board=load_board(LED_BLINKER_PCB),
         camera_model=make_camera_model(PPM, (640, 480), focus_z=FOCUS_Z),
         board_transform=Shift(BOARD_SHIFT.x, BOARD_SHIFT.y),
     )
@@ -382,7 +381,7 @@ class TestToolheadOffsetProcedure:
 
     @pytest.fixture
     def machine(self) -> MachineConfig:
-        return load_machine(TESTING_CONFIG_DIR / "machine.toml")
+        return load_machine(TEST_CONFIG_DIR / "machine.toml")
 
     @pytest.fixture
     def procedure(

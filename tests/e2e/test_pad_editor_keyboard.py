@@ -7,15 +7,15 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import expect
 
-from tests.e2e.conftest import (
-    LED_BLINKER_PCB,
+from tests.e2e.network import DelayedHttp, delayed_ui
+from tests.support.browser import (
+    SELECTED_LED_BLINKER,
     LiveServer,
     LiveUi,
     acquire_control,
     get_pad_config,
     select_led_blinker,
 )
-from tests.e2e.network import DelayedHttp, delayed_ui
 
 
 @pytest.fixture
@@ -61,7 +61,7 @@ class TestPadEditorKeyboard:
             data={
                 "node": "L0",
                 "values": {"ul_per_mm2": 0.31},
-                "expected_pcb": LED_BLINKER_PCB,
+                "expected_pcb": SELECTED_LED_BLINKER,
             },
         )
         assert response.status == 200

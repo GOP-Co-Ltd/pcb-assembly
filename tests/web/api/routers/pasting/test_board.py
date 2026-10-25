@@ -34,7 +34,7 @@ from shapely import Polygon
 
 from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.pasting.params import PASTE_PARAM_NAMES
-from tests.web.api.conftest import COPPER_PCB_FIXTURE, REAL_PCB_FIXTURE
+from tests.support.paths import FILL_COVERAGE_PCB, LED_BLINKER_PCB
 from web.api.backend import Backend
 from web.api.env import Env
 
@@ -237,10 +237,10 @@ class TestReplacedBoard:
         assert response.status_code == 201, response.text
 
     def test_reupload_under_the_same_name(self, client: TestClient):
-        self._upload(client, COPPER_PCB_FIXTURE)
+        self._upload(client, LED_BLINKER_PCB)
         assert _U1_PADS <= self._pad_ids(client)
 
-        self._upload(client, REAL_PCB_FIXTURE)
+        self._upload(client, FILL_COVERAGE_PCB)
 
         ids = self._pad_ids(client)
         assert {"CONCAVE_L.#1", "CONCAVE_L.#2"} <= ids
@@ -251,7 +251,7 @@ class TestReplacedBoard:
     ):
         assert _U1_PADS <= self._pad_ids(selected_client)
 
-        shutil.copy(REAL_PCB_FIXTURE, pcb_root / copper_pcb_path)
+        shutil.copy(FILL_COVERAGE_PCB, pcb_root / copper_pcb_path)
 
         ids = self._pad_ids(selected_client)
         assert {"CONCAVE_L.#1", "CONCAVE_L.#2"} <= ids
@@ -1133,7 +1133,7 @@ class TestExportImport:
     ):
         japanese = pcb_root / "real" / "日本語基板.kicad_pcb"
         japanese.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy(COPPER_PCB_FIXTURE, japanese)
+        shutil.copy(LED_BLINKER_PCB, japanese)
         backend.selection.select(japanese.relative_to(pcb_root))
 
         response = client.get("/api/pasting/board/export")

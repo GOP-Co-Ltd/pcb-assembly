@@ -149,7 +149,7 @@ PR10 より前の版は設定履歴を持たないので、「1. 001 でブラ�
 ### A5 基板の巡回と直交性
 
 - 画面: `board_tour`、`orthogonality_test`
-- 前提: 基準点マーカーが視野に入るように基板（例: `data/testing/fill_coverage`）を置き、その PCB を選ぶ
+- 前提: 基準点マーカーが視野に入るように基板（例: `tests/data/fill_coverage`）を置き、その PCB を選ぶ
 - 操作: board_tour を通す。orthogonality_test は各点の確認で「次へ」を押し、途中で「終了」を押す
 - 合格条件: board_tour が成功し、summary に照合の残差が出る。orthogonality_test は確認を待つ間ずっと十字線・ROI・巡回先ラベルが出続け、「終了」で正常終了して summary に軸間角・巡回点数・周回数が出る。残差と軸間角が従来値と同程度である（前後の値を PR 本文に記録する）
 
@@ -167,7 +167,7 @@ PR10 より前の版は設定履歴を持たないので、「1. 001 でブラ�
 ### A8 はんだ塗布の通し
 
 - 画面: `paste_solder`
-- 前提: テスト基板（例: `data/testing/led_blinker`）をセットし、その PCB を選ぶ
+- 前提: テスト基板（例: `tests/data/led_blinker`）をセットし、その PCB を選ぶ
 - 操作: probe → 領域照合 → pad の精密照合 → 初回パージの撮影確認 → 塗布 → 駐機まで通す
 - 合格条件: 塗布がパッドに乗り、キャップへ駐機して終わる。前の版とのジャーナルの diff に、意図しない差が無い
 

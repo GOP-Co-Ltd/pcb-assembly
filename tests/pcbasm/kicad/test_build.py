@@ -103,7 +103,7 @@ class TestFillCoverageBoard:
         return largest
 
     def test_round_trips_with_same_paste_pads_as_fixture(self, saved_pcb: Board):
-        # data/testing/fill_coverage/fill_coverage.kicad_pcb と同一構成
+        # tests/data/fill_coverage/fill_coverage.kicad_pcb と同一構成
         # （挙動不変の昇格）: 面2 + 凹形3 + L字のアンカー円1 + 線1 + 点1 = 8
         assert len(saved_pcb.pads) == 8
         assert {pad.designator for pad in saved_pcb.pads} == {

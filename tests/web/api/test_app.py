@@ -41,9 +41,9 @@ from fastapi.testclient import TestClient
 
 from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper
 from pcbasm.paths import PROJECT_ROOT
-from tests.support.backend import devices_with_audio
 from tests.support.moonraker import FakeMoonraker
 from tests.support.polling import wait_until
+from tests.support.web import devices_with_audio
 from web.api.app import create_app
 from web.api.backend import Backend
 from web.api.env import Env
@@ -54,7 +54,7 @@ MIGRATION_BEFORE = (
     PROJECT_ROOT / "tests" / "pcbasm" / "migrate" / "machine-before-M.toml"
 )
 
-# data/testing/config/machine.toml の 1 行（lift_height は正の値が必要）
+# tests/data/config/machine.toml の 1 行（lift_height は正の値が必要）
 _LIFT_HEIGHT = "lift_height = 2.0"
 
 

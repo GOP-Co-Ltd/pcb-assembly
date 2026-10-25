@@ -37,9 +37,9 @@ import tomlkit
 from pcbasm.config.audio import AudioConfig
 from pcbasm.hal import AudioPlaybackError
 from pcbasm.hal.fake import FakeAudioPlayer
-from tests.web.api.jobs.conftest import (
+from tests.support.polling import wait_until
+from tests.support.web import (
     ManagerFactory,
-    WaitUntil,
     answer_next_prompt,
     register_gated as _register_gated,
     register_synthetic as _register,
@@ -87,7 +87,7 @@ class TestLifecycle:
     """状態遷移と start の検証."""
 
     def test_job_runs_to_succeeded_with_result(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         gate = threading.Event()
 
@@ -110,7 +110,7 @@ class TestLifecycle:
         assert record.result.summary == "完了"
 
     def test_exception_marks_failed_with_error_and_traceback_in_log(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         def run(ctx: JobContext) -> None:
             raise RuntimeError("意図的な失敗")
@@ -126,7 +126,7 @@ class TestLifecycle:
         assert "RuntimeError" in "\n".join(record.log_lines)
 
     def test_abort_during_checkpoint_loop_marks_aborted(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         _register_gated(catalog)
         record = manager.start("gated", {})
@@ -139,7 +139,7 @@ class TestLifecycle:
         assert any("中止要求を受け付けました" in line for line in record.log_lines)
 
     def test_request_abort_after_terminal_returns_false(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         _register(catalog, lambda ctx: None)
         record = manager.start("synthetic", {})
@@ -176,7 +176,6 @@ class TestLifecycle:
         manager: JobManager,
         catalog: JobCatalog,
         camera_backend: Backend,
-        wait_until: WaitUntil,
     ):
         _register(
             catalog,
@@ -202,7 +201,7 @@ class TestPrompt:
     """Prompt の往復と respond_prompt の検証."""
 
     def test_prompt_transitions_to_waiting_input_and_resolves(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         answers = _register_prompting(
             catalog, PromptSpec(kind="confirm", message="続行しますか?")
@@ -224,7 +223,7 @@ class TestPrompt:
         assert answers == [True]
 
     def test_prompt_labels_are_preserved_in_pending_prompt_and_payload(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         answers = _register_prompting(
             catalog,
@@ -278,7 +277,6 @@ class TestPrompt:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        wait_until: WaitUntil,
         spec: PromptSpec,
         answer: object,
         expected: object,
@@ -320,7 +318,6 @@ class TestPrompt:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        wait_until: WaitUntil,
         spec: PromptSpec,
         bad_answer: object,
     ):
@@ -344,7 +341,7 @@ class TestPrompt:
         wait_until(lambda: record.status.terminal)
 
     def test_respond_with_wrong_prompt_id_raises_value_error(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         _register_prompting(catalog, PromptSpec(kind="confirm", message="続行?"))
         record = manager.start("prompting", {})
@@ -365,7 +362,7 @@ class TestPrompt:
             manager.respond_prompt("any-id", True)
 
     def test_abort_while_waiting_prompt_is_immediate(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         _register_prompting(catalog, PromptSpec(kind="confirm", message="続行?"))
         record = manager.start("prompting", {})
@@ -398,7 +395,7 @@ class TestPromptWhileWaiting:
     _SPEC = PromptSpec(kind="confirm", message="続行しますか?")
 
     def test_callback_is_called_repeatedly_until_the_answer_arrives(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         polls: list[int] = []
         answers = _register_polling_prompt(catalog, self._SPEC, lambda: polls.append(1))
@@ -417,7 +414,7 @@ class TestPromptWhileWaiting:
         assert answers == [True]
 
     def test_callback_is_not_called_after_the_answer(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         """while_waiting は渡した prompt の待機期間だけで閉じる.
 
@@ -457,7 +454,7 @@ class TestPromptWhileWaiting:
         assert record.status == JobStatus.SUCCEEDED, record.error
 
     def test_abort_while_polling_prompt_marks_aborted(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         polls: list[int] = []
         _register_polling_prompt(catalog, self._SPEC, lambda: polls.append(1))
@@ -472,7 +469,7 @@ class TestPromptWhileWaiting:
         assert any("中止要求を受け付けました" in line for line in record.log_lines)
 
     def test_callback_exception_fails_the_job(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         """コールバックの例外はジョブを FAILED にし、pending prompt は掃除される.
 
@@ -498,7 +495,7 @@ class TestCommands:
     """submit_command / next_command の対話キュー."""
 
     def test_submit_command_reaches_next_command(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         received: list[dict[str, object] | None] = []
         started = threading.Event()
@@ -519,7 +516,7 @@ class TestCommands:
         assert received == [{"type": "jog", "axis": "x", "distance": 0.1}]
 
     def test_submit_command_without_type_key_raises_value_error(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         gate = _register_gated(catalog, accepts_commands=True)
         record = manager.start("gated", {})
@@ -533,7 +530,7 @@ class TestCommands:
         wait_until(lambda: record.status.terminal)
 
     def test_submit_to_non_accepting_job_raises_value_error(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         gate = _register_gated(catalog, accepts_commands=False)
         record = manager.start("gated", {})
@@ -551,7 +548,7 @@ class TestCommands:
             manager.submit_command({"type": "jog"})
 
     def test_abort_while_waiting_command_is_immediate(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         waiting = threading.Event()
 
@@ -576,7 +573,6 @@ class TestLogRingBuffer:
         self,
         make_manager: ManagerFactory,
         catalog: JobCatalog,
-        wait_until: WaitUntil,
     ):
         manager = make_manager(catalog, log_capacity=3)
 
@@ -595,7 +591,7 @@ class TestExclusion:
     """装置排他ロックの共有（spec §6「排他とライフサイクル」）."""
 
     def test_second_start_while_running_raises_busy_error(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         gate = _register_gated(catalog)
         _register(catalog, lambda ctx: None, name="second")
@@ -614,7 +610,6 @@ class TestExclusion:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        wait_until: WaitUntil,
     ):
         """装置を使わないジョブの実行中でも、別のジョブの開始は断り、走っている方の成果物を残す."""
         gate = threading.Event()
@@ -649,7 +644,6 @@ class TestExclusion:
         manager: JobManager,
         catalog: JobCatalog,
         camera_backend: Backend,
-        wait_until: WaitUntil,
     ):
         gate = _register_gated(catalog)
         record = manager.start("gated", {})
@@ -667,7 +661,6 @@ class TestExclusion:
         manager: JobManager,
         catalog: JobCatalog,
         camera_backend: Backend,
-        wait_until: WaitUntil,
     ):
         gate = _register_gated(catalog)
         record = manager.start("gated", {})
@@ -687,7 +680,7 @@ class TestSingleRecordRetention:
     """直近 1 件のみ保持・非永続（spec §6 JobRecord）."""
 
     def test_new_start_replaces_record_and_deletes_old_artifacts(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         captured: list[Path] = []
 
@@ -724,7 +717,6 @@ class TestApply:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        wait_until: WaitUntil,
         payload: ApplyPayload | None,
     ):
         def run(ctx: JobContext) -> JobResult:
@@ -737,18 +729,18 @@ class TestApply:
         return record
 
     def test_apply_payload_available_after_success(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
-        record = self._run_with_payload(manager, catalog, wait_until, self._PAYLOAD)
+        record = self._run_with_payload(manager, catalog, self._PAYLOAD)
 
         assert record.apply_available is True
         payload = manager.apply_payload()
         assert payload.values == {"alignment.canny_low": 60.0}
 
     def test_mark_applied_consumes_payload(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
-        self._run_with_payload(manager, catalog, wait_until, self._PAYLOAD)
+        self._run_with_payload(manager, catalog, self._PAYLOAD)
         manager.apply_payload()
 
         manager.mark_applied()
@@ -757,9 +749,9 @@ class TestApply:
             manager.apply_payload()
 
     def test_discard_invalidates_payload_and_is_idempotent(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
-        self._run_with_payload(manager, catalog, wait_until, self._PAYLOAD)
+        self._run_with_payload(manager, catalog, self._PAYLOAD)
 
         manager.discard()
         manager.discard()  # 冪等
@@ -768,17 +760,15 @@ class TestApply:
             manager.apply_payload()
 
     def test_succeeded_without_payload_raises_lookup_error(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
-        record = self._run_with_payload(manager, catalog, wait_until, None)
+        record = self._run_with_payload(manager, catalog, None)
 
         assert record.apply_available is False
         with pytest.raises(LookupError):
             manager.apply_payload()
 
-    def test_failed_job_has_no_payload(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
-    ):
+    def test_failed_job_has_no_payload(self, manager: JobManager, catalog: JobCatalog):
         def run(ctx: JobContext) -> None:
             raise RuntimeError("失敗")
 
@@ -791,9 +781,9 @@ class TestApply:
             manager.apply_payload()
 
     def test_new_job_start_invalidates_payload(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
-        self._run_with_payload(manager, catalog, wait_until, self._PAYLOAD)
+        self._run_with_payload(manager, catalog, self._PAYLOAD)
         _register(catalog, lambda ctx: None, name="next_job")
 
         record = manager.start("next_job", {})
@@ -822,7 +812,6 @@ class TestApplyMachineSettingsFromWorker:
         catalog: JobCatalog,
         camera_backend: Backend,
         config_dir: Path,
-        wait_until: WaitUntil,
     ):
         gate = threading.Event()
 
@@ -841,9 +830,7 @@ class TestApplyMachineSettingsFromWorker:
         wait_until(lambda: record.status.terminal)
         assert record.status == JobStatus.SUCCEEDED
 
-    def test_unknown_key_fails_the_job(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
-    ):
+    def test_unknown_key_fails_the_job(self, manager: JobManager, catalog: JobCatalog):
         def run(ctx: JobContext) -> None:
             ctx.apply_machine_settings({"bogus.key": 1.0})
 
@@ -865,7 +852,6 @@ class TestJournal:
         manager: JobManager,
         catalog: JobCatalog,
         camera_backend: Backend,
-        wait_until: WaitUntil,
         fake_camera_settings: Env,
     ):
         _register(catalog, lambda ctx: None, uses_machine=True)
@@ -887,7 +873,6 @@ class TestJournal:
         manager: JobManager,
         catalog: JobCatalog,
         camera_backend: Backend,
-        wait_until: WaitUntil,
     ):
         _register(catalog, lambda ctx: None, uses_machine=False)
         record = manager.start("synthetic", {})
@@ -906,7 +891,7 @@ class TestPcbasmLogBridge:
     """
 
     def test_worker_thread_pcbasm_log_appears_in_job_log(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         def run(ctx: JobContext) -> None:
             logging.getLogger("pcbasm.bridge_test").info("ブリッジ転送されるログ")
@@ -919,7 +904,7 @@ class TestPcbasmLogBridge:
         assert "ブリッジ転送されるログ" in "\n".join(record.log_lines)
 
     def test_other_thread_pcbasm_log_is_not_forwarded(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         """Preview スレッド等の pcbasm ログを混ぜない（worker スレッド限定）."""
 
@@ -940,7 +925,7 @@ class TestPcbasmLogBridge:
         assert "別スレッドのログ" not in "\n".join(record.log_lines)
 
     def test_pcbasm_log_after_job_end_is_not_forwarded(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         _register(catalog, lambda ctx: None)
         record = manager.start("synthetic", {})
@@ -991,7 +976,7 @@ class TestUpdateCurrentParams:
             manager.update_current_params({"line_length": 5.0})
 
     def test_update_after_terminal_raises_value_error(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         _register(catalog, lambda ctx: None, params=self._PARAMS, name="quick")
         record = manager.start("quick", {})
@@ -1001,7 +986,7 @@ class TestUpdateCurrentParams:
             manager.update_current_params({"line_length": 5.0})
 
     def test_returns_validated_runtime_subset(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         gate = threading.Event()
         reads: list[object] = []
@@ -1018,7 +1003,7 @@ class TestUpdateCurrentParams:
         assert applied == {"line_length": 12.5}
 
     def test_fixed_param_update_raises_value_error(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         gate = threading.Event()
         reads: list[object] = []
@@ -1035,7 +1020,7 @@ class TestUpdateCurrentParams:
         wait_until(lambda: record.status.terminal)
 
     def test_live_params_reflect_update_on_next_read(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         """編集前の読みは旧値、編集後の読みは新値（ctx.params のライブビュー）."""
         gate = threading.Event()
@@ -1053,7 +1038,7 @@ class TestUpdateCurrentParams:
         assert reads == [10.0, 20.0]
 
     def test_record_params_reflect_update_for_get_current(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         """GET /jobs/current の元になる record.params も新値を映す."""
         gate = threading.Event()
@@ -1074,7 +1059,6 @@ class TestUpdateCurrentParams:
         manager: JobManager,
         catalog: JobCatalog,
         camera_backend: Backend,
-        wait_until: WaitUntil,
     ):
         gate = threading.Event()
         reads: list[object] = []
@@ -1097,7 +1081,6 @@ class TestUpdateCurrentParams:
         manager: JobManager,
         catalog: JobCatalog,
         camera_backend: Backend,
-        wait_until: WaitUntil,
     ):
         gate = threading.Event()
         reads: list[object] = []
@@ -1122,7 +1105,7 @@ class TestShutdown:
     """Lifespan shutdown 用の後始末."""
 
     def test_shutdown_aborts_running_job_and_is_idempotent(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self, manager: JobManager, catalog: JobCatalog
     ):
         _register_gated(catalog)
         record = manager.start("gated", {})

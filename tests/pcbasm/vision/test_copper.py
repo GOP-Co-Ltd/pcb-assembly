@@ -3,10 +3,10 @@ import numpy as np
 import pytest
 
 from pcbasm.vision import CopperEdgeDetector, Image
-from tests.support.paths import TESTING_DATA_DIR
+from tests.support.paths import TEST_DATA_DIR
 
 REFLECTIVE_BOARD_IMAGES = tuple(
-    TESTING_DATA_DIR / "vision" / "copper" / f"reflective_board_{index}.png"
+    TEST_DATA_DIR / "vision" / "copper" / f"reflective_board_{index}.png"
     for index in range(3)
 )
 

@@ -21,7 +21,7 @@ from pcbasm.kicad.footprint import (
     single_pad_footprint,
     smd_pad_footprint,
 )
-from tests.helpers import make_paste_test_board_offset_pad_root
+from tests.support.kicad import make_paste_test_board_offset_pad_root
 
 
 @pytest.fixture

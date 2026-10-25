@@ -16,8 +16,9 @@ from pcbasm.pasting.paste_volume.calibration import (
 )
 from pcbasm.pasting.paste_volume.dataset.reader import DatasetSession
 from pcbasm.pasting.paste_volume.fit import fit_session
-from tests.helpers import build_paste_volume_session
-from tests.web.api.jobs.conftest import ManagerFactory, WaitUntil, register_synthetic
+from tests.support.paste_volume import build_paste_volume_session
+from tests.support.polling import wait_until
+from tests.support.web import ManagerFactory, register_synthetic
 from web.api.env import Env
 from web.api.jobs.pasting.paste_volume_calibration import (
     fit_calibration,
@@ -71,7 +72,6 @@ class TestPasteDatasetCollectionPreflight:
     def test_invalid_settings_fail_before_prompt_or_machine(
         self,
         manager: JobManager,
-        wait_until: WaitUntil,
         params: dict[str, object],
         expected: str,
     ):
@@ -94,9 +94,7 @@ class TestPasteDatasetCollectionPreflight:
                 {"paste_id": "paste-1", "min_area_px": 0},
             )
 
-    def test_valid_settings_reach_confirmations_without_pcb(
-        self, manager: JobManager, wait_until: WaitUntil
-    ):
+    def test_valid_settings_reach_confirmations_without_pcb(self, manager: JobManager):
         record = manager.start(
             "paste_volume_calibration",
             {
@@ -178,7 +176,6 @@ class TestPasteVolumeCalibrationFitStep:
     def _run(
         self,
         manager: JobManager,
-        wait_until: WaitUntil,
         session: Path,
         **overrides: object,
     ) -> JobRecord:
@@ -192,14 +189,13 @@ class TestPasteVolumeCalibrationFitStep:
         self,
         fit_manager: JobManager,
         fake_camera_settings: Env,
-        wait_until: WaitUntil,
     ):
         """校正ファイルと診断（総体積誤差・図）が収集ジョブの中で揃う."""
         session = build_paste_volume_session(
             fake_camera_settings.paste_dataset_dir / self.STEM
         )
 
-        record = self._run(fit_manager, wait_until, session, save_name="collected")
+        record = self._run(fit_manager, session, save_name="collected")
 
         assert record.status == JobStatus.SUCCEEDED, record.error
         saved = list_calibrations(fake_camera_settings.paste_volume_calibration_dir)
@@ -221,7 +217,6 @@ class TestPasteVolumeCalibrationFitStep:
         self,
         fit_manager: JobManager,
         fake_camera_settings: Env,
-        wait_until: WaitUntil,
     ):
         """1 時間かけた実行の主成果物なので「保存しない」は選ばせない.
 
@@ -232,7 +227,7 @@ class TestPasteVolumeCalibrationFitStep:
             fake_camera_settings.paste_dataset_dir / self.STEM
         )
 
-        record = self._run(fit_manager, wait_until, session)
+        record = self._run(fit_manager, session)
 
         assert record.status == JobStatus.SUCCEEDED, record.error
         assert record.result is not None
@@ -246,7 +241,6 @@ class TestPasteVolumeCalibrationFitStep:
         self,
         fit_manager: JobManager,
         fake_camera_settings: Env,
-        wait_until: WaitUntil,
     ):
         """校正づくりが目的でも、1 時間の収集を FAILED で捨てない.
 
@@ -257,7 +251,7 @@ class TestPasteVolumeCalibrationFitStep:
             blank_material="large",
         )
 
-        record = self._run(fit_manager, wait_until, session, save_name="broken")
+        record = self._run(fit_manager, session, save_name="broken")
 
         assert record.status == JobStatus.SUCCEEDED, record.error
         assert record.result is not None
@@ -269,7 +263,6 @@ class TestPasteVolumeCalibrationFitStep:
         self,
         fit_manager: JobManager,
         fake_camera_settings: Env,
-        wait_until: WaitUntil,
     ):
         """図は診断の補助。描けなくても校正は成果として残す.
 
@@ -284,7 +277,6 @@ class TestPasteVolumeCalibrationFitStep:
 
         record = self._run(
             fit_manager,
-            wait_until,
             session,
             save_name="figures-broken",
             block_scatter=True,
@@ -301,11 +293,9 @@ class TestPasteVolumeCalibrationFitStep:
         self,
         fit_manager: JobManager,
         fake_camera_settings: Env,
-        wait_until: WaitUntil,
     ):
         record = self._run(
             fit_manager,
-            wait_until,
             fake_camera_settings.paste_dataset_dir / "absent",
             save_name="broken",
         )
@@ -374,7 +364,6 @@ class TestPasteDatasetVolumeVerification:
     def _run(
         self,
         manager: JobManager,
-        wait_until: WaitUntil,
         session: Path,
         calibration: str,
     ) -> JobRecord:
@@ -390,7 +379,6 @@ class TestPasteDatasetVolumeVerification:
         self,
         verify_manager: JobManager,
         fake_camera_settings: Env,
-        wait_until: WaitUntil,
     ):
         """総体積誤差の summary + JSON レポート + 散布図が成果物として揃う.
 
@@ -399,7 +387,7 @@ class TestPasteDatasetVolumeVerification:
         session = self._session(fake_camera_settings)
         name = self._calibration(fake_camera_settings)
 
-        record = self._run(verify_manager, wait_until, session, name)
+        record = self._run(verify_manager, session, name)
 
         assert record.result is not None
         assert "総体積誤差" in str(record.result.summary)
@@ -421,11 +409,10 @@ class TestPasteDatasetVolumeVerification:
         self,
         verify_manager: JobManager,
         fake_camera_settings: Env,
-        wait_until: WaitUntil,
     ):
         session = self._session(fake_camera_settings)
 
-        record = self._run(verify_manager, wait_until, session, "")
+        record = self._run(verify_manager, session, "")
 
         assert record.result is not None
         assert record.result.summary == ""
@@ -436,7 +423,6 @@ class TestPasteDatasetVolumeVerification:
         self,
         verify_manager: JobManager,
         fake_camera_settings: Env,
-        wait_until: WaitUntil,
         broken: bool,
     ):
         """収集は終わっている。後付けの検証で例外を投げてはならない.
@@ -450,7 +436,7 @@ class TestPasteDatasetVolumeVerification:
             root.mkdir(parents=True, exist_ok=True)
             (root / name).write_text("{ not json", encoding="utf-8")
 
-        record = self._run(verify_manager, wait_until, session, name)
+        record = self._run(verify_manager, session, name)
 
         assert record.result is not None
         assert record.result.summary == " / 検証失敗"

@@ -1,6 +1,6 @@
 """完成 session の列挙と読み出し（store の対）の公開契約.
 
-on-disk の出典は ``data/testing/schemas/paste_dataset_metadata_v3.json``。
+on-disk の出典は ``tests/data/schemas/paste_dataset_metadata_v3.json``。
 store が作る 3 状態（``.tmp`` / ``.incomplete`` / 完成）のうち、完成だけを拾うこと、
 版違いを黙って読み飛ばさず理由付きで拒否することを固める。
 """
@@ -14,9 +14,8 @@ from pcbasm.pasting.paste_volume.dataset.reader import (
     DatasetSession,
     completed_sessions,
 )
-from tests.support.paths import TESTING_DATA_DIR
+from tests.support.paths import PASTE_DATASET_METADATA
 
-METADATA_V3 = TESTING_DATA_DIR / "schemas" / "paste_dataset_metadata_v3.json"
 STEM = "plate-40x40-20260908T143052.123+0000"
 
 
@@ -24,7 +23,7 @@ def _write_session(root: Path, name: str, *, document: dict | None = None) -> Pa
     session = root / name
     session.mkdir(parents=True)
     payload = (
-        json.loads(METADATA_V3.read_text(encoding="utf-8"))
+        json.loads(PASTE_DATASET_METADATA.read_text(encoding="utf-8"))
         if document is None
         else document
     )
@@ -102,7 +101,7 @@ class TestDatasetSessionLoad:
     def test_rejects_other_schema_versions_without_migrating(
         self, tmp_path: Path, version: int
     ):
-        payload = json.loads(METADATA_V3.read_text(encoding="utf-8"))
+        payload = json.loads(PASTE_DATASET_METADATA.read_text(encoding="utf-8"))
         payload["schema_version"] = version
         root = _write_session(tmp_path, STEM, document=payload)
 

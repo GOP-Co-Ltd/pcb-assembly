@@ -15,8 +15,8 @@ from typing import Any
 import httpx
 from playwright.sync_api import expect
 
-from tests.e2e.conftest import (
-    LED_BLINKER_PCB,
+from tests.support.browser import (
+    SELECTED_LED_BLINKER,
     LiveServer,
     LiveUi,
     acquire_control as _acquire_control,
@@ -99,7 +99,7 @@ def _patch_pad_config_node(
 ):
     response = httpx.patch(
         f"{live_server.base_url}/api/pasting/board/node",
-        json={"node": node_id, "values": values, "expected_pcb": LED_BLINKER_PCB},
+        json={"node": node_id, "values": values, "expected_pcb": SELECTED_LED_BLINKER},
         timeout=_HTTP_TIMEOUT,
     )
     assert response.status_code == 200, response.text
@@ -965,7 +965,7 @@ class TestPasteSolderBrowserPadInteraction:
             json={
                 "node": "L2:U1",
                 "values": {"prime_extra_delay": 0.33},
-                "expected_pcb": LED_BLINKER_PCB,
+                "expected_pcb": SELECTED_LED_BLINKER,
             },
             timeout=_HTTP_TIMEOUT,
         )
@@ -981,7 +981,7 @@ class TestPasteSolderBrowserPadInteraction:
             json={
                 "node": "L2:U1",
                 "clear": ["prime_extra_delay"],
-                "expected_pcb": LED_BLINKER_PCB,
+                "expected_pcb": SELECTED_LED_BLINKER,
             },
             timeout=_HTTP_TIMEOUT,
         )

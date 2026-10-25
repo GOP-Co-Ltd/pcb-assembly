@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import expect
 
-from tests.e2e.conftest import LiveUi
+from tests.support.browser import LiveUi
 
 _BROWSER_TIMEOUT_MS = 15_000
 _OVERFLOW_MESSAGE = re.compile("超え|収まりません")

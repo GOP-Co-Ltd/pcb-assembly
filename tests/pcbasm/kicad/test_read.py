@@ -6,10 +6,8 @@ from shapely.geometry import Point as ShapelyPoint
 
 from pcbasm.board import Board, Layer
 from pcbasm.kicad import load_board
-from tests.support.paths import TESTING_DATA_DIR
+from tests.support.paths import FILL_COVERAGE_PCB, LED_BLINKER_PCB
 
-LED_BLINKER_PCB = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
-FILL_COVERAGE_PCB = TESTING_DATA_DIR / "fill_coverage" / "fill_coverage.kicad_pcb"
 VIA_CENTERS = (
     (11.1, 11.7),
     (4.49, 11.7),

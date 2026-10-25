@@ -70,7 +70,7 @@ from pcbasm.pasting.toolhead_offset import (
 from pcbasm.vision import Image, Offset
 from tests.support.camera_model import make_camera_model
 from tests.support.golden import assert_transcript
-from tests.support.paths import TESTING_DATA_DIR
+from tests.support.paths import FILL_COVERAGE_PCB, LED_BLINKER_PCB
 from web.api.jobs.steps import (
     LOADING_DEFAULT_AMOUNT,
     LOADING_DEFAULT_ROTATION_ACCEL,
@@ -82,8 +82,6 @@ GOLDEN_DIR = Path(__file__).parent
 PROCEDURES = GOLDEN_DIR / "procedures"
 MACHINE_TOML = GOLDEN_DIR / "machine.toml"
 
-LED_BLINKER = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
-FILL_COVERAGE = TESTING_DATA_DIR / "fill_coverage" / "fill_coverage.kicad_pcb"
 
 # 実機の Board 計測が返す形（回転 + 並進）。回転は 001 の校正値相当の小角
 BOARD_TRANSFORM = Compose([Rotation(0.3), Shift(40.0, 60.0)])
@@ -201,7 +199,7 @@ class TestApplicator:
 
     @pytest.mark.parametrize("mode", ["dot", "line", "area", "micro_line", "auto"])
     def test_routed_pads(self, klipper: FakeKlipper, machine: MachineConfig, mode: str):
-        session = _session(klipper, machine, LED_BLINKER)
+        session = _session(klipper, machine, LED_BLINKER_PCB)
         plan = _plan(session)
 
         with session.make_applicator() as applicator:
@@ -246,7 +244,7 @@ class TestFillPathFallback:
         values: dict[str, Any],
         applied: str,
     ):
-        session = _session(klipper, machine, FILL_COVERAGE)
+        session = _session(klipper, machine, FILL_COVERAGE_PCB)
         (pad,) = (
             pad
             for pad in session.board_frame.board.pads
@@ -301,7 +299,7 @@ class TestFillSequence:
 class TestInitialPurge:
     def test_retract_then_purge(self, klipper: FakeKlipper, machine: MachineConfig):
         """塗布ジョブの先頭と同じく、リトラクトしてから面積最大の pad の中心へパージする."""
-        session = _session(klipper, machine, LED_BLINKER)
+        session = _session(klipper, machine, LED_BLINKER_PCB)
         purge = _plan(session).initial_purge.resolved
         assert purge is not None
 
@@ -403,7 +401,7 @@ class TestToolheadOffset:
     def test_probe_then_deposit(self, klipper: FakeKlipper, machine: MachineConfig):
         """全点をプローブしてから、表面 Z + 塗布高さで全点に点塗布する."""
         points, error = plan_toolhead_offset_points(
-            load_board(LED_BLINKER).outline.polygon,
+            load_board(LED_BLINKER_PCB).outline.polygon,
             point_count=4,
             point_spacing=5.0,
             edge_margin=5.0,
@@ -411,7 +409,7 @@ class TestToolheadOffset:
         )
         assert points is not None, error
         procedure = ToolheadOffsetProcedure(
-            _session(klipper, machine, LED_BLINKER),
+            _session(klipper, machine, LED_BLINKER_PCB),
             lift_height=5.0,
             diameter_min=0.4,
             diameter_max=2.0,
@@ -429,7 +427,7 @@ class TestToolheadOffset:
 
 class TestHeightPlane:
     def test_probes_top_copper(self, klipper: FakeKlipper, machine: MachineConfig):
-        _session(klipper, machine, LED_BLINKER).measure_height_plane()
+        _session(klipper, machine, LED_BLINKER_PCB).measure_height_plane()
 
         assert_transcript(klipper.sent, PROCEDURES / "height_plane.gcode")
 

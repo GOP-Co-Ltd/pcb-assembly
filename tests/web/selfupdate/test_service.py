@@ -8,7 +8,7 @@
   「再起動コマンドが失敗しました（終了コード -15）」と嘘の失敗を report に残していた
 
 モックは使わない。`sudo` の seam には **実スタブ実行ファイル**を差す
-（`tests/web/selfupdate/conftest.py` と同じ方式）。
+（`tests/support/selfupdate.py` と同じ方式）。
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from pathlib import Path
 
 import attrs
 
-from tests.web.selfupdate.conftest import call_log, write_systemctl_stub
+from tests.support.selfupdate import call_log, write_systemctl_stub
 from web.selfupdate.service import (
     install_command,
     restart_scheduled_notice,

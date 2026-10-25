@@ -16,10 +16,10 @@ from pcbasm.config import MachineConfig, load_machine
 from pcbasm.geometry import Point3d
 from pcbasm.machine.diagnostics import Check, save_checks
 from pcbasm.paths import PROJECT_ROOT
-from tests.support.paths import TESTING_CONFIG_DIR
+from tests.support.paths import TEST_CONFIG_DIR
 
 # カメラ校正（焦点 Z あり）は済み、ノズル位置と運転時補正の校正ファイルは未設定
-MACHINE = load_machine(TESTING_CONFIG_DIR / "machine.toml")
+MACHINE = load_machine(TEST_CONFIG_DIR / "machine.toml")
 CALIBRATION = "s3x70.paste-volume.json"
 ALL_OK = (Check("Klipper の接続", True, "localhost:7125"),)
 

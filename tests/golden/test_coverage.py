@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from tests.golden.conftest import JOBS
 from tests.golden.scenarios import SCENARIOS, scenarios_of
-from tests.support.backend import standalone_catalog
+from tests.support.golden import JOBS
+from tests.support.web import standalone_catalog
 
 
 class TestCoverage:

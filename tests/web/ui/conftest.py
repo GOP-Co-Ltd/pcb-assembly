@@ -28,15 +28,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tests.helpers import copy_testing_config
+from tests.support.web import BACKEND_MACHINE_ID, copy_test_config
 from web.api.app import create_app as create_backend_app
 from web.api.env import Env as ApiEnv
 from web.ui.machines import MachineEndpoint
 from web.ui.settings import Settings
-
-# frontend の登録 id と backend の自己申告 id を一致させる（SSR ページが
-# backend から取った machine_id と URL の machine_id を突き合わせられるように）
-BACKEND_MACHINE_ID = "uitest"
 
 
 @pytest.fixture
@@ -50,11 +46,11 @@ def backend_pcb_root(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def backend_settings(tmp_path: Path, backend_pcb_root: Path) -> ApiEnv:
-    """上流 backend の Settings（`data/testing/config` を tmp_path へコピーして使う）."""
+    """上流 backend の Settings（tests/data/config を tmp_path へコピーして使う）."""
     data_dir = tmp_path / "backend" / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     return ApiEnv(
-        config_dir=copy_testing_config(tmp_path / "backend"),
+        config_dir=copy_test_config(tmp_path / "backend"),
         data_dir=data_dir,
         pcb_browse_root=backend_pcb_root,
         # 公開範囲はセキュリティ境界なので既定から暗黙に広げない

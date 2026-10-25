@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.web.api.jobs.conftest import WaitUntil
+from tests.support.polling import wait_until
 from web.api.backend import Backend
 from web.api.jobs.runtime.manager import JobManager
 from web.api.jobs.runtime.record import JobStatus
@@ -40,7 +40,6 @@ class TestMachineJobsWithoutKlipper:
         manager: JobManager,
         camera_backend: Backend,
         real_pcb_path: Path,
-        wait_until: WaitUntil,
         name: str,
         needs_pcb: bool,
     ):
@@ -60,7 +59,6 @@ class TestMachineJobsWithoutKlipper:
         self,
         manager: JobManager,
         camera_backend: Backend,
-        wait_until: WaitUntil,
     ):
         record = manager.start("loading", {"position_x": 10.0})
         wait_until(lambda: record.status.terminal, timeout=60.0)
@@ -74,7 +72,6 @@ class TestMachineJobsWithoutKlipper:
         self,
         manager: JobManager,
         camera_backend: Backend,
-        wait_until: WaitUntil,
     ):
         """共通土台でその場 PCB 生成 → カメラ確保 → ボード計測で Klipper 不通 → FAILED.
 

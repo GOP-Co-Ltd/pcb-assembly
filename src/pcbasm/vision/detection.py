@@ -25,7 +25,7 @@ from .image import Image
 # 塗布痕として採る円形度の下限。実素材では塗布痕が 0.95 以上、未塗布板に残る大きな
 # 成分（ヘアライン・照明ムラ）が 0.2 以下に分かれる。小片の円形度は 1 を超えうるので
 # この下限では除外できない（小片は直径下限で除外する）
-# 出典: data/testing/paste-volume/README.md
+# 出典: tests/data/paste-volume/README.md
 DEFAULT_MIN_CIRCULARITY = 0.7
 
 
