@@ -1,28 +1,21 @@
-# セットアップ
+# 導入
 
-[ドキュメント一覧](../README.md)
+[ドキュメント一覧](../README.md) · 次: [立ち上げ](commissioning.md)
 
-## ハードウェア
+空の SD カードから、ブラウザで WebUI が開くまでの手順。
+導入が済んだら [立ち上げ](commissioning.md) へ進む。
 
-- Raspberry Pi 5
-- Paste Dispenser Machine
-- スピーカー（通知音を使う場合。I2S DAC / アンプまたは HDMI 音声出力）
+## 用意するもの
 
-## ソフトウェア
+- Raspberry Pi 5 と、Raspberry Pi OS 64bit（Debian 13 trixie）を書いた SD カード
+- 機体（Klipper の MCU、カメラ、ロードセルプローブ、ディスペンサー）
+- 通知音を使うならスピーカー（I2S DAC / アンプか HDMI 音声出力）
 
-- RPi OS 64bit
-- [Klipper](https://www.klipper3d.org/)
-    - [KIAUH](https://github.com/dw-0/kiauh) 経由でインストール
-        - Klipper + Moonraker + Mainsail
-- [KiCAD](https://www.kicad.org/download/linux/)
-- [uv](https://docs.astral.sh/uv/getting-started/installation/)
-- `alsa-utils`（通知音を再生する `aplay` を含む）
-
-OS 以外は `install.sh` が入れる。
+OS 以外（KiCad、picamera2、uv、Klipper、Moonraker など）は `install.sh` が入れる。
 
 ## 手順
 
-OS（Debian 13 trixie の Raspberry Pi OS 64bit）を入れ、ホスト名を機体ごとに一意な名前へ変えた Raspberry Pi 上で、次の順に実行する。
+OS を入れ、ホスト名を機体ごとに一意な名前へ変える。ホスト名は WebUI の機体の ID（URL の `/m/<ホスト名>`）になる。
 
 1. リポジトリを取得する。置き場所は `~/pcb-assembly` に限る（PCB の場所から基板の識別子を決めるため、機体間でそろえる）。
 
@@ -60,8 +53,8 @@ OS（Debian 13 trixie の Raspberry Pi OS 64bit）を入れ、ホスト名を機
         変更前の内容は同じ場所の `config.txt.pcbasm.bak` に保存される。管理する marker 内だけを再実行時に置換する
     - `machine` は、既にある `config/machine.toml` と、KIAUH が置いた stub（`kinematics: none`）でない
         `printer.cfg` には触らない。テンプレートから作り直すときは、そのファイルを退避してから再実行する
-    - 全段実行の `services` は backend と frontend の両方を置く（同居機）。frontend を LAN の別ホストにまとめる機体では、
-        導入後に `sudo systemctl disable --now pcbasm-ui` で frontend を止める
+    - 全段実行の `services` は backend と frontend の両方を置く（同居機）。frontend だけのホストや、
+        frontend を別のホストにまとめる構成は [ホストの追加](maintenance.md#%E3%83%9B%E3%82%B9%E3%83%88%E3%81%AE%E8%BF%BD%E5%8A%A0) を参照する
 
 3. 再起動して boot 設定を反映し、Klipper に printer.cfg を読ませる。
 
@@ -69,18 +62,17 @@ OS（Debian 13 trixie の Raspberry Pi OS 64bit）を入れ、ホスト名を機
     sudo reboot
     ```
 
-frontend だけを置くホスト（機体でない Raspberry Pi など）は `./install.sh --ui-only` を使う（preflight / packages / python / services の ui だけ）。
+4. ブラウザで `http://<ホスト名>.local:8080` を開く。自機の塗布ページが開けば導入は終わり。
 
-`config/` は git 管理外（実測値の書き換えでリポジトリが dirty にならないようにするため）。
-テンプレートの規約と printer.cfg の運用は
-[`deploy/templates/README.md`](../deploy/templates/README.md) を参照。
+`config/` は git 管理外にある（実測値の書き換えでリポジトリが dirty にならないようにするため）。
+テンプレートの規約と printer.cfg の扱いは [マシン設定テンプレート](../deploy/templates/README.md) にある。
 
-開発は VSCode でリモートアクセスして行うことを推奨する。
-開発に参加する場合は [CONTRIBUTING](../CONTRIBUTING.md) を参照する。
+## 開かないとき
 
-セットアップ後は [立ち上げ](commissioning.md) の順に機体を整え、[WebUI の使い方](webui.md) へ進む。常駐起動は [運用ガイド](operations.md) を参照する。
-
-## GitHub Actions Runner
-
-専用の Raspberry Pi 5 を GitHub Actions の self-hosted runner として構築する場合は、
-[`github-runner/README.md`](../github-runner/README.md) を参照する。
+| 症状                                        | 確認すること                                                                                      |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `<ホスト名>.local` に届かない               | 同じ LAN にいるか。IP アドレスで `http://<IP>:8080` を開く                                        |
+| ページが 503 になる                         | `systemctl status pcbasm-api` で backend が動いているか。ログは `journalctl -u pcbasm-api -n 200` |
+| 全ページに設定エラーが出る                  | `config/machine.toml` の誤り。理由が画面に出るので、設定ページか設定履歴から直す                  |
+| `pcbnew` / `picamera2` の import が失敗する | `./install.sh packages` と `./install.sh python` をやり直す                                       |
+| 画像の同梱資産が読めない                    | Git LFS の実体が無い。`./install.sh packages` をやり直すか `git lfs pull` を実行する              |

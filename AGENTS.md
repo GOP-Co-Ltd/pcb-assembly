@@ -50,18 +50,23 @@ PCB アセンブリ装置の制御コード。Raspberry Pi 5、Klipper、KiCAD �
 Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算、FastAPI WebUI
 を実装する。
 
-主要構成:
+主要構成（層と依存方向は `docs/develop/architecture.md`、規則は `tests/test_architecture.py`）:
 
-- `src/pcbasm/hal/`: カメラ、Klipper、プローブ、サーボ等の HAL
-- `src/pcbasm/vision/`: 画像処理、キャリブレーション、特徴検出
-- `src/pcbasm/align/`: PCB の位置合わせ共通制御
-- `src/pcbasm/pasting/`: ペースト塗布ロジック
-- `src/pcbasm/geometry/`: 3D 座標と幾何計算
+- `src/pcbasm/geometry/`: 座標変換、ポリゴン、経路、配置の計算
+- `src/pcbasm/config/`: `machine.toml` のスキーマと読み込み、設定ページの項目
+- `src/pcbasm/migrate/`: `machine.toml` の冪等な移行
 - `src/pcbasm/board/`: pcbnew に依存しない基板データ（外形・部品・パッド・銅箔）と書き出し
 - `src/pcbasm/kicad/`: KiCAD 読込と基板生成（pcbnew を import する唯一の場所）
+- `src/pcbasm/vision/`: 画像処理、カメラ校正、特徴検出
+- `src/pcbasm/hal/`: カメラ、Klipper、ステージ、ディスペンサー、音声と、その fake
+- `src/pcbasm/machine/`: 装置の組み立て、G-code ジャーナル、操作パネルの命令、駐機、装置診断
+- `src/pcbasm/align/`: 基板の位置合わせ
+- `src/pcbasm/pasting/`: ペースト塗布の設定解決、経路、機械手順、塗布量校正
+- `src/pcbasm/commissioning.py`: 立ち上げ手順の表と状況の判定
 - `src/web/api/`: 機体ごとの backend WebAPI（FastAPI、port 8081）
 - `src/web/ui/`: LAN に 1 つ立てる UI frontend（FastAPI、port 8080。ページ描画と
     `/m/{machine_id}/api/**` の backend 中継）
+- `src/web/contract/`、`src/web/selfupdate/`: backend・frontend・自己更新の契約と、Git 追従の自己更新
 
 ブラウザ操作 UI は上記 2 プロセスに分かれる。開発・運用の操作は WebUI のジョブとして
 提供する。ホストの導入は `install.sh`（雛形は `deploy/`）で行い、`scripts/` には
@@ -142,6 +147,8 @@ custom agent と `agent-team-startup` Skill を使う。
 
 ## 参照先
 
+- `README.md`: 文書の地図（導入 → 立ち上げ → 日常 → 保守、参照、開発、設計）
+- `docs/develop/`: 開発の手引きとアーキテクチャ（機能 → コードの地図）
 - `memory/MEMORY.md`: ユーザーとの対話で確立した規約・好み
 - `.agents/skills/testing-strategy/`: テスト戦略
 - `.agents/skills/refactor-conventions/`: 実装・テスト規約

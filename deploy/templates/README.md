@@ -113,29 +113,12 @@ git add deploy/templates/<機種>
 
 `./install.sh machine` の選択肢に自動で現れる。
 
-## machine.toml の最小例
+## machine.toml に書けるキー
 
-```toml
-[klipper]
-host = "localhost"
-port = 7125
+書けるキーの全量は [設定キー一覧](../../docs/reference/config.md) にある。WebUI の設定ページに並ぶ項目と同じで、設定のスキーマ（`src/pcbasm/config/`）から作る。
 
-[camera]
-device_id = 0
-width = 640
-height = 480
-fps = 30.0
-format = "MJPG"
-
-[camera.crop]
-width = 400
-height = 400
-```
-
-書き込み可能なキーの全量は WebUI の設定ページに並ぶ項目で、設定のスキーマ（`src/pcbasm/config/`）の metadata から `pcbasm.config.fields.setting_fields()` が作る。
-
-`[audio]`（通知音の出力デバイスと音量）は任意セクション。未設定なら ALSA の
-システム既定デバイス・音量 0.75 で動く。WebUI の `/dev/audio` で選ぶと `config/machine.toml`
+`[audio]`（通知音の出力デバイスと音量）は任意の節。書いていなければ ALSA の
+システム既定のデバイスで鳴る。機体タブの「通知音」で選ぶと `config/machine.toml`
 へ書き戻されるため、テンプレートではコメントアウトしてある。
 
 ## printer.cfg のバージョン管理について
