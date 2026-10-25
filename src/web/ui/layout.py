@@ -167,8 +167,8 @@ JOB_TEMPLATES = frozenset(
 # ①②③ の依存順に沿ってパラメータを視覚的にグルーピングする。
 DISPENSE_CALIBRATION_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
-        "銅板・位置合わせ（キャリブ後固定）",
-        ("board_width", "board_height", "tolerance"),
+        "銅板（キャリブ後固定）",
+        ("board_width", "board_height"),
     ),
     (
         "線の共通設定（実行中変更可）",
@@ -194,7 +194,6 @@ PASTE_VOLUME_CALIBRATION_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] =
             "plate_width",
             "plate_height",
             "edge_margin",
-            "tolerance",
         ),
     ),
     (

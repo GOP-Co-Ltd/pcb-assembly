@@ -257,7 +257,6 @@ def measure_board_frame(
     klipper: KlipperClient,
     stage: XYZStage,
     camera: Camera,
-    tolerance: float,
     frame_sink: FrameSink | None = None,
 ) -> BoardFrame:
     """ホーミングから Board 変換の計測までを行い、基板の位置関係を返す.
@@ -272,7 +271,6 @@ def measure_board_frame(
         klipper: Klipper への接続（塗布の本体と同じ timeout 無し）
         stage: klipper のステージ
         camera: 使用するカメラ
-        tolerance: 位置合わせの許容誤差 (mm)
         frame_sink: 検出注釈画像を送る sink。None の場合は表示しない
 
     Raises:
@@ -359,7 +357,7 @@ def measure_board_frame(
         klipper=klipper,
         stage=stage,
         camera_model=camera_model,
-        tolerance=tolerance,
+        tolerance=machine.alignment.tolerance,
         settle_sec=settle.move_sec,
     )
 

@@ -104,9 +104,7 @@ class TestMakeDev:
                 json={"path": str(COPPER_PCB_FIXTURE.relative_to("/"))},
             )
             assert selected.status_code == 200, selected.text
-            started = api.post(
-                "/api/jobs/paste_solder", json={"params": {"tolerance": 0.1}}
-            )
+            started = api.post("/api/jobs/paste_solder", json={"params": {}})
             assert started.status_code == 201, started.text
             job_id = started.json()["job"]["id"]
 

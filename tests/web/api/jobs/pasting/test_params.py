@@ -84,8 +84,8 @@ class TestPastingParams:
         definition = default.get("dispense_calibration")
         params = {spec.name: spec for spec in definition.params}
 
-        # 銅板は開始時に 1 回生成するため board 寸法と許容誤差はキャリブ後固定。
-        for fixed in ("board_width", "board_height", "tolerance"):
+        # 銅板は開始時に 1 回生成するため board 寸法はキャリブ後固定。
+        for fixed in ("board_width", "board_height"):
             assert params[fixed].runtime_editable is False
 
         # 線設定・計量退避・②③ のスケジュールは実行中に変更可。
@@ -127,6 +127,6 @@ class TestPastingParams:
     ):
         params = {spec.name: spec for spec in default.get("paste_solder").params}
 
-        assert set(params) == {"tolerance", "amount", "interactive_loading"}
+        assert set(params) == {"amount", "interactive_loading"}
         assert params["interactive_loading"].value_type == "bool"
         assert params["interactive_loading"].default is False

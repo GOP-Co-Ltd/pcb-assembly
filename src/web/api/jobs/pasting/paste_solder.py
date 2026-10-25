@@ -32,7 +32,6 @@ def register(catalog: JobCatalog, stores: PasteStores) -> None:
             label="はんだ塗布",
             run=partial(_run_paste_solder, stores=stores),
             params=(
-                ParamSpec("tolerance", "位置合わせ許容誤差", "float", 0.1, unit="mm"),
                 ParamSpec(
                     "amount",
                     "ローディング既定量",

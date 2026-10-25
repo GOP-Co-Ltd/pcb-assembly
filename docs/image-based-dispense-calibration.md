@@ -198,7 +198,6 @@ WebUI のはんだ塗布タブの「塗布量校正の生成」（`paste_volume_
 | name                           | 表示                                 | 既定              |
 | ------------------------------ | ------------------------------------ | ----------------- |
 | `plate_width` / `plate_height` | 銅板の幅 / 高さ [mm]                 | 40.0              |
-| `tolerance`                    | 位置合わせ許容誤差 [mm]              | 0.1               |
 | `edge_margin`                  | 外周余白 [mm]                        | 2.0               |
 | `cell_size`                    | セル寸法 [mm]                        | 2.0               |
 | `cell_gap`                     | セル間隔 [mm]                        | 1.0               |
@@ -431,7 +430,7 @@ document は移行せず「未対応」として拒否する（v1・v2 からの
 - 計算とドメインルール（セル格子、教師体積の配分、塗布量の推定、`rotations_per_ul` の補正計算）は `src/pcbasm/` の公開 API に置く。`src/web/` のジョブと router は入出力変換・prompt・progress・artifact 変換だけを担う
 - frontend は backend が返す値をそのまま表示し、体積・教師 label・補正係数・点数・撮影枚数を JavaScript で再導出しない
 - 収集ジョブのフォームの下に配置プレビューを置く。フォームの値が変わるたびに `POST /api/pasting/calibration/dataset-layout` を呼び、点数（塗布 / blank）・view 数・撮影枚数・格子セル総数・配置シード・配置図を表示する。装置を動かさないので操作権は要らない。配置不能でも図は消さず理由を併記する。シードが 0 のときの図は暫定配置である
-- 配置プレビューのリクエストのキーはジョブの `ParamSpec` 名と一致させ、レイアウトに関係しない `tolerance` / `paste_height` / `paste_id` / `paste_lot` とローディング設定は送らない。配置図では使用セルを吐出量で色分けし、blank を破線で描く
+- 配置プレビューのリクエストのキーはジョブの `ParamSpec` 名と一致させ、レイアウトに関係しない `paste_height` / `paste_id` / `paste_lot` とローディング設定は送らない。配置図では使用セルを吐出量で色分けし、blank を破線で描く
 - 収集ページのローディング操作 UI は `partials/loading_controls.html` を流用する。収集はパージをしないので、初回パージ位置の選択欄は無い
 - 次の機能は実運用で必要になるまで作らない。dataset 画像の gallery、体積分布の対話グラフ、frontend での推論・label 計算・補正計算
 

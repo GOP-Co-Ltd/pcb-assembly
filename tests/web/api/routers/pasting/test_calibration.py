@@ -254,7 +254,6 @@ class TestListCalibrations:
 # レイアウトに関係しない収集ジョブのパラメータ（preview へ送らない）
 _NON_LAYOUT_PARAMS = frozenset(
     {
-        "tolerance",
         "paste_height",
         "paste_id",
         "paste_lot",

@@ -25,7 +25,7 @@ from pcbasm.align import (
 from pcbasm.board import Layer, Pad
 from pcbasm.geometry import Point2d, Shift, Transform, sort_by_nearest
 from pcbasm.hal import Camera, Speed, XYZStage
-from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition, ParamSpec
+from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition
 from web.api.jobs.runtime.context import JobContext
 from web.api.jobs.runtime.record import JobResult
 from web.api.jobs.steps import align_events, board_corners, move_to, setup_board
@@ -40,9 +40,6 @@ def register(catalog: JobCatalog) -> None:
             name="board_tour",
             label="ボード巡回",
             run=_run_board_tour,
-            params=(
-                ParamSpec("tolerance", "位置合わせ許容誤差", "float", 0.1, unit="mm"),
-            ),
             requires_pcb=True,
             uses_machine=True,
         )

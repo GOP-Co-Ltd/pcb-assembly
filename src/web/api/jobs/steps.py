@@ -54,7 +54,6 @@ def setup_board(
     stage: XYZStage,
     camera: Camera,
     *,
-    tolerance: float | None = None,
     board: Board | None = None,
 ) -> BoardFrame:
     """Progress("セットアップ") → ボード計測セットアップの定型.
@@ -64,11 +63,8 @@ def setup_board(
         klipper: このジョブの Klipper への接続（``ctx.klipper()``）
         stage: klipper のステージ
         camera: 撮像に使うカメラ
-        tolerance: 位置合わせ許容誤差。省略時は ``ctx.params["tolerance"]``
         board: 計測対象の基板。省略時は選択 PCB（``ctx.board()``）
     """
-    if tolerance is None:
-        tolerance = float(ctx.params["tolerance"])
     if board is None:
         board = ctx.board()
     ctx.progress("セットアップ")
@@ -78,7 +74,6 @@ def setup_board(
         klipper=klipper,
         stage=stage,
         camera=camera,
-        tolerance=tolerance,
         frame_sink=ctx.frame,
     )
 
@@ -87,7 +82,6 @@ def setup_paste_session(
     ctx: JobContext,
     camera: Camera,
     *,
-    tolerance: float | None = None,
     board: Board | None = None,
 ) -> PasteSession:
     """ボード計測セットアップ（:func:`setup_board`）から塗布セッションを組む定型.
@@ -97,9 +91,7 @@ def setup_paste_session(
     """
     klipper = ctx.klipper()
     stage = XYZStage(klipper)
-    board_frame = setup_board(
-        ctx, klipper, stage, camera, tolerance=tolerance, board=board
-    )
+    board_frame = setup_board(ctx, klipper, stage, camera, board=board)
     return PasteSession.from_board_frame(
         board_frame, ctx.machine, klipper=klipper, stage=stage, camera=camera
     )

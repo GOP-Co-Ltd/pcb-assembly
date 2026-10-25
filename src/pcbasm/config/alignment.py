@@ -1,4 +1,4 @@
-"""[alignment] 節：重複領域の銅箔照合による位置合わせ."""
+"""[alignment] 節：円への位置補正と、重複領域の銅箔照合による位置合わせ."""
 
 import attrs
 
@@ -27,8 +27,20 @@ def _region_overlap(_: object, __: attrs.Attribute, value: float) -> None:
 
 @attrs.frozen
 class AlignmentConfig:
-    """重複領域の銅箔照合による位置合わせの設定."""
+    """円への位置補正と、重複領域の銅箔照合による位置合わせの設定."""
 
+    # カメラの中心を円（基準円、ツールヘッドオフセット計測の塗布痕）へ寄せる補正を終える残差 [mm]
+    # ツールヘッドオフセット計測では、円検出のばらつきと計測結果の標準偏差の上限にも使う
+    tolerance: float = attrs.field(
+        default=0.1,
+        validator=_positive,
+        metadata=setting(
+            label="位置合わせ許容誤差",
+            unit="mm",
+            group="基準円・塗布痕の位置補正",
+            order=0,
+        ),
+    )
     # 照合領域の一辺 [px]
     region_size_px: int = attrs.field(
         default=100,

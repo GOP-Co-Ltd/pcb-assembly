@@ -338,7 +338,6 @@ class ToolheadOffsetProcedure:
         self,
         session: PasteSession,
         *,
-        tolerance: float,
         lift_height: float,
         diameter_min: float,
         diameter_max: float,
@@ -349,7 +348,6 @@ class ToolheadOffsetProcedure:
 
         Args:
             session: 計測済みの基板で組んだ塗布セッション
-            tolerance: 位置合わせ許容誤差 [mm]（円検出の標準偏差上限にも使う）
             lift_height: 吐出後の上昇高さ [mm]
             diameter_min: 検出円の最小直径 [mm]
             diameter_max: 検出円の最大直径 [mm]
@@ -357,6 +355,7 @@ class ToolheadOffsetProcedure:
             frame_sink: 検出注釈画像を送る sink
         """
         machine = session.machine
+        tolerance = machine.alignment.tolerance
         camera_model = session.board_frame.camera_model
         self._session = session
         self._lift_height = lift_height

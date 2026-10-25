@@ -317,6 +317,16 @@ class TestPages:
         assert panel_slugs == nav_slugs
         assert text.count('class="settings-section" data-section') == len(nav_slugs)
 
+    def test_alignment_tolerance_is_in_the_alignment_panel(self, client: TestClient):
+        """位置合わせ許容誤差はジョブのフォームではなく、設定ページの「位置合わせ」で変える."""
+        text = client.get("/settings").text
+        start = text.index('class="settings-section" data-section="alignment"')
+        panel = text[start : text.index('class="settings-section"', start + 1)]
+
+        assert '<h2 class="settings-section-title">位置合わせ</h2>' in panel
+        assert "位置合わせ許容誤差" in panel
+        assert 'name="alignment.tolerance"' in panel
+
     def test_settings_nav_and_filter_are_outside_the_control_gated_form(
         self, client: TestClient
     ):
@@ -530,7 +540,7 @@ class TestPastingJobPages:
 
         assert "job-param-group" in text
         for legend in (
-            "銅板・位置合わせ（キャリブ後固定）",
+            "銅板（キャリブ後固定）",
             "線の共通設定（実行中変更可）",
             "② max_dispense_rate",
             "③ max_fill_speed",

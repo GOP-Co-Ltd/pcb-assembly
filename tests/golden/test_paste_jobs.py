@@ -6,6 +6,8 @@
 数値は OpenCV の検出結果そのもので、Pi 5（aarch64）と uv.lock の opencv-python 4.12.0.88 で採った。
 """
 
+import json
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, override
@@ -35,7 +37,7 @@ from tests.web.api.jobs.conftest import answer_next_prompt
 from web.api.backend import Backend
 from web.api.env import Env
 from web.api.jobs.runtime.manager import JobManager
-from web.api.jobs.runtime.record import JobStatus
+from web.api.jobs.runtime.record import JobRecord, JobStatus
 from web.api.jobs.steps import LOADING_STAGE
 from web.api.machine_config import MachineConfigFile
 
@@ -113,7 +115,7 @@ class TestPasteSolder:
                 )
             )
 
-            record = manager.start("paste_solder", {"tolerance": 0.1})
+            record = manager.start("paste_solder", {})
             status = JobStatus.SUCCEEDED if scenario.succeeds else JobStatus.FAILED
             finish(job_backend, record, status)
 
@@ -205,7 +207,7 @@ class TestHeightPlane:
             scene_camera(machine_klipper, scenario.rotation, shapes=led_blinker_shapes)
         )
 
-        record = manager.start("height_plane", {"tolerance": 0.1})
+        record = manager.start("height_plane", {})
         answer_next_prompt(record, manager, True, set())
         finish(job_backend, record)
 
@@ -224,10 +226,8 @@ class TestToolheadOffset:
         save_board(generate_rect_pcb(30.0, 30.0), path)
         return place_board(path)
 
-    @pytest.mark.parametrize(
-        "scenario", scenarios_of("toolhead_offset"), ids=lambda s: s.name
-    )
-    def test_success(
+    @pytest.fixture
+    def measure(
         self,
         manager: JobManager,
         job_backend: Backend,
@@ -235,17 +235,31 @@ class TestToolheadOffset:
         audio_player: FakeAudioPlayer,
         mount_camera: Callable[[Camera], None],
         plate_shapes: list[Polygon],
+    ) -> Callable[[float], JobRecord]:
+        """カメラの回転を与えて 5 点で計測し、終わったジョブを返す関数を返す."""
+
+        def measure(rotation: float) -> JobRecord:
+            mount_camera(scene_camera(machine_klipper, rotation, shapes=plate_shapes))
+            record = manager.start("toolhead_offset", {"point_count": 5})
+            wait_operator(record, audio_player, LOADING_STAGE)
+            manager.submit_command({"type": "finish"})
+            finish(job_backend, record)
+            return record
+
+        return measure
+
+    @pytest.mark.parametrize(
+        "scenario", scenarios_of("toolhead_offset"), ids=lambda s: s.name
+    )
+    def test_success(
+        self,
+        measure: Callable[[float], JobRecord],
+        manager: JobManager,
+        machine_klipper: FakeKlipper,
         scenario: Scenario,
     ):
         """基板計測 → 全点の高さ計測 → ローディング → 全点に塗布 → 全点を撮って測る."""
-        mount_camera(
-            scene_camera(machine_klipper, scenario.rotation, shapes=plate_shapes)
-        )
-
-        record = manager.start("toolhead_offset", {"point_count": 5})
-        wait_operator(record, audio_player, LOADING_STAGE)
-        manager.submit_command({"type": "finish"})
-        finish(job_backend, record)
+        measure(scenario.rotation)
 
         # SceneCamera は machine.toml の toolhead だけずらして塗布痕を描くので、1 画素以内でそれを測り返す
         values = manager.apply_payload().values
@@ -257,6 +271,27 @@ class TestToolheadOffset:
             DISPENSER.toolhead.y, abs=pixel
         )
         assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")
+
+    def test_uses_machine_alignment_tolerance(
+        self,
+        measure: Callable[[float], JobRecord],
+        job_settings: Env,
+        caplog: pytest.LogCaptureFixture,
+    ):
+        """基準円と塗布痕の位置補正と、ばらつきの上限のどれにも [alignment].tolerance を使う."""
+        MachineConfigFile(job_settings.config_dir).write({"alignment.tolerance": 0.05})
+
+        with caplog.at_level(logging.INFO, logger="pcbasm.align.position"):
+            record = measure(0.0)
+
+        converged = [m for m in caplog.messages if "以内に収束" in m]
+        # 基準円 4 個と塗布痕 5 個
+        assert len(converged) == 9
+        assert all(m.startswith("許容誤差 0.05 mm ") for m in converged)
+        assert record.result is not None
+        (result,) = (a for a in record.result.artifacts if a.label == "計測結果 JSON")
+        path = job_settings.webui_data_dir / result.path
+        assert json.loads(path.read_text(encoding="utf-8"))["tolerance"] == 0.05
 
 
 class TestLoading:

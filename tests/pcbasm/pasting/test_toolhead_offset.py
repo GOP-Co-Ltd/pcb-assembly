@@ -366,7 +366,6 @@ def _procedure(
     )
     return ToolheadOffsetProcedure(
         session,
-        tolerance=0.1,
         lift_height=5.0,
         diameter_min=diameter_min,
         diameter_max=2.0,

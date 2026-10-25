@@ -36,7 +36,6 @@ def register(catalog: JobCatalog) -> None:
             label="ツールヘッドオフセット計測",
             run=_run_toolhead_offset,
             params=(
-                ParamSpec("tolerance", "位置合わせ許容誤差", "float", 0.1, unit="mm"),
                 ParamSpec(
                     "dispense_amount",
                     "吐出量",
@@ -100,7 +99,6 @@ def register(catalog: JobCatalog) -> None:
             uses_machine=True,
             accepts_commands=True,
             persisted_params=(
-                "tolerance",
                 "dispense_amount",
                 "loading_amount",
                 "lift_height",
@@ -118,7 +116,6 @@ def register(catalog: JobCatalog) -> None:
 
 def _run_toolhead_offset(ctx: JobContext) -> JobResult:
     """複数点のペースト吐出と円検出からツールヘッド XY オフセットを計測する."""
-    tolerance = float(ctx.params["tolerance"])
     lift_height = float(ctx.params["lift_height"])
     diameter_min = float(ctx.params["paste_diameter_min"])
     diameter_max = float(ctx.params["paste_diameter_max"])
@@ -146,10 +143,9 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
     )
 
     with ctx.open_camera() as camera:
-        session = setup_paste_session(ctx, camera, tolerance=tolerance)
+        session = setup_paste_session(ctx, camera)
         procedure = ToolheadOffsetProcedure(
             session,
-            tolerance=tolerance,
             lift_height=lift_height,
             diameter_min=diameter_min,
             diameter_max=diameter_max,
@@ -253,6 +249,7 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
         )
 
     # オフセット算出 & 保存
+    tolerance = ctx.machine.alignment.tolerance
     offset_result = ToolheadOffsetResult.measure(
         samples,
         tolerance=tolerance,

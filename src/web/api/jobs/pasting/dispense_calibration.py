@@ -57,7 +57,7 @@ CALIBRATION_MENU_STAGE = "キャリブレーションメニュー"
 _DEFAULTS = CalibrationParams()
 
 # フォーム内のまとまり（①②③ の依存順）
-_PLATE = ParamGroup("銅板・位置合わせ（キャリブ後固定）")
+_PLATE = ParamGroup("銅板（キャリブ後固定）")
 _LINES = ParamGroup("線の共通設定（実行中変更可）")
 _RATE = ParamGroup("② max_dispense_rate（吐出効率の落ち検出）")
 _SPEED = ParamGroup("③ max_fill_speed（連続塗布の最大速度）")
@@ -71,7 +71,7 @@ def register(catalog: JobCatalog) -> None:
             run=_run_dispense_calibration,
             params=(
                 # 共通の準備（その場生成する銅板 + ボード計測）。銅板は開始時に 1 回生成する
-                # ため board_width / board_height / tolerance はキャリブ後固定（実行中変更不可）。
+                # ため board_width / board_height はキャリブ後固定（実行中変更不可）。
                 ParamSpec(
                     "board_width",
                     "銅板幅",
@@ -85,14 +85,6 @@ def register(catalog: JobCatalog) -> None:
                     "銅板高さ",
                     "float",
                     _DEFAULTS.board_height,
-                    unit="mm",
-                    group=_PLATE,
-                ),
-                ParamSpec(
-                    "tolerance",
-                    "位置合わせ許容誤差",
-                    "float",
-                    0.1,
                     unit="mm",
                     group=_PLATE,
                 ),
@@ -211,7 +203,6 @@ def register(catalog: JobCatalog) -> None:
             persisted_params=(
                 "board_width",
                 "board_height",
-                "tolerance",
                 "line_length",
                 "line_count",
                 "line_amount",
@@ -253,7 +244,6 @@ def _run_dispense_calibration(ctx: JobContext) -> JobResult:
     算出/判定はすべて ``pcbasm.pasting.dispense_calibration`` に委譲し、ここはループ制御と入出力に徹する。
     """
     params = _params(ctx)
-    tolerance = float(ctx.params["tolerance"])
 
     # 開始時点の設定で ①（line_count 本）②（レート掃引点数）③（速度掃引点数）の
     # いずれかが銅板に収まらない場合はセットアップ前に失敗させる
@@ -267,7 +257,7 @@ def _run_dispense_calibration(ctx: JobContext) -> JobResult:
         filename = f"dispense_calibration_rect_{width:g}x{height:g}.kicad_pcb"
         board = write_rect_board(ctx.artifacts_dir / filename, width, height)
         ctx.log(f"キャリブレーション銅板を生成: {filename}（{width:g}x{height:g} mm）")
-        session = setup_paste_session(ctx, camera, tolerance=tolerance, board=board)
+        session = setup_paste_session(ctx, camera, board=board)
         ctx.progress("高さ計測")
         with FlowCalibrationProcedure(CopperPlate.measure(session)) as procedure:
             results = _calibration_menu_loop(ctx, procedure)

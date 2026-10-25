@@ -16,7 +16,7 @@
   const legendBox = document.getElementById("pdl-legend");
 
   // リクエストのキーは収集ジョブの ParamSpec 名と一致する（サーバが extra=forbid なので
-  // レイアウトに関係しない tolerance / paste_height / paste_id は送らない）。
+  // レイアウトに関係しない paste_height / paste_id は送らない）。
   const FIELDS = [
     "plate_width",
     "plate_height",

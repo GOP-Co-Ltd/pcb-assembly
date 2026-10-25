@@ -171,6 +171,7 @@ class TestMachine:
         machine = load_machine(TESTING_DATA_DIR / "machine.toml")
 
         assert machine.alignment == AlignmentConfig()
+        assert machine.alignment.tolerance == pytest.approx(0.1)
         assert machine.alignment.region_size_px == 100
         assert machine.alignment.refine_max_short_side == pytest.approx(0.4)
 
@@ -202,7 +203,8 @@ class TestMachine:
         source = (TESTING_DATA_DIR / "machine.toml").read_text()
         path = tmp_path / "machine.toml"
         path.write_text(
-            source + "\n[alignment]\nregion_size_px = 160\n"
+            source + "\n[alignment]\ntolerance = 0.05\n"
+            "region_size_px = 160\n"
             "region_overlap = 0.25\n"
             "refine_max_short_side = 0.25\n"
             "blur_ksize = 3\n"
@@ -210,6 +212,7 @@ class TestMachine:
 
         alignment = load_machine(path).alignment
 
+        assert alignment.tolerance == pytest.approx(0.05)
         assert alignment.region_size_px == 160
         assert alignment.region_overlap == pytest.approx(0.25)
         assert alignment.refine_max_short_side == pytest.approx(0.25)
@@ -477,6 +480,8 @@ class TestAlignmentRegionSettings:
     @pytest.mark.parametrize(
         ("key", "value"),
         [
+            ("tolerance", 0.0),
+            ("tolerance", -0.01),
             ("converge_tolerance", 0.0),
             ("converge_tolerance", -0.01),
             ("board_edge_margin", 0.0),

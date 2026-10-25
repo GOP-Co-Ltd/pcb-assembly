@@ -8,7 +8,7 @@ from pcbasm.align import BoardFrame, OrthogonalityMetrics, render_label
 from pcbasm.board import Layer
 from pcbasm.geometry import Point2d, sort_by_nearest
 from pcbasm.hal import Camera, XYZStage
-from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition, ParamSpec
+from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition
 from web.api.jobs.runtime.context import JobContext
 from web.api.jobs.runtime.record import JobResult
 from web.api.jobs.steps import board_corners, move_to, setup_board
@@ -20,9 +20,6 @@ def register(catalog: JobCatalog) -> None:
             name="orthogonality_test",
             label="直行性テスト",
             run=_run_orthogonality_test,
-            params=(
-                ParamSpec("tolerance", "位置合わせ許容誤差", "float", 0.1, unit="mm"),
-            ),
             requires_pcb=True,
             uses_machine=True,
         )

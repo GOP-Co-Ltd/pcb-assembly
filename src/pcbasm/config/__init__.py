@@ -155,7 +155,7 @@ class MachineConfig:
     )
     probe: ProbeConfig = attrs.field(metadata=section(label="プローブ", order=3))
     alignment: AlignmentConfig = attrs.field(
-        factory=AlignmentConfig, metadata=section(label="パッド位置合わせ", order=2)
+        factory=AlignmentConfig, metadata=section(label="位置合わせ", order=2)
     )
     audio: AudioConfig = attrs.field(
         factory=AudioConfig, metadata=section(label="通知音", order=8)

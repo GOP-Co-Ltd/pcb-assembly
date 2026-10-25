@@ -161,14 +161,6 @@ def register(catalog: JobCatalog, stores: PasteStores) -> None:
                     group=_PLATE,
                 ),
                 ParamSpec(
-                    "tolerance",
-                    "位置合わせ許容誤差",
-                    "float",
-                    0.1,
-                    unit="mm",
-                    group=_PLATE,
-                ),
-                ParamSpec(
                     "edge_margin",
                     "外周余白",
                     "float",
@@ -381,7 +373,6 @@ def register(catalog: JobCatalog, stores: PasteStores) -> None:
             persisted_params=(
                 "plate_width",
                 "plate_height",
-                "tolerance",
                 "edge_margin",
                 "cell_size",
                 "cell_gap",

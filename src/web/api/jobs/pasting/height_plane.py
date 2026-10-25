@@ -12,7 +12,7 @@ from pcbasm.pasting.height import (
     render_planned_points,
 )
 from pcbasm.vision import Image
-from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition, ParamSpec
+from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition
 from web.api.jobs.runtime.context import JobContext
 from web.api.jobs.runtime.record import JobResult
 from web.api.jobs.steps import setup_paste_session
@@ -24,9 +24,6 @@ def register(catalog: JobCatalog) -> None:
             name="height_plane",
             label="高さ平面計測",
             run=_run_height_plane,
-            params=(
-                ParamSpec("tolerance", "位置合わせ許容誤差", "float", 0.1, unit="mm"),
-            ),
             requires_pcb=True,
             uses_machine=True,
             provides_preview=True,

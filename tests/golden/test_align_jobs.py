@@ -131,7 +131,7 @@ class TestCameraCalibration:
         )
 
         machine_klipper.clear_sent()
-        finish(job_backend, manager.start("board_tour", {"tolerance": 0.1}))
+        finish(job_backend, manager.start("board_tour", {}))
 
         reference, rotation_probe = machine_klipper.g1_moves()[:2]
         assert rotation_probe["x"] - reference["x"] == pytest.approx(
@@ -143,7 +143,7 @@ class TestCameraCalibration:
 class TestCalibrationWithoutFocusZ:
     @pytest.mark.parametrize(
         ("job", "params"),
-        [("reference_point_setup", {}), ("board_tour", {"tolerance": 0.1})],
+        [("reference_point_setup", {}), ("board_tour", {})],
     )
     def test_job_fails_before_homing(
         self,
@@ -190,7 +190,7 @@ class TestBoardTour:
             scene_camera(machine_klipper, scenario.rotation, shapes=grid_shapes)
         )
 
-        finish(job_backend, manager.start("board_tour", {"tolerance": 0.1}))
+        finish(job_backend, manager.start("board_tour", {}))
 
         assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")
 
@@ -216,7 +216,7 @@ class TestOrthogonalityTest:
             scene_camera(machine_klipper, scenario.rotation, shapes=grid_shapes)
         )
 
-        record = manager.start("orthogonality_test", {"tolerance": 0.1})
+        record = manager.start("orthogonality_test", {})
         answered: set[str] = set()
         prompts = [
             answer_next_prompt(record, manager, answer, answered)

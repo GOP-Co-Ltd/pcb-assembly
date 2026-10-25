@@ -412,7 +412,6 @@ class TestToolheadOffset:
         assert points is not None, error
         procedure = ToolheadOffsetProcedure(
             _session(klipper, machine, LED_BLINKER),
-            tolerance=0.1,
             lift_height=5.0,
             diameter_min=0.4,
             diameter_max=2.0,
