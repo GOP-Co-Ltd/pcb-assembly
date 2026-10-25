@@ -1,132 +1,121 @@
 ---
 name: testing-strategy
-description: pcb-assembly のテスト戦略。実機を最優先・自前 HAL ABC のみ fake 可・3rd-party 表面 (picamera2 / libgpiod / Klipper RPC / OpenCV / time.sleep 等) のモック禁止。4 区分 (unit / integration-with-fakes / integration-hardware / e2e)、tests ミラーレイアウト (tests/web/api と tests/web/ui を含む)、書く/書かないリスト、公開 API 契約ピン例外、実 zeroconf と skip_if_no_mdns の扱い、@mark_hardware と make test-no-hardware の使い分け。テストコードを書く・壊れたテストを調査する・pytest 周りを設定する前に読む
+description: pcb-assembly のテスト戦略。pytest は実機に触れず、実機の確認は受け入れ試験（docs/acceptance.md）が持つ。5 区分（unit / fake を使う結合 / golden / e2e / 受け入れ試験）、tests のレイアウト（ミラー、support、data、golden、repo）、fake してよいのは自前 HAL の fake だけで 3rd-party 表面（picamera2 / Klipper RPC / OpenCV / time.sleep 等）と内部関数のモックは禁止、fail-closed の fixture、書く/書かないリスト、実 zeroconf と skip_if_no_mdns の扱い。テストコードを書く・壊れたテストを調査する・pytest 周りを設定する前に読む
 ---
 
 # pcb-assembly テスト方針リファレンス
 
 ## 哲学
 
-pcb-assembly はハードウェア装置制御が支配的なプロジェクト。「動くテスト」ではなく「**実機での振る舞いを保証するテスト**」を優先する。
+テストは仕様書である。公開インターフェースと観測可能な振る舞いを、実データ・実オブジェクトで確かめる。
 
-ハードウェア表面をミラーした fake は自分の仮定をテストするだけで、ドライバ・配線・タイミングといった現実の障害要因を検出できない。実機障害を防ぐため、**実機テストを最優先**とする。一方で実機は常に使えるとは限らないため、CI / 開発機では自前 HAL ABC の fake / 軽量代替で結合を検証し、実機接続時に `@mark_hardware` テストで真の検証を行う。この二層構成で運用する。
+pytest は実機に触れない。テストは本番機の上でも走るので、root conftest がテストごとに実機への経路を塞ぐ（下の「fail-closed」）。
+装置へ送る G-code の列は golden で固定し、golden で見えないもの（機構の動き、カメラ、音、画面）は受け入れ試験（`docs/acceptance.md`）で人が実機で確かめる。
 
-## 検証対象の優先順位
+## 5 区分
 
-1. **実機テスト (`@mark_hardware`)**：真の検証。実カメラ (USB / CSI)、実 Klipper (シリアル / RPC)、実ロードセル、実 GPIO、実 PCB に対して走らせる。実 PNG を実 OpenCV / picamera2 / RapidOCR に通す。`make test` で実機接続時にローカル実行。skip 条件 (`skip_if_no_usb_camera` 等) で gating する。
-2. **自前 HAL ABC の fake / 軽量代替**：`Camera`, `KlipperClient` など `src/pcbasm/hal/` で pcb-assembly が定義した抽象のみ fake してよい。`make test-no-hardware` の主体。ABC のみで具象が無い場合は `tests/helpers.py` に test 用 Impl を置く (`mocker.Mock` よりまず実 Impl を検討)。
-3. **3rd-party 表面のモック → 禁止**: `picamera2.Picamera2`, `v4l2` ioctl, `libgpiod`, Klipper の Moonraker / klippy RPC, `cv2.*`, `time.sleep` など外部ライブラリの面を直接モックしない。モックはテスト作成者の仮定を写すだけで、upstream の挙動変更を検出できない。
-4. **内部関数モック → 禁止**：自モジュール内の private 関数をモックしても、リファクタのたびにテストが失敗するだけで、振る舞いは何も保証しない。
+| 区分                | 配置                              | 検証対象                                                      | 実行                     |
+| ------------------- | --------------------------------- | ------------------------------------------------------------- | ------------------------ |
+| **unit**            | `tests/pcbasm/**`、`tests/web/**` | 計算、ファイル、SSR / JSON などの振る舞い                     | `make check`             |
+| **fake を使う結合** | 同上（`pcbasm.hal.fake` を使う）  | モジュール間の結合、ジョブの流れ                              | `make check`             |
+| **golden**          | `tests/golden/`                   | ジョブが送る G-code 列と実効 timeout、成果物 JSON、基板の署名 | `make check`             |
+| **e2e**             | `tests/e2e/`                      | 実 uvicorn の backend + frontend と Chromium の通し動作       | `make test-e2e`          |
+| **受け入れ試験**    | `docs/acceptance.md`              | 実機での機構・カメラ・音・画面                                | merge 前に人が実機で行う |
 
-## 基本原則
+`make check` は `make format`、`make type`、`make test` を順に流す。テンプレートや JS に触れたら `make test-e2e` も流す（skill [webui-e2e](../webui-e2e/SKILL.md)）。
 
-- 必要十分なテストのみ記述。網羅率を稼ぐためのテストは書かない
-- 内部実装ではなく公開インターフェースと振る舞いをテストする
-- テスト関数に戻り値の型アノテーションは不要
-- コードカバレッジは目標ではなく診断。100% は要注意 (テストが弱い可能性がある)
+## モックと fake
+
+1. **実物を優先する**：実 PNG を実 OpenCV に通す、実ファイルを読み書きする、実 zeroconf を起動する
+2. **fake してよいのは自前 HAL だけ**：`pcbasm.hal.fake` の `FakeKlipper`、`SceneCamera`、`FakeAudioPlayer` などを使う。`make dev` と golden も同じ fake を使う
+3. **3rd-party 表面のモックは禁止**：`picamera2.Picamera2`、v4l2、Klipper の Moonraker RPC、`cv2.*`、`time.sleep` などを直接モックしない。モックはテスト作成者の仮定を写すだけで、upstream の挙動変更を検出できない
+4. **内部関数のモックは禁止**：private 関数をモックしても、リファクタのたびに落ちるだけで振る舞いは何も保証しない
+
+モックが要るときは `pytest_mock`（`mocker`）を使い、`unittest.mock` は使わない。
+
+## fail-closed
+
+root conftest（`tests/conftest.py`）の autouse fixture が、テストから実機とサービスへの経路を塞ぐ。外さない。
+
+- `forbid_real_klipper`：`open_klipper` を呼ぶとテストが落ちる。Klipper が要るテストは `moonraker`（`tests/support/moonraker.py` の FakeMoonraker）か `mount_klipper`（`FakeKlipper`）を使う
+- `forbid_real_systemctl`：自己更新の `sudo` と `systemctl` を、呼ばれたら失敗する stub に向ける
+- `fake_by_default`：`PCBASM_FAKE=1` にし、env から組む起動設定を fake の機体にする
+
+この契約は `tests/repo/test_fail_closed.py` が固定する。
+
+## golden
+
+ジョブの golden は `tests/golden/` に置き、fake の機体の上で実 Backend と実 JobManager を走らせて採る（`tests/golden/conftest.py`）。
+
+- 比べ方は `tests/support/golden.py`：命令と語の並びは完全一致、数値は |Δ| ≤ 1e-9
+- 装置を動かすジョブを catalog に足したら、`tests/golden/scenarios.py` にシナリオを足す（`test_coverage.py` が落ちる）
+- golden を変えるのは、送る列を意図して変えるときだけ。`PCBASM_UPDATE_GOLDEN=1` で書き換え、差分の理由を PR 本文に書く
 
 ## テストレイアウト
 
-`tests/pcbasm/` は `src/pcbasm/` を 1 対 1 でミラーリングする。
+`tests/` は `src/` を 1 対 1 でミラーする。1 source ファイル 1 test ファイルが原則。
 
 ```
-src/pcbasm/hal/camera.py       ↔ tests/pcbasm/hal/test_camera.py
 src/pcbasm/vision/detection.py ↔ tests/pcbasm/vision/test_detection.py
-src/pcbasm/geometry/polygon.py ↔ tests/pcbasm/geometry/test_polygon.py
+src/web/api/routers/session.py ↔ tests/web/api/routers/test_session.py
+src/web/ui/pages.py            ↔ tests/web/ui/test_pages.py
 ```
 
-- `tests/web/api/` が `src/web/api/`（backend WebAPI）を、`tests/web/ui/` が `src/web/ui/`（UI frontend）を同様にミラーする
-- `tests/` 直下に置けるのは共通資産（`__init__.py` / `helpers.py` / `conftest.py`）と `e2e/`
-    （実サーバー E2E）、それに **`src/` 側にミラー元が無い対象のテスト**だけ。後者は
-    `test_package.py`（パッケージ構成）、`test_claude_hooks.py`（`.claude/` の hook）、
-    `test_web_service_script.py`（`scripts/web-service.sh`）
-    のようにリポジトリ資産そのものを検証するもので、ミラー先が無いから直下に置く
-- `tests/helpers.py` が `mark_hardware` / `skip_if_no_*` / test 用 Impl の所在地。締め切り付き
-    実行の `before_deadline`（ハングをテスト失敗に変える）、`wait_until`、
-    `random_service_type` もここ
-- 1 source ファイル 1 test ファイル原則。バックエンド分割があればテストも分割
+ミラー以外の置き場所は次のとおり。
+
+| 場所                         | 置くもの                                                                    |
+| ---------------------------- | --------------------------------------------------------------------------- |
+| `tests/conftest.py`          | 全テスト共通の fixture だけ（fail-closed を含む）                           |
+| `tests/support/`             | テストの支援部品（fake の Moonraker、待ち合わせ、web / browser の起動など） |
+| `tests/data/`                | テストの入力（設定、画像、KiCad の基板など）                                |
+| `tests/golden/`              | golden とそれを採るシナリオ                                                 |
+| `tests/e2e/`                 | 実サーバーの E2E                                                            |
+| `tests/repo/`                | ミラー元の無いリポジトリ資産の契約（Makefile、install.sh、更新経路など）    |
+| `tests/test_architecture.py` | src の import が層の規則に従うこと                                          |
 
 WebUI は 2 プロセスなので、どちらのテストに置くかで検証範囲が変わる。
 
 - `tests/web/api/`：backend 単体（`TestClient` で backend app を直に駆動）
 - `tests/web/ui/`：frontend + 上流に実物の backend app（httpx `ASGITransport` で in-process）。
-    **JSON プロキシと SSR ページだけ**書ける。MJPEG / WS / ジョブ実行は `ASGITransport` では
-    成立しないので `tests/e2e/` へ（理由は skill `webui-e2e`）
-- `tests/e2e/`：実 uvicorn の backend + frontend を 2 プロセス起動し、通しでリクエストを送る
+    **JSON プロキシと SSR ページだけ**書ける。MJPEG / WS / ジョブ実行は `tests/e2e/` へ（理由は skill `webui-e2e`）
 
-## テスト 4 区分
-
-| 区分                       | 配置                                        | 検証対象                                         | モック許容                     | 実行                           |
-| -------------------------- | ------------------------------------------- | ------------------------------------------------ | ------------------------------ | ------------------------------ |
-| **unit**                   | `tests/pcbasm/**/test_*.py`                 | 純粋ロジック (geometry の数学、PCB 配置パース等) | なし                           | 常時                           |
-| **integration-with-fakes** | 同上 (`tests/helpers.py` の Impl を import) | モジュール間結合                                 | 自前 HAL ABC のみ              | 常時 (`make test-no-hardware`) |
-| **integration-hardware**   | 同上、`@mark_hardware` 付与                 | adapter / 実機結合点                             | 実機、`skip_if_no_*` で gating | 実機接続時 (`make test`)       |
-| **e2e**                    | `tests/e2e/`                                | WebUI の実サーバー通し動作 (backend + frontend)  | なし                           | 手動 (`make test-e2e`)         |
-
-**hardware と非 hardware は同一テストクラス内に併存させる**。マーカー定義と接続確認手順は skill `hardware-test` を参照。
+待ち合わせは `tests/support/polling.py` の `wait_until` と `before_deadline` を使う。固定値の `sleep` で待たない。
 
 ## 何をテストするか / しないか
 
 ### 書く
 
-- 正常系、異常系、警告 (RuntimeWarning 等)、エッジケース
-- 例外メッセージは **substring** で検証 (`assert "expected" in str(exc.value)`)
+- 正常系、異常系、警告（RuntimeWarning 等）、エッジケース
+- 例外メッセージは **substring** で検証する（`assert "expected" in str(exc.value)`）
+- テストは `class TestXxx:` にまとめ、テスト関数名を仕様の 1 行として読める形にする
 
 ### 書かない
 
-- 継承の追試: `class MyError(RuntimeError):` の `isinstance` 検証
-- import 可能性の追試: `assert X is not None`
-- 定数 literal の追試: `assert TIMEOUT == 5`
-- getter / setter ラウンドトリップ
+- 継承の追試：`class MyError(RuntimeError):` の `isinstance` 検証
+- import 可能性の追試：`assert X is not None`
+- 定数 literal の追試：`assert TIMEOUT == 5`
+- getter / setter のラウンドトリップ
 - framework / stdlib の動作追試
-- **例外メッセージ完全一致**: 上記のとおり substring で十分
-- モック戻り値をそのまま検証 (モックの設定をテストしているだけ)
+- 例外メッセージの完全一致
+- モックの戻り値をそのまま検証すること（モックの設定をテストしているだけ）
+- private（`_` prefix）の直接テスト
 
-### 例外: 公開 API 契約ピン
+## 実 zeroconf（mDNS）
 
-外部利用者が依存する API 名・基底クラス・型エイリアスは契約として固定してよい。まだ 1 件も無いので、最初に書く人が次を用意する。
+mDNS の広告・探索テストは実 `zeroconf` を起動して実マルチキャストを通す。モックすると TXT の欠損・解決タイムアウト・サービス型の不一致を検出できない。
 
-- 集約場所: `tests/pcbasm/test_api_contract.py`
-- マーカー: `@pytest.mark.api_contract`（未登録。下の「pytest 設定」に従って先に登録する）
-- 対象例: `__all__` 整合性、公開例外の継承元、型エイリアスの解決先
-
-## モック (使用する場合のルール)
-
-- `pytest_mock` を使用 (`unittest.mock` は使わない、`mocker.Mock` / `mocker.patch`)
-- 複数テストで共有するモックは `tests/conftest.py` のフィクスチャに集約
-- **対象は自前 HAL ABC のみ**。3rd-party 表面と内部関数は対象外
-
-### 実 zeroconf（mDNS）は「実オブジェクト検証」
-
-mDNS の広告・探索テストは実 `zeroconf` を起動して実マルチキャストを通す。これは
-**モック禁止則の例外ではなく、優先順位 1〜2 の「実物で検証する」側**である
-（`zeroconf` をモックすると自分の仮定をミラーするだけで、TXT の欠損・解決タイムアウト・
-サービス型の不一致といった実際の障害要因を検出できない）。
-
-- `skip_if_no_mdns`（`tests/helpers.py`）は**実行時の能力プローブ**。5353 の共有 bind と
-    ループバックへのマルチキャスト join を実際に試し、できない環境（一部コンテナ）で
-    失敗ではなく skip にする。`skip_if_no_usb_camera` / `skip_if_no_csi_camera` と同じ構造で、
-    「実物があるときだけ実物で検証する」ための gating
-- 実 LAN に影響を与えないための隔離（サービス型のランダム化・ループバック限定・総件数で
-    assert しない）は skill `webui-e2e` の「mDNS テストの隔離の鉄則」が正典。
-    mDNS を触らないテストの fixture は `discovery_enabled=False` を既定にしてある
+- `skip_if_no_mdns`（`tests/support/web.py`）は実行時の能力プローブ。5353 の共有 bind とループバックへのマルチキャスト join を試し、できない環境（一部コンテナ）では失敗ではなく skip にする
+- 実 LAN に影響を与えないための隔離（サービス型のランダム化・ループバック限定・総件数で assert しない）は skill `webui-e2e` の「mDNS テストの隔離の鉄則」が正典。mDNS を触らないテストの fixture は `discovery_enabled=False` を既定にしてある
 
 ## pytest 設定
 
-`pyproject.toml` の `[tool.pytest.ini_options]` の設定は次のとおり。
-
-- `--strict-markers` が有効。登録済みのマーカーは `hardware` / `e2e` / `browser` だけ。新しいマーカーは同じ節の `markers` に登録してから使う（未登録だと収集時にエラー）
-- `hardware` マーカーは `tests/helpers.py` の `mark_hardware = pytest.mark.hardware` 経由で付与する (テスト側で文字列リテラル `@pytest.mark.hardware` を直接書かない)
+- `pyproject.toml` の `--strict-markers` が有効。登録済みのマーカーは `e2e` / `browser` だけ。新しいマーカーは同じ節の `markers` に登録してから使う
+- `tests/e2e/` には conftest が `e2e` を自動で付け、`make test` は `-m "not e2e"` で除外する
 
 ## 関連 skill / memory
 
-- `hardware-test`：`mark_hardware` / `skip_if_no_*` の定義と実機接続確認手順
 - `refactor-conventions`：`class TestXxx:` 構造、private prefix、None 返却バリデーションなどテストコードの書き方
+- `webui-e2e`：E2E の書き方と実行
 - [memory/feedback_no_private_test.md](../../../memory/feedback_no_private_test.md)：private を直接テストしない
 - [memory/feedback_test_class.md](../../../memory/feedback_test_class.md)：テストはクラスに集約
 - [memory/feedback_no_try_catch.md](../../../memory/feedback_no_try_catch.md)：None 返却バリデーション
-
-## 参考文献
-
-- Fowler: Testing shapes (pyramid / honeycomb / trophy)
-- GOOS 原則: 自分が所有しているもののみ mock する

@@ -10,9 +10,10 @@ AGENTS.md の記述を以下のとおり読み替える。
 
 ### 検証コマンド
 
-- Claude が使う検証は `make format && make type && make test-no-hardware`。標準フローの `make test` はこれに読み替える
-- `make test` / `make run` / `pytest -m hardware` は実機が動くため実行しない。`.claude/settings.json` の deny と PreToolUse hook（`.claude/hooks/pretooluse-block-hardware-tests.py`）で機構的に禁止済み。実機確認はユーザーが行う
-- `pytest` を直接叩くときは対象パスに関係なく `-m "not hardware"` を付ける
+- Claude が使う検証も AGENTS.md の標準フローと同じ `make check`
+- pytest は実機に触れない。ただし実機テストがあった頃の防護層（`.claude/settings.json` の deny `Bash(make test:*)` と PreToolUse hook `.claude/hooks/pretooluse-block-hardware-tests.py`）が残っており、`make test` の直接実行と `-m "not hardware"` の無い pytest 起動を止める
+- テストだけを流すときは `make test-no-hardware`、`pytest` を直接叩くときは `-m "not hardware"` を付ける
+- 実機での確認はユーザーが受け入れ試験（`docs/acceptance.md`）で行う
 
 ### 資産の置き場所
 

@@ -60,7 +60,7 @@ skill [webui-e2e](../webui-e2e/SKILL.md)。
 
 ## 検証
 
-- `make test-no-hardware`（`tests/web/api/` の resolved/集計/バリデーション、`tests/web/ui/` の
+- `make check`（`tests/web/api/` の resolved/集計/バリデーション、`tests/web/ui/` の
     SSR ページと中継、pcbasm の純ロジック契約テスト）
 - `make test-e2e` / `make dev`（ブラウザで表示が API 由来であることを確認）。
     詳細は skill `webui-e2e`

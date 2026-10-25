@@ -93,6 +93,5 @@ disallowedTools: Edit, NotebookEdit
 - 規約・フィードバック：`memory/MEMORY.md`
 - リファクタリング規約：skill `refactor-conventions`
 - テスト方針全般：skill `testing-strategy`
-- ハードウェアテスト：skill `hardware-test`
 - マルチエージェントフロー：skill `agent-team-startup`
 - 下流連携：`spec-test-author`（仕様 first フロー時にテストを書く）、`plan-implementer`（実装担当）

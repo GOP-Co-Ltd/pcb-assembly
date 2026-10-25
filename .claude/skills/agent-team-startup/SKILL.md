@@ -100,7 +100,7 @@ approve（should-fix は残ってよい）の後に 5 を行う。5 で大きく
 
 - planner の「公開インターフェース案」が**シグネチャレベル**（関数名・引数・戻り値型）で確定していること
 - ハードウェアリソース（実カメラ／実 Klipper）の同時アクセスがないこと
-- `tests/helpers.py` の更新は spec-test-author 側に寄せること
+- `tests/support/` の更新は spec-test-author 側に寄せること
 
 モジュール分割による並列、並列時のファイル分離規約、避けるべきケースは [reference.md](reference.md) を参照。並列発火は 1 メッセージにまとめる（skill `maximize-parallels`）。
 
@@ -108,16 +108,16 @@ approve（should-fix は残ってよい）の後に 5 を行う。5 で大きく
 
 orchestrator が各段階で確認する。
 
-| タイミング              | 確認事項                                                                                                |
-| ----------------------- | ------------------------------------------------------------------------------------------------------- |
-| planner 完了時          | 計画書に「公開 IF 案／実装ステップ／テスト観点／リスク」が揃っているか。確認事項があれば中継したか      |
-| spec-test-author 完了時 | テストが `tests/` 配下のみに書かれているか、3rd-party モックが無いか、仕様根拠の対応表があるか          |
-| implementer 完了時      | `make format && make type && make test-no-hardware` がグリーン。spec-test-author 引継ぎ時はテスト未編集 |
-| reviewer 完了時         | verdict が明記され、全 must-fix に根拠と確信度が添えてあるか                                            |
-| simplifier 完了時       | 公開 IF 不変・全テスト通過・ドキュメントが現状コードと整合                                              |
-| 並列完了時              | 全並列分マージ後に 1 回 `make format && make type && make test-no-hardware` を通す                      |
+| タイミング              | 確認事項                                                                                           |
+| ----------------------- | -------------------------------------------------------------------------------------------------- |
+| planner 完了時          | 計画書に「公開 IF 案／実装ステップ／テスト観点／リスク」が揃っているか。確認事項があれば中継したか |
+| spec-test-author 完了時 | テストが `tests/` 配下のみに書かれているか、3rd-party モックが無いか、仕様根拠の対応表があるか     |
+| implementer 完了時      | `make check` がグリーン。spec-test-author 引継ぎ時はテスト未編集                                   |
+| reviewer 完了時         | verdict が明記され、全 must-fix に根拠と確信度が添えてあるか                                       |
+| simplifier 完了時       | 公開 IF 不変・全テスト通過・ドキュメントが現状コードと整合                                         |
+| 並列完了時              | 全並列分マージ後に 1 回 `make check` を通す                                                        |
 
-実機テスト（`make test` の `@mark_hardware` 分）はどの agent も実行しない。実機が物理的に動作するため。検証は `make test-no-hardware` までとし、実機確認はユーザーに委ねる（`memory/MEMORY.md` の「No hardware test execution」、`settings.json` でも deny 済み）。
+実機確認はどの agent も行わない。ユーザーが受け入れ試験（`docs/acceptance.md`）で行う。
 
 ## 参照
 

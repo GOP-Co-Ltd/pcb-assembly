@@ -72,10 +72,10 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 - `make setup`: 開発環境セットアップ
 - `make format`: pre-commit 実行
 - `make type`: pyright 型チェック
-- `make test`: E2E 以外の全テスト（実機テストを含む）
-- `make test-no-hardware`: ハードウェア・E2E を除外
+- `make test`: E2E 以外の全テスト（pytest は実機に触れない）
+- `make test-no-hardware`: `make test` の別名。`make test` を拒否する旧い防護層（Claude の deny と hook、`.codex/rules` の forbidden）が残る間、エージェントがテストだけを流すときに使う
 - `make test-e2e`: WebUI E2E
-- `make run`: format → test → type（test は実機テストを含む）
+- `make check`: format → type → test
 - `make api`: backend WebAPI 起動（port 8081）
 - `make ui`: UI frontend 起動（port 8080）
 - `make dev`: Klipper もカメラも fake にした backend と frontend を同時に起動（隔離ポート 8099 / 8098 と一時ディレクトリ、手動・ブラウザ確認用）
@@ -95,9 +95,9 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 - 公開インターフェースと観測可能な振る舞いをテストする
 - 実データ・実リソースを優先し、モックを最小化する
 - テストは `class TestXxx` 形式に集約する
-- 3rd-party 表面や内部関数をモックしない
-- ハードウェアテストは `@mark_hardware` で分離する
-- 詳細は `testing-strategy`、`hardware-test`、`refactor-conventions` Skill
+- 3rd-party 表面や内部関数をモックしない。装置は `pcbasm.hal.fake` の fake を使う
+- 実機での確認は受け入れ試験（`docs/acceptance.md`）で人が行う
+- 詳細は `testing-strategy`、`refactor-conventions` Skill
 
 ### WebUI 設計
 
@@ -124,8 +124,8 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 
 標準フロー:
 
-要件確認 → ブランチ作成 → 実装 → `make format && make type && make test`
-→ commit。実機がない場合は理由を明示して `make test-no-hardware` を使う。
+要件確認 → ブランチ作成 → 実装 → `make check`（テンプレート・JS に触れたら `make test-e2e` も）
+→ commit。
 
 ## Custom Agents
 
@@ -143,7 +143,6 @@ custom agent と `agent-team-startup` Skill を使う。
 ## 参照先
 
 - `memory/MEMORY.md`: ユーザーとの対話で確立した規約・好み
-- `.agents/skills/hardware-test/`: 実機テスト
 - `.agents/skills/testing-strategy/`: テスト戦略
 - `.agents/skills/refactor-conventions/`: 実装・テスト規約
 - `.agents/skills/webui-e2e/`: WebUI E2E

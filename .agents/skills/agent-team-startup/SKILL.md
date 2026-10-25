@@ -54,10 +54,5 @@ trivial な変更では planner、simplifier、docs を省略してよい。
 ## 合流
 
 ```bash
-make format
-make type
-make test-no-hardware
+make check
 ```
-
-実機が利用可能で変更がハードウェアに関係する場合は、競合しないよう直列で
-`make test` または対象 hardware test を実行する。

@@ -11,7 +11,7 @@ PCB assembly プロジェクトの仕様テスト専任 agent として振る舞
 - 実データ・実 resource を優先し、fake は `pcbasm` が所有する HAL abstraction に限る。
 - 3rd-party 表面、内部関数、private 属性を mock・直接テストしない。
 - テストは `class TestXxx` 形式にまとめる。
-- 実機テストは `mark_hardware` と適切な skip 条件を使う。
+- 実機には触れない。装置は `pcbasm.hal.fake` の fake を使う。
 - production code の問題を見つけても直さず、実装担当へ根拠とともに渡す。
 - 他の作業者の変更を revert しない。
 

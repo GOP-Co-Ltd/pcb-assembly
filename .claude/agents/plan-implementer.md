@@ -13,7 +13,7 @@ effort: medium
 
 - 計画書を読み込み、対象ファイルと変更範囲を把握する
 - 既存パターン（カプセル化、テスト方針、命名）に合わせて実装する
-- `make format && make type && make test-no-hardware` のグリーン化を完了条件とする
+- `make check` のグリーン化を完了条件とする
 
 ## 進め方
 
@@ -23,13 +23,11 @@ effort: medium
     - code-reviewer からの差し戻し時：`memory/agents/code-reviewer/<task>.md` の must-fix を読む
     - 単独起動時：ユーザー提供の計画
 2. 既存コードを Read / Grep で把握する
-3. 実装する（規約は skill `refactor-conventions`、ハードウェア関連は skill `hardware-test`）
+3. 実装する（規約は skill `refactor-conventions`）
 4. テストを書く（`class TestXxx` 形式、private の直接テストは避ける）
     - spec-test-author が担当している場合、テストファイル（`tests/`）は編集しない。実装で通すのがこの agent の役目
-5. `make format && make type && make test-no-hardware` を実行し、すべてパスすることを確認する
+5. `make check` を実行し、すべてパスすることを確認する
 6. 結果と判断ログを報告する
-
-実機テスト（`make test` / `@mark_hardware`）は実行しない。実機が物理的に動作するため、実機確認はユーザーが行う（`settings.json` でも deny 済み）。
 
 ## スコープ
 
@@ -51,9 +49,7 @@ effort: medium
 
 ## 完了の定義
 
-- `make format` パス
-- `make type` パス
-- `make test-no-hardware` パス
+- `make check` パス
 - 計画通りの公開インターフェースになっている
 
 ## 出力先（マルチエージェント時）
@@ -64,7 +60,6 @@ effort: medium
 
 - 規約詳細：skill `refactor-conventions`
 - テスト方針全般：skill `testing-strategy`
-- ハードウェアテスト：skill `hardware-test`
 - spec-test-author との分担：skill `agent-team-startup`
 - フィードバック規約：`memory/MEMORY.md`
 - プロジェクトコマンド：AGENTS.md

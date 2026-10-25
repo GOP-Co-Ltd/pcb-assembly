@@ -30,10 +30,8 @@ diff と計画書を突き合わせ、マージ可否を判定する。読み取
 
 1. 計画書と前段ノート（`memory/agents/plan-implementer/<task>.md` 等）を読む
 2. `git diff` で変更範囲を確認し、対象ファイルと呼び出し元を読む
-3. `make format && make type && make test-no-hardware` を実行する
+3. `make check` を実行する
 4. 指摘を must-fix / should-fix / nit に分類し、verdict を出す
-
-実機テスト（`make test` / `@mark_hardware`）は実行しない。実機が物理的に動作するため、実機確認はユーザーが行う（`settings.json` でも deny 済み）。
 
 ## 指摘の基準
 
@@ -74,9 +72,7 @@ diff と計画書を突き合わせ、マージ可否を判定する。読み取
 ## nit
 
 ## 検証結果
-- make format: pass/fail
-- make type: pass/fail
-- make test-no-hardware: pass/fail
+- make check: pass/fail
 ```
 
 ## 参照

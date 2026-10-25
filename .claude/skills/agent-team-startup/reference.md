@@ -15,7 +15,7 @@ spec-test-author  plan-implementer   ← 並列起動（同じ計画書を入力
    ↓         ↓
    └────┬────┘
         ↓
-   合流チェック：make test-no-hardware で、テストが実装に対して期待通り通る／落ちるか確認
+   合流チェック：make check で、テストが実装に対して期待通り通る／落ちるか確認
         ↓
    code-reviewer →（approve まで反復）→ code-simplifier
 ```
@@ -24,10 +24,9 @@ spec-test-author  plan-implementer   ← 並列起動（同じ計画書を入力
 
 **合流時の処理**
 
-1. `make format && make type` を通す
-2. `make test-no-hardware` を流し、spec-test-author の意図通りに pass / fail しているか確認する
-3. 不整合（implementer が IF を変えた、spec-test-author が観点を取りこぼした等）があれば該当 agent を再呼び出しする
-4. 全 pass になったら code-reviewer へ
+1. `make check` を流し、spec-test-author の意図通りに pass / fail しているか確認する
+2. 不整合（implementer が IF を変えた、spec-test-author が観点を取りこぼした等）があれば該当 agent を再呼び出しする
+3. 全 pass になったら code-reviewer へ
 
 **このパターンを避けるケース**
 
@@ -47,7 +46,7 @@ spec-test-author  plan-implementer   ← 並列起動（同じ計画書を入力
 
 - インターフェース未確定で並行実装すると衝突するとき
 - データフロー上で順序依存があるとき
-- `tests/helpers.py` を複数 spec-test-author が同時編集するとき（fake Impl の追加は逐次）
+- `tests/support/` を複数 spec-test-author が同時編集するとき（支援部品の追加は逐次）
 - 同一ハードウェアリソースに同時アクセスが必要なとき
 - 1 つの中規模タスクを無理に分割することになるとき（並列化は、互いに独立した大きめの作業単位に使う）
 
@@ -83,7 +82,7 @@ spec-test-author  plan-implementer   ← 並列起動（同じ計画書を入力
 3. 計画を確認する。計画書に「確認事項」があればユーザーに中継する
 4. （仕様 first なら）**spec-test-author と plan-implementer を 1 メッセージで並列起動**（パターン A）
     - 計画書が抽象的なら spec-test-author を先行させ、IF 確定後に plan-implementer を起動する
-5. 合流時に `make format && make type && make test-no-hardware` で整合確認
+5. 合流時に `make check` で整合確認
 6. `code-reviewer` を起動し、報告された指摘を裁定する（must-fix → implementer 差し戻し）
 7. approve 後に `code-simplifier` を起動する（should-fix の対応と docstring / README 同期）。大きく書き換えたら 6 で再レビュー
 8. 最終検証 → コミット

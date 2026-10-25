@@ -40,9 +40,7 @@ skills:
     - `memory/agents/code-reviewer/<task>.md` があれば should-fix（構造改善指摘）を対応対象に含める
 3. 段階的に書き換える
 4. 変更で古くなった docstring / README を直す
-5. `make format && make type && make test-no-hardware` が引き続き通ることを確認する
-
-実機テスト（`make test` / `@mark_hardware`）は実行しない。実機が物理的に動作するため、実機確認はユーザーが行う（`settings.json` でも deny 済み）。
+5. `make check` が引き続き通ることを確認する
 
 ## リファクタリング技法
 
@@ -61,7 +59,7 @@ skills:
 
 - 公開 IF が変わっていない（テスト通過で確認）
 - 機能が失われていない
-- `make format && make type && make test-no-hardware` がグリーン
+- `make check` がグリーン
 - ドキュメントが現状コードと整合している
 - 「なぜこの変更が簡素化か」を 1〜2 行で説明できる
 
@@ -73,5 +71,4 @@ skills:
 
 - 規約詳細：skill `refactor-conventions`
 - テスト方針全般：skill `testing-strategy`
-- ハードウェアテスト関連の改修：skill `hardware-test`
 - フィードバック規約：`memory/MEMORY.md`
