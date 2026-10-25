@@ -73,7 +73,6 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 - `make format`: pre-commit 実行
 - `make type`: pyright 型チェック
 - `make test`: E2E 以外の全テスト（pytest は実機に触れない）
-- `make test-no-hardware`: `make test` の別名。`make test` を拒否する旧い防護層（Claude の deny と hook、`.codex/rules` の forbidden）が残る間、エージェントがテストだけを流すときに使う
 - `make test-e2e`: WebUI E2E
 - `make check`: format → type → test
 - `make api`: backend WebAPI 起動（port 8081）
