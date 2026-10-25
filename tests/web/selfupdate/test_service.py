@@ -19,6 +19,7 @@ import attrs
 
 from tests.web.selfupdate.conftest import call_log, write_systemctl_stub
 from web.selfupdate.service import (
+    install_command,
     restart_scheduled_notice,
     schedule_restart,
     unit_summary,
@@ -108,6 +109,19 @@ class TestUnitSummary:
         assert "backend WebAPI" in summary
         assert "UI frontend" in summary
         assert f"{API_UNIT} {UI_UNIT}" in summary
+
+
+class TestInstallCommand:
+    """案内文に出す、unit と sudoers を設置し直すコマンド（そのホストにある unit だけを対象にする）."""
+
+    def test_both_units_install_all(self):
+        assert install_command((API_UNIT, UI_UNIT)) == "./install.sh services all"
+
+    def test_backend_only_host_installs_only_the_backend(self):
+        assert install_command((API_UNIT,)) == "./install.sh services api"
+
+    def test_frontend_only_host_installs_only_the_frontend(self):
+        assert install_command((UI_UNIT,)) == "./install.sh services ui"
 
 
 class TestRestartScheduledNotice:

@@ -42,7 +42,7 @@ class UpdateSettings:
     # sudoers で argv を固定するので、この 2 つは実機の絶対パスから動かさない
     systemctl_bin: str = "/usr/bin/systemctl"
     sudo_bin: str = "/usr/bin/sudo"
-    # 設置済み unit の置き場所（読み取り専用。書き込みは web-service.sh の特権経路）
+    # 設置済み unit の置き場所（読み取り専用。書き込みは install.sh services が行う）
     unit_dir: Path = Path("/etc/systemd/system")
     # 素の `uv sync` は (a) 指定しなかった dependency group を削除し（機体ごとに
     # 足した group が更新のたびに消える）、(b) pyproject と lock がずれると uv.lock を

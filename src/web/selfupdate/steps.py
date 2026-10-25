@@ -2,8 +2,8 @@
 
 argv を組む関数は純関数で、`git` / `uv` / `systemctl` / `sudo` を一切呼ばない。
 `restart_command` の出力は `/etc/sudoers.d/pcbasm-update` が許す argv と 1 文字でも
-違えば実機で `sudo: a password is required` になるため、`scripts/install-update-sudoers.sh`
-の `render_sudoers` と対で維持する（unit の並びも契約）。
+違えば実機で `sudo: a password is required` になるため、`deploy/sudoers`
+と対で維持する（unit の並びも契約）。
 
 `run_command` をこのモジュールに置くのは、外部コマンドを「組み立てる」場所と
 「走らせる」場所を 1 つにまとめるため（`repo` / `service` / `runner` が共有する）。

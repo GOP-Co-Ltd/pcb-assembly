@@ -256,7 +256,7 @@ class TestUnitDriftWarning:
         assert len(report.warnings) == 1
         assert API_UNIT in report.warnings[0]
         assert UI_UNIT not in report.warnings[0]
-        assert "web-service.sh install" in report.warnings[0]
+        assert "./install.sh services api" in report.warnings[0]
 
     def test_current_unit_files_produce_no_warning(self, tmp_path: Path):
         sandbox = make_update_sandbox(tmp_path / "current", with_installer=True)
