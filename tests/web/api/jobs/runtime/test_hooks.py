@@ -93,8 +93,7 @@ class TestPresentOnTermination:
     ):
         """キャップ記録済み（paste）はキャップ駐機経路になり、失敗ログは退避文言のみ.
 
-        nozzle-cap-parking 計画書「呼び出し 3 箇所の差し替え」節: catch-all 文言は
-        「タスク終了時の退避に失敗: {exc}」で "PRESENT" / "M84" の語を含めない
+        catch-all 文言は「タスク終了時の退避に失敗: {exc}」で "PRESENT" / "M84" の語を含めない
         （フォールバック経路のログ断言との一意性を保つ）。
         """
         path = config_dir / "machine.toml"

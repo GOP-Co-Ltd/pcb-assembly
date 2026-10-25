@@ -194,10 +194,9 @@ class TestRuntimeParamUpdateOverWebSocket:
 
 
 class TestCameraCropSettingsOverRealHttp:
-    """Camera.crop.* の実 HTTP 経路（webui-camera-calib 計画書「テスト観点」e2e 項）.
+    """Camera.crop.* の実 HTTP 経路.
 
-    クロップ編集 UI は settings ページの汎用フォームへ統一されたが、
-    API 契約（rebuild しない・crosshair オーバーレイのフレーム毎反映）は不変。
+    クロップは settings ページの汎用フォームで編集し、保存してもカメラを rebuild せず、crosshair オーバーレイにフレーム毎に反映する。
     どの経路から PUT されても crop 変更が MJPEG ストリームを切断せず
     次フレームへ反映されることが本質のため、通し確認は API 直叩きで行う。
 

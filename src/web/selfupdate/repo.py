@@ -175,8 +175,9 @@ def capture_state(settings: UpdateSettings) -> tuple[RepoState | None, str | Non
 def fast_forward_blocker(state: RepoState) -> str | None:
     """Fast-forward を妨げる事情を 1 つ返す（無ければ None）.
 
-    確定要件「ff 不可（dirty / ローカル commit / 分岐）なら何もせず中断」を判定する箇所。 untracked
-    はここでは弾かない（衝突すれば `merge --ff-only` が失敗する）。
+    ff 不可（dirty / ローカル commit / 分岐）なら、何もせず中断させる。
+
+    untracked はここでは弾かない（衝突すれば `merge --ff-only` が失敗する）。
     """
     if state.branch is None:
         return (

@@ -1,6 +1,6 @@
 """`web.api.control` の操作権リースの仕様テスト.
 
-計画書 web-api-ui-split.md「MR6 — 操作権リース + 閲覧モード」節が契約:
+契約:
 
 - `ClientIdentity.key` は生 id を出さない（HTTP 越しの検証は routers/test_session.py）
 - `claim` は空きなら取得、他人が保持中なら `ControlDeniedError`（保持者名付き）

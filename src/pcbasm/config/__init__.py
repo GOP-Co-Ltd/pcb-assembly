@@ -164,7 +164,7 @@ class MachineConfig:
     detection: DetectionConfig = attrs.field(
         factory=DetectionConfig, metadata=section(label="統計検出", order=7)
     )
-    # PR #34（タクトタイム見積り）のための予約節。#34 が merge されるまで中身は読まずに受け入れる
+    # タクトタイム見積りのための予約節。中身は読まずに受け入れる
     tact: dict[str, Any] | None = None
 
 

@@ -39,7 +39,7 @@
 サブパッケージ行に並ぶ `detect` などの名前は、そのディレクトリのモジュール（例: `paste_volume/detect.py`）を指す。
 
 `__init__.py` は docstring のみで re-export しない。消費側はサブモジュールを直接 import する
-（`import pcbasm.pasting` が cv2 / pcbnew を引き込まない契約を `tests/test_package.py` で固定）。
+（`import pcbasm.pasting` が cv2 / pcbnew を引き込まない契約を `tests/repo/test_package.py` で固定）。
 固定しているのは re-export しないことであって、サブモジュール自身が重い依存を持たないことではない。
 
 塗布量推定は `paste_volume/` の円直径の 3 次近似ひとつ。Raspberry Pi の WebAPI

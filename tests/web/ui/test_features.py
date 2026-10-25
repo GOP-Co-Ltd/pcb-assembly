@@ -29,7 +29,7 @@ from web.ui.models import UPDATE_INDEX_PATH
 
 _TEMPLATES_DIR = Path(features.__file__).parent / "templates"
 
-# 作り直し前（PR41 より前）の機能のページ。旧 URL は /m/{id}/{旧タブ}/{旧 slug} と /m/{id}/settings。
+# 作り直し前の機能のページ。旧 URL は /m/{id}/{旧タブ}/{旧 slug} と /m/{id}/settings。
 # 旧 slug は消さない（ブックマークの行き先を失う）
 OLD_FEATURES: dict[str, tuple[str, ...]] = {
     "dev": (
@@ -92,7 +92,7 @@ class TestFeatureTable:
         ]
 
     def test_sidebar_groups_of_each_tab(self):
-        """サイドバーの見出し（blueprint 2.3）。表の順に、最初に出た位置へまとめる."""
+        """サイドバーの見出し。表の順に、最初に出た位置へまとめる."""
         groups = {
             tab: list(dict.fromkeys(feature.group for feature in tab_features(tab)))
             for tab in TABS

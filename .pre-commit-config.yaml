@@ -105,3 +105,13 @@ repos:
       - id: rst-backticks
       - id: rst-directive-colons
       - id: rst-inline-touching-normal
+
+  # src と tests は振る舞いで説明する。計画書・エージェントの中間メモ・旧パスへの参照を持ち込まない
+  - repo: local
+    hooks:
+      - id: no-plan-references
+        name: no references to plans or agent notes
+        language: pygrep
+        entry: '計画書|契約書|契約メモ|§|pcbasm-plan|memory/agents|docs/plans|src/webui|blueprint|pr-stack|[Mm][Rr][0-9]|PR ?#?[0-9]|Phase [0-9]|[A-Z][0-9]+ の回帰'
+        files: ^(src|tests)/
+        types: [text]

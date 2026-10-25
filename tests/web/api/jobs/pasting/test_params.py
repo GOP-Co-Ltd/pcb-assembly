@@ -16,7 +16,7 @@ def default(tmp_path: Path) -> JobCatalog:
 
 
 class TestPastingParams:
-    """塗布ジョブのパラメータ宣言（計画書「ジョブ定義表」のピン）."""
+    """塗布ジョブのパラメータ宣言."""
 
     def test_paste_volume_calibration_requires_a_paste_id(self, default: JobCatalog):
         """ペースト製品 ID はデータセットの素性なので既定値を持たず必須."""

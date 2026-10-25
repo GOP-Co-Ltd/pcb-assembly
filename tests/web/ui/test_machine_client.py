@@ -1,6 +1,6 @@
 """`web.ui.machine_client` の仕様テスト.
 
-計画書 docs/plans/web-api-ui-split.md「MR4」節が契約:
+契約:
 
 - `BackendGateway` は machine_id ごとに `httpx.AsyncClient` をキャッシュして
   keep-alive する。`transport_factory` を注入して**実物の backend app** を

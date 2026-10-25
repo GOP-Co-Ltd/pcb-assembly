@@ -1,17 +1,16 @@
 """to_machine_transform の仕様テスト.
 
-計画書 memory/agents/implementation-planner/pad-alignment.md
-「conjugation の厳密な式」に基づく符号ピン。
+conjugation の式の符号をピンする。
 
-camera→machine 写像（アンカー a に対し）:
-    ψ_a(o) = a − R(o)
-           = Compose([R, Scale.flip(x=True, y=True), Shift.from_point(a)])
-           = CameraModel.observed_to_machine_offset(a)
-machine 空間補正 Transform:
-    M = ψ_{observed_at} ∘ G ∘ ψ_{projection_anchor}⁻¹
+camera→machine 写像（アンカー a に対し）と machine 空間の補正 Transform:
+
+- ψ_a(o) = a − R(o) = Compose([R, Scale.flip(x=True, y=True), Shift.from_point(a)])
+- ψ_a = CameraModel.observed_to_machine_offset(a)
+- M = ψ_{observed_at} ∘ G ∘ ψ_{projection_anchor}⁻¹
 
 実機検証済みアンカー (A4) `target = pos − R(o)` と全点一致することが最重要。
-ψ はテスト側で計画書の式どおりに独立構築し、実装と突き合わせる。
+
+ψ はテスト側で上の式どおりに独立構築し、実装と突き合わせる。
 """
 
 import pytest
@@ -32,7 +31,7 @@ _SAMPLE_POINTS = (Point2d(0.0, 0.0), Point2d(12.0, 34.0), Point2d(-3.5, 8.25))
 
 
 def _psi(rotation: Transform, anchor: Point2d) -> Transform:
-    """計画書の式そのままの ψ_a(o) = a − R(o)（実装と独立な ground truth）."""
+    """式そのままの ψ_a(o) = a − R(o)（実装と独立な ground truth）."""
     return Compose([rotation, Scale.flip(x=True, y=True), Shift.from_point(anchor)])
 
 

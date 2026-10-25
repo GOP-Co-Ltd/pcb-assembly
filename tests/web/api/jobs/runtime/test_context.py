@@ -1,7 +1,6 @@
 """`web.api.jobs.runtime.context` の仕様テスト.
 
-計画書 webui-phase3.md「src/webui/jobs/context.py」節が契約。JobContext は
-JobManager だけが生成するため、合成ジョブを manager 経由で実行し、worker に
+JobContext は JobManager だけが生成するため、合成ジョブを manager 経由で実行し、worker に
 渡された ctx の公開挙動を検証する:
 
 - params は catalog 検証済み（default 充填・型変換済み）
@@ -273,11 +272,11 @@ class TestFrame:
 
 
 class TestOpenCamera:
-    """open_camera（Phase 4: bridge.hold_camera 経由のカメラ貸し出し）.
+    """open_camera（bridge.hold_camera 経由のカメラ貸し出し）.
 
-    計画書 webui-phase4.md「src/webui/jobs/context.py」節が契約: open_camera は
-    カメラパイプラインを起動保持して FrameSource を貸し、退出で解放する。 CameraFeed
-    と参照カウントを共有する（共有側の検証は test_camera.py）。
+    open_camera はカメラパイプラインを起動保持して FrameSource を貸し、退出で解放する。
+
+    CameraFeed と参照カウントを共有する（共有側の検証は test_camera.py）。
     """
 
     def test_open_camera_lends_capturable_camera_and_releases_hub(

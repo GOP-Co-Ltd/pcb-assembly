@@ -47,7 +47,7 @@ class TestHeightPlaneFrontFlow:
         """計画点 PNG 生成 + diagnostics / /artifacts/ log → confirm False で中止.
 
         - confirm 待ちの時点で artifacts_dir/planned_points.png が生成済みで
-          cv2 で復号可能（実行中配信の前提。計画書「_run_height_plane」節 2-4）
+          cv2 で復号可能（実行中に配信する前提）
         - prompt は confirm（default True）でメッセージに点数の確認を含む
         """
         camera_backend.selection.select(copper_pcb_path)

@@ -191,7 +191,7 @@ class TestMobileTopbar:
 
 
 class TestMachineSelectorRefresh:
-    """マシン選択ドロップダウンをサーバの `/api/machines` で組み替える（MR5 D8）.
+    """マシン選択ドロップダウンをサーバの `/api/machines` で組み替える.
 
     `machine_selector.js` の catch は全例外を飲むので、取得・`data-*` 参照・option の
     組み替えのどれが壊れても SSR 済みの option がそのまま残り、無音で劣化する

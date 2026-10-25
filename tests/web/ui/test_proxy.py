@@ -1,6 +1,6 @@
 """`web.ui.proxy.ProxyApp` の仕様テスト.
 
-契約書 /tmp/pcbasm-plan/mr4-interface-contract.md「トラック A」が契約:
+中継は次のとおり振る舞う:
 
 - `Mount("/m/{machine_id}/<prefix>", ProxyApp(...))` が method / body / query /
   status / ヘッダを素通しする

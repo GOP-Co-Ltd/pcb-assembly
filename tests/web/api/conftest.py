@@ -74,7 +74,7 @@ def real_pcb_path(pcb_root: Path) -> Path:
 def copper_pcb_path(pcb_root: Path) -> Path:
     """TOP 銅箔ゾーンを持つ実 PCB fixture を pcb_browse_root へコピーし、相対パスを返す.
 
-    height_plane ジョブ（probe 点サンプリング）のテスト用（Phase 5）。
+    height_plane ジョブ（probe 点サンプリング）のテスト用。
     """
     destination = pcb_root / "real" / "led_blinker.kicad_pcb"
     destination.parent.mkdir(parents=True, exist_ok=True)

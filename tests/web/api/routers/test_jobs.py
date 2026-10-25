@@ -1,6 +1,6 @@
 """`web.api.routers.jobs` の仕様テスト（REST + WS /api/jobs/ws）.
 
-計画書 webui-phase3.md「src/webui/routers/jobs.py」節 + spec §6 / §9 が契約:
+契約:
 
 - POST /api/jobs/{name} → 201 {"job": JobSummary} / 404 / 400 / 409
 - GET /api/jobs/current → {"job": JobSummary | null}（WS 再接続時の同期用）
@@ -14,8 +14,6 @@
   PCB 切替が 409
 - /artifacts: 成果物 URL 配信 + traversal 拒否
 - /api/session/state に job ブリーフ
-
-MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
 
 - GET /api/jobs → {"jobs": [JobSpecInfo]}。登録順の全件で、
   `params` は保存済み既定値を `default` に反映した状態
@@ -212,7 +210,7 @@ def _jobs_by_name(client: TestClient) -> dict[str, dict[str, Any]]:
 
 
 class TestJobCatalogApi:
-    """GET /api/jobs — ジョブカタログの公開表現（MR2）."""
+    """GET /api/jobs — ジョブカタログの公開表現."""
 
     def test_includes_jobs_registered_after_startup(
         self, client: TestClient, app: FastAPI
@@ -453,7 +451,7 @@ class TestSaveParamDefaults:
             "rate": 1.5,
             "accel": 2.0,
         }
-        # 実行を経ずに次回フォームの既定値になる（MR4 以降、これが描画に乗ることは
+        # 実行を経ずに次回フォームの既定値になる（これが描画に乗ることは
         # frontend 側の tests/web/ui/test_pages.py が `GET /api/jobs` 経由で確かめる）
         assert backend.selection.job_param_defaults("loading")["rotations"] == 7.0
         assert backend.selection.job_param_defaults("loading")["amount"] == 0.4
@@ -566,7 +564,7 @@ class TestCurrentAndAbort:
 
 
 class TestUpdateCurrentParams:
-    """PUT /api/jobs/current/params（計画書「能力 1」routers 節が契約）.
+    """PUT /api/jobs/current/params.
 
     実行中ジョブの runtime_editable な subset を out-of-band で patch する:
     - 終了したジョブ → 400
@@ -1129,15 +1127,13 @@ class TestWebSocket:
 
 
 class TestCameraCalibrationApplyFlow:
-    """Phase 4: camera_calibration の WS 完走 → POST /api/jobs/last/apply.
+    """camera_calibration の WS 完走 → POST /api/jobs/last/apply.
 
-    計画書 webui-phase4.md §4「tests/webui/routers/test_jobs.py（追記）」が契約:
-    checkerboard FakeCamera で WS 完走後、Apply で tmp config の machine.toml
-    の calibration_file 更新 + JSON ファイル生成を実ファイルで確認する。
+    checkerboard の FakeCamera で WS 完走後、Apply の結果を実ファイルで確かめる。
 
-    計画書 webui-camera-calib.md「設計判断 a」追記: crop は job param から
-    削除され machine.toml `[camera.crop]` 由来になったため、開始前に
-    MachineConfigFile で crop を checkerboard.png（400x400）へ合わせる。
+    確かめるのは machine.toml の calibration_file の更新と、校正 JSON の生成。
+
+    crop は `[camera.crop]` から取るので、開始前に checkerboard.png（400x400）へ合わせる。
     """
 
     @pytest.mark.usefixtures("unreachable_klipper")
@@ -1194,10 +1190,9 @@ class TestCameraCalibrationApplyFlow:
 
 @pytest.mark.usefixtures("unreachable_klipper")
 class TestPastingJobsOverWs:
-    """Phase 5: pasting ジョブの WS 往復と実行中 artifacts 配信（装置なし）.
+    """Pasting ジョブの WS 往復と実行中 artifacts 配信（装置なし）.
 
-    計画書 webui-phase5.md §4「tests/webui/routers/test_jobs.py（追記）」が契約。
-    Klipper は テスト用 config（port 7126 = 接続拒否）。
+    Klipper はテスト用 config（port 7126 = 接続拒否）。
     """
 
     def test_height_plane_artifact_is_served_while_waiting_confirm(

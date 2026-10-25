@@ -36,7 +36,7 @@ UNIT_LABELS: dict[str, str] = {
 # `systemctl is-active` の答えのうち「更新後に再起動すべき」もの。
 # `failed` を必ず含める。起動に失敗したリビジョンを直して更新し直すとき、
 # 停止している unit を対象から外すと、修正が永久に適用されない
-# （計画書「既知のリスク 1: ロールバック無し」からの復帰経路）。
+# （ロールバックが無いので、壊れたリビジョンから抜け出す道はこれしかない）。
 # `inactive` / `deactivating` は意図的に止めているので起動しない。
 RESTARTABLE_STATES = frozenset({"active", "activating", "reloading", "failed"})
 
@@ -164,10 +164,9 @@ def schedule_restart(settings: UpdateSettings, units: tuple[str, ...]) -> str | 
 def stale_units(settings: UpdateSettings, units: tuple[str, ...]) -> tuple[str, ...]:
     """設置済み unit ファイルが現在の `install.sh render` の出力と食い違うものを返す.
 
-    計画書「既知のリスク 6」。`render_unit` の出力が変わった更新を取り込んでも、
-    `/etc/systemd/system` の unit は古いままになる（本 MR 自身が `TimeoutStopSec` と
-    `StartLimitIntervalSec` を足した）。読み取りだけを行い、自動 install はしない
-    （root 権限を増やさない）。判定できない場合は「食い違い無し」として扱う。
+    `install.sh render` の出力が変わった更新を取り込んでも、`/etc/systemd/system` の unit は古いままになる。
+    読み取りだけを行い、自動 install はしない（root 権限を増やさない）。
+    判定できない場合は「食い違い無し」として扱う。
 
     Args:
         settings: リポジトリの場所を持つ設定

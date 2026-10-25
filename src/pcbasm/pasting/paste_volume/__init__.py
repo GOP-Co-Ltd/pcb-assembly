@@ -12,5 +12,5 @@
 - :mod:`pcbasm.pasting.paste_volume.dataset` — 校正の材料にする点塗布画像の収集
 
 このパッケージは re-export を持たない。利用側は必要なサブモジュールを直接 import する
-（``import pcbasm.pasting`` が cv2 を引き込まない契約を ``tests/test_package.py`` が固定する）。
+（``import pcbasm.pasting`` が cv2 を引き込まない契約を ``tests/repo/test_package.py`` が固定する）。
 """

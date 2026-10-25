@@ -1,15 +1,13 @@
 """`web.api.routers.audio` の仕様テスト.
 
-計画書 memory/agents/implementation-planner 相当（`/home/gop/.claude/plans/
-claude-mr-141-main-webui-velvet-gem.md`）「`src/webui/routers/audio.py`」節が契約
-（2 プロセス分離後、音を鳴らすのは Pi の ALSA なので router は backend にある）:
+音を鳴らすのは Pi の ALSA なので、router は backend にある。
 
 - GET /api/audio/settings は machine.toml 解決済みの device / volume と、
   プレイヤーが列挙したデバイス候補を返す（`[audio]` 未設定でも既定値）
 - 設定中デバイスが候補に無ければ末尾へ補完され、`device` はそのまま保持される
 - POST /api/audio/test は現在の設定で再生し、再生失敗は 502、未知の音種は 422
 
-MR6（操作権リース）が追記契約:
+操作権:
 
 - GET /api/audio/settings は閲覧者にも開放（全 GET と同じ扱い）
 - POST /api/audio/test は機体のスピーカーを鳴らすので操作権を要し、

@@ -63,7 +63,7 @@ MACHINES_PATH = "/machines"
 # ここに無い feature では取得しない。backend の `/api/machine_config` は
 # machine.toml をパースするので、壊れた machine.toml では 500 になる。全ページで
 # 取得すると、壊れた設定ファイル 1 つで全画面が 503 になり、設定を直す画面すら開けない
-# （MR2 で backend 側に入れた「壊れていても描けるページは描く」防御を保つ）
+# （「壊れていても描けるページは描く」を frontend でも保つ）
 _MACHINE_SETTINGS_FEATURES = frozenset(
     {"machine_config", "paste_solder", "loading", "copper_detection", "nozzle_cap"}
 )

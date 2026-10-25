@@ -586,7 +586,7 @@ class TestUnknownKeys:
         assert raised.value.sections == {"paste_dispenser"}
 
     def test_tact_is_reserved_for_the_tact_time_estimate(self, tmp_path):
-        """[tact] は PR #34 のための予約節。中身は読まずに受け入れる."""
+        """[tact] 節は中身を読まずに受け入れる."""
         machine = _machine_with(tmp_path, "[tact]\nsetup_sec = 300.0\n")
 
         assert machine.tact == {"setup_sec": 300.0}

@@ -1,16 +1,11 @@
 """`web.api.app.create_app` の仕様テスト.
 
-計画書「`src/webui/app.py` / `__main__.py`」節:
-
 - create_app(settings) で注入 Env のアプリが起動する
 - BusyError → 409 JSON の exception handler が登録される
 
-MR4 追記（同「MR4」節）: ``templates`` / ``static`` は frontend (`web.ui`) へ移設した
-ため、backend は静的資産を配信しない（ブラウザキャッシュを 1 本で共有するために
-``/static`` は frontend が prefix なしで持つ）。
+backend は静的資産を配信しない（ブラウザキャッシュを 1 本で共有するために ``/static`` は frontend が prefix なしで持つ）。
 
-webui-audio-output 計画書「`src/webui/app.py`」節が追記契約（通知音は Pi の ALSA で
-鳴らすので backend が所有する）:
+通知音は Pi の ALSA で鳴らすので backend が所有する:
 
 - create_app(devices=...) で注入した装置の通知音プレイヤーを lifespan 終了時に
   1 回だけ close する（ジョブ join の後に閉じる）

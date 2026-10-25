@@ -159,9 +159,11 @@ class CameraFeed:
     def submit_override(self, image: Image, *, persist: bool = False) -> None:
         """ジョブ用オーバーライドスロットへ書き込む（最新 1 枚のみ保持）.
 
-        Phase 3 の JobContext.frame() がこれを呼ぶ。既定では直近 override_ttl
-        以内のフレームを生フレームより優先して配信する。persist=True の場合は clear_override()
-        まで固定表示する。
+        JobContext.frame() がこれを呼ぶ。
+
+        既定では、直近 override_ttl 秒以内のフレームを生フレームより優先して配信する。
+
+        persist=True の場合は clear_override() まで固定表示する。
         """
         expires_at = None if persist else self._clock() + self._override_ttl
         with self._override_lock:

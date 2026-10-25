@@ -1,8 +1,7 @@
 """Frontend（`web.ui`）の SSR ページの仕様テスト.
 
 ページを描くのは frontend で、値は backend の `GET /api/session/machine-info` / `/api/session/state` /
-`/api/jobs` / `/api/machine_config` から取る（計画書 docs/plans/web-api-ui-split.md の
-「MR2」「MR4」節）。frontend は薄いラッパーなので、ここで押さえるのは次の 5 つに絞る:
+`/api/jobs` / `/api/machine_config` から取る。frontend は薄いラッパーなので、ここで押さえるのは次の 5 つに絞る:
 
 - **URL 空間**: `/` の 307（自機の着地点か機体一覧）、未 prefix URL の 307、`/m/{machine_id}` prefix、
   旧 URL の 307、プロキシ経路が pages ルータに食われないこと、未知 feature の 404
@@ -171,7 +170,7 @@ def _frontend_over(
 ) -> Iterator[TestClient]:
     """Settings を差し替えた backend を上流に挿した frontend の TestClient.
 
-    MR4 でページを描くのは frontend なので、backend の Settings を変えた影響を
+    ページを描くのは frontend なので、backend の Settings を変えた影響を
     ページで見るには、その backend を上流にした frontend を組む必要がある
     （conftest の `frontend_client` は既定の `backend_settings` 固定）。
 
@@ -225,7 +224,7 @@ class TestPages:
     ):
         """Pcb_browse_start の pcb_browse_root 相対パスが data-fb-start に出る.
 
-        MR4: 値は backend が `/api/session/machine-info` の `fb_start` で解決するので、
+        値は backend が `/api/session/machine-info` の `fb_start` で解決するので、
         差し替えた backend Settings を上流に挿した frontend でページを取る。
         """
         evolved = attrs.evolve(
@@ -242,12 +241,12 @@ class TestPages:
     ):
         """Mainsail のリンクは backend の machine_id から `.local` で解決する.
 
-        MR2 で `request.url.hostname` フォールバックは撤去した。frontend を分離すると
+        `request.url.hostname` には頼らない。frontend を分離すると
         ページ閲覧元は frontend 機になるため、リクエストのホスト名を使うと必ず誤った
         Mainsail を指す。裸のホスト名だと LAN の他端末（mDNS しか引けない）から開けない
         ので `.local` を付ける。SSR も `/api/session/machine-info` と同じ解決結果を使う。
 
-        MR4: frontend は backend が解決した値をそのまま描く（frontend 側に解決規則を
+        frontend は backend が解決した値をそのまま描く（frontend 側に解決規則を
         持たない）。`/api/session/machine-info` はプロキシ経由で同じ値を返す。
         """
         settings = attrs.evolve(backend_settings, hostname="paste-01")
@@ -460,7 +459,7 @@ PASTING_JOB_FEATURES = (
 
 
 class TestPastingJobPages:
-    """Pasting のジョブページ（計画書 webui-phase5.md「templates / static」節）.
+    """Pasting のジョブページ.
 
     preview / ローディング UI の有無と段階は `TestJobDefinitionDrivenContext` が
     ジョブ定義から導出して検証するので、ここに残すのはページ固有の配線だけ。
@@ -634,11 +633,10 @@ class TestSavedJobParamDefaults:
 
 
 class TestJobDefinitionDrivenContext:
-    """Preview / ローディング UI は JobDefinition から導出する（MR2）.
+    """Preview / ローディング UI は JobDefinition から導出する.
 
-    以前は pages.py の 3 つのハードコード辞書と `if tab == "pasting"` 特別扱いが正
-    だった。preview フレームの提供有無と progress_stage 文字列は backend の事実なので
-    ジョブ定義側へ移し、ページはそれを読むだけにした（`/api/jobs` と同じ値になる）。
+    preview フレームの提供有無と progress_stage 文字列は backend の事実なのでジョブ定義が持ち、
+    ページはそれを読むだけ（`/api/jobs` と同じ値になる）。
     """
 
     @pytest.mark.parametrize("feature", PASTING_JOB_FEATURES)
@@ -682,7 +680,7 @@ class TestJobDefinitionDrivenContext:
 
 
 class TestProbeGuidePage:
-    """ロードセルプローブのガイドページ（計画書「WebUI ガイドページ」節）.
+    """ロードセルプローブのガイドページ.
 
     ジョブではない静的な説明ページ。旧サーボ方式の probe_gnd_down_adjust ジョブは削除済みで、タブ・URL
     のどちらからも到達できない。
@@ -699,7 +697,7 @@ class TestProbeGuidePage:
 
 
 class TestNozzleCapPage:
-    """ノズルキャップ位置の設定ページ（nozzle-cap-parking 計画書「WebUI」節）.
+    """ノズルキャップ位置の設定ページ.
 
     ジョブではない静的な設定ページ（非ジョブテンプレート）。現在値が未記録 （repo fixture に
     [paste_dispenser.nozzle_cap] なし）のときは「未記録」を表示する。
@@ -882,7 +880,7 @@ class TestBrokenMachineTomlPages:
     def test_machine_toml_dependent_pages_return_503(
         self, broken_machine_toml: Path, client: TestClient, url: str
     ):
-        """設定の現在値を要るページは 500 ではなく 503 を返す（MR4）.
+        """設定の現在値を要るページは 500 ではなく 503 を返す.
 
         frontend が全ページで `/api/machine_config` を取ると、machine.toml が
         壊れただけで案内も出せない 503 が全画面に出る。取得を必要なページに限って
@@ -892,7 +890,7 @@ class TestBrokenMachineTomlPages:
 
 
 class TestUnsetMachineSettingsShowResolvedValues:
-    """machine.toml に未記載のキーは backend が解決した実効値で描く（MR4）.
+    """machine.toml に未記載のキーは backend が解決した実効値で描く.
 
     frontend が「未記載 → 0.0」で埋めると、copper_detection は canny 0 / blur_ksize 0 を
     描き、その 0 が「設定に保存」で machine.toml へ書き戻されて銅箔検出が壊れる
@@ -970,7 +968,7 @@ class TestUnsetMachineSettingsShowResolvedValues:
 
 
 class TestUnresolvableMachineSettingsAreNotFabricated:
-    """実効値が解決できないときは 0 を捏造せず 503 を返す（MR4 / M1）.
+    """実効値が解決できないときは 0 を捏造せず 503 を返す.
 
     backend が落ちているわけではない（`/api/machine_config` は 200）ので、frontend が
     `resolved: None` を 0.0 で埋めると copper_detection は canny 0 / blur_ksize
@@ -1070,7 +1068,7 @@ def _frontend_only(machines: tuple[MachineEndpoint, ...], tmp_path: Path) -> Tes
 
 
 class TestMachinePrefixedUrls:
-    """`/m/{machine_id}` prefix の URL 空間（MR4）.
+    """`/m/{machine_id}` prefix の URL 空間.
 
     未 prefix の URL は入口（307）で、実体は prefix 付き。prefix が落ちると ブラウザは同居 backend
     や別マシンを叩いてしまうため、リンク・フォーム・ ドロップダウンの遷移先すべてに prefix が乗っている必要がある。
@@ -1225,7 +1223,7 @@ class TestWithoutMachines:
     def test_create_app_succeeds_and_serves_guidance(self, tmp_path: Path):
         """機体設定を一切読まずに起動でき、機体一覧で登録の仕方を案内する.
 
-        frontend が machine.toml に触ると、機体でない PC で 起動できなくなる（MR4 の要件）。
+        frontend が machine.toml に触ると、機体でない PC で起動できなくなる。
         """
         with _frontend_only((), tmp_path) as client:
             response = client.get("/")

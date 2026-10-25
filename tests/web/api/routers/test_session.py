@@ -1,11 +1,6 @@
 """`web.api.routers.session` の仕様テスト.
 
-計画書「routers」節:
-
 - GET /api/session/state — StateResponse の全フィールド
-
-MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
-
 - GET /api/session/machine-info — backend の自己申告（machine_id / machine_type /
   mainsail_url / fb_start / api_version）。到達性プローブも兼ねる
 - machine_id は `Env.hostname` があればそれ、無ければ backend ホストの hostname
@@ -17,9 +12,7 @@ MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
 - StateResponse に nozzle_cap を追加。`[paste_dispenser.nozzle_cap]` が x/y/z を揃えていない
   machine.toml でも 200 + null（防御しないと全クライアントのポーリングが 500 する）
 
-操作権リースの HTTP / WS 境界（MR6 実装契約 §2 / §3 / §6 / §10）:
-
-契約:
+操作権リースの HTTP / WS 境界:
 
 - `POST /api/session/control/{acquire,release,takeover,name}` は `{"control": {...}}` を返す
   （`GET /api/session/state` の同名フィールドと同じ形）。`control.state` はリクエスト元から見た
@@ -78,7 +71,7 @@ class TestStateApi:
         assert data["focus_z"] == -25.0
         # machine-info と同じ解決結果（fixture の machine_id はこのホスト名）
         assert data["mainsail_url"] == f"http://{socket.gethostname()}.local"
-        assert data["preview_clients"] == 0  # Phase 2: spec §9
+        assert data["preview_clients"] == 0
         # fixture の machine.toml に [paste_dispenser.nozzle_cap] / [paste_dispenser.nozzle_clean] が無いので未記録
         assert data["nozzle_cap"] is None
         assert data["nozzle_clean"] is None
@@ -467,7 +460,7 @@ class TestStateControlFields:
 
 
 class TestIdentityResolution:
-    """セッション / 表示名の解決順とフォールバック（契約 §2）."""
+    """セッション / 表示名の解決順とフォールバック."""
 
     def test_request_without_headers_claims_as_anonymous(self, client: TestClient):
         response = client.post("/api/session/control/acquire")
@@ -805,7 +798,7 @@ class TestNoAutoRelease:
 
 
 class TestControlDoesNotBlockJobs:
-    """ジョブとリースの独立（契約 §4）."""
+    """操作権を取り合っても、実行中のジョブは止まらない."""
 
     def test_takeover_does_not_touch_the_running_job(
         self, client: TestClient, app: FastAPI

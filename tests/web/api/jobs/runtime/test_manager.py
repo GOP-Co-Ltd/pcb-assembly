@@ -1,6 +1,6 @@
 """`web.api.jobs.runtime.manager` の仕様テスト.
 
-計画書 webui-phase3.md「src/webui/jobs/manager.py」節 + spec §6 が契約:
+契約:
 
 - ライフサイクル: PENDING → RUNNING ⇄ WAITING_INPUT → SUCCEEDED | FAILED | ABORTED
 - start: 未知ジョブ KeyError / パラメータ不正・PCB 未選択 ValueError /
@@ -588,7 +588,7 @@ class TestLogRingBuffer:
 
 
 class TestExclusion:
-    """装置排他ロックの共有（spec §6「排他とライフサイクル」）."""
+    """装置排他ロックの共有."""
 
     def test_second_start_while_running_raises_busy_error(
         self, manager: JobManager, catalog: JobCatalog
@@ -677,7 +677,7 @@ class TestExclusion:
 
 
 class TestSingleRecordRetention:
-    """直近 1 件のみ保持・非永続（spec §6 JobRecord）."""
+    """JobRecord は直近 1 件のみ保持し、永続化しない."""
 
     def test_new_start_replaces_record_and_deletes_old_artifacts(
         self, manager: JobManager, catalog: JobCatalog
@@ -706,7 +706,7 @@ class TestSingleRecordRetention:
 
 
 class TestApply:
-    """Apply / Discard（spec §8「計測結果の Apply / Discard フロー」）."""
+    """計測結果の Apply / Discard."""
 
     _PAYLOAD = ApplyPayload(
         label="canny_low = 60.0 を設定に反映",
@@ -882,12 +882,13 @@ class TestJournal:
 
 
 class TestPcbasmLogBridge:
-    """Pcbasm ログブリッジ（Phase 5）.
+    """Pcbasm ログブリッジ.
 
-    計画書 webui-phase5.md「src/webui/jobs/manager.py」節が契約: ジョブ実行中、 worker
-    スレッドが発する logger "pcbasm.*" の INFO ログを record.log_lines
-    （ジョブコンソール）へ転送する。worker 以外のスレッド由来は転送しない。 ジョブ終了後は handler が detach
-    され転送されない。
+    ジョブ実行中、worker スレッドが出す "pcbasm.*" の INFO ログをジョブコンソールへ転送する。
+
+    worker 以外のスレッド由来は転送しない。
+
+    ジョブ終了後は handler が外れ、転送しない。
     """
 
     def test_worker_thread_pcbasm_log_appears_in_job_log(
@@ -937,7 +938,7 @@ class TestPcbasmLogBridge:
 
 
 class TestUpdateCurrentParams:
-    """JobManager.update_current_params（計画書「能力 1」manager 節が契約）.
+    """JobManager.update_current_params.
 
     実行中ジョブに対する out-of-band な runtime_editable patch:
     - アクティブ（非終端）ジョブが無ければ ValueError

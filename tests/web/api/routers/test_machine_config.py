@@ -4,16 +4,10 @@
 - PUT は実ファイルへ反映しコメントを保持する
 - 未知キー → 400、busy → 409
 
-Phase 2 追記（計画書 webui-phase2.md「既存ルーターへの変更」節 + spec §8）:
-
 - PUT /api/machine_config で camera.* キーを書いたら FrameHub を再構築する
-
-計画書 memory/agents/implementation-planner/webui-camera-calib.md「設計判断 b」
-「公開インターフェース案 3」が追記契約:
-
 - camera.crop.* は再構築条件から除外する（レンダラがフレーム毎に読むため
   デバイス再構築不要。crop 変更でストリームを切断しない）
-- camera.crop.* は 1 以上の int（要確認事項 2 採用。0 / 負値 → 400）
+- camera.crop.* は 1 以上の int（0 / 負値 → 400）
 """
 
 from pathlib import Path
@@ -216,7 +210,7 @@ class TestMachineSettingsApi:
                 id="overlap-below-range",
             ),
             pytest.param("alignment.region_overlap", 1.0, id="overlap-at-1"),
-            # camera.crop.* は 1 以上の int（webui-camera-calib 計画書・要確認事項 2）
+            # camera.crop.* は 1 以上の int
             pytest.param("camera.crop.width", 0, id="zero-crop-width"),
             pytest.param("camera.crop.height", -1, id="negative-crop-height"),
         ],
@@ -273,7 +267,7 @@ class TestMachineSettingsApi:
         assert fields["probe.lift_height"]["value"] is None
 
     def test_get_resolves_defaults_for_missing_keys(self, client: TestClient):
-        """未記載キーは `value` が None でも `resolved` に実効値（既定値）が入る（MR4）.
+        """未記載キーは `value` が None でも `resolved` に実効値（既定値）が入る.
 
         SSR ページはこの実効値で現在値を描く。frontend 側で 0 などに代替すると、その値が 「設定に保存」で
         machine.toml へ書き戻されて装置の挙動を壊す。
@@ -434,8 +428,7 @@ class TestPadAlignRegionSettingsApi:
 
 
 class TestCameraSettingsRebuild:
-    """camera.* キーの保存による FrameHub 再構築（Phase 2 + webui-camera-calib 計画書「設計判断
-    b」）.
+    """camera.* キーの保存による FrameHub 再構築.
 
     camera.crop.* はレンダラがフレーム毎に読むため再構築対象から除外される （camera.fps 等の他 camera.*
     キーは従来どおり再構築する）。

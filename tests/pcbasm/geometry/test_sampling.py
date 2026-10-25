@@ -1,9 +1,6 @@
 """sample_points_in_polygons / sampling_diagnostics のテスト.
 
-sampling_diagnostics は Phase 5 で scripts/pasting/height_plane.py の
-`_print_sampling_diagnostics` / `_clearance_to_copper` の計算部を昇格したもの
-（計画書 webui-phase5.md §1）。昇格完了前でも既存テストの収集を妨げないよう、
-新 API の import はテスト内で行う。
+sampling_diagnostics は probe 計画点の安全余裕と基板カバレッジを計算する。
 """
 
 import math
@@ -308,8 +305,9 @@ class TestSpreadAcrossIslands:
 class TestSamplingDiagnostics:
     """sampling_diagnostics（probe 計画点の安全余裕と基板カバレッジ）.
 
-    計画書 webui-phase5.md §1 が契約: point_count = 計画点数 / min_clearance =
-    点が乗る銅箔境界までの最小距離 [mm] / hull_area_ratio = 計画点凸包の面積 ÷ outline 面積。
+    - point_count: 計画点数
+    - min_clearance: 点が乗る銅箔境界までの最小距離 [mm]
+    - hull_area_ratio: 計画点凸包の面積 ÷ outline 面積
     """
 
     def test_known_square_yields_pinned_values(self):

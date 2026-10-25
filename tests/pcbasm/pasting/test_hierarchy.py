@@ -1,8 +1,6 @@
 """階層 group-by（L0–L4）と pad 形状分類のテスト.
 
-仕様: docs plan `claude-webui-1-pad-extract-eager-pine.md` Phase 1。 実
-Pad/Component/shapely.Polygon を直接構築し、PadHierarchy.build の
-公開振る舞いを検証する（pcbnew は使わない）。
+PadHierarchy.build を、直接組んだ Pad・Component・shapely.Polygon で確かめる。
 """
 
 from collections.abc import Sequence

@@ -1,4 +1,4 @@
-"""`web.api.discovery` の仕様テスト（計画書 web-api-ui-split.md「MR5」節）.
+"""`web.api.discovery` の仕様テスト.
 
 ここは **ソケットを開かない範囲**を押さえる:
 
@@ -146,7 +146,7 @@ class TestAdvertiserWithoutMulticast:
 
 
 class TestAdvertiserWithUnbuildableServiceInfo:
-    """ServiceInfo が組めない設定でもアプリを落とさない（M2 の回帰）.
+    """ServiceInfo が組めない設定でもアプリを落とさない.
 
     `_build_info` はホスト名由来の machine_id を使うので、組み立て自体が失敗しうる。組み立てを `start` の try の外に置くと lifespan で例外が抜け、
     ``Application startup failed. Exiting.`` になって backend が起動しない。
@@ -175,7 +175,7 @@ class TestAdvertiserWithUnbuildableServiceInfo:
 
 
 class TestMachineIdResolution:
-    """`resolve_machine_id` — 広告と machine-info が同じ ID を使う（D7）."""
+    """`resolve_machine_id` — 広告と machine-info が同じ ID を使う."""
 
     def test_injected_hostname_wins(self, tmp_path: Path):
         settings = Env(tmp_path, tmp_path, hostname="injected")
@@ -197,7 +197,7 @@ class TestMachineIdResolution:
 
 
 class TestDiscoveryIsolation:
-    """共有 fixture が実 LAN へ広告しないことの見張り（T3）.
+    """共有 fixture が実 LAN へ広告しないことの見張り.
 
     ここが落ちたら fixture の `discovery_enabled=False` が外れている。 `tests/web/api`
     は 1000 件超が同じ fixture を使うので、外れると全件が mDNS を撒く。

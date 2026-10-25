@@ -326,7 +326,7 @@ class TestJobOverProxiedWebSocket:
 
 
 class TestProxiedWebSocketRequest:
-    """WS handshake で上流へ渡すもの / 渡さないものと、close の中継（契約書 §10-3）.
+    """WS handshake で上流へ渡すもの / 渡さないものと、close の中継.
 
     上流は受信内容を JSON で返す最小 ASGI アプリ。backend WebAPI を上流にすると 「cookie
     を落としたか」「x-forwarded-for を足したか」は応答に現れないため、 落としても足さなくてもテストが素通りする（実測）。
@@ -385,7 +385,7 @@ class TestProxiedWebSocketRequest:
 
 
 class TestProxyReadTimeout:
-    """中継は SSR 用の短い既定ではなく `proxy_read_timeout` で待つ（契約書 6 番）.
+    """中継は SSR 用の短い既定ではなく `proxy_read_timeout` で待つ.
 
     gateway の read timeout は SSR 用（`ssr_timeout`）に短くしてあるので、中継が
     その既定をそのまま使うと `POST /api/machine/command`（M400 待ちで最大 60s）が

@@ -1,15 +1,12 @@
 """Align/render の仕様テスト.
 
-計画書 memory/agents/implementation-planner/webui-phase4.md「§1 pcbasm 注入点の
-再設計」に基づく。render.py は cv2 GUI（imshow / waitKey）に依存しない純粋な
-画像合成関数群で、合成結果は FrameSink を通じて WebUI のプレビューへ渡される:
+render.py は cv2 GUI（imshow / waitKey）に依存しない純粋な画像合成関数群で、合成結果は FrameSink を通じて WebUI のプレビューへ渡される:
 
 - render_label: draw_overlay + 緑ラベル文字
 - render_edge_match: ROI 枠（白）+ 想定エッジ（赤）+ 検出エッジ（緑）+
-  中心十字（pad.py CopperPadObserver._show の合成部分の昇格）
+  中心十字
 - PadResultRenderer: pad 照合結果 overlay の単一フレーム合成器
-  （scripts/posctrl/board_tour.py の _show_pad_result の昇格。
-  投影・ROI・薄塗りマスクは __init__ で position 固定）
+  （投影・ROI・薄塗りマスクは __init__ で position 固定）
 
 投影のイディオム（銅箔 ±4mm・Identity 変換・ppm=10 → (600,320)-(680,400) px）
 は test_alignment.py を踏襲する。

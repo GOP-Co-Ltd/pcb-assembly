@@ -1,6 +1,6 @@
 """操作権リースのセッション同定（frontend 側）の仕様テスト.
 
-契約書 /tmp/pcbasm-plan/mr6-brief.md §2 と §10 が契約:
+frontend は次のとおりセッションを同定する:
 
 - frontend は **HTML ページ応答でのみ** `pcbasm_session`（httpOnly,
   `secrets.token_urlsafe(16)`）を発行し、**`Path=/` の既定を上書きしない**
@@ -10,7 +10,7 @@
   `X-Pcbasm-Session` / `X-Pcbasm-Client-Name`（`quote` 済み）へ翻訳して backend に渡す
 - cookie 自体は従来どおり backend へ渡さない
 
-**上流はエコー ASGI アプリ**（実 backend ではない）。ワイヤ契約（§10）だけを前提に
+**上流はエコー ASGI アプリ**（実 backend ではない）。backend との間のヘッダ契約だけを前提に
 frontend を検証するため、backend 側の実装状況に依存しない。backend が受け取った
 ヘッダは実 backend では観測できない（識別子を応答に出さない契約）ので、エコー上流から
 確かめる必要もある。

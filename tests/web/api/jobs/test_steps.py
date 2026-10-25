@@ -163,8 +163,8 @@ class TestHandleMachineCommand:
     ):
         """キャップ未記録なら move_to_cap は移動せず log のみ（True）.
 
-        nozzle-cap-parking 計画書「WebUI」節: ジョブ中 WS ミラー。未対応だと 「未知コマンド」で UX
-        が破綻するため、未記録でも処理済み（True）にする。
+        ジョブ中もマシン操作パネルの操作を WS で受ける。
+        未対応だと「未知コマンド」になって操作が破綻するため、未記録でも処理済み（True）にする。
         """
         record, results = _run_handler_job(manager, catalog, [{"type": "move_to_cap"}])
 

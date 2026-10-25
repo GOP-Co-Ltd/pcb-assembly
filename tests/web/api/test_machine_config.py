@@ -561,7 +561,7 @@ class TestCameraCropFields:
 
 
 class TestAudioFields:
-    """`[audio]` の読み書き（webui-audio-output 計画書「WebUI 配線」節）.
+    """`[audio]` の読み書き.
 
     Repo fixture には `[audio]` を入れない（未設定でも既定値で鳴るのが要件）ため、 欠落時は None、write
     後は round-trip する。

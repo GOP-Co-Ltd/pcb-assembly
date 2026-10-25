@@ -1,12 +1,6 @@
 """`pcbasm.kicad.build` の仕様テスト.
 
-計画書 webui-phase3.md「pcbasm 昇格」節が契約:
-
-- generate_grid_pcb は scripts/dev/generate_grid_pcb.py からの移動（挙動不変）
-- build_fill_coverage_board / save_board は make_fill_coverage_pcb の
-  build_board + 保存処理の一般化（print は持ち込まない）
-
-いずれも実 pcbnew で tmp_path に保存 → load_board で読み戻して検証する。
+generate_grid_pcb、build_fill_coverage_board、save_board を、実 pcbnew で tmp_path に保存 → load_board で読み戻して検証する。
 """
 
 import pytest

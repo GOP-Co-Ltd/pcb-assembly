@@ -70,7 +70,7 @@ class TestSmokeTargetsFollowTheHost:
     def test_frontend_only_host_never_imports_the_device_application(
         self, tmp_path: Path
     ):
-        """専用機の smoke に `web.api.app` が混ざらないこと（M1 の回帰）."""
+        """専用機の smoke に `web.api.app` が混ざらないこと."""
         sandbox = make_update_sandbox(tmp_path / "ui-only", active=(UI_UNIT,))
         sandbox.push()
         runner = UpdateRunner(sandbox.settings)
@@ -90,7 +90,7 @@ class TestHostWithoutSystemdUnits:
     """Active な pcbasm unit が 0 のホスト（手元で起動している開発機）."""
 
     def test_update_succeeds_without_sudo_and_without_restarting(self, tmp_path: Path):
-        """再起動しないのだから sudoers 未設置でも中断しない（S2 の回帰）."""
+        """再起動しないのだから sudoers 未設置でも中断しない."""
         sandbox = make_update_sandbox(tmp_path / "bare", active=(), permitted=False)
         target = sandbox.push()
         runner = UpdateRunner(sandbox.settings)
@@ -163,7 +163,7 @@ class TestWrappedSudoListing:
 
 
 class TestRestartRefusedBySudo:
-    """Preflight を通ったのに sudo が実際の再起動を拒否した場合（S5 の回帰）."""
+    """Preflight を通ったのに sudo が実際の再起動を拒否した場合."""
 
     def test_failure_is_written_back_to_the_report(self, tmp_path: Path):
         """このプロセスは死んでいないので、握り潰さず report に残せる."""
@@ -231,10 +231,11 @@ class TestStatusSurvivesMissingTools:
 
 
 class TestUnitDriftWarning:
-    """更新後に設置済み unit が古いままなら警告する（計画書「既知のリスク 6」）.
+    """更新後に設置済み unit が古いままなら警告する.
 
-    本 MR 自身が `render_unit` の出力を 2 行変えたので、更新しただけの機体では
-    unit が古いまま残る。**読み取りだけを行い、自動 install はしない。**
+    unit の生成器の出力が変わる更新を取り込んでも、更新しただけの機体では unit が古いまま残る。
+
+    **読み取りだけを行い、自動 install はしない。**
     """
 
     def test_outdated_unit_file_is_reported_as_a_warning(self, tmp_path: Path):
@@ -265,7 +266,7 @@ class TestUnitDriftWarning:
         assert runner.status().warnings == ()
 
     def test_unreadable_unit_directory_does_not_fail_the_update(self, tmp_path: Path):
-        """警告のための読み取りが失敗しても、更新本体と再起動は止めない（R2）."""
+        """警告のための読み取りが失敗しても、更新本体と再起動は止めない."""
         sandbox = make_update_sandbox(tmp_path / "drift-oserror")
         target = sandbox.push()
         # unit_dir も scripts/ も無いホスト（差分を取りようがない）
@@ -281,7 +282,7 @@ class TestUnitDriftWarning:
 
 
 class TestUnexpectedFailureIsRecorded:
-    """更新スレッドの例外が report に残る（S1 の回帰）."""
+    """更新スレッドの例外が report に残る."""
 
     def test_missing_executable_fails_the_run_instead_of_hanging(self, tmp_path: Path):
         """`uv` が設定したパスに無い機体。握り潰すと running のまま固まる."""

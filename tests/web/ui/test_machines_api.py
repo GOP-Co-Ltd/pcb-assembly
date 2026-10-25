@@ -1,6 +1,6 @@
 """`GET /api/machines`（frontend の唯一の自前 JSON）の仕様テスト.
 
-契約（計画書 web-api-ui-split.md「MR5」節 + MR5 実装契約 D2）:
+契約:
 
 - `registry.list()` の同期ダンプ。**表示名（`label`）と「現在のマシンか」（`current`）は
   サーバが決める**（表示規則と選択判定を JS に複製しない）

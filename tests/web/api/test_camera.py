@@ -1,6 +1,6 @@
 """`web.api.camera.CameraFeed` の仕様テスト.
 
-計画書「`src/webui/preview.py`」節 + spec §7 が契約:
+契約:
 
 - mjpeg_stream は完全な multipart パート（boundary 行 + ヘッダ + JPEG + CRLF）を
   yield する同期ジェネレータ。開始で acquire（hub.start）、close で release
@@ -10,9 +10,6 @@
 - submit_override はジョブ提供フレームを override_ttl 秒だけ優先配信する。
   persist=True の場合は clear_override まで優先する
 - カメラ構築失敗は伝播する（ルーター層が 503 化）
-
-計画書 memory/agents/implementation-planner/webui-camera-calib.md「設計判断 b」
-「公開インターフェース案 2」が追加契約:
 
 - crosshair の crop 枠はストリーム開始時の 1 回読みではなく、フレーム毎に
   machine.toml `[camera.crop]` を読む。ストリーム継続中の crop 変更が
@@ -184,9 +181,9 @@ class TestOverlays:
     ):
         """ストリーム継続中の crop 変更が、再接続なしで次フレームの ROI 枠へ反映される.
 
-        計画書「設計判断 b」: crosshair のレンダラはフレーム毎に machine.toml `[camera.crop]`
-        を読む。フレーム 1280x720・crop 600 の 既定枠左辺は x=340、crop 200 に変えると x=540
-        付近へ移る （テスト観点「crosshair ストリーム継続中の crop 変更が次フレームの ROI 枠へ反映」）。
+        crosshair のレンダラはフレーム毎に machine.toml `[camera.crop]` を読む。
+
+        フレーム 1280x720・crop 600 の枠の左辺は x=340 で、crop 200 にすると x=540 付近へ移る。
         """
         stream = service.mjpeg_stream("crosshair")
         try:
@@ -299,7 +296,7 @@ def _override_setup(
 
 
 class TestOverrideSlot:
-    """ジョブ用オーバーライドスロット（Phase 3 の ctx.frame の受け口）."""
+    """ジョブ用オーバーライドスロット（ctx.frame の受け口）."""
 
     def test_override_frame_takes_priority(self, camera_backend: Backend):
         clock = _ManualClock()
@@ -350,10 +347,11 @@ class TestOverrideSlot:
 
 
 class TestHoldCamera:
-    """ジョブ用のカメラ保持（Phase 4: JobContext.open_camera の受け口）.
+    """ジョブ用のカメラ保持（JobContext.open_camera の受け口）.
 
-    計画書 webui-phase4.md「src/webui/preview.py」節が契約: hold は 参照カウントを保持して
-    FrameHub を貸し出し（0→1 で start、1→0 で stop）、 MJPEG ストリームと同一カウントを共有する。
+    hold は参照カウントで FrameHub を貸し出す（0→1 で start、1→0 で stop）。
+
+    参照カウントは MJPEG ストリームと共有する。
     """
 
     def test_hold_starts_hub_and_stops_on_exit(

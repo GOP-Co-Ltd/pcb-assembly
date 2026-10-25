@@ -1,6 +1,6 @@
 """`web.api.routers.pasting.board` の仕様テスト.
 
-計画書 Phase 3「src/webui/routers/pasting.py」節が契約:
+契約:
 
 - PCB 未選択 → 409
 - GET /api/pasting/board の構造（outline / pads / tree / defaults /
@@ -745,8 +745,7 @@ class TestTreeNodeResolution:
     """GET tree の各ノードの resolved / own_override / own_summary /
     descendant_summary 契約.
 
-    計画書 Phase B「サーバ段階」が契約。各ノード行に解決済み値・自ノードの 明示 override・子孫 override
-    集計を載せ、JS が再計算せず表示できるようにする。継承・上書き・集計の分岐そのものは
+    各ノード行に解決済み値・自ノードの明示 override・子孫 override 集計を載せ、JS が再計算せず表示できるようにする。継承・上書き・集計の分岐そのものは
     ``tests/pcbasm/pasting/test_settings.py`` が担保するため、ここでは 1 往復の
     レスポンスに 4 種が揃うことだけを見る。
     """

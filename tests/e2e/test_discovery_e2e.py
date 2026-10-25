@@ -195,7 +195,7 @@ class TestAdvertiseAndDiscover:
 
 
 class TestBackendAppAdvertises:
-    """実 backend アプリ（uvicorn）の広告（実装契約 §4 の配線）."""
+    """実 backend アプリ（uvicorn）の広告."""
 
     @pytest.fixture
     def advertising_settings(self, tmp_path: Path, service_type: str) -> Env:
@@ -224,7 +224,7 @@ class TestBackendAppAdvertises:
     def test_lifespan_advertises_with_the_machine_info_id(
         self, live_backend: LiveServer, service_type: str
     ):
-        """広告 ID は `/api/session/machine-info` と同じ導出（D7）."""
+        """広告 ID は `/api/session/machine-info` と同じ導出."""
 
         async def scenario() -> None:
             async with browsing(service_type) as collector:
@@ -242,7 +242,7 @@ class TestBackendAppAdvertises:
 
 
 class TestDiscoveryIsolation:
-    """E2E の共有 fixture が実 LAN へ広告・探索しないことの見張り（T3）.
+    """E2E の共有 fixture が実 LAN へ広告・探索しないことの見張り.
 
     ここが落ちたら fixture の `discovery_enabled=False` が外れている。E2E は実 uvicorn
     を起こすので、外れると実 LAN に広告が出る。

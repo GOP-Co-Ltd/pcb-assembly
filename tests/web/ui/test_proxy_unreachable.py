@@ -1,6 +1,6 @@
 """到達できない / 応答しない backend に対する `web.ui.proxy.ProxyApp` の振る舞い.
 
-契約書 /tmp/pcbasm-plan/mr4-interface-contract.md「トラック A」のエラー規約:
+到達失敗は次の応答にする:
 `ConnectError` / `ConnectTimeout` → 502、`ReadTimeout` → 504、いずれも
 `{"detail": …}` 形（`app.js` の既存トーストがそのまま読める形）。
 

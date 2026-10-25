@@ -1,7 +1,6 @@
 """`pcbasm.hal.framehub` の仕様テスト.
 
-計画書 `memory/agents/implementation-planner/webui-phase2.md`
-「src/pcbasm/hal/framehub.py」節 + spec §3 が契約:
+契約:
 
 - FrameHub はカメラ専有スレッドで capture し、最新フレームを複数消費者へ共有する
 - `subscribe()` の FrameSource は Camera ABC を実装し「呼ぶたびに新しいフレーム」を保証

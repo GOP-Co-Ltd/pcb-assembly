@@ -1,11 +1,11 @@
 """XYPositionAdjustor の仕様テスト.
 
-計画書 memory/agents/implementation-planner/pad-alignment.md
-「posctrl/position.py（変更 — 破壊変更）」に基づく。
+observe() -> Transform（カメラ mm 空間・想定→観測）を受け取る。
 
-新契約: observe() -> Transform（カメラ mm 空間・想定→観測）。ループ内で
-o = observe().apply(Point2d(0, 0)) として変位へ縮約し、補正式
-target = pos − R(o)（(A4) アンカー、CameraModel.observed_to_machine_offset）は従来と不変。
+原点の写り o = observe().apply(Point2d(0, 0)) を変位とする。
+
+(A4) の式 target = pos − R(o) で補正する。
+
 klipper は FakeKlipper、stage はその上の実 XYZStage を使う（移動するとステージの位置も変わる）。
 """
 

@@ -1,7 +1,6 @@
 """`web.api.routers.pasting.nozzle` の仕様テスト.
 
-計画書 memory/agents/implementation-planner/nozzle-cap-parking.md
-「src/webui/routers/nozzle_cap.py」節 + 「API 契約」節が契約:
+契約:
 
 - `POST /api/pasting/nozzle/cap/record`
   - 200: 現在位置を 3 桁丸めで machine.toml に永続化し `{"x","y","z","label"}` を返す（`label` はサーバーが組む表示文字列）

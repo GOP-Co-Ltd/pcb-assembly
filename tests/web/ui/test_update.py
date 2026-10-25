@@ -1,6 +1,6 @@
 """更新ページ（`/update`）と frontend 自身の更新（`/api/self-update/**`）の仕様テスト.
 
-計画書「3. frontend」が契約:
+契約:
 
 - `/update` は唯一の更新操作の画面で、UI サーバー自身と登録済みの全機体のパネルを並べる
 - パスは backend と**意図的に変える**（`/m/{id}/api/update/**` は proxy で backend 行き）

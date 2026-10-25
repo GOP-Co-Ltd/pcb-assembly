@@ -1,7 +1,5 @@
 """`web.api.routers.preview` の仕様テスト.
 
-計画書「`src/webui/routers/preview.py`」節 + spec §7 / §9 が契約:
-
 - overlay 不正値は 422、カメラ構築失敗は 503
 
 注: 本環境の starlette TestClient はレスポンスを完全受信してから返すため、

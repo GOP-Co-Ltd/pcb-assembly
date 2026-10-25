@@ -8,7 +8,7 @@
 は既存の面塗布契約テストのために paths を list で返す薄いラッパ。
 
 しきい値はハードコードせず、形状・ノズル径・overlap・margin を parametrize して
-そこから導出する（契約メモ §5）。
+そこから導出する。
 """
 
 from typing import Any
@@ -556,7 +556,7 @@ class TestAreaFill:
 
 
 class TestSegmentContainment:
-    """セグメント内包契約（契約メモ §3・最重要・テストの軸）.
+    """どのセグメントも元ポリゴンの内側に収まる（このテストの軸）.
 
     各成分ポリラインの隣接セグメント LineString が、build に渡した
     元 polygon に ``covers`` される（微小 EPS buffer 許容）。元ポリゴン外を

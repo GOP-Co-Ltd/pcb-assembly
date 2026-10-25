@@ -1,6 +1,6 @@
 """操作権リースの frontend UI（`control.js` とテンプレートの印）の仕様テスト.
 
-契約書 /tmp/pcbasm-plan/mr6-brief.md §5 と §10「DOM 契約」が契約:
+操作権の表示は次の DOM 契約に従う:
 
 - `body.dataset.control`（``"held" | "viewer" | "free" | "unknown"``）の 1 箇所で
   全体を切り替える。**初期値は viewer（fail-closed）**
@@ -37,7 +37,7 @@ _GATED_TAG_RE = re.compile(r"<[a-zA-Z][^>]*data-requires-control[^>]*>", re.DOTA
 _ID_RE = re.compile(r'\bid="([^"]+)"')
 _CLASS_RE = re.compile(r'\bclass="([^"]+)"')
 
-# `data-requires-control` を置いてよいテンプレートの許可リスト（契約 §5）。閲覧者が
+# `data-requires-control` を置いてよいテンプレートの許可リスト。閲覧者が
 # 押すと 423 になる操作（nozzle-cap/record・任意 G-code・Record/Quit の WS command・
 # canny の設定保存）を持つテンプレートだけが載る。どの要素を塞ぐかまでは列挙しない
 # （要素を足すたびに一覧も直すことになり、検出できるのは一覧の更新漏れだけになる）
@@ -143,7 +143,7 @@ class TestInertIsTheOnlyMechanism:
 
 
 class TestGatedElements:
-    """`data-requires-control` を付ける対象（契約 §5）."""
+    """`data-requires-control` を付ける対象."""
 
     def test_no_other_template_gates_anything(self):
         """一覧に無いテンプレートが勝手にゲートしていない（漏れの検出）."""
@@ -181,7 +181,7 @@ class TestGatedElements:
 
 
 class TestPromptVisibility:
-    """プロンプトは閲覧者にも見せ、応答権の在処を案内する（契約 §4 / §5）."""
+    """プロンプトは閲覧者にも見せ、応答権の在処を案内する."""
 
     def test_prompt_message_is_not_gated(self):
         """本文を隠すと、何を待っているのか閲覧者に分からない."""

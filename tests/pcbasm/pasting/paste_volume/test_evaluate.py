@@ -75,7 +75,7 @@ class TestEvaluateSession:
     ):
         """どちらも no_deposit_detected なので、件数で切り分けられる必要がある.
 
-        blank は真値 0 で正常、検出失敗は回帰条件（計画書の達成条件）。
+        blank は真値 0 で正常、検出失敗は回帰を意味する。
         """
         evaluation, _ = evaluate_session(session, calibration)
         assert evaluation is not None

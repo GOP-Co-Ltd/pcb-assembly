@@ -11,8 +11,7 @@ git は実物（tmp 上の bare remote。ネットワークに出ない）、`uv
 `UpdateSettings` の絶対パス seam に差した実スタブ実行ファイル。実機の systemd と
 sudoers には一切触れない。
 
-**実 systemd の再起動・sudoers の実受理・ネットワーク越しの `uv sync` は Claude が
-検証できない範囲**で、ユーザーの実機確認事項（計画書「検証」節）。
+**実 systemd の再起動・sudoers の実受理・ネットワーク越しの `uv sync` はここでは確かめられない**ので、実機の受け入れ試験で確かめる。
 """
 
 from __future__ import annotations

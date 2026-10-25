@@ -1,4 +1,4 @@
-"""`web.ui.discovery` の仕様テスト（計画書 web-api-ui-split.md「MR5」節）.
+"""`web.ui.discovery` の仕様テスト.
 
 `endpoint_from_service_info` は純関数なので、実 `ServiceInfo` を組んで検証する
 （モックを使わない）。広告 → 探索の通しは `tests/e2e/test_discovery_e2e.py`。
@@ -140,7 +140,7 @@ class TestDiscoveryWithoutMulticast:
 
 
 class TestDiscoveryIsolation:
-    """共有 fixture が実 LAN を探索しないことの見張り（T3）.
+    """共有 fixture が実 LAN を探索しないことの見張り.
 
     ここが落ちたら fixture の `discovery_enabled=False` が外れている。
     """

@@ -1,6 +1,6 @@
 """`web.api.jobs.runtime.catalog` の仕様テスト.
 
-計画書 webui-phase3.md「src/webui/jobs/catalog.py」節が契約:
+契約:
 
 - register は名前重複で ValueError、get は未知ジョブで KeyError
 - list は登録順の全件
@@ -213,7 +213,7 @@ _RUNTIME_PARAMS = (
 
 
 class TestValidateRuntimeParams:
-    """validate_runtime_params の patch 検証（計画書「能力 1」catalog 節が契約）.
+    """validate_runtime_params の patch 検証.
 
     runtime_editable=True のキーだけを coerce して返す patch セマンティクス:
     - default 充填はしない（与えたキーだけ返る）

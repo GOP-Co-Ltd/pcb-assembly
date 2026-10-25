@@ -1,6 +1,6 @@
 """`web.ui.machines` の仕様テスト.
 
-計画書 docs/plans/web-api-ui-split.md「MR4」節の契約:
+契約:
 
 - `MachineEndpoint.label` は **サーバ側で組む表示文字列**
   （`f"{machine_id}: {host}"` = hostname と所在）。JS は `textContent` に流すだけ
@@ -180,7 +180,7 @@ DISCOVERED_KUROUSAGI = MachineEndpoint(
 
 
 class TestSetDiscovered:
-    """静的登録と mDNS 発見分のマージ規則（MR5）.
+    """静的登録と mDNS 発見分のマージ規則.
 
     静的登録は運用者が書いた設定なので、同じ machine_id を mDNS で見つけても所在（host / port）を上書きしない。
     上書きすると、DHCP で変わったアドレスや別 IF のアドレスに勝手に切り替わって「設定したのに違う機体を叩く」事故になる。

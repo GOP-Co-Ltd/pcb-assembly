@@ -147,8 +147,7 @@ def _browser():
 def browser_pages(_browser):
     """独立した browser context の page を必要な数だけ作るファクトリ.
 
-    `browser_page` の実装を集約する（現状の利用は 1 枚のみ。複数ページを開く検証は
-    MR6 以降で使う想定）。作った context は teardown でまとめて閉じる。
+    複数の端末から同じ機体を触る検証に使う。作った context は teardown でまとめて閉じる。
     """
     contexts = []
 

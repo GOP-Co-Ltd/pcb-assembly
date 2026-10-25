@@ -1,6 +1,6 @@
 """ProbeExecutor のテスト.
 
-計画書 claude-probe-gnd-probe-load-cell-probe.md「新 ProbeExecutor」節が契約:
+契約:
 
 - __init__: printer.cfg に [load_cell_probe] セクションが無ければ RuntimeError
 - probe(): PROBE 送信 → last_z_result を接触 Z として返す →

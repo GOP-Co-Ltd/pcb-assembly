@@ -20,7 +20,7 @@ from web.api.jobs.runtime.record import JobStatus
 class TestMachineJobsWithoutKlipper:
     """装置ジョブの graceful FAILED（テスト用 config: port 7126 = 接続拒否）.
 
-    実動作（押出・塗布・SUCCEEDED 到達）は受け入れ試験（A6、A8）でカバーする分担（計画書 §4）。
+    実動作（押出・塗布・SUCCEEDED 到達）は受け入れ試験（A6、A8）で確かめる。
     """
 
     @pytest.mark.parametrize(

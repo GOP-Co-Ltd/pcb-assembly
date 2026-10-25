@@ -1,6 +1,5 @@
 """Copper-alignment 仕様テスト.
 
-計画書 memory/agents/implementation-planner/copper-alignment.md §1/§2/§4 に基づく。
 投影公式: pixel(b, s) = image_center_px + ppm * R(s - board_transform.apply(b))。
 x 右・y 下、image_center は全画面中心。
 EdgeMatch.offset は「観測 - 想定」(px)。
@@ -243,7 +242,6 @@ class TestCopperProjector:
     def test_pixel_of_matches_projection_formula(self):
         """pixel_of が投影公式 center + ppm * R(s − T_b(b)) と一致する.
 
-        計画書 pad-alignment.md: _pixel_of の公開化（符号ピンの公開面への移譲）。
         T_b=Shift(2,1), R=Rotation(90), image_size=(320,200) →
         center=(160,100)。 b=(1,0.5), s=(1,2): s−T_b(b)=(−2,0.5) → R90 →
         (−0.5,−2) → pixel=(160−5, 100−20)=(155, 80)。
@@ -349,9 +347,9 @@ class TestCopperEdgeMatcher:
 class TestCopperEdgeMatcherRoi:
     """CopperEdgeMatcher.match の ROI 限定照合のテスト.
 
-    θ 撤去（memory/agents/spec-test-author/pad-align-drop-theta.md）により
-    match_rigid は match に統合され、照合は並進のみになった。ROI はテンプレートとして切り出す矩形（全画面
-    px）で、ROI 外の構造は結果に影響してはならない。
+    照合は並進のみ。
+
+    ROI はテンプレートとして切り出す矩形（全画面 px）で、ROI 外の構造は結果に影響してはならない。
     """
 
     @pytest.fixture

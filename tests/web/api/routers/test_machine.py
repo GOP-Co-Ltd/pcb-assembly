@@ -1,6 +1,6 @@
 """`web.api.routers.machine` の仕様テスト.
 
-計画書「routers」節 + spec §6 マシン操作パネル（POST /api/machine/command）:
+マシン操作パネル（POST /api/machine/command）:
 
 - 命令は `web.contract.models.MachineCommandRequest`（type で判別）。形の誤り（jog の axis/distance 欠落、未知の type）は 422
 - 400: 実行できない命令（軸の無い move）/ focus_z 不可（z_position なし）/ limits 超過
@@ -8,11 +8,7 @@
 - 502: Moonraker 接続不能（テスト用 config の port 7126 への実接続で検証、モック不使用）
 - 200: 実機での操作完了は受け入れ試験（docs/acceptance.md の A1）で確かめる
 
-Phase 3 追記（計画書 webui-phase3.md「既存ルーター・app への変更」節）:
-
 - type="gcode": gcode 欠落・空文字・空白だけは 422、送信成功系は受け入れ試験（A1）
-
-MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
 
 - type="move_to_cap" はキャップ位置が未記録なら 400 で断る
 
@@ -20,7 +16,7 @@ MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
 未記録ではなく設定エラーとして 503 で断り、理由を返す（原点や PRESENT へ動かさない）。
 設定を読まない命令（ホーミング・ジョグ・脱力・任意 G-code）は設定エラーでも送れる
 
-Klipper ステータス・可動域・緊急停止・ファームウェア再起動（計画書「routers」節）:
+Klipper ステータス・可動域・緊急停止・ファームウェア再起動:
 
 - GET /api/machine/status は常に 200。接続失敗は connected=false + error。位置の表示文字列 position_label も返す
 - POST /api/emergency-stop は接続不能で 502（ロック・操作権に妨げられないことは tests/repo/test_update_contract.py）
@@ -28,9 +24,6 @@ Klipper ステータス・可動域・緊急停止・ファームウェア再起
   先頭で jobs.request_abort()
 - 実 Moonraker での status と、emergency_stop / firmware_restart の成功経路は
   受け入れ試験（docs/acceptance.md の A1、A14）で確かめる
-
-Phase 3 追記（計画書 webui-phase3.md「既存ルーター・app への変更」節）:
-
 - E-STOP は先頭で jobs.request_abort() を呼ぶ（Moonraker 不達で 502 でも
   実行中ジョブは ABORTED になる）
 - GET /api/machine/limits は XYZStage.limits を返す。Moonraker 不通と printer.cfg の不備は 502
@@ -146,7 +139,7 @@ class TestGcodeCommand:
 
 @pytest.mark.usefixtures("unreachable_klipper")
 class TestMoveToCap:
-    """`type="move_to_cap"`（nozzle-cap-parking 計画書「API 契約」節）.
+    """`type="move_to_cap"`.
 
     キャップ未記録は 400。記録済みなら G-code 送信まで到達し、テスト用 config の Klipper（port 7126
     非リッスン）で 502 になる = バリデーション通過の証明。
@@ -267,7 +260,7 @@ class TestEmergencyStop:
     def test_aborts_running_job_even_when_moonraker_unreachable(
         self, client: TestClient, app: FastAPI
     ):
-        # Phase 3: E-STOP の先頭で jobs.request_abort()（Klipper 送信失敗でも
+        # E-STOP の先頭で jobs.request_abort()（Klipper 送信失敗でも
         # abort フラグは立つ）
         register_gated(app.state.backend.catalog, name="estop_target")
         assert client.post("/api/jobs/estop_target", json={}).status_code == 201
@@ -321,7 +314,7 @@ class TestFirmwareRestart:
 
 
 class TestStageLimits:
-    """GET /api/machine/limits（Phase 3）."""
+    """GET /api/machine/limits."""
 
     @pytest.mark.usefixtures("unreachable_klipper")
     def test_unreachable_moonraker_returns_502(self, client: TestClient):

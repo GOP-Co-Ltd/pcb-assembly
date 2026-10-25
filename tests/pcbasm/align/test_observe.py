@@ -1,10 +1,6 @@
 """Align/observe モジュールのテスト.
 
-Phase 4（memory/agents/implementation-planner/webui-phase4.md §1）で posctrl
-から cv2 表示を全廃し frame_sink 注入に統一した:
-
-- OffsetObserver: ``window_name`` 全廃。``frame_sink``（None なら配信なし）へ
-  observe 成功時に注釈付き画像を 1 枚送る
+OffsetObserver は observe 成功時に、``frame_sink``（None なら配信なし）へ注釈付き画像を 1 枚送る。
 
 カメラは pcbasm.hal.fake の FakeCamera（自前 HAL Camera の fake）を使う。
 """

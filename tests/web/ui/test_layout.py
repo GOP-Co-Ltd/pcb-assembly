@@ -1,11 +1,10 @@
 """`web.ui.layout` の表示知識と、移設した静的資産・テンプレートの整合.
 
-計画書 docs/plans/web-api-ui-split.md「MR4」節が契約:
+契約:
 
-- `pages.py` の**純粋な表示知識だけ**を frontend へ移す（装置の事実は backend が
-  `JobSpecInfo` で自己申告する）
+- frontend が持つのは**純粋な表示知識だけ**（装置の事実は backend が `JobSpecInfo` で自己申告する）
 - 設定ページの項目・見出し・並び順は backend が返し、`settings_sections` はまとめるだけ
-- `templates/` と `static/` は `web.api` から `web.ui` へ移設する
+- `templates/` と `static/` は `web.ui` にある
 
 テンプレート名・静的資産名の誤りはページ描画時の 500 やアセット 404 になり、
 pyright も pytest も文字列としては検出しないためここでピンする。
@@ -103,7 +102,7 @@ class TestSinglePaneLayout:
 
 
 class TestMachinePrefixFunnel:
-    """機体 prefix の付与点は `api.js` の `withBase()` 1 箇所（計画書の設計判断 #4）.
+    """機体 prefix の付与点は `api.js` の `withBase()` 1 箇所.
 
     JS にテストランナーが無く、prefix を素通りする経路（新しい直接 `fetch`・
     prefix を忘れた WS URL・成果物 URL）は静的にしか検出できない。素通りすると

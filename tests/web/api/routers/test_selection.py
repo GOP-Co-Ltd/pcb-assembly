@@ -1,12 +1,9 @@
 """`web.api.routers.selection` の仕様テスト.
 
-計画書「routers」節:
-
 - GET /api/selection/files — dir 全部 + *.kicad_pcb のみ、名前順。traversal は 400、不存在は 404
 - PUT /api/selection/pcb-file — StateResponse 返却。拡張子・root 外は 400、busy は 409
 
-MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節「ファイル公開範囲を絞る」）が
-追記契約:
+ファイルの公開範囲:
 
 - `pcb_browse_root` は `board_id` の算出基準なので `/` のまま変えない。代わりに
   `Env.pcb_browse_allowed`（既定 = リポジトリルート + /media + /mnt）の
@@ -149,7 +146,7 @@ class TestPcbFileApi:
 
 
 class TestPcbBrowseAllowed:
-    """公開範囲（`Env.pcb_browse_allowed`）の境界（MR2）."""
+    """公開範囲（`Env.pcb_browse_allowed`）の境界."""
 
     def test_root_listing_shows_only_the_way_to_allowed_subtrees(
         self, slash_root_client: TestClient, pcb_root: Path

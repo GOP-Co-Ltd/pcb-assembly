@@ -177,7 +177,7 @@ class TestMigrateMachineToml:
         assert text.endswith("\n") and not text.endswith("\n\n")
 
     def test_leaves_tact_untouched(self, machine_toml: Path):
-        """[tact] は PR #34 のための予約節."""
+        """[tact] 節は中身を読まずにそのまま残す."""
         before = tomllib.loads(machine_toml.read_text())["tact"]
 
         migrate_machine_toml(machine_toml)

@@ -1,10 +1,9 @@
 """CameraRotationMeasurer の仕様テスト.
 
-計画書 memory/agents/implementation-planner/pad-alignment.md
-「posctrl/offset.py（変更）」に基づく。
+observe() -> Transform を受け取り、o_i = observe().apply(Point2d(0, 0)) に縮約する。
 
-新契約: observe() -> Transform。内部で o_i = observe().apply(Point2d(0, 0)) と
-縮約し、measure() は不変（(A2) アンカー: R = Rotation.from_points(Δs, o2 − o1)）。
+回転は (A2) アンカー R = Rotation.from_points(Δs, o2 − o1) で求める。
+
 klipper は FakeKlipper、stage はその上の実 XYZStage を使う。
 """
 
