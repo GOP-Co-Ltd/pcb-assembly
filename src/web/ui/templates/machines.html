@@ -1,5 +1,5 @@
 {# 機体一覧（マシン非依存）。登録済みの全マシンを登録順に 1 行ずつ並べる。
-   行の状態（操作権・更新・PCB）は machines.js が各機体の
+   行の状態（操作権・更新・立ち上げ・PCB）は machines.js が各機体の
    /m/<machine_id>/api/** から取って入れる（SSR は backend へ問い合わせない）。
    SSR が入れる「確認中…」は最初の応答までの仮表示。取得に失敗した行は machines.js が
    不通の表示（操作権は「接続できません」）に替える。
@@ -19,6 +19,7 @@
         <th scope="col">マシン</th>
         <th scope="col">操作権</th>
         <th scope="col">ソフトウェア</th>
+        <th scope="col">立ち上げ</th>
         <th scope="col">塗布</th>
       </tr>
     </thead>
@@ -29,7 +30,7 @@
          （data-row-base が無いので machines.js も触らない）。機体のページは更新専用ページになる #}
       <tr data-testid="machines-row-{{ machine.machine_id }}">
         <th scope="row"><a href="/m/{{ machine.machine_id }}">{{ machine.label }}</a></th>
-        <td colspan="3">
+        <td colspan="4">
           <span class="machines-status" data-testid="machines-update-only">UI サーバーと版が違います。</span>
           <a href="/update">更新ページ</a>
         </td>
@@ -47,6 +48,10 @@
         <td>
           <span class="machines-status" data-testid="machines-update-summary">確認中…</span>
           <a href="/update">更新ページ</a>
+        </td>
+        <td>
+          <a href="/m/{{ machine.machine_id }}/commissioning" class="machines-status"
+             data-testid="machines-readiness">確認中…</a>
         </td>
         <td>
           <span class="machines-status" data-testid="machines-pcb">確認中…</span>

@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
-from pcbasm.machine.diagnostics import check_audio, check_camera, check_klipper
+from functools import partial
+from pathlib import Path
+
+from pcbasm.machine.diagnostics import (
+    check_audio,
+    check_camera,
+    check_klipper,
+    save_checks,
+)
 from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition
 from web.api.jobs.runtime.context import JobContext
 from web.api.jobs.runtime.record import JobResult
@@ -10,18 +18,19 @@ from web.api.jobs.runtime.record import JobResult
 STATUS_TIMEOUT = 10.0
 
 
-def register(catalog: JobCatalog) -> None:
+def register(catalog: JobCatalog, checks_file: Path) -> None:
+    """``checks_file`` に直近の結果を残す装置診断ジョブを登録する（立ち上げ状況が読む）."""
     catalog.register(
         JobDefinition(
             name="machine_check",
             label="装置診断",
-            run=_run_machine_check,
+            run=partial(_run_machine_check, checks_file=checks_file),
             uses_machine=False,
         )
     )
 
 
-def _run_machine_check(ctx: JobContext) -> JobResult:
+def _run_machine_check(ctx: JobContext, *, checks_file: Path) -> JobResult:
     """全項目を確かめてログに並べ、1 つでも不合格ならジョブを失敗にする."""
     ctx.progress("診断")
     checks = [
@@ -31,6 +40,7 @@ def _run_machine_check(ctx: JobContext) -> JobResult:
     ]
     for check in checks:
         ctx.log(f"{'ok' if check.ok else 'NG'}  {check.name}: {check.detail}")
+    save_checks(checks_file, checks)
     failed = [check.name for check in checks if not check.ok]
     if failed:
         raise RuntimeError(f"{len(failed)} 項目が不合格です: {'、'.join(failed)}")

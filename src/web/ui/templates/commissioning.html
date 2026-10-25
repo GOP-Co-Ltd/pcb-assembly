@@ -1,0 +1,20 @@
+{# 立ち上げチェックリスト（校正タブの入口）。段の並び・状態・文言はすべて backend の /api/readiness が組む #}
+{% extends "feature.html" %}
+{% block main %}
+<h2>{{ feature_label }}</h2>
+<section class="status-card">
+  <p>新しい機体は上から順に済ませます。各段は設定と校正ファイルがそろっていれば完了と表示し、日付は見ません。
+    テンプレートから作った machine.toml には別の機体の値が入っているので、新しい機体では完了と出ている段も一度行ってください。
+    装置診断は直近に実行した結果で判定します。</p>
+  <ol class="commissioning-steps" data-testid="commissioning-steps">
+    {% for step in readiness.steps %}
+    <li data-testid="commissioning-step-{{ step.name }}" data-state="{{ step.state }}">
+      <a href="{{ base }}/{{ step.name }}">{{ step.label }}</a>
+      <span class="commissioning-state" data-testid="commissioning-state">{{ step.state_label }}</span>
+      <p>{{ step.detail }}</p>
+      <p class="commissioning-redo">やり直す契機: {{ step.redo_when }}</p>
+    </li>
+    {% endfor %}
+  </ol>
+</section>
+{% endblock %}

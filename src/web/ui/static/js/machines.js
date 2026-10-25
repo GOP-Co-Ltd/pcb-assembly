@@ -27,8 +27,10 @@
 // - WS の control_changed / state_changed
 // - 行のボタン操作が終わったとき（成功・失敗を問わない）
 // 更新の要約（GET /api/update/status）は WS の open のときだけ取り直す。更新の操作は /update で行う。
+// 立ち上げの要約（GET /api/readiness）は WS の open と state_changed（machine.toml の書き込み）、
+// job_status（ジョブの開始・質問・終了。装置診断や校正のジョブは終わるときに結果のファイルを書く）で取り直す。
 //
-// 表示する値（更新の要約・PCB 名・保持者名）はサーバの応答をそのまま流す。
+// 表示する値（更新と立ち上げの要約・PCB 名・保持者名）はサーバの応答をそのまま流す。
 
 (() => {
   const { toast, api, connectEvents } = window.webui;
@@ -37,6 +39,8 @@
   const PASTE_JOB = "paste_solder";
   // 状態を取り直す WS イベント
   const REFRESH_EVENTS = new Set(["control_changed", "state_changed"]);
+  // 立ち上げの要約を取り直す WS イベント
+  const READINESS_EVENTS = new Set(["state_changed", "job_status"]);
 
   function setupRow(row) {
     const base = row.dataset.rowBase;
@@ -46,6 +50,7 @@
     const acquireButton = part("machines-acquire");
     const releaseButton = part("machines-release");
     const updateSummary = part("machines-update-summary");
+    const readinessEl = part("machines-readiness");
     // ペーストの行にだけある
     const pcbEl = part("machines-pcb");
     const runButton = part("machines-paste-run");
@@ -101,6 +106,14 @@
       }
     }
 
+    async function refreshReadiness() {
+      try {
+        readinessEl.textContent = (await api("GET", `${base}/api/readiness`)).label;
+      } catch {
+        readinessEl.textContent = "---";
+      }
+    }
+
     // 要求中はボタンを止め、失敗はトーストで出す。終わったら状態を取り直す
     async function run(action) {
       pending = true;
@@ -140,9 +153,11 @@
         // 切断中のイベントは届いていない。更新後の再起動から戻ったときもここを通る
         refresh();
         refreshUpdate();
+        refreshReadiness();
       },
       onEvent: (event) => {
         if (REFRESH_EVENTS.has(event.type)) refresh();
+        if (READINESS_EVENTS.has(event.type)) refreshReadiness();
       },
       // 機体が落ちたなら GET も失敗し、行が unknown になる
       onClose: refresh,

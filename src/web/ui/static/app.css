@@ -252,7 +252,9 @@ h2 {
 
 /* 更新通知バッジ。`hidden` を有効にするため、display を明示的に上書きする
    （`.icon-link` 相当の inline-flex は UA の `[hidden] { display: none }` より優先される） */
-.update-badge {
+/* 立ち上げチップも同じ見た目にする（未完了の段がある間だけ SSR が描く） */
+.update-badge,
+.readiness-chip {
   display: inline-flex;
   align-items: center;
   min-height: 2rem;
@@ -264,7 +266,8 @@ h2 {
   white-space: nowrap;
 }
 
-.update-badge:hover {
+.update-badge:hover,
+.readiness-chip:hover {
   background: var(--surface-2);
 }
 
@@ -2513,7 +2516,8 @@ h2 {
   .topbar-menu-content .control-lease,
   .topbar-menu-content .chip,
   .topbar-menu-content .firmware-restart,
-  .topbar-menu-content .update-badge {
+  .topbar-menu-content .update-badge,
+  .topbar-menu-content .readiness-chip {
     grid-column: 1 / -1;
   }
 
@@ -2899,4 +2903,35 @@ h2 {
   font-family: var(--mono);
   font-size: 0.82rem;
   overflow-wrap: anywhere;
+}
+
+/* ---- 立ち上げチェックリスト ---- */
+.commissioning-steps > li {
+  margin-bottom: 0.75rem;
+}
+
+.commissioning-steps p {
+  margin: 0.2rem 0;
+}
+
+.commissioning-state {
+  margin-left: 0.5rem;
+  padding: 0 0.4rem;
+  border-radius: var(--radius);
+  color: var(--warn);
+  background: var(--warn-weak);
+}
+
+[data-state="done"] > .commissioning-state {
+  color: var(--ok);
+  background: var(--ok-weak);
+}
+
+[data-state="blocked"] > .commissioning-state {
+  color: var(--muted);
+  background: var(--surface-2);
+}
+
+.commissioning-redo {
+  color: var(--muted);
 }

@@ -135,7 +135,7 @@ def open_backend(
         paste_dataset_dir=env.paste_dataset_dir,
         paste_volume_calibration_dir=env.paste_volume_calibration_dir,
     )
-    catalog = default_catalog(paste_stores)
+    catalog = default_catalog(paste_stores, env.machine_check_file)
     control = ControlLease(on_change=lambda: events.publish(control_changed_event()))
     return Backend(
         env=env,

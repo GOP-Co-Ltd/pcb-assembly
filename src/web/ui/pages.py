@@ -1,7 +1,7 @@
 """SSR ページのルーター（backend から取った値でテンプレートを描く）.
 
 装置の状態は一切持たず、`MachineClient` で backend から取得した pydantic モデル
-（`StateResponse` / `MachineInfo` / `MachineSettingsResponse` / `JobSpecInfo`）だけを
+（`StateResponse` / `MachineInfo` / `ReadinessResponse` / `MachineSettingsResponse` / `JobSpecInfo`）だけを
 テンプレートへ渡す。タブ・グループ・テンプレートは `web.ui.features` の機能表にある。
 backend 取得が 1 本でも失敗したページは 503 ページになる（`BackendUnavailable`）。
 
@@ -39,6 +39,7 @@ from web.contract.models import (
     JobCatalogResponse,
     JobSpecInfo,
     MachineInfo,
+    ReadinessResponse,
     SettingsField,
     StateResponse,
 )
@@ -233,6 +234,8 @@ def _chrome_context(
         "config_error": None,
         "config_notice": None,
         "pcb_notice": None,
+        # 機体のページだけが持つ（トップバーの立ち上げチップ）
+        "readiness": None,
     }
 
 
@@ -242,6 +245,7 @@ def _base_context(
     current_suffix: str,
     info: MachineInfo,
     state: StateResponse,
+    readiness: ReadinessResponse,
 ) -> dict[str, Any]:
     """全ページ共通のコンテキスト（backend の自己申告と現在状態から組む）."""
     context = _chrome_context(
@@ -257,6 +261,7 @@ def _base_context(
         config_error=state.config_error,
         config_notice=state.config_notice,
         pcb_notice=state.pcb_notice,
+        readiness=readiness,
     )
     return context
 
@@ -543,14 +548,15 @@ async def feature_page(machine_id: str, slug: str, request: Request) -> Response
     if feature is None:
         return _legacy_redirect(machine_id, slug)
     endpoint, client = _resolve(request, machine_id)
-    info, state, catalog, machine_settings = await asyncio.gather(
+    info, state, readiness, catalog, machine_settings = await asyncio.gather(
         client.machine_info(),
         client.state(),
+        client.readiness(),
         client.jobs(),
         _machine_settings(endpoint, client, slug in _MACHINE_SETTINGS_FEATURES),
     )
     jobs = _jobs_by_name(catalog)
-    context = _base_context(request, machine_id, slug, info, state)
+    context = _base_context(request, machine_id, slug, info, state, readiness)
     context.update(_sidebar_context(feature, jobs))
     if feature.is_job:
         job = _job_spec(endpoint, jobs, slug)

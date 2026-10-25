@@ -36,6 +36,11 @@
           {{ selected_pcb or "PCB未選択" }}
         </button>
         {% include "partials/update_notice.html" %}
+        {# 立ち上げの段が残っている間だけ出す（着地点は変えず、ここからチェックリストへ行けるようにする） #}
+        {% if readiness and not readiness.complete %}
+        <a href="{{ base }}/commissioning" class="readiness-chip" title="立ち上げチェックリストを開く"
+           data-testid="readiness-chip">{{ readiness.label }}</a>
+        {% endif %}
         <a href="{{ base }}/machine_config" class="icon-link" title="マシン設定">設定</a>
         {% if mainsail_url %}
         <a href="{{ mainsail_url }}" target="_blank" rel="noopener" class="icon-link" title="Klipper (Mainsail) を開く">Klipper</a>

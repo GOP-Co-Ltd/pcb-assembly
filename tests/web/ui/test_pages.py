@@ -34,7 +34,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from pcbasm.commissioning import STEPS
 from pcbasm.config.fields import setting_fields
+from pcbasm.machine.diagnostics import Check, save_checks
 from tests.web.ui.conftest import BACKEND_MACHINE_ID
 from web.api.app import create_app as create_backend_app
 from web.api.backend import Backend
@@ -770,6 +772,55 @@ class TestNozzleCapPage:
         assert "X10.000 Y20.000 Z-3.500" in response.text
 
 
+class TestCommissioningPage:
+    """立ち上げチェックリスト（校正タブの入口）とトップバーの立ち上げチップ.
+
+    段の並び・状態・文言は backend の ``/api/readiness`` が組み、frontend はそのまま描く。
+    """
+
+    @pytest.fixture
+    def commissioned(self, config_dir: Path, backend_settings: ApiEnv) -> None:
+        """全段を済ませた機体（ノズル位置・運転時補正の校正ファイル・合格した装置診断）."""
+        with (config_dir / "machine.toml").open("a", encoding="utf-8") as machine_toml:
+            machine_toml.write(
+                "\n[paste_dispenser.nozzle_cap]\nx = 1.0\ny = 2.0\nz = 3.0\n"
+                "\n[paste_dispenser.nozzle_clean]\nx = 4.0\ny = 5.0\nz = 6.0\n"
+                '\n[paste_dispenser.volume_correction]\ncalibration_file = "a.json"\n'
+            )
+        calibration_dir = backend_settings.paste_volume_calibration_dir
+        calibration_dir.mkdir(parents=True)
+        (calibration_dir / "a.json").write_text("{}")
+        save_checks(backend_settings.machine_check_file, [Check("接続", True, "ok")])
+
+    def test_lists_each_step_with_a_link_in_order(self, client: TestClient):
+        text = client.get("/commissioning").text
+
+        positions = [
+            text.index(f'data-testid="commissioning-step-{step.name}"')
+            for step in STEPS
+        ]
+        assert positions == sorted(positions)
+        for step in STEPS:
+            assert f'href="/m/{BACKEND_MACHINE_ID}/{step.name}"' in text
+        assert "まだ診断していません" in text
+        assert "先に「装置診断」を済ませてください" in text
+
+    def test_chip_opens_the_checklist_while_steps_remain(self, client: TestClient):
+        text = client.get("/paste_solder").text
+
+        chip = re.search(r'<a [^>]*data-testid="readiness-chip">([^<]*)</a>', text)
+        assert chip is not None
+        assert f'href="/m/{BACKEND_MACHINE_ID}/commissioning"' in chip.group(0)
+        assert chip.group(1) == "立ち上げ 4/7"
+
+    def test_chip_is_gone_once_every_step_is_done(
+        self, commissioned: None, client: TestClient
+    ):
+        assert 'data-testid="readiness-chip"' not in client.get("/paste_solder").text
+        checklist = client.get("/commissioning").text
+        assert checklist.count('data-state="done"') == len(STEPS)
+
+
 class TestMissingSelectionNotice:
     """起動時に選択していた PCB が無ければ、選択を解除したことを全ページに出す."""
 
@@ -1051,7 +1102,7 @@ class TestMachinePrefixedUrls:
         text = client.get(f"{base}/loading").text
 
         assert f'data-machine-base="{base}"' in text
-        assert f'href="{base}/camera_calibration"' in text
+        assert f'href="{base}/commissioning"' in text
         assert f'href="{base}/machine_config"' in text
         assert f'href="{base}/height_plane"' in text
         # 未 prefix の内部リンクが 1 本も残っていない（外部リンクは mainsail のみ）。

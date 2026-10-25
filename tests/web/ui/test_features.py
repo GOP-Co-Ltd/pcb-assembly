@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from pcbasm.commissioning import STEPS
 from tests.support.backend import standalone_catalog
 from web.ui import features
 from web.ui.features import (
@@ -85,7 +86,7 @@ class TestFeatureTable:
     def test_tab_link_opens_the_first_feature_of_the_tab(self):
         assert [tab_features(tab)[0].slug for tab in TABS] == [
             "paste_solder",
-            "camera_calibration",
+            "commissioning",
             "paste_test_board",
             "klipper_status",
         ]
@@ -99,7 +100,13 @@ class TestFeatureTable:
 
         assert groups == {
             "pasting": ["日常の塗布"],
-            "calibration": ["カメラ", "位置", "ノズル・プローブ", "吐出量・塗布量"],
+            "calibration": [
+                "立ち上げ",
+                "カメラ",
+                "位置",
+                "ノズル・プローブ",
+                "吐出量・塗布量",
+            ],
             "board": ["テスト基板", "設計データ"],
             "machine": ["状態と診断", "設定", "通知音", "バックアップと設定履歴"],
         }
@@ -121,6 +128,14 @@ class TestCatalogConsistency:
         jobs = {definition.name for definition in standalone_catalog(tmp_path).list()}
 
         assert {feature.slug for feature in FEATURES if feature.is_job} == jobs
+
+
+class TestCommissioningSteps:
+    """立ち上げの段（``pcbasm.commissioning``）との縫い目."""
+
+    def test_every_step_has_a_page(self):
+        """チェックリストの各段は、その段を行うページへリンクする."""
+        assert {step.name for step in STEPS} <= FEATURES_BY_SLUG.keys()
 
 
 class TestLegacyUrls:

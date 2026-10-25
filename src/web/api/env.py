@@ -77,6 +77,11 @@ class Env:
         return self.webui_data_dir / "journal"
 
     @property
+    def machine_check_file(self) -> Path:
+        """装置診断の直近の結果（立ち上げ状況が読む）."""
+        return self.webui_data_dir / "machine_check.json"
+
+    @property
     def paste_dataset_dir(self) -> Path:
         """ペースト塗布画像 dataset の永続保存先."""
         return self.data_dir / "paste-volume-datasets"

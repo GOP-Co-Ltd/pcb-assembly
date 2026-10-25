@@ -20,6 +20,7 @@ from web.contract.models import (
     JobCatalogResponse,
     MachineInfo,
     MachineSettingsResponse,
+    ReadinessResponse,
     StateResponse,
 )
 from web.contract.update import UpdateStatusResponse
@@ -140,6 +141,10 @@ class MachineClient:
     async def update_status(self) -> UpdateStatusResponse:
         """`GET /api/update/status`（fetch を伴わないので毎分読んでよい）."""
         return await self._fetch(UpdateStatusResponse, "/api/update/status")
+
+    async def readiness(self) -> ReadinessResponse:
+        """`GET /api/readiness`（設定エラーの間も返る）."""
+        return await self._fetch(ReadinessResponse, "/api/readiness")
 
     async def jobs(self) -> JobCatalogResponse:
         """`GET /api/jobs`."""

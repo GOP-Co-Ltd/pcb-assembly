@@ -34,6 +34,7 @@ HAL はこのパッケージを import しない。
 - プローブの `[load_cell_probe]` と駐機の `[gcode_macro PRESENT]` は section の有無だけを見る。`ProbeExecutor` は上の層（pasting）にあって作れないので、section 名を写して持つ。PRESENT が無くても駐機は M84 に落ちて動くが、実機にはあるはずなので不合格にする
 - カメラは 1 枚撮り、その大きさを校正ファイルの `resolution` と比べる。校正前の機体では、校正ファイルが無いので不合格になる
 - ALSA は、`[audio]` の出力デバイスが `aplay -L` の候補にあるかを見る。候補の先頭のシステム既定は常に入るので、それしか無ければ不合格にする
+- 直近の結果は `save_checks` で `data/webui/machine_check.json` に残す（不合格でも残し、前の結果は置き換える）。立ち上げ状況（`pcbasm.commissioning`）が `load_checks` で読む（読めなければ理由を返す）
 
 ## G-code ジャーナル
 

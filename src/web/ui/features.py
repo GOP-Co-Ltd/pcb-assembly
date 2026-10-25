@@ -44,6 +44,14 @@ FEATURES: tuple[Feature, ...] = (
     Feature("loading", "pasting", "日常の塗布", "pasting/loading.html"),
     Feature("height_plane", "pasting", "日常の塗布", "pasting/job.html"),
     Feature("nozzle_clean_test", "pasting", "日常の塗布", "pasting/job.html"),
+    # 校正タブの入口（タブのリンク先）。段の表は pcbasm.commissioning が持つ
+    Feature(
+        "commissioning",
+        "calibration",
+        "立ち上げ",
+        "commissioning.html",
+        label="立ち上げチェックリスト",
+    ),
     Feature(
         "camera_calibration", "calibration", "カメラ", "align/camera_calibration.html"
     ),

@@ -7,6 +7,7 @@ SSR テスト（`tests/web/ui/test_machines_page.py`）は行の配線までし�
 - 行はその機体の WS を張り続け、他の端末による取得をポーリングなしで表示に反映する
 - 塗布実行は backend のジョブ開始 API に届く（PCB 未選択なので backend が 400 で拒み、
   その理由が画面に出る。装置は動かない）
+- 立ち上げの要約は backend の ``/api/readiness`` から取り、その機体のチェックリストへのリンクになる
 """
 
 from __future__ import annotations
@@ -106,3 +107,20 @@ class TestMachinesRow:
         expect(browser_page.locator(".toast.error")).to_contain_text(
             "PCB ファイルの選択が必要"
         )
+
+    def test_readiness_summary_opens_the_checklist(
+        self, paste_ui: LiveUi, browser_page
+    ):
+        """行の「立ち上げ」欄は backend の要約をそのまま出し、その機体のチェックリストへ飛ぶ."""
+        browser_page.goto(f"{paste_ui.origin}/machines")
+        row = browser_page.get_by_test_id(f"machines-row-{E2E_MACHINE_ID}")
+        summary = row.get_by_test_id("machines-readiness")
+        expect(summary).to_have_text("立ち上げ 4/7")
+
+        summary.click()
+
+        expect(browser_page).to_have_url(
+            f"{paste_ui.origin}/m/{E2E_MACHINE_ID}/commissioning"
+        )
+        step = browser_page.get_by_test_id("commissioning-step-machine_check")
+        expect(step.get_by_test_id("commissioning-state")).to_have_text("未完了")

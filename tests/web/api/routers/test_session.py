@@ -162,7 +162,7 @@ class TestMachineInfoApi:
             # frontend / discovery の互換判定に使う値なので、`web.contract.discovery.API_VERSION`
             # を import せずリテラルで固定する（import すると同語反復になり、うっかりの
             # バンプが無音で通る）。バンプは意図的な契約変更なのでここも同時に更新する
-            "api_version": 16,
+            "api_version": 17,
         }
 
     def test_mainsail_url_resolves_from_machine_id_not_request_host(

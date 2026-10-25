@@ -55,5 +55,6 @@ def standalone_catalog(data_dir: Path) -> JobCatalog:
             overrides=BoardOverrides(data_dir),
             paste_dataset_dir=data_dir / "paste-dataset",
             paste_volume_calibration_dir=data_dir / "paste-volume-calibrations",
-        )
+        ),
+        data_dir / "machine_check.json",
     )

@@ -1,5 +1,7 @@
 """ジョブの一覧（全ジョブを登録したカタログ）."""
 
+from pathlib import Path
+
 from web.api.jobs.align import (
     board_tour,
     camera_calibration,
@@ -28,8 +30,13 @@ from web.api.jobs.pasting import (
 from web.api.jobs.runtime.catalog import JobCatalog
 
 
-def default_catalog(stores: PasteStores) -> JobCatalog:
-    """全ジョブを登録したカタログを返す（これがジョブの一覧）."""
+def default_catalog(stores: PasteStores, machine_check_file: Path) -> JobCatalog:
+    """全ジョブを登録したカタログを返す（これがジョブの一覧）.
+
+    Args:
+        stores: 塗布のジョブが読み書きする永続データ
+        machine_check_file: 装置診断の直近の結果の置き場所
+    """
     catalog = JobCatalog()
     paste_solder.register(catalog, stores)
     loading.register(catalog)
@@ -48,5 +55,5 @@ def default_catalog(stores: PasteStores) -> JobCatalog:
     generate_grid_pcb.register(catalog)
     generate_rect_pcb.register(catalog)
     make_fill_coverage_pcb.register(catalog)
-    machine_check.register(catalog)
+    machine_check.register(catalog, machine_check_file)
     return catalog

@@ -112,7 +112,8 @@ class TestFeatureNavigationBrowser:
         tabs = browser_page.get_by_test_id("top-tabs")
         tabs.get_by_role("link", name="校正", exact=True).click()
 
-        expect(browser_page).to_have_url(f"{live_ui.base_url}/camera_calibration")
+        # 校正タブの入口は立ち上げチェックリスト
+        expect(browser_page).to_have_url(f"{live_ui.base_url}/commissioning")
         navigation = browser_page.get_by_role("navigation", name="校正の機能")
         expect(
             navigation.get_by_role("heading", name="ノズル・プローブ")

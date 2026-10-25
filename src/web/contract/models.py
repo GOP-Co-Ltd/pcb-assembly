@@ -226,6 +226,34 @@ class StateResponse(BaseModel):
     pcb_notice: str | None
 
 
+type ReadinessState = Literal["done", "todo", "blocked"]
+
+
+class ReadinessStep(BaseModel):
+    """立ち上げの 1 段の状態（表示文字列はサーバーが組む）.
+
+    ``name`` は段を行う機能の slug。``detail`` は完了なら完了の条件、そうでなければ残っていること。
+    """
+
+    name: str
+    label: str
+    state: ReadinessState
+    state_label: str
+    detail: str
+    redo_when: str
+
+
+class ReadinessResponse(BaseModel):
+    """/api/readiness の立ち上げ状況（段は手順の順）.
+
+    ``label`` はトップバーと機体一覧に出す要約（「立ち上げ 3/7」「立ち上げ済み」）。
+    """
+
+    steps: list[ReadinessStep]
+    complete: bool
+    label: str
+
+
 class SettingChoice(BaseModel):
     """選択式の設定項目の 1 選択肢."""
 

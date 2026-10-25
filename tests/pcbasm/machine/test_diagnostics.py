@@ -19,7 +19,14 @@ from pcbasm.hal.fake import (
     FakeCamera,
     FakeKlipper,
 )
-from pcbasm.machine.diagnostics import check_audio, check_camera, check_klipper
+from pcbasm.machine.diagnostics import (
+    Check,
+    check_audio,
+    check_camera,
+    check_klipper,
+    load_checks,
+    save_checks,
+)
 from pcbasm.vision import CameraCalibration, Image
 from tests.support.moonraker import FakeMoonraker
 from tests.support.paths import TESTING_DATA_DIR
@@ -213,4 +220,52 @@ class TestCheckAudio:
         assert (check.ok, check.detail) == (
             False,
             "ALSA の再生デバイスが見つかりません",
+        )
+
+
+class TestSavedChecks:
+    """直近の結果は立ち上げ状況が読むので、ジョブの成果物とは別に残す."""
+
+    def test_round_trip(self, tmp_path: Path):
+        path = tmp_path / "webui" / "machine_check.json"
+        checks = [
+            Check("Klipper の接続", True, "localhost:7125"),
+            Check("通知音（ALSA）", False, "ALSA の再生デバイスが見つかりません"),
+        ]
+
+        save_checks(path, checks)
+
+        assert load_checks(path) == (tuple(checks), None)
+
+    def test_latest_result_replaces_the_previous_one(self, tmp_path: Path):
+        path = tmp_path / "machine_check.json"
+        save_checks(path, [Check("Klipper の接続", False, "接続できません")])
+
+        save_checks(path, [Check("Klipper の接続", True, "localhost:7125")])
+
+        assert load_checks(path) == (
+            (Check("Klipper の接続", True, "localhost:7125"),),
+            None,
+        )
+
+    def test_not_yet_checked(self, tmp_path: Path):
+        assert load_checks(tmp_path / "machine_check.json") == (
+            None,
+            "まだ診断していません",
+        )
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            '[{"name": "Klipper の接続", "passed": true}]\n',  # Check の field を変える前の形
+            "[{",
+        ],
+    )
+    def test_unreadable_result_asks_to_check_again(self, tmp_path: Path, text: str):
+        path = tmp_path / "machine_check.json"
+        path.write_text(text, encoding="utf-8")
+
+        assert load_checks(path) == (
+            None,
+            "直近の結果 machine_check.json を読めません。装置診断をやり直してください",
         )

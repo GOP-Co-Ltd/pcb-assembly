@@ -1,10 +1,12 @@
 """装置診断（Klipper の接続、printer.cfg の必須 section、カメラ解像度と校正の一致、ALSA）.
 
 読み取りだけで、G-code は送らない。
+直近の結果はファイルに残し、立ち上げ状況（:mod:`pcbasm.commissioning`）が読む。
 """
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
 from pathlib import Path
@@ -13,7 +15,9 @@ from typing import Any
 import attrs
 import httpx
 
+from pcbasm.atomic import write_text_atomic
 from pcbasm.config import MachineConfig
+from pcbasm.document import structure_document
 from pcbasm.hal import AudioDevice, Camera, KlipperClient, PasteDispenser, XYZStage
 from pcbasm.machine.park import PRESENT_SECTION
 from pcbasm.vision import CameraModel
@@ -36,6 +40,31 @@ class Check:
     name: str
     ok: bool
     detail: str
+
+
+def save_checks(path: Path, checks: Sequence[Check]) -> None:
+    """診断の結果を、直近の結果として残す（前の結果は置き換える）."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = [attrs.asdict(check) for check in checks]
+    write_text_atomic(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+
+
+def load_checks(path: Path) -> tuple[tuple[Check, ...] | None, str | None]:
+    """:func:`save_checks` が残した直近の結果を読む.
+
+    Returns:
+        ``(checks, None)``。まだ診断していないか、読めなければ ``(None, 理由)``
+    """
+    if not path.is_file():
+        return None, "まだ診断していません"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return structure_document(data, tuple[Check, ...]), None
+    except Exception:  # Check の field を変える前に残した結果、手で壊したファイル
+        return (
+            None,
+            f"直近の結果 {path.name} を読めません。装置診断をやり直してください",
+        )
 
 
 def check_klipper(klipper: KlipperClient, machine: MachineConfig) -> list[Check]:
