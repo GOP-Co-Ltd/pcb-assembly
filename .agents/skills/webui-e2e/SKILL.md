@@ -17,7 +17,7 @@ HTTP / WebSocket / MJPEG を最後まで検証できる。
 
 ## 大原則: サーバーの生存期間を有限コマンドに閉じ込める
 
-**Codex が常駐 web サーバーを起動しようとすると kill されやすい。**
+**エージェントが常駐 web サーバーを起動しようとすると kill されやすい。**
 
 - foreground 起動（`make api` / `make ui` 等）は command のタイムアウトで強制終了される
 - detach が不十分な background プロセスはツール終了時のプロセス後始末で強制終了される
@@ -28,7 +28,7 @@ fixture（= pytest プロセス）内でサーバーを起動・停止するた�
 という有限コマンドの中で起動 → 検証 → teardown が完結し、kill 問題が起きない。
 ブラウザ体感が要るときだけ手動起動（下記 B）を使う。
 
-## A. pytest E2E スイート（自動・Codex の第一選択）
+## A. pytest E2E スイート（自動・エージェントの第一選択）
 
 実 uvicorn を `127.0.0.1:0`（エフェメラルポート）に daemon スレッドで立て、
 httpx + websockets + Playwright で実 HTTP/WS/MJPEG にアクセスする。配置は `tests/e2e/`（\[[testing-strategy]\] の e2e 区分）。
@@ -39,13 +39,12 @@ make test-e2e        # = uv run pytest -v -m e2e --timeout=180
 
 - `tests/e2e/` 配下は conftest の `pytest_collection_modifyitems` で自動的に `e2e`
     マーカーが付く（個別の付与不要）。実ブラウザ fixture を使うテストには `browser` も付くので
-    `-m "e2e and not browser"` で切り分けられる。`make test` / `make test-no-hardware` からは
-    `-m "not e2e"` で除外済み（e2e は手動区分）
-- fake カメラ + `data/testing/config` を tmp_path に複製して使うので、実機設定（`config/`）は
+    `-m "e2e and not browser"` で切り分けられる。`make test` からは `-m "not e2e"` で除外済み
+- fake カメラ + `tests/data/config` を tmp_path に複製して使うので、実機設定（`config/`）は
     変更しない
 - 既存の題材: `tests/e2e/test_api_e2e.py`（backend 直の JSON/WS。WS ジョブ通しの雛形は
     `TestJobLifecycleOverWebSocket`）、`test_proxy_e2e.py`（中継）、`test_discovery_e2e.py`（mDNS）、
-    `test_browser_ui.py` / `test_multi_user_browser.py` / `test_paste_solder_browser.py`（ブラウザ）
+    `test_navigation_browser.py` / `test_multi_user_browser.py` / `test_paste_solder_browser.py`（ブラウザ）
 
 ### fixture（`tests/e2e/conftest.py`）
 
@@ -55,8 +54,8 @@ make test-e2e        # = uv run pytest -v -m e2e --timeout=180
 | `live_ui`     | backend 1 台 + frontend | **ページ・MJPEG・WS はここを通す** |
 
 fixture に無い構成（backend 複数台、途中で停止する backend、検査用の上流）はテスト内で組む。
-`start_app(app)` で実 uvicorn を起動し、settings は `make_api_settings` / `make_ui_settings` で作る
-（例: `tests/e2e/test_proxy_e2e.py`）。`start_app` で起動したサーバーは try-finally で必ず `stop()` する。
+`start_app(app)`（`tests/support/browser.py`）で実 uvicorn を起動し、settings は `make_api_settings` /
+`make_ui_settings`（`tests/support/web.py`）で作る（例: `tests/e2e/test_proxy_e2e.py`）。`start_app` で起動したサーバーは try-finally で必ず `stop()` する。
 
 - ページ取得とブラウザ操作を frontend 経由にそろえているので、既存 E2E を実行するたびに
     中継経路（`/m/{machine_id}/api/**`）も検証される。`live_server` を残すのは
@@ -73,7 +72,7 @@ fixture に無い構成（backend 複数台、途中で停止する backend、�
 
 UI は fail-closed。ページを開いた直後は `body[data-control] = "viewer"` で、
 `data-requires-control` の要素には `inert` が付いてクリックが届かない。
-**変更操作をするブラウザ検証は先に `acquire_control(page)` を呼ぶ**（`tests/e2e/conftest.py`）。
+**変更操作をするブラウザ検証は先に `acquire_control(page)` を呼ぶ**（`tests/support/browser.py`）。
 テストの下準備で backend に直接リクエストすると `anonymous` がリースを取得するので、ブラウザ側は
 閲覧者から始まるのが普通。backend への直接リクエストをブラウザと同じ操作権で送りたいときは
 `session_headers(page)` で cookie をヘッダに載せ替える。
@@ -84,7 +83,7 @@ UI は fail-closed。ページを開いた直後は `body[data-control] = "viewe
 
 ### WS イベントの形
 
-契約は `src/web/api/routers/jobs.py` / `jobs/manager.py` で定義されている。
+契約は `src/web/api/routers/jobs.py` / `src/web/api/jobs/runtime/manager.py` で定義されている。
 
 - server → client: `job_status` / `log` / `progress` / `prompt` / `prompt_resolved` / `state_changed` / `error`
 - client → server: `respond_prompt` {prompt_id, answer} / `command` {command} / `abort`
@@ -94,7 +93,7 @@ UI は fail-closed。ページを開いた直後は `body[data-control] = "viewe
 
 実 zeroconf を使うテストは、**実 LAN に影響を与えない**よう次の 3 つを守る（`tests/e2e/test_discovery_e2e.py`）。
 
-1. **サービス型を毎回ランダム化する**（`tests.helpers.random_service_type()` →
+1. **サービス型を毎回ランダム化する**（`tests.support.web.random_service_type()` →
     `_pcbasmt<hex>._tcp.local.`）。運用の `_pcbasm._tcp` を使うと同じ LAN の実機や CI の
     並列ジョブが混ざる
 2. **`interfaces=["127.0.0.1"]` でループバックに閉じる**（広告アドレスも `127.0.0.1`）
@@ -127,7 +126,7 @@ timeout マーカーに頼らず **httpx 側の timeout**（`read=` など）を
 スレッドの待ちを含む E2E シナリオも同じ理由で、シナリオ自身に締め切りを持たせる
 （`test_discovery_e2e.py` の `_SCENARIO_TIMEOUT`）。
 
-**締め切りは `tests.helpers.before_deadline` を使う**（daemon スレッドで呼び出しを走らせて
+**締め切りは `tests.support.polling.before_deadline` を使う**（daemon スレッドで呼び出しを走らせて
 join し、期限内に返らなければ fail させる共有ヘルパ）。WS receive / ストリーム読み / 到達
 不能な上流への GET などブロッキングし得る呼び出しはこれで包む。各テストで書き直さない。
 
@@ -144,13 +143,14 @@ make dev  # backend 8099、frontend 8098。data/sim/config を一時ディレク
 
 ステージを動かすジョブも画面から通せる。Ctrl-C で両方を止め、一時ディレクトリごと消す。
 
-### Codex が叩く場合
+### エージェントが叩く場合
 
-`make dev` は foreground の常駐 command。Codex は次の順で扱う。
+`make dev` は foreground の常駐 command。エージェントは次の順で扱う。
 
 1. **基本は A（pytest E2E）で済ませる。** ほとんどの検証は `live_ui` fixture で足りる。
-2. どうしても常駐が要る確認は `exec_command` の PTY session で起動し、別 command で
-    readiness をポーリングする。確認後は session に interrupt を送り、終了を確認する。
+2. どうしても常駐が要る確認は background で起動し（Claude Code は `run_in_background: true` の Bash、
+    Codex は `exec_command` の PTY session）、別 command で readiness をポーリングする。
+    foreground の `sleep` で待たない。確認後は起動したプロセスを止め、終了を確認する。
     - 例: `curl --retry 30 --retry-delay 0 --retry-connrefused -s http://127.0.0.1:8099/api/state`
 3. ブラウザでの体感確認はユーザーに依頼する（装置を動かすフローの実機確認と同様）。
 
@@ -159,9 +159,9 @@ make dev  # backend 8099、frontend 8098。data/sim/config を一時ディレク
 
 ## 隔離の鉄則（実機設定を汚さない）
 
-- 設定書き込みを伴う検証（apply / settings 保存）は **`data/testing/config` の複製**に対して行う。
+- 設定書き込みを伴う検証（apply / settings 保存）は **`tests/data/config` の複製**に対して行う。
     実機の `config/` は触らない
-- pytest E2E は `data/testing/config` を tmp_path に複製するので自動的に隔離される
+- pytest E2E は `tests/data/config` を tmp_path に複製するので自動的に隔離される
 - 手動起動は `make dev` を使う。設定・データ・アップロード先が一時ディレクトリに閉じる
 - frontend の `machines_file` は tmp の**不在パス**を渡す。既定のままだとリポジトリの
     `config/machines.toml` を読み込み、実機の登録が混ざる
@@ -170,19 +170,14 @@ make dev  # backend 8099、frontend 8098。data/sim/config を一時ディレク
 
 worktree 内で `uv run` すると `--system-site-packages` 無しの新しい `.venv` が作られ、
 システム提供の `picamera2` が見えず `pcbasm.hal` の import で `ModuleNotFoundError` になる。
-worktree では次のコマンドで一度だけ venv を作り直す。
-
-```bash
-uv venv --clear --system-site-packages && uv sync --all-extras
-```
+worktree では `make setup` で一度だけ venv を作り直す（`--system-site-packages` 付きで作る）。
 
 ## 関連設定
 
-- `src/web/api/settings.py`：`PCBASM_FAKE` / `PCBASM_API_PORT` / `_DATA_DIR` /
-    `_DISCOVERY_ENABLED` や `PCBASM_CONFIG_DIR`（pcbasm コア層と共通）等の env 上書き
-- `src/web/ui/settings.py`：`PCBASM_UI_PORT` / `_MACHINES_FILE` / `_DISCOVERY_ENABLED` /
-    各種 timeout。frontend は `config_dir` を持たない
+- `src/web/api/env.py`：backend の起動設定。env は `PCBASM_FAKE` / `PCBASM_API_PORT` /
+    `PCBASM_CONFIG_DIR` / `PCBASM_DATA_DIR`。それ以外（mDNS、自己更新など）はテストが引数で渡す
+- `src/web/ui/settings.py`：frontend の起動設定。env は `PCBASM_UI_PORT` / `PCBASM_CONFIG_DIR` / `PCBASM_FAKE`
 - `src/web/dev.py`：`make dev` の本体
 - `src/pcbasm/hal/fake.py`：`FakeKlipper` と、その位置から基板と塗布痕を描く `SceneCamera`
 - `data/sim/config/`：`make dev` のマシン設定
-- `data/testing/config/`：検証専用のマシン設定（Klipper port 7126 = 非リッスン）
+- `tests/data/config/`：検証専用のマシン設定（Klipper port 7126 = 非リッスン）

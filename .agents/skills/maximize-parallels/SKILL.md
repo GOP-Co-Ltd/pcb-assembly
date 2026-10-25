@@ -1,38 +1,43 @@
 ---
 name: maximize-parallels
-description: 独立な tool 呼び出しを multi_tool_use.parallel へまとめる判定基準と、依存・共有 state・ハードウェア競合がある処理を直列化する手順。複数ファイルの読取、独立 command、複数検索を行う前に使う。sub-agent 並列化はユーザーが明示した場合に限る。
+description: 独立な tool 呼び出しを 1 回にまとめて並列に実行する判定基準と、依存・共有 state がある処理を直列にする手順。複数タスクに着手する、複数ファイルを読む、複数エージェントを起動する、長めの shell 列を組む前に読む。「並列で」「まとめて」と指示されたときにも参照する。
 ---
 
 # Tool 呼び出しを並列化する
 
-相互依存のない読み取りや検証を `multi_tool_use.parallel` で同時実行する。
+論理的に独立な tool 呼び出しは、1 回にまとめて並列に実行する（Claude Code は 1 メッセージに複数の tool_use を並べ、Codex は `multi_tool_use.parallel` を使う）。
+並列にすると速度とコストがそのまま改善するので、迷ったら並列を選ぶ。
 
 ## 並列化条件
 
-次をすべて満たす処理だけを同じ parallel call にまとめる。
+次をすべて満たす処理だけを同じ回にまとめる。1 つでも引っ掛かれば直列にする。
 
-1. 一方の出力を他方の入力に使わない
-2. 同じファイル、branch、process、DB、device を同時に変更しない
-3. tool 固有の排他や順序制約がない
+1. 一方の出力（stdout、戻り値、副作用）を他方の入力に使わない
+2. 同じファイル、branch、process、DB を同時に変更しない
+3. tool 固有の排他や順序制約がない（cwd を持ち越す shell など）
 
 ## 並列化する例
 
-- 複数ファイルの `sed -n`、`git show`、`git diff`、`find`
-- `git status`、`git log`、manifest 読み取りなど独立な調査
+- 何を読むかが事前に決まっている複数ファイルの読み取り。1 件読んでから次を考えるのは遅い
+- `git status`、`git diff`、`git log` など互いに影響しない調査
 - 対象が disjoint な test、lint、静的解析
-- 複数の検索語による read-only 調査
+- 複数の検索語・角度からの read-only 調査
+- 担当範囲が disjoint な複数 agent の起動（ユーザーがエージェント利用を明示したときだけ。条件は skill `agent-team-startup`）
 
 ## 直列にする例
 
-- 読み取り結果を見てから行う file edit
-- 同じファイルへの複数 edit
-- 生成後の artifact を入力にする check
-- `git switch`、merge、commit など同一 worktree の状態変更
-- 同じカメラ、Klipper、GPIO を使う実機操作
+- 読み取り結果を見てから行う edit。同じファイルの読み取りと edit を同時に出すと edit が失敗する
+- 同じファイルへの複数 edit。後の edit は前の edit を適用した後の文字列を前提にする
+- 前の出力を次の入力に使うもの（`git rev-parse HEAD` の結果を `git show` に渡すなど）
+- `git switch`、merge、commit、stash など同一 worktree の状態変更
+- `cd` を伴う shell。cwd が持ち越されるので、絶対パスを使うか 1 回の呼び出しにまとめる
 - dev server 起動後の readiness check
 
-## Sub-agent
+## 着手するときの手順
 
-Sub-agent の起動は、ユーザーが agent 利用または並列作業を明示した場合だけ行う。
-その場合も `agent-team-startup` Skill に従い、担当範囲が disjoint で、並行して進められる付随タスクを
-並列化する。すぐ解消が必要な blocker や密結合な作業はメイン agent が担当する。
+1. 着手するタスクを箇条書きにする
+2. 各タスクの入力（前提とする情報）と出力（生み出す情報）を 1 行ずつ書く
+3. A の出力が B の入力にならず、共有 state を同時に書かないなら、A と B は並列
+4. 並列にできるグループを 1 回にまとめて送り、依存があるところでだけ待つ
+
+全部を直列に並べてから並列化を考えるのは遅い。最初から並列を前提に組む。

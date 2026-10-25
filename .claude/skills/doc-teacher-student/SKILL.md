@@ -87,10 +87,9 @@ SendMessage(to="doc-teacher-<task-slug>",
 ### 7. 仕上げ
 
 1. 対象文書の最終 diff を読み、事実の誤りと不要な肥大化がないかを確かめる
-2. 対象が `.claude/skills/<name>/` で、同名の `.agents/skills/<name>/` があれば、同じ改稿を反映する
-3. `make format && make type && make test-no-hardware` を通す（docstring を変えたときに特に必要）
-4. 対象文書とノートを commit する。1 文書 1 commit
-5. ユーザーに報告する: 対象、ラウンド数、最終の正解数、行数の変化、主な改稿、`doc-teacher` が挙げた対象外の問題
+2. `make format && make type && make test-no-hardware` を通す（docstring を変えたときに特に必要）
+3. 対象文書とノートを commit する。1 文書 1 commit
+4. ユーザーに報告する: 対象、ラウンド数、最終の正解数、行数の変化、主な改稿、`doc-teacher` が挙げた対象外の問題
 
 ## 注意
 

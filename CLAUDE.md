@@ -16,8 +16,8 @@ AGENTS.md の記述を以下のとおり読み替える。
 
 ### 資産の置き場所
 
-- Skill は `.claude/skills/<name>/SKILL.md`（AGENTS.md の `.agents/skills/` に対応。同名 skill は同じ内容の Claude 向け版）
-- Claude 専用 skill：`solo-dev-cycle`（単独開発フロー）、`edit-dot-claude`（`.claude/` 編集時の permission prompt 抑制）、`compact-prep`（下記）、`doc-teacher-student`（文書を haiku の理解度テストで改善するループ）
+- Codex と共有する skill の正典は `.agents/skills/<name>/`。`.claude/skills/<name>` はそこへの symlink なので、編集は `.agents/skills/` 側で行う
+- `.claude/skills/` に実体を置くのは Claude 専用 skill だけ：`solo-dev-cycle`（単独開発フロー）、`edit-dot-claude`（`.claude/` 編集時の permission prompt 抑制）、`compact-prep`（下記）、`doc-teacher-student`（文書を haiku の理解度テストで改善するループ）、`agent-team-startup`（Claude 版。agent 構成が Codex と違う）
 - agent 定義は `.claude/agents/*.md`（AGENTS.md の `.codex/agents/*.toml` に対応）
 - `memory/` は Codex と共有する
 

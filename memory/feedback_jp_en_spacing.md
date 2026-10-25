@@ -12,4 +12,4 @@ type: feedback
 
 - 文書・docstring・コメント・PR 説明を書くときは常にこの規約に従う
 - 読点・句点・括弧の直後には空白を入れず、空白を 2 つ以上連続させない
-- `.claude/skills/yomiyasu/` と `.agents/skills/yomiyasu/` は SKILL.md の「用途と表記の扱い」と `references/gemini-syntax.md` 原則 11 に規約を追記済み（v2.1.3 から upstream は空白を原文どおり保つ方針になり、lint の空白検知もなくなった）。upstream を取り込み直すときはこの追記を当て直す
+- `.agents/skills/yomiyasu/`（`.claude/skills/yomiyasu` はその symlink）は SKILL.md の「用途と表記の扱い」と `references/gemini-syntax.md` 原則 11 に規約を追記済み（v2.1.3 から upstream は空白を原文どおり保つ方針になり、lint の空白検知もなくなった）。upstream を取り込み直すときはこの追記を当て直す

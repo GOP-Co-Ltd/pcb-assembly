@@ -117,7 +117,7 @@ def parse_position(s: str) -> Position:
 リファクタ・実装の完了条件は次のとおり。
 
 ```bash
-make format && make type && make test
+make check
 ```
 
 すべてパスして初めて完了。型チェックエラーや lint warning を放置しない。

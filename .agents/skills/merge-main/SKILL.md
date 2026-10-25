@@ -75,11 +75,10 @@ conflict file ごとに次を行う。
 main を取り込んだ後もコードが正しく動くか確認する。**全 green** であることが PR の前提（AGENTS.md「Git 運用」の標準フロー）。
 
 ```bash
-make format && make type && make test
+make check
 ```
 
 - test が落ちたら、main 側の変更と自分の変更の **意味的な衝突**（テキスト上の conflict は無いが、両方の変更を組み合わせると動作が変わる）を疑う。修正して再度 green にする
-- ハードウェアテスト（`@mark_hardware`）の扱いは普段どおり（実機が無ければ `make test-no-hardware`。詳細は skill [hardware-test](../hardware-test/SKILL.md)）
 
 ### 6. push して PR 作成
 

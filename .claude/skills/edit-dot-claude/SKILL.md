@@ -16,6 +16,8 @@ description: .claude/ 配下のファイル編集は permission prompt を要求
 
 例外: `.claude/settings.json` / `.claude/settings.local.json` はビルトイン skill `update-config` 経由で扱う (権限スキーマの検証・hooks 設定など他のロジックを共有するため)。
 
+Codex と共有する skill（`.claude/skills/<name>` が symlink のもの）は、実体の `.agents/skills/<name>/` を直接編集する。この手順は要らない。
+
 ## 手順
 
 ### 既存 file を編集する場合

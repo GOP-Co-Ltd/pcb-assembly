@@ -1,56 +1,70 @@
 ---
 name: do-on-worktree
-description: 進行中の作業に手を加えず、main から分岐した git worktree で独立タスクを進める手順。ユーザーが worktree で、裏で、別作業として進めるよう明示したときに使う。
+description: 進行中の別タスクを止めずに、main から分岐した worktree で新しいタスクを裏で並行して進める手順。現在のブランチで別作業が進行中なのに独立した変更を依頼されたとき、「worktree で」「裏で進めて」と言われたときに参照する。
 ---
 
-# 独立タスクを Worktree で進める
+# 別タスク進行中に worktree で裏作業を進める
 
-ユーザーが worktree 利用を明示した場合に、現在の作業を保持したまま別ブランチで
-作業する。Codex 専用 API には依存せず、標準の `git worktree` を使う。
+現在のブランチで別タスクが進行中のまま、それとは独立した変更を `main` から分岐して並行で進める。
+進行中の作業には一切手を加えず、新しいブランチと worktree で実装する。この手順は PR を出すところまでを扱う。
 
-## 1. 状況確認
+関連: skill [github-pr](../github-pr/SKILL.md)。
+
+## いつ使うか
+
+- 現在のブランチで別タスクが進行中（未コミット変更やレビュー待ちのコミットがある）
+- それとは無関係・独立した変更を新たに依頼された
+- ユーザーが「worktree で」「裏で進めて」と明示した
+
+進行中タスクの続きや関連する変更なら、worktree に分けず同じブランチで続ける。判断に迷ったら独立性をユーザーに確認する。
+
+## 手順
+
+### 1. 状況確認
 
 ```bash
-git branch --show-current
-git status --short
+git branch --show-current   # 進行中タスクのブランチ
+git status --short          # 進行中の未コミット変更
 git worktree list
 ```
 
-今回の依頼が進行中タスクから独立していることを確認する。関連する変更なら同じ
-作業場所で続ける。
+### 2. worktree を作る
 
-## 2. Worktree 作成
+ブランチ名は AGENTS.md の `<種別>/<日付>/<内容>` 規約に従う。
 
-branch は `AGENTS.md` の `<種別>/<日付>/<内容>` 規約に従う。作業場所は repository
-の外にある `/tmp/pcb-assembly-worktrees/<slug>` を既定とする。
+- **Claude Code**: `EnterWorktree` ツールを使う。`worktree.baseRef` の既定 `fresh` により origin の `main` から分岐し、`.claude/worktrees/<name>/` に作られる。自動で付くブランチ名が規約と食い違えば `git branch -m <旧> <新>` で直す
 
-```bash
-git fetch origin main
-git worktree add -b <branch> /tmp/pcb-assembly-worktrees/<slug> origin/main
-```
+- **Codex**: 標準の `git worktree` を使う
 
-既に branch がある場合は `-b` を使わず、その branch を指定する。既存 worktree や
-branch を削除・上書きしない。
+    ```bash
+    git fetch origin main
+    git worktree add -b <branch> /tmp/pcb-assembly-worktrees/<slug> origin/main
+    ```
 
-## 3. 作業と検証
+既存の worktree や branch を削除・上書きしない。
 
-以降の command は worktree を `workdir` に指定して実行する。元 repository の未追跡
-ファイルや未コミット変更には触れない。
+### 3. 作業する
 
-```bash
-make format
-make type
-make test-no-hardware
-```
+依頼された変更を worktree 内で実装する。AGENTS.md の開発原則・Git 運用に従う。
+shell で `cd` した先は次の呼び出しに持ち越されることがある。git は `git -C <worktree のパス>` で対象を明示し、他の worktree のブランチを切り替えない。
+Claude Code で `.claude/` 配下を触る場合は skill `edit-dot-claude` の手順（/tmp 経由）を使う。
 
-ハードウェア変更は利用可能な実機に応じて対象 test も実行する。
+### 4. 検証とコミット
 
-## 4. Commit と PR
+`make check` を通してからコミットする。コミットは AGENTS.md の規約（`<種別>(<スコープ>): <内容>`、1 コミット 1 関心事）に従う。
 
-検証後に worktree 側 branch へ commit する。ユーザーが PR を依頼した場合だけ
-`github-pr` Skill に従って push と PR 作成を行う。
+### 5. PR を出す
 
-## 5. 後片付け
+ユーザーが PR を依頼したら、skill [github-pr](../github-pr/SKILL.md) の手順で push し、`main` への PR を作成する。
 
-worktree と branch の削除はユーザーの明示がある場合だけ行う。未マージ変更を含む
-worktree に `--force` を使わない。
+### 6. worktree を残して戻る
+
+worktree とブランチは残す。後でユーザーが続きやマージを判断する。
+
+- Claude Code は、ユーザーが「戻って」「worktree を抜けて」と言ったときに `ExitWorktree` を `action: "keep"` で呼ぶ。能動的には呼ばず、`remove` も使わない
+- 削除はユーザーの明示がある場合だけ行う。未マージ変更を含む worktree に `--force` を使わない
+
+## 注意点
+
+- 進行中タスクのブランチには commit しない
+- `main` へ直接 commit / merge しない。PR の作成までにとどめる
