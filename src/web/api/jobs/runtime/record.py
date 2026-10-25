@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import enum
 import threading
+import time
 from collections import deque
 from collections.abc import Mapping
 from typing import Literal
@@ -128,6 +129,9 @@ class JobRecord:
         self._progress_percent: float | None = None
         self._pending_prompt: tuple[str, PromptSpec] | None = None
         self._apply_consumed = False
+        # 実測のタクトタイム（開始から stop_clock まで）
+        self._started_at = time.monotonic()
+        self._finished_at: float | None = None
 
     @property
     def id(self) -> str:
@@ -173,6 +177,13 @@ class JobRecord:
             return self._progress_percent
 
     @property
+    def elapsed_seconds(self) -> float:
+        """開始からの経過秒（stop_clock の後はその時点の値のまま止まる）."""
+        with self._lock:
+            end = time.monotonic() if self._finished_at is None else self._finished_at
+            return end - self._started_at
+
+    @property
     def pending_prompt(self) -> tuple[str, PromptSpec] | None:
         """応答待ちプロンプト（(prompt_id, PromptSpec)。無ければ None）."""
         with self._lock:
@@ -207,6 +218,11 @@ class JobRecord:
             self._status = status
             self._error = error
             self._result = result
+
+    def stop_clock(self) -> None:
+        """経過秒を止める（終了後の退避も作業者が待つ時間なので、終端を知らせる直前に呼ぶ）."""
+        with self._lock:
+            self._finished_at = time.monotonic()
 
     def add_artifact(self, artifact: Artifact) -> None:
         """成果物を足す（失敗・中止で result が無ければ作る）."""

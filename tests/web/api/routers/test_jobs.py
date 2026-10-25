@@ -534,6 +534,20 @@ class TestCurrentAndAbort:
         done = _wait_job_status(client, "succeeded")
         assert done["error"] is None
 
+    def test_current_reports_elapsed_seconds_kept_after_completion(
+        self, client: TestClient, app: FastAPI, backend: Backend
+    ):
+        gate = _register_gated(app)
+        assert client.post("/api/jobs/gated_router", json={}).status_code == 201
+        running = _wait_job_status(client, "running")
+
+        gate.set()
+        polling.wait_until(lambda: backend.lock.owner is None)
+        done = _wait_job_status(client, "succeeded")
+
+        assert done["elapsed_seconds"] >= running["elapsed_seconds"] >= 0.0
+        assert _current_job(client) == done
+
     def test_abort_running_job_returns_200_and_aborts(
         self, client: TestClient, app: FastAPI
     ):

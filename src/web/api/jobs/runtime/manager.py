@@ -363,7 +363,8 @@ class JobManager:
                     self._devices, context.machine.audio, record.status
                 )
             self._link_journal(record, context.journal)
-            # 終端ステータス確定 → job_status 発行 → ロック解放の順を守る
+            # 終端ステータス確定 → 経過秒の停止 → job_status 発行 → ロック解放の順を守る
+            record.stop_clock()
             channel.publish_status()
         finally:
             logger.removeHandler(bridge)

@@ -168,6 +168,7 @@ class JobSummary(BaseModel):
     error: str | None = None
     progress_stage: str | None = None
     progress_percent: float | None = None
+    elapsed_seconds: float  # 開始からの経過秒（終了後の退避まで進んで止まる）
     log_tail: list[str] = []  # リングバッファ全量（最大 log_capacity 行）
     pending_prompt: PromptInfo | None = None
     result: JobResultInfo | None = None

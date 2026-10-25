@@ -1018,6 +1018,11 @@ h2 {
   font-weight: 700;
 }
 
+.jc-elapsed {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .jc-status[data-status="running"],
 .jc-status[data-status="waiting_input"] {
   color: var(--accent);

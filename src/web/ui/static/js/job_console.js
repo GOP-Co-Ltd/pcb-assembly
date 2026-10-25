@@ -32,6 +32,10 @@
   let events = null;
   let currentJob = null;
   let jobStatusVersion = 0;
+  // 経過秒はサーバーの値を受け取った時刻からローカルで進める（ブラウザとの時計のずれを持ち込まない）
+  let elapsedBase = 0;
+  let elapsedAt = 0;
+  let elapsedTimer = null;
   let abortRequestedJobId = null;
   let completionJobId = null;
 
@@ -206,6 +210,8 @@
 
   function applyJob(job) {
     currentJob = job ?? null;
+    elapsedBase = currentJob?.elapsed_seconds ?? 0;
+    elapsedAt = performance.now();
     if (!isActive(currentJob) || currentJob.id !== abortRequestedJobId) {
       abortRequestedJobId = null;
     }
@@ -283,6 +289,28 @@
       : stage || "";
   }
 
+  // 秒を「h時間m分s秒」にする（毎秒進めるのでブラウザで組む。予測所要時間の文言はサーバーが組む）
+  function formatDuration(seconds) {
+    const total = Math.floor(seconds);
+    return `${Math.floor(total / 3600)}時間${Math.floor((total % 3600) / 60)}分${total % 60}秒`;
+  }
+
+  function renderElapsed(job) {
+    const elapsed = el("jc-elapsed");
+    const running = ownsJob(job) && isActive(job);
+    elapsed.hidden = !ownsJob(job);
+    if (ownsJob(job)) {
+      const seconds = elapsedBase + (running ? (performance.now() - elapsedAt) / 1000 : 0);
+      elapsed.textContent = `経過 ${formatDuration(seconds)}`;
+    }
+    if (running && elapsedTimer === null) {
+      elapsedTimer = setInterval(() => renderElapsed(currentJob), 1000);
+    } else if (!running && elapsedTimer !== null) {
+      clearInterval(elapsedTimer);
+      elapsedTimer = null;
+    }
+  }
+
   function renderStartButtons() {
     // 保存・開始要求の待機中も、重ねて開始要求を送らない。
     for (const jobForm of forms) {
@@ -295,6 +323,7 @@
     if (!consoleEl) return;
     const job = currentJob;
     renderStartButtons();
+    renderElapsed(job);
 
     if (!ownsJob(job)) {
       el("jc-status").textContent = STATUS_LABELS.idle;

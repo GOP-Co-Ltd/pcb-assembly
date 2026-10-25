@@ -16,6 +16,7 @@
   終端後は False
 - command: submit_command → next_command、"type" キー必須、
   accepts_commands でないジョブへの submit は ValueError
+- 経過秒: 実行中は進み、終了後の退避を終えて終端を知らせる前に止まる
 - ログはリングバッファ（log_capacity）
 - 排他: 装置を使わないジョブも含め、実行中は装置ロックを保持、終端後に解放。実行中の開始は BusyError で、走っているジョブの成果物は消さない
 - 直近 1 件のみ保持: 新 start で旧 record 置換 + 旧成果物ディレクトリ削除
@@ -137,6 +138,23 @@ class TestLifecycle:
         wait_until(lambda: record.status.terminal)
         assert record.status == JobStatus.ABORTED
         assert any("中止要求を受け付けました" in line for line in record.log_lines)
+
+    def test_elapsed_seconds_advance_while_running_and_stop_when_the_job_ends(
+        self, manager: JobManager, catalog: JobCatalog, camera_backend: Backend
+    ):
+        gate = _register_gated(catalog)
+        record = manager.start("gated", {})
+        wait_until(lambda: record.status == JobStatus.RUNNING)
+        running = record.elapsed_seconds
+
+        wait_until(lambda: record.elapsed_seconds > running)
+        gate.set()
+        # 終了後の退避まで進み、終端を知らせてロックを放す前に止まる
+        wait_until(lambda: record.status.terminal and camera_backend.lock.owner is None)
+
+        finished = record.elapsed_seconds
+        assert finished > running
+        assert record.elapsed_seconds == finished
 
     def test_request_abort_after_terminal_returns_false(
         self, manager: JobManager, catalog: JobCatalog
