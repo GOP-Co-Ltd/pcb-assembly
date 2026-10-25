@@ -72,8 +72,9 @@ UI のボタン無効化だけに依存しない。
 4. 応答は `src/web/contract/models.py` の pydantic モデルで返す。
 
 frontend 側の変更は要らない。`proxy.py` が `/m/{machine_id}/api/**` をそのまま backend の `/api/**` へ中継する。
-JS からは `static/js/app.js` の `api()` か `fetchApi()` に `/api/…` のパスを渡す。
-JS に `fetch()` を直接書かない。機体の prefix が付かず、テストでも禁止している。
+JS からは `static/js/api.js` の `api()` に `/api/…` のパスを渡す。WS は `static/js/ws.js` の `connectEvents()` で張る。
+JS に `fetch()` や `new WebSocket()` を直接書かない。機体の prefix が付かず、テストでも禁止している。
+表示する文字列（座標・記録位置・操作権の状態など）は応答モデルに入れて返し、JS で組み立てない。
 
 ### ジョブを足す
 
@@ -113,6 +114,12 @@ JS に `fetch()` を直接書かない。機体の prefix が付かず、テス�
 
 catalog のジョブと機能表の対応は `tests/web/ui/test_features.py` が確かめる。
 作り直し前の URL（`/m/{machine_id}/{旧タブ}/{旧 slug}`）は、`features.py` の `LEGACY` で新しい URL へ 307 する。
+
+入力欄は `templates/partials/forms.html` のマクロで描く。
+ジョブのパラメータは `param_field`（`ParamSpec.group` のまとまりごとに並べるなら `param_sections`。`advanced` のまとまりは畳む）、
+machine.toml の設定項目は `setting_input` を使い、ページごとに入力欄を書かない。
+入力の即保存（machine.toml の設定欄、ジョブフォームの次回の既定値、パッド設定）は `api.js` の `pendingSaves` を通す。
+ジョブを始める前に `job_console.js` がこれを送り終え、保存に失敗したら開始しない。
 
 ページに追加の値が要るときは、次の順で足す。
 
