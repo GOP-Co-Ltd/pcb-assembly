@@ -338,7 +338,7 @@ function appendHeightControl(container, state, actions, node, field, descendantS
   const descendantCount = descendantSummary.field_counts[field] || 0;
   // 数値の代わりに選べる値（auto、終点高の「始点に従う」など）はサーバーが決める
   const keywords = choiceLabels(fieldInfo(state.config, field));
-  const isKeyword = (value) => typeof value === "string" && value in keywords;
+  const isKeyword = (value) => typeof value === "string" && Object.hasOwn(keywords, value);
 
   const select = document.createElement("select");
   identifyFieldControl(select, node.id, field);

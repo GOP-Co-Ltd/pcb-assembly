@@ -716,7 +716,7 @@ class TestPasteSolderBrowserPadInteraction:
         )
         z_start_mode.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
         # 既定は Auto（pad ごとに自動計算）
-        assert "Auto" in z_start_mode.locator("option:checked").text_content(
+        assert "auto" in z_start_mode.locator("option:checked").text_content(
             timeout=_BROWSER_TIMEOUT_MS
         )
         assert "始点高" in height_cell.text_content(timeout=_BROWSER_TIMEOUT_MS)

@@ -161,6 +161,12 @@ class TestValidateParamValues:
     def test_micro_line_end_may_follow_the_start(self):
         assert validate_param_values({"micro_line_z_end": "start"}) is None
 
+    def test_an_invalid_micro_line_end_names_the_accepted_values(self):
+        message = validate_param_values({"micro_line_z_end": -0.05})
+
+        assert message is not None
+        assert "start" in message
+
     def test_unknown_field_is_rejected(self):
         message = validate_param_values({"bogus": 1.0})
 

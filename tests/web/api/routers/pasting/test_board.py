@@ -868,7 +868,7 @@ class TestTreeNodeResolution:
             "kind": "height",
             "unit": "mm",
             # 数値の代わりに選べる値
-            "choices": [{"value": "auto", "label": "Auto"}],
+            "choices": [{"value": "auto", "label": "auto"}],
             "column": None,
         }
         assert by_name["ul_per_mm2"]["unit"] == "uL/mm²"

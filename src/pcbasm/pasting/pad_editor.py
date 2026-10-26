@@ -39,8 +39,13 @@ _MODE_LABELS: dict[str, str] = {
 }
 
 
-# 高さの数値以外の値 → 計算値に添える名前
-_HEIGHT_KEYWORD_LABELS: dict[str, str] = {"auto": "auto", "start": "始点に従う"}
+# 高さの数値以外の値 → 計算値に添える名前（pad 表の選択肢と同じ）
+_HEIGHT_LABELS: dict[str, str] = {
+    choice.value: choice.label
+    for field in PASTE_PARAM_FIELDS
+    if field.kind == "height"
+    for choice in field.choices
+}
 
 
 @attrs.frozen
@@ -188,17 +193,19 @@ def applied_value_summaries(
         config: ``MachineConfig.solder``（ノズル径と auto 判定の閾値）
     """
     modes: dict[HierKey, Counter[str]] = {}
-    heights: dict[HierKey, dict[str, list[float]]] = {}
+    # ノード → 項目 → 数値以外の値 → pad ごとの高さ
+    heights: dict[HierKey, dict[str, dict[str, list[float]]]] = {}
     for pad in hierarchy.iter_pads():
         setting = pad_settings[pad.ref]
         if not setting.enabled:
             continue
         mode = FillPlan.mode_for_pad(pad.polygon, config=config, params=setting.params)
-        pad_heights = _auto_heights(pad.polygon, config, setting.params, mode)
+        pad_heights = _keyword_heights(pad.polygon, config, setting.params, mode)
         for key in hierarchy.node_keys_for_pad(pad):
             modes.setdefault(key, Counter())[mode] += 1
-            for field, height in pad_heights.items():
-                heights.setdefault(key, {}).setdefault(field, []).append(height)
+            for field, (keyword, height) in pad_heights.items():
+                by_keyword = heights.setdefault(key, {}).setdefault(field, {})
+                by_keyword.setdefault(keyword, []).append(height)
 
     summaries: dict[HierKey, dict[str, AppliedValueSummary]] = {}
     for key, node_modes in modes.items():
@@ -210,18 +217,20 @@ def applied_value_summaries(
         if params.dispense_mode == "micro_line":
             for field in params.height_fields:
                 value = getattr(params, field)
-                if isinstance(value, str) and field in node_heights:
+                # 子孫の override で別の値（auto と start）を使う pad は数えない
+                if isinstance(value, str) and value in node_heights.get(field, {}):
                     fields[field] = _height_summary(
-                        [(_HEIGHT_KEYWORD_LABELS[value], node_heights[field])]
+                        [(_HEIGHT_LABELS[value], node_heights[field][value])]
                     )
         else:
+            auto = _HEIGHT_LABELS["auto"]
             parts = [
-                (name, node_heights[source])
+                (name, node_heights[source]["auto"])
                 for name, source, shown in (
-                    ("auto", "paste_height", params.paste_height == "auto"),
-                    ("微小線 auto", "micro_line", True),
+                    (auto, "paste_height", params.paste_height == "auto"),
+                    (f"微小線 {auto}", "micro_line", True),
                 )
-                if shown and source in node_heights
+                if shown and "auto" in node_heights.get(source, {})
             ]
             if parts:
                 fields["paste_height"] = _height_summary(parts)
@@ -230,13 +239,13 @@ def applied_value_summaries(
     return summaries
 
 
-def _auto_heights(
+def _keyword_heights(
     polygon: Polygon,
     config: SolderConfig,
     params: PasteParams,
     mode: AppliedDispenseMode,
-) -> dict[str, float]:
-    """Pad の高さのうち数値以外の値のまま使う項目の計算値（塗布経路の z と同じ値）.
+) -> dict[str, tuple[str, float]]:
+    """Pad の高さのうち数値以外の値（auto / start）を使う項目の、その値と計算した高さ（塗布経路の z と同じ値）.
 
     微小線の pad は、auto の計算値を ``micro_line`` にも入れる（方式が微小線でないノードの塗布高さの欄に出す）。
     auto の計算値は始点と終点で同じ。
@@ -244,19 +253,18 @@ def _auto_heights(
     if mode != "micro_line":
         if params.paste_height != "auto":
             return {}
-        return {"paste_height": paste_height_mm(params)}
-    start_auto = params.micro_line_z_start == "auto"
-    end_keyword = isinstance(params.micro_line_z_end, str)
-    if not start_auto and not end_keyword:
+        return {"paste_height": ("auto", paste_height_mm(params))}
+    z_start, z_end = params.micro_line_z_start, params.micro_line_z_end
+    if z_start != "auto" and not isinstance(z_end, str):
         return {}
     ((start, end),) = FillPlan.for_pad(polygon, config=config, params=params).paths
-    heights: dict[str, float] = {}
-    if start_auto:
-        heights["micro_line_z_start"] = heights["micro_line"] = start.z
-    if end_keyword:
-        heights["micro_line_z_end"] = end.z
-    if params.micro_line_z_end == "auto":
-        heights["micro_line"] = end.z
+    heights: dict[str, tuple[str, float]] = {}
+    if z_start == "auto":
+        heights["micro_line_z_start"] = heights["micro_line"] = ("auto", start.z)
+    if isinstance(z_end, str):
+        heights["micro_line_z_end"] = (z_end, end.z)
+    if z_end == "auto":
+        heights["micro_line"] = ("auto", end.z)
     return heights
 
 
@@ -286,9 +294,7 @@ def _height_summary(parts: list[tuple[str, list[float]]]) -> AppliedValueSummary
         shown = ordered[0] if len(ordered) == 1 else f"{ordered[0]}–{ordered[-1]}"
         labels.append(f"{name} ({shown} mm)")
         counts |= {f"{name} {value}": values[value] for value in ordered}
-    pads = sum(len(heights) for _, heights in parts)
+    pads = "、".join(f"{name}: 有効 pad {len(heights)} 件" for name, heights in parts)
     return AppliedValueSummary(
-        counts=counts,
-        label=" / ".join(labels),
-        title=f"auto の高さで塗る有効 pad {pads} 件の計算値",
+        counts=counts, label=" / ".join(labels), title=f"計算した高さ（{pads}）"
     )

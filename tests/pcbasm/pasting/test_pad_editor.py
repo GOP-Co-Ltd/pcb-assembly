@@ -86,7 +86,7 @@ def _base() -> PasteParams:
     )
 
 
-def _auto_heights() -> PasteParams:
+def _all_auto_base() -> PasteParams:
     """高さを 3 つとも auto にした基板既定値（方式は auto）."""
     return attrs.evolve(
         _base(),
@@ -214,21 +214,24 @@ class TestAutoHeights:
     def test_an_auto_mode_row_shows_both_paste_height_and_micro_line_heights(self):
         # R1 だけ量を半分にして、微小線の値（0.05）を塗布高さ（0.1）と見分ける
         summaries = _summaries(
-            _auto_heights(), (("L2", "R1"), {"ul_per_mm2": 0.05}, None)
+            _all_auto_base(), (("L2", "R1"), {"ul_per_mm2": 0.05}, None)
         )
 
         root = summaries[("L0",)]
         assert set(root) == {"dispense_mode", "paste_height"}
         assert root["paste_height"].label == "auto (0.100 mm) / 微小線 auto (0.050 mm)"
         assert root["paste_height"].counts == {"auto 0.100": 2, "微小線 auto 0.050": 2}
-        assert "有効 pad 4 件" in root["paste_height"].title
+        # 何の値を何件数えたかを、値の名前ごとに書く
+        assert root["paste_height"].title == (
+            "計算した高さ（auto: 有効 pad 2 件、微小線 auto: 有効 pad 2 件）"
+        )
         # 方式 auto のまま微小線になる pad だけのノードは、微小線の値だけを出す
         assert summaries[("L2", "R1")]["paste_height"].label == "微小線 auto (0.050 mm)"
         assert summaries[("L2", "U1")]["paste_height"].label == "auto (0.100 mm)"
 
     def test_micro_line_rows_show_the_start_and_end_heights(self):
         summaries = _summaries(
-            _auto_heights(), (("L2", "R1"), {"dispense_mode": "micro_line"}, None)
+            _all_auto_base(), (("L2", "R1"), {"dispense_mode": "micro_line"}, None)
         )
 
         r1 = summaries[("L2", "R1")]
@@ -239,7 +242,7 @@ class TestAutoHeights:
 
     def test_only_the_auto_end_of_a_micro_line_is_shown(self):
         summaries = _summaries(
-            _auto_heights(),
+            _all_auto_base(),
             (("L2", "R1"), {"dispense_mode": "micro_line"}, None),
             (("L2", "R1"), {"micro_line_z_start": 0.07}, None),
         )
@@ -253,7 +256,7 @@ class TestAutoHeights:
     def test_an_end_following_the_start_shows_the_value_it_follows(
         self, z_start: float | str, expected: str
     ):
-        base = attrs.evolve(_auto_heights(), micro_line_z_end="start")
+        base = attrs.evolve(_all_auto_base(), micro_line_z_end="start")
 
         summaries = _summaries(
             base,
@@ -264,11 +267,40 @@ class TestAutoHeights:
             ),
         )
 
-        assert summaries[("L2", "R1")]["micro_line_z_end"].label == expected
+        end = summaries[("L2", "R1")]["micro_line_z_end"]
+        assert end.label == expected
+        assert end.title == "計算した高さ（始点に従う: 有効 pad 2 件）"
+
+    @pytest.mark.parametrize(
+        ("node_end", "pad_end", "expected"),
+        [
+            # 子 pad が自分の値で塗る分は、ノードの値の表示に混ぜない
+            ("start", "auto", "始点に従う (0.090 mm)"),
+            ("auto", "start", "auto (0.100 mm)"),
+        ],
+    )
+    def test_pads_with_another_end_keyword_are_left_out(
+        self, node_end: str, pad_end: str, expected: str
+    ):
+        base = attrs.evolve(_all_auto_base(), micro_line_z_end=node_end)
+
+        summaries = _summaries(
+            base,
+            (
+                ("L2", "R1"),
+                {"dispense_mode": "micro_line", "micro_line_z_start": 0.09},
+                None,
+            ),
+            (("L4", "R1", "1"), {"micro_line_z_end": pad_end}, None),
+        )
+
+        end = summaries[("L2", "R1")]["micro_line_z_end"]
+        assert end.label == expected
+        assert sum(end.counts.values()) == 1
 
     def test_pads_that_fall_back_to_dot_are_left_out_of_micro_line_heights(self):
         summaries = _summaries(
-            _auto_heights(), (("L0",), {"dispense_mode": "micro_line"}, None)
+            _all_auto_base(), (("L0",), {"dispense_mode": "micro_line"}, None)
         )
 
         # 0.8 x 0.8 は点へ落ちるので数えない（塗布高さの欄はこの行に無い）
@@ -287,7 +319,7 @@ class TestAutoHeights:
 
     def test_differing_values_are_shown_as_a_range(self):
         summaries = _summaries(
-            _auto_heights(), (("L4", "U1", "2"), {"ul_per_mm2": 0.2}, None)
+            _all_auto_base(), (("L4", "U1", "2"), {"ul_per_mm2": 0.2}, None)
         )
 
         u1 = summaries[("L2", "U1")]["paste_height"]
@@ -298,7 +330,7 @@ class TestAutoHeights:
 
     def test_pads_with_an_explicit_height_are_left_out(self):
         summaries = _summaries(
-            _auto_heights(), (("L4", "U1", "2"), {"paste_height": 0.3}, None)
+            _all_auto_base(), (("L4", "U1", "2"), {"paste_height": 0.3}, None)
         )
 
         assert summaries[("L2", "U1")]["paste_height"].counts == {"auto 0.100": 1}
@@ -314,7 +346,7 @@ class TestAutoHeights:
         assert "paste_height" not in summaries[("L0",)]
 
     def test_disabled_pads_are_left_out(self):
-        summaries = _summaries(_auto_heights(), (("L2", "U1"), None, False))
+        summaries = _summaries(_all_auto_base(), (("L2", "U1"), None, False))
 
         assert ("L2", "U1") not in summaries
         assert summaries[("L0",)]["paste_height"].label == "微小線 auto (0.100 mm)"

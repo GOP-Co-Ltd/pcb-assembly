@@ -69,9 +69,13 @@ def _structure_paste_height(value: object, _: object) -> PasteHeight:
 
 
 def _structure_micro_line_end_height(value: object, _: object) -> MicroLineEndHeight:
-    if value == "start":
-        return "start"
-    return _structure_paste_height(value, _)
+    if value in ("auto", "start"):
+        return value
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(
+            f"終点高は数値か'auto'か'start'である必要があります: {value!r}"
+        )
+    return float(value)
 
 
 def _position_hook(

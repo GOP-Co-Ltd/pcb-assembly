@@ -54,8 +54,12 @@ def _end_height(
     instance: object, attribute: attrs.Attribute, value: MicroLineEndHeight
 ) -> None:
     """正の高さ [mm] か ``auto`` か ``start``."""
-    if value != "start":
+    if value == "start":
+        return
+    try:
         _height(instance, attribute, value)
+    except ValueError as exc:
+        raise ValueError(f"{exc}（数値のほかに auto と start を受け付けます）") from exc
 
 
 def _dispense_mode(_: object, __: attrs.Attribute, value: DispenseMode) -> None:
@@ -317,10 +321,12 @@ _COLUMNS: dict[str, str] = {
 }
 
 
+# 高さの数値以外の値 → 表示名（pad 表の選択肢と、計算値の表示 ``auto (X mm)`` で共用する）
+_HEIGHT_KEYWORD_LABELS: dict[str, str] = {"auto": "auto", "start": "始点に従う"}
 # 高さの項目（validator で見分ける）→ 数値の代わりに選べる値と表示名
 _HEIGHT_KEYWORDS: dict[object, tuple[tuple[str, str], ...]] = {
-    _height: (("auto", "Auto"),),
-    _end_height: (("start", "始点に従う"), ("auto", "Auto")),
+    validator: tuple((value, _HEIGHT_KEYWORD_LABELS[value]) for value in values)
+    for validator, values in ((_height, ("auto",)), (_end_height, ("start", "auto")))
 }
 
 
