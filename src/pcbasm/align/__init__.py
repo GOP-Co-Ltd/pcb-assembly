@@ -1,0 +1,96 @@
+"""Board / オフセットの位置合わせ共通制御.
+
+座標系は次の 4 つ。長さは mm、pixel 座標だけ px で表す。
+
+- board 座標: PCB 設計の座標。外形 bbox の左上が原点、+x が幅方向、+y が高さ方向
+- 機械座標: ステージの G-code 座標（``XYZStage.get_position()``）
+- カメラ mm 空間: 原点が画像中心。軸の向きは画像と同じ（+x 右、+y 下）
+- pixel 座標: 全画面の画素位置。原点は画像左上
+
+次の 2 つを :class:`BoardFrame` が値として持つ（:func:`measure_board_frame` が計測する）。
+
+- ``board_transform``: board 座標 → 機械座標（:class:`BoardTransformMeasurer`）
+- ``camera_model``: カメラの写像 :class:`~pcbasm.vision.CameraModel`。回転 R はカメラと機械の軸のずれ（:class:`CameraRotationMeasurer`）
+
+``observe()`` 関数は、想定→観測の Transform（カメラ mm 空間）を返す契約とする。
+
+``observe().apply(Point2d(0, 0))`` が「検出位置 − 画像中心」になる。
+
+計測中に失敗すると例外を送出する（``CircleDetectionError`` は RuntimeError の派生）。
+
+``RegionAlignmentSession`` の ``align`` / ``refine`` だけは失敗を None で返す（Klipper の ``KlipperError`` は伝える）。
+"""
+
+from .aligner import RegionAligner, RegionFit
+from .board import (
+    AlignEvent,
+    AlignStep,
+    BoardCorrection,
+    PadMeasured,
+    PadRefinement,
+    RefinementPlanned,
+    RegionAlignmentSession,
+    RegionMeasured,
+    RegionsPlanned,
+    align_board,
+    align_regions,
+    refine_pad,
+    refinement_targets,
+)
+from .board_frame import BoardFrame, BoardTransformMeasurer, measure_board_frame
+from .camera_rotation import CameraRotationMeasurer
+from .copper import (
+    CopperEdgeMatcher,
+    CopperProjection,
+    CopperProjector,
+    EdgeMatch,
+)
+from .correction import to_machine_transform
+from .observe import (
+    DETECTION_MAX_ATTEMPTS,
+    DETECTION_RETRY_SEC,
+    CircleDetectionError,
+    OffsetObserver,
+)
+from .orthogonality import OrthogonalityMetrics
+from .position import XYPositionAdjustor
+from .region import AlignmentRegion, plan_alignment_regions
+from .render import PadResultRenderer, render_edge_match, render_label
+
+__all__ = [
+    "AlignEvent",
+    "AlignStep",
+    "AlignmentRegion",
+    "BoardCorrection",
+    "BoardFrame",
+    "DETECTION_MAX_ATTEMPTS",
+    "DETECTION_RETRY_SEC",
+    "CircleDetectionError",
+    "BoardTransformMeasurer",
+    "CopperEdgeMatcher",
+    "CopperProjection",
+    "CopperProjector",
+    "EdgeMatch",
+    "OffsetObserver",
+    "CameraRotationMeasurer",
+    "OrthogonalityMetrics",
+    "PadMeasured",
+    "PadRefinement",
+    "PadResultRenderer",
+    "RefinementPlanned",
+    "RegionAligner",
+    "RegionFit",
+    "RegionAlignmentSession",
+    "RegionMeasured",
+    "RegionsPlanned",
+    "XYPositionAdjustor",
+    "align_board",
+    "align_regions",
+    "measure_board_frame",
+    "plan_alignment_regions",
+    "refine_pad",
+    "refinement_targets",
+    "render_edge_match",
+    "render_label",
+    "to_machine_transform",
+]

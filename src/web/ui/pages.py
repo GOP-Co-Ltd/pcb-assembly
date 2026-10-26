@@ -1,27 +1,25 @@
 """SSR ページのルーター（backend から取った値でテンプレートを描く）.
 
 装置の状態は一切持たず、`MachineClient` で backend から取得した pydantic モデル
-（`StateResponse` / `MachineInfo` / `MachineSettingsResponse` / `JobSpecInfo`）だけを
-テンプレートへ渡す。表示定義（タブ・feature・テンプレート名）は `web.ui.layout` にある。
+（`StateResponse` / `MachineInfo` / `ReadinessResponse` / `MachineSettingsResponse` / `JobSpecInfo`）だけを
+テンプレートへ渡す。タブ・グループ・テンプレートは `web.ui.features` の機能表にある。
 backend 取得が 1 本でも失敗したページは 503 ページになる（`BackendUnavailable`）。
 
-feature ページを足すときは、次の箇所を変更する。
+機能のページを足すときは、次の箇所を変更する。
 
-- `web.ui.layout` の ``FEATURE_GROUPS`` に slug を足す（URL 検証の ``TABS`` はここから導出される）
-- `web.ui.layout` の ``FEATURE_TEMPLATES`` にテンプレートを登録する
-- ジョブページなら、テンプレートを ``JOB_TEMPLATES`` に入れる。ジョブ定義は backend の ``GET /api/jobs`` から取り、無ければ 503
-- ジョブでないページなら、表示名を ``FEATURE_LABELS`` に足す
+- `web.ui.features` の ``FEATURES`` に 1 行足す。ジョブでないページは表示名（``label``）も書く。
+  ジョブのページの定義は backend の ``GET /api/jobs`` から取り、無ければ 503
 - ページ固有の値は ``_FEATURE_CONTEXT`` / ``_JOB_FEATURE_CONTEXT`` の provider で足す
 - machine.toml の値が要るなら ``_MACHINE_SETTINGS_FEATURES`` にも足す（ここに無い feature では取得しない）
 
 URL 空間は次のとおり。
 
-- ``/`` と ``/{tab}[/{feature}]`` / ``/settings`` は machine を指定しない入口。既知
-  マシンが 1 台なら ``/m/{machine_id}/…`` へ 307、複数ならピッカー、0 台なら案内を出す
-- ``/m/{machine_id}`` 単体も入口で、既定タブへ 307 する
-- ``/bulk`` は一括管理ページ。全マシンを並べるマシン非依存のページで、``/{tab}`` より先に登録する（後だと入口の ``/{tab}`` としてマッチする）
-- ``/m/{machine_id}/…`` が実体。``/m/{machine_id}/settings`` は ``/m/{machine_id}/{tab}``
-  より先に登録する（後だと tab としてマッチしてしまう）
+- ``/m/{machine_id}/{feature}`` が実体。``/m/{machine_id}`` は機体の機能で決まる着地点（塗布機なら paste_solder）へ 307 する
+- 機体に無い機能のページ（部品実装だけの機体の paste_solder など）は、その機体の着地点へ 307 する
+- ``/`` は frontend 自身のホスト名と同じ machine_id の機体（同居機）の ``/m/{machine_id}`` へ 307 する。
+  その機体が無ければ機体一覧 ``/machines`` へ 307 する。machine を指定しないほかの URL も同じ規則で自機の URL へ飛ぶ
+- 旧 URL（``/m/{machine_id}/{旧タブ}[/{旧 slug}]``、``/m/{machine_id}/settings``、``/bulk``）は新しい URL へ 307 する
+- API 版のずれた機体（`MachineEndpoint.update_only`）の ``/m/{machine_id}/…`` は、どの URL も更新専用ページになる
 """
 
 from __future__ import annotations
@@ -37,52 +35,57 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
-from web.api.models import (
+from web.contract.identity import SESSION_COOKIE
+from web.contract.models import (
+    Capability,
     JobCatalogResponse,
     JobSpecInfo,
     MachineInfo,
+    ReadinessResponse,
     SettingsField,
     StateResponse,
 )
-from web.ui.layout import (
-    BULK_LABEL,
-    BULK_PATH,
-    CLEARABLE_MACHINE_KEYS,
-    DISPENSE_CALIBRATION_PARAM_GROUPS,
-    FEATURE_GROUPS,
-    FEATURE_LABELS,
-    FEATURE_TEMPLATES,
-    JOB_TEMPLATES,
-    LOADING_ROTATION_PARAMS,
-    NOZZLE_CLEAN_SETTING_KEYS,
-    PASTE_AUTO_THRESHOLD_KEYS,
-    PASTE_FLOW_CALIBRATION_FILE_KEY,
-    PASTE_FLOW_CALIBRATION_KEYS,
-    PASTE_PAD_REFINEMENT_KEYS,
-    PASTE_VOLUME_CALIBRATION_PARAM_GROUPS,
-    POSITIVE_ONLY_MACHINE_KEYS,
-    TAB_LABELS,
+from web.ui.features import (
+    FEATURES_BY_SLUG,
+    LEGACY,
+    LEGACY_TABS,
     TABS,
-    bulk_sections,
-    settings_sections,
+    Feature,
+    landing,
+    machine_tabs,
+    tab_features,
 )
+from web.ui.layout import param_sections, settings_sections
 from web.ui.machine_client import BackendGateway, BackendUnavailable, MachineClient
 from web.ui.machines import MachineEndpoint, MachineRegistry
-from web.ui.proxy import SESSION_COOKIE
 
-# machine を指定しない URL で開くタブ
-DEFAULT_TAB = "posctrl"
+# 機体一覧（マシン非依存のページ。自機の無い frontend の `/` もここへ飛ぶ）
+MACHINES_PATH = "/machines"
 
-# machine.toml の現在値（`GET /api/settings/machine`）が要るページの feature。
-# ここに無い feature では取得しない。backend の `/api/settings/machine` は
+# machine.toml の現在値（`GET /api/machine_config`）が要るページの feature。
+# ここに無い feature では取得しない。backend の `/api/machine_config` は
 # machine.toml をパースするので、壊れた machine.toml では 500 になる。全ページで
 # 取得すると、壊れた設定ファイル 1 つで全画面が 503 になり、設定を直す画面すら開けない
-# （MR2 で backend 側に入れた「壊れていても描けるページは描く」防御を保つ）
+# （「壊れていても描けるページは描く」を frontend でも保つ）
 _MACHINE_SETTINGS_FEATURES = frozenset(
-    {"paste_solder", "loading", "copper_detection", "nozzle_cap"}
+    {"machine_config", "paste_solder", "loading", "copper_detection", "nozzle_cap"}
 )
 
 router = APIRouter()
+
+
+class UpdateOnlyMachine(Exception):
+    """API 版のずれた機体のページを開こうとした（→ 更新専用ページ）."""
+
+    def __init__(self, endpoint: MachineEndpoint) -> None:
+        """例外を初期化する.
+
+        Args:
+            endpoint: 更新専用の機体
+        """
+        super().__init__(f"{endpoint.label} は UI サーバーと版が違います")
+        # 更新専用ページの宛先に使うため public
+        self.endpoint = endpoint
 
 
 def _registry(request: Request) -> MachineRegistry:
@@ -100,14 +103,17 @@ def _resolve(
 
     Raises:
         UnknownMachine: 未登録の machine_id（→ 404 ページ）
+        UpdateOnlyMachine: 版のずれた機体（→ 更新専用ページ。backend の応答を描けない）
     """
     endpoint = _registry(request).resolve(machine_id)
+    if endpoint.update_only:
+        raise UpdateOnlyMachine(endpoint)
     gateway: BackendGateway = request.app.state.gateway
     return endpoint, MachineClient(endpoint, gateway)
 
 
 class _MachineSettings:
-    """ページが読む machine 設定（backend の `/api/settings/machine` の結果）.
+    """ページが読む machine 設定（backend の `/api/machine_config` の結果）.
 
     設定フォームは machine.toml に書かれている値（``fields`` の ``value``）を、
     現在値の表示は実効値（``resolved``）を使う。実効値の解決は backend にしかできない
@@ -121,7 +127,7 @@ class _MachineSettings:
 
         Args:
             endpoint: 取得元の backend（解決できない値を 503 にするため持つ）
-            fields: `/api/settings/machine` の項目（取得しないページでは空）
+            fields: `/api/machine_config` の項目（取得しないページでは空）
         """
         self._endpoint = endpoint
         self.fields = tuple(fields)
@@ -142,6 +148,11 @@ class _MachineSettings:
             raise BackendUnavailable(self._endpoint, cause) from cause
         return float(value)
 
+    def select(self, *keys: str) -> list[SettingsField]:
+        """``keys`` の項目をその順に返す（機能ページの即保存フォーム用）."""
+        by_key = {field.key: field for field in self.fields}
+        return [by_key[key] for key in keys]
+
 
 async def _machine_settings(
     endpoint: MachineEndpoint, client: MachineClient, needed: bool
@@ -152,11 +163,11 @@ async def _machine_settings(
     return _MachineSettings(endpoint, (await client.machine_settings()).fields)
 
 
-def _feature_label(jobs: Mapping[str, JobSpecInfo], slug: str) -> str:
-    job = jobs.get(slug)
+def _feature_label(jobs: Mapping[str, JobSpecInfo], feature: Feature) -> str:
+    job = jobs.get(feature.slug)
     if job is not None:
         return job.label
-    return FEATURE_LABELS.get(slug, slug.replace("_", " ").title())
+    return feature.label or feature.slug
 
 
 def _jobs_by_name(catalog: JobCatalogResponse) -> dict[str, JobSpecInfo]:
@@ -180,12 +191,11 @@ def _job_spec(
 
 
 def _suffix_of(path: str) -> str:
-    """URL から ``/m/{machine_id}`` を除いた残り（マシン切替の遷移先に使う）."""
+    """URL から ``/m/{machine_id}`` を除いた残り（マシン切替の遷移先に使う。空なら機体の着地点）."""
     if path.startswith("/m/"):
         _, _, suffix = path.removeprefix("/m/").partition("/")
-    else:
-        suffix = path.lstrip("/")
-    return suffix or DEFAULT_TAB
+        return suffix
+    return path.lstrip("/")
 
 
 def _update_notice_url(machine_id: str | None) -> str:
@@ -195,27 +205,46 @@ def _update_notice_url(machine_id: str | None) -> str:
     return f"/api/update-notice?{urlencode({'machine_id': machine_id})}"
 
 
+def _capabilities(info: MachineInfo) -> tuple[Capability, ...]:
+    return tuple(capability.name for capability in info.capabilities)
+
+
+def _nav_tabs(
+    base: str, capabilities: Sequence[Capability]
+) -> list[tuple[str, str, str]]:
+    """機体のトップバーのタブ（slug、表示名、リンク先 = タブの先頭の機能）."""
+    return [
+        (tab, label, f"{base}/{tab_features(tab, capabilities)[0].slug}")
+        for tab, label in machine_tabs(capabilities).items()
+    ]
+
+
 def _chrome_context(
     request: Request, *, machine_id: str | None, current_suffix: str
 ) -> dict[str, Any]:
     """Backend に依存しない共通コンテキスト（エラーページもこれだけで描ける）."""
+    base = f"/m/{machine_id}" if machine_id else ""
     return {
         "request": request,
-        # 未 prefix（マシン非依存ページ）では空文字。テンプレートの href は
-        # "{{ base }}/posctrl" なので、未 prefix の URL になる
-        "base": f"/m/{machine_id}" if machine_id else "",
+        # マシン非依存のページでは空文字（機体のコマンドとタブを出さない）
+        "base": base,
         "machine_id": machine_id,
         # トップバーの更新通知の問い合わせ先。マシン非依存のページでは UI サーバー
         # 自身の更新だけを確認する（機体が決まっていないので問い合わせ先が無い）
         "update_notice_url": _update_notice_url(machine_id),
         "machines": _registry(request).list(),
         "current_suffix": current_suffix,
-        "tabs": list(TABS),
-        "tab_labels": TAB_LABELS,
-        "bulk_path": BULK_PATH,
-        "bulk_label": BULK_LABEL,
+        # 機体の機能はページを描くときに backend から取るので、取れないページではどの機体にもあるタブだけを出す
+        "tabs": _nav_tabs(base, ()) if machine_id else [],
         "active_tab": None,
         "active_feature": None,
+        # 更新専用ページでは、中継されない機体コマンド（操作権・PCB・再起動）を出さない
+        "update_only": False,
+        "config_error": None,
+        "config_notice": None,
+        "pcb_notice": None,
+        # 機体のページだけが持つ（トップバーの立ち上げチップ）
+        "readiness": None,
     }
 
 
@@ -225,29 +254,47 @@ def _base_context(
     current_suffix: str,
     info: MachineInfo,
     state: StateResponse,
+    readiness: ReadinessResponse,
 ) -> dict[str, Any]:
     """全ページ共通のコンテキスト（backend の自己申告と現在状態から組む）."""
     context = _chrome_context(
         request, machine_id=machine_id, current_suffix=current_suffix
     )
+    capabilities = _capabilities(info)
     context.update(
+        tabs=_nav_tabs(context["base"], capabilities),
+        capabilities=capabilities,
         selected_pcb=state.pcb_file,
         fb_start=info.fb_start,
         # mainsail_url は backend が解決した値（リクエストのホスト名から導出すると
         # frontend 機を指してしまう）
         mainsail_url=info.mainsail_url,
         focus_z=state.focus_z,
-        machine_type=info.machine_type,
+        config_error=state.config_error,
+        config_notice=state.config_notice,
+        pcb_notice=state.pcb_notice,
+        readiness=readiness,
     )
     return context
 
 
-def _tab_context(tab: str, jobs: Mapping[str, JobSpecInfo]) -> dict[str, Any]:
-    """タブ共通のコンテキスト（サイドバー描画用）."""
+def _sidebar_context(
+    feature: Feature,
+    jobs: Mapping[str, JobSpecInfo],
+    capabilities: Sequence[Capability],
+) -> dict[str, Any]:
+    """機能のページのタブとサイドバー（同じタブにある機体の機能を、グループごとに表の順で並べる）."""
+    groups: dict[str, list[tuple[str, str]]] = {}
+    for item in tab_features(feature.tab, capabilities):
+        groups.setdefault(item.group, []).append(
+            (item.slug, _feature_label(jobs, item))
+        )
     return {
-        "active_tab": tab,
-        "feature_groups": FEATURE_GROUPS[tab],
-        "feature_labels": {slug: _feature_label(jobs, slug) for slug in TABS[tab]},
+        "active_tab": feature.tab,
+        "tab_label": TABS[feature.tab],
+        "sidebar_groups": list(groups.items()),
+        "active_feature": feature.slug,
+        "feature_label": _feature_label(jobs, feature),
     }
 
 
@@ -289,7 +336,7 @@ def render_standalone(
     *,
     current_suffix: str,
 ) -> HTMLResponse:
-    """マシン非依存のページを chrome 付きで描く（`/update` など）.
+    """マシン非依存のページを chrome 付きで描く（`/update` と `/machines`）.
 
     `_chrome_context` + `_html_page` の公開ラッパ。backend へ 1 度も問い合わせないので
     機体が 1 台も無いホストでも描ける（frontend 専用機の更新ページがこれにあたる）。
@@ -337,147 +384,106 @@ def render_message(
     )
 
 
-async def _open_default(request: Request, suffix: str) -> Response:
-    """マシン未指定の URL を既知マシンへ振り分ける."""
-    machines = _registry(request).list()
-    if len(machines) == 1:
-        return RedirectResponse(
-            url=f"/m/{machines[0].machine_id}/{suffix}", status_code=307
-        )
-    if machines:
-        return render_message(
-            request,
-            title="マシンを選択してください",
-            detail="上部のマシン選択から操作するマシンを選びます。",
-        )
-    return render_message(
+def render_update_only(request: Request, endpoint: MachineEndpoint) -> HTMLResponse:
+    """版のずれた機体の更新専用ページを描く（``/m/{machine_id}/…`` のどの URL でも）.
+
+    proxy がこの機体へ中継するのは更新と緊急停止だけなので、backend の値を使わずに描く。
+    """
+    context = _chrome_context(
         request,
-        title="マシンが登録されていません",
-        detail=(
-            "config/machines.toml に [[machine]] を書いて frontend を再起動してください"
-            "（machine_id / host は必須、port の既定は 8081）。"
-        ),
+        machine_id=endpoint.machine_id,
+        current_suffix=_suffix_of(request.url.path),
     )
+    # どのタブも同じこのページになるので、作業分野のタブは並べない（機体一覧だけ残す）
+    context.update(title=endpoint.label, update_only=True, tabs=[])
+    return _html_page(request, "update_only.html", context)
+
+
+def own_machine(request: Request) -> MachineEndpoint | None:
+    """Frontend 自身のホスト名と同じ machine_id の機体（同居機。無ければ None）."""
+    hostname = request.app.state.settings.hostname
+    return next(
+        (m for m in _registry(request).list() if m.machine_id == hostname), None
+    )
+
+
+def _open_own(request: Request, suffix: str) -> RedirectResponse:
+    """マシン未指定の URL を自機の URL へ飛ばす（自機が無ければ機体一覧）."""
+    own = own_machine(request)
+    if own is None:
+        return RedirectResponse(url=MACHINES_PATH, status_code=307)
+    return RedirectResponse(url=f"/m/{own.machine_id}/{suffix}", status_code=307)
+
+
+def _legacy_redirect(machine_id: str, old: str) -> RedirectResponse:
+    """旧 URL の最後の段を新しい URL へ 307 する.
+
+    Raises:
+        HTTPException: どの機能にも当たらない段（404）
+    """
+    target = LEGACY.get(old, old)
+    if target.startswith("/"):
+        return RedirectResponse(url=target, status_code=307)
+    if target not in FEATURES_BY_SLUG:
+        raise HTTPException(status_code=404, detail=f"未知の機能です: {old}")
+    return RedirectResponse(url=f"/m/{machine_id}/{target}", status_code=307)
 
 
 @router.get("/", include_in_schema=False)
 async def index(request: Request) -> Response:
-    return await _open_default(request, DEFAULT_TAB)
+    own = own_machine(request)
+    if own is None:
+        return RedirectResponse(url=MACHINES_PATH, status_code=307)
+    return RedirectResponse(url=f"/m/{own.machine_id}", status_code=307)
 
 
-@router.get("/settings", include_in_schema=False)
-async def settings_entry(request: Request) -> Response:
-    return await _open_default(request, "settings")
+@router.get(MACHINES_PATH, response_class=HTMLResponse)
+async def machines_page(request: Request) -> HTMLResponse:
+    """機体一覧（登録済みの全マシンを登録順に並べる）.
 
-
-# `/{tab}` より先に登録する（後だと tab="bulk" としてマッチし、マシンへ振り分けられる）
-@router.get(BULK_PATH, response_class=HTMLResponse)
-async def bulk_page(request: Request) -> HTMLResponse:
-    """一括管理ページ（登録済みの全マシンを machine_type ごとに並べる）.
-
-    SSR は登録済みマシンの一覧（``MachineRegistry``）だけで描き、backend へは問い合わせない。
-    行ごとの操作権・更新・PCB の状態は ``bulk.js`` が各機体の ``/m/{machine_id}/api/**`` から取る。
+    SSR は chrome の ``machines``（``MachineRegistry.list()``）だけで描き、backend へは問い合わせない。
+    行ごとの操作権・更新・PCB の状態は ``machines.js`` が各機体の ``/m/{machine_id}/api/**`` から取る。
     こうすると 1 台の backend が落ちていてもページ全体は 503 にならず、他の機体の行は使える。
     """
-    # マシン選択で切り替えた先は既定タブにする（各機体の URL 空間 /m/{machine_id}/… に一括管理は無い）
     return render_standalone(
         request,
-        "bulk.html",
-        {
-            "active_tab": "bulk",
-            "title": BULK_LABEL,
-            "sections": bulk_sections(_registry(request).list()),
-        },
-        current_suffix=DEFAULT_TAB,
+        "machines.html",
+        {"active_tab": "machines", "title": "機体一覧"},
+        current_suffix="",
     )
 
 
-# `/{tab}/{feature}` より先に登録する（後だと tab="m" / feature=machine_id として
-# マッチし、`/m/{id}/m/{id}` へ 307 したうえで 404 になる）
+# 旧 URL（一括管理）。マシン非依存の入口の規則より先に登録する
+@router.get("/bulk", include_in_schema=False)
+async def bulk_entry() -> RedirectResponse:
+    return RedirectResponse(url=MACHINES_PATH, status_code=307)
+
+
 @router.get("/m/{machine_id}", include_in_schema=False)
-async def machine_entry(machine_id: str, request: Request) -> Response:
-    return RedirectResponse(url=f"/m/{machine_id}/{DEFAULT_TAB}", status_code=307)
-
-
-@router.get("/{tab}", include_in_schema=False)
-async def tab_entry(tab: str, request: Request) -> Response:
-    return await _open_default(request, tab)
-
-
-@router.get("/{tab}/{feature}", include_in_schema=False)
-async def feature_entry(tab: str, feature: str, request: Request) -> Response:
-    return await _open_default(request, f"{tab}/{feature}")
-
-
-# /m/{machine_id}/{tab} より先に登録する（後だと settings が tab としてマッチする）
-@router.get("/m/{machine_id}/settings", response_class=HTMLResponse)
-async def settings_page(machine_id: str, request: Request) -> HTMLResponse:
-    endpoint, client = _resolve(request, machine_id)
-    info, state, machine_settings = await asyncio.gather(
-        client.machine_info(), client.state(), client.machine_settings()
+async def machine_entry(machine_id: str, request: Request) -> RedirectResponse:
+    """機体の着地点へ 307 する（着地点は backend が申告する機体の機能で決まる）."""
+    _, client = _resolve(request, machine_id)
+    info = await client.machine_info()
+    return RedirectResponse(
+        url=f"/m/{machine_id}/{landing(_capabilities(info))}", status_code=307
     )
-    context = _base_context(request, machine_id, "settings", info, state)
-    context.update(
-        settings_sections=settings_sections(machine_settings.fields),
-        clearable_keys=CLEARABLE_MACHINE_KEYS,
-    )
-    return _html_page(request, "settings.html", context)
 
 
 def _loading_context(job: JobSpecInfo, settings: _MachineSettings) -> dict[str, Any]:
-    """Loading ページ専用コンテキスト（開始位置・回転値・現在設定値）."""
-    rotation_defaults = {
-        spec.name: spec.default
-        for spec in job.params
-        if spec.name in LOADING_ROTATION_PARAMS
-    }
+    """Loading ページ専用コンテキスト（開始位置・現在設定値）."""
     return {
         "loading_control_specs": tuple(
             spec for spec in job.params if not spec.optional
         ),
         "loading_position_specs": tuple(spec for spec in job.params if spec.optional),
-        "loading_rotation_defaults": rotation_defaults,
-        "solder_paste_density": settings.number("paste_dispenser.solder_paste_density"),
-        "current_rotations_per_ul": settings.number("paste_dispenser.rotations_per_ul"),
-        "current_max_dispense_rate": settings.number(
-            "paste_dispenser.max_dispense_rate"
+        "solder_paste_density": settings.number("solder.paste_density"),
+        "current_rotations_per_ul": settings.number(
+            "solder.dispenser.rotations_per_ul"
         ),
-        "current_dispense_accel": settings.number("paste_dispenser.dispense_accel"),
-    }
-
-
-def _dispense_calibration_context(
-    job: JobSpecInfo, settings: _MachineSettings
-) -> dict[str, Any]:
-    """Dispense_calibration ページ専用コンテキスト（フォームのセクション分け）."""
-    specs_by_name = {spec.name: spec for spec in job.params}
-    return {
-        "param_groups": [
-            (legend, [specs_by_name[name] for name in names])
-            for legend, names in DISPENSE_CALIBRATION_PARAM_GROUPS
-        ]
-    }
-
-
-def _paste_volume_calibration_context(
-    job: JobSpecInfo, settings: _MachineSettings
-) -> dict[str, Any]:
-    """塗布量校正の生成ページ専用コンテキスト（セクション分けと回転ローディング）.
-
-    塗布パス先頭のローディングでは体積と回転の両方を使うので、``loading_controls``
-    partial の回転セクションを出すための既定値を渡す。ジョブ側の ParamSpec 名は
-    ``loading_`` prefix 付きなので、partial が読む素の名前へ対応付ける。
-    """
-    specs_by_name = {spec.name: spec for spec in job.params}
-    return {
-        "param_groups": [
-            (legend, [specs_by_name[name] for name in names])
-            for legend, names in PASTE_VOLUME_CALIBRATION_PARAM_GROUPS
-        ],
-        "loading_rotation_defaults": {
-            name: specs_by_name[f"loading_{name}"].default
-            for name in LOADING_ROTATION_PARAMS
-        },
+        "current_max_dispense_rate": settings.number(
+            "solder.dispenser.max_dispense_rate"
+        ),
+        "current_dispense_accel": settings.number("solder.dispenser.dispense_accel"),
     }
 
 
@@ -486,30 +492,35 @@ def _paste_workspace_context(
 ) -> dict[str, Any]:
     """Pad editor 付き塗布ページのコンテキスト（machine 設定の即保存フォーム）."""
     return {
-        "auto_threshold_fields": [
-            field for field in settings.fields if field.key in PASTE_AUTO_THRESHOLD_KEYS
-        ],
-        "pad_refinement_fields": [
-            field for field in settings.fields if field.key in PASTE_PAD_REFINEMENT_KEYS
-        ],
-        "flow_calibration_fields": [
-            field
-            for field in settings.fields
-            if field.key in PASTE_FLOW_CALIBRATION_KEYS
-        ],
-        "flow_calibration_file_key": PASTE_FLOW_CALIBRATION_FILE_KEY,
+        "auto_threshold_fields": settings.select(
+            "solder.auto.line_aspect_ratio",
+            "solder.auto.area_short_side_factor",
+        ),
+        "pad_refinement_fields": settings.select("alignment.refine_max_short_side"),
+        "flow_calibration_fields": settings.select(
+            "solder.volume_correction.calibration_file",
+            "solder.volume_correction.amount_ul",
+            "solder.volume_correction.crop_size_mm",
+            "solder.volume_correction.settle_seconds",
+        ),
     }
+
+
+def _machine_config_context(
+    state: StateResponse, settings: _MachineSettings
+) -> dict[str, Any]:
+    """設定ページのコンテキスト（backend が返した順の項目を画面とカードへまとめる）."""
+    return {"settings_sections": settings_sections(settings.fields)}
 
 
 def _copper_detection_context(
     state: StateResponse, settings: _MachineSettings
 ) -> dict[str, Any]:
     """Copper_detection ページ専用コンテキスト（エッジ検出パラメータ現在値）."""
-    prefix = "paste_dispenser.pad_align"
     return {
-        "canny_low": settings.number(f"{prefix}.canny_low"),
-        "canny_high": settings.number(f"{prefix}.canny_high"),
-        "blur_ksize": int(settings.number(f"{prefix}.blur_ksize")),
+        "canny_low": settings.number("alignment.canny_low"),
+        "canny_high": settings.number("alignment.canny_high"),
+        "blur_ksize": int(settings.number("alignment.blur_ksize")),
     }
 
 
@@ -525,10 +536,13 @@ def _nozzle_cap_context(
     return {
         "nozzle_cap": state.nozzle_cap,
         "nozzle_clean": state.nozzle_clean,
-        "nozzle_clean_fields": [
-            field for field in settings.fields if field.key in NOZZLE_CLEAN_SETTING_KEYS
-        ],
-        "positive_only_keys": POSITIVE_ONLY_MACHINE_KEYS,
+        "nozzle_clean_fields": settings.select(
+            "solder.nozzle.clean.press_depth",
+            "solder.nozzle.clean.purge_ul",
+            "solder.nozzle.clean.stroke",
+            "solder.nozzle.clean.passes",
+            "solder.nozzle.clean.wipe_speed",
+        ),
     }
 
 
@@ -537,73 +551,70 @@ _JOB_FEATURE_CONTEXT: dict[
     str, Callable[[JobSpecInfo, _MachineSettings], dict[str, Any]]
 ] = {
     "loading": _loading_context,
-    "dispense_calibration": _dispense_calibration_context,
-    "paste_volume_calibration": _paste_volume_calibration_context,
 }
 
 # feature slug → ページ専用コンテキスト（ジョブ有無に依らない）
 _FEATURE_CONTEXT: dict[
     str, Callable[[StateResponse, _MachineSettings], dict[str, Any]]
 ] = {
+    "machine_config": _machine_config_context,
     "paste_solder": _paste_workspace_context,
     "copper_detection": _copper_detection_context,
     "nozzle_cap": _nozzle_cap_context,
 }
 
 
-@router.get("/m/{machine_id}/{tab}", response_class=HTMLResponse)
-async def tab_page(machine_id: str, tab: str, request: Request) -> HTMLResponse:
-    if tab not in TABS:
-        raise HTTPException(status_code=404, detail=f"未知のタブです: {tab}")
-    _endpoint, client = _resolve(request, machine_id)
-    info, state, catalog = await asyncio.gather(
-        client.machine_info(), client.state(), client.jobs()
-    )
-    context = _base_context(request, machine_id, tab, info, state)
-    context.update(_tab_context(tab, _jobs_by_name(catalog)))
-    return _html_page(request, "tab.html", context)
-
-
-@router.get("/m/{machine_id}/{tab}/{feature}", response_class=HTMLResponse)
-async def feature_page(
-    machine_id: str, tab: str, feature: str, request: Request
-) -> HTMLResponse:
-    if tab not in TABS or feature not in TABS[tab]:
-        raise HTTPException(
-            status_code=404, detail=f"未知のフィーチャーです: {tab}/{feature}"
-        )
+@router.get("/m/{machine_id}/{slug}", response_class=HTMLResponse)
+async def feature_page(machine_id: str, slug: str, request: Request) -> Response:
+    feature = FEATURES_BY_SLUG.get(slug)
+    if feature is None:
+        return _legacy_redirect(machine_id, slug)
     endpoint, client = _resolve(request, machine_id)
-    info, state, catalog, machine_settings = await asyncio.gather(
+    info, state, readiness, catalog, machine_settings = await asyncio.gather(
         client.machine_info(),
         client.state(),
+        client.readiness(),
         client.jobs(),
-        _machine_settings(endpoint, client, feature in _MACHINE_SETTINGS_FEATURES),
+        _machine_settings(endpoint, client, slug in _MACHINE_SETTINGS_FEATURES),
     )
+    capabilities = _capabilities(info)
+    if not feature.is_available(capabilities):
+        return RedirectResponse(
+            url=f"/m/{machine_id}/{landing(capabilities)}", status_code=307
+        )
     jobs = _jobs_by_name(catalog)
-    context = _base_context(request, machine_id, f"{tab}/{feature}", info, state)
-    context.update(
-        _tab_context(tab, jobs),
-        active_feature=feature,
-        feature_label=_feature_label(jobs, feature),
-    )
-    template = FEATURE_TEMPLATES[tab, feature]
-    if template in JOB_TEMPLATES:
-        job = _job_spec(endpoint, jobs, feature)
-        # preview ペインとローディング UI の有無は backend 側で決まる事実（フレーム
-        # 提供の有無・progress_stage 文字列）なので、backend の自己申告から導出する
+    context = _base_context(request, machine_id, slug, info, state, readiness)
+    context.update(_sidebar_context(feature, jobs, capabilities))
+    if feature.is_job:
+        job = _job_spec(endpoint, jobs, slug)
+        # preview ペインとローディング欄の有無は backend 側で決まる事実（フレーム
+        # 提供の有無・ボタンを押せる段階）なので、backend の自己申告をそのまま渡す
         context.update(
             job_name=job.name,
-            param_specs=job.params,
+            param_sections=param_sections(job.params),
+            persists_params=bool(job.persisted_params),
             show_preview=job.provides_preview,
-            show_loading_controls=job.loading_param is not None,
-            loading_stage=job.loading_stages,
+            loading=job.loading,
         )
-        if job.loading_param is not None:
-            context["loading_default"] = next(
-                spec.default for spec in job.params if spec.name == job.loading_param
-            )
-        if (job_provider := _JOB_FEATURE_CONTEXT.get(feature)) is not None:
+        if (job_provider := _JOB_FEATURE_CONTEXT.get(slug)) is not None:
             context.update(job_provider(job, machine_settings))
-    if (provider := _FEATURE_CONTEXT.get(feature)) is not None:
+    if (provider := _FEATURE_CONTEXT.get(slug)) is not None:
         context.update(provider(state, machine_settings))
-    return _html_page(request, template, context)
+    return _html_page(request, feature.template, context)
+
+
+@router.get("/m/{machine_id}/{tab}/{slug}", include_in_schema=False)
+async def legacy_feature(machine_id: str, tab: str, slug: str) -> RedirectResponse:
+    """旧 URL ``/m/{machine_id}/{旧タブ}/{旧 slug}``（ブックマーク）."""
+    if tab not in LEGACY_TABS:
+        raise HTTPException(status_code=404, detail=f"未知のページです: {tab}/{slug}")
+    return _legacy_redirect(machine_id, slug)
+
+
+# machine を指定しない URL。キャッチオールなので最後に登録する
+@router.get("/{suffix:path}", include_in_schema=False)
+async def unprefixed_entry(suffix: str, request: Request) -> RedirectResponse:
+    # /m/ の下でどの route にも当たらない URL は、自機の prefix を足すと同じ形に戻って 307 が循環する
+    if suffix.startswith("m/"):
+        raise HTTPException(status_code=404, detail=f"未知のページです: /{suffix}")
+    return _open_own(request, suffix)

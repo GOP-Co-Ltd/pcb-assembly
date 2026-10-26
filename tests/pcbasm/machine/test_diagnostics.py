@@ -1,0 +1,286 @@
+"""`pcbasm.machine.diagnostics` の仕様テスト.
+
+Klipper は FakeKlipper と、不通の FakeMoonraker で置き換える。
+"""
+
+import contextlib
+from datetime import datetime
+from pathlib import Path
+
+import attrs
+import httpx
+import numpy as np
+import pytest
+
+from pcbasm.config import load_machine
+from pcbasm.hal import MoonrakerKlipper
+from pcbasm.hal.fake import (
+    FAKE_AUDIO_DEVICES,
+    FAKE_MACHINE_PRINTER_CONFIG,
+    FakeCamera,
+    FakeKlipper,
+)
+from pcbasm.machine.diagnostics import (
+    Check,
+    check_audio,
+    check_camera,
+    check_klipper,
+    load_checks,
+    save_checks,
+)
+from pcbasm.vision import CameraCalibration, Image
+from tests.support.moonraker import FakeMoonraker
+from tests.support.paths import MINIMAL_MACHINE_TOML
+
+MACHINE = load_machine(MINIMAL_MACHINE_TOML)
+
+
+def _frame(width: int, height: int) -> Image:
+    return Image(np.zeros((height, width, 3), dtype=np.uint8))
+
+
+class TestCheckKlipper:
+    def test_all_sections_present(self):
+        klipper = FakeKlipper(FAKE_MACHINE_PRINTER_CONFIG)
+
+        checks = check_klipper(klipper, MACHINE)
+
+        assert [(check.name, check.ok) for check in checks] == [
+            ("Klipper の接続", True),
+            ("ステージ", True),
+            ("ディスペンサー", True),
+            ("プローブ", True),
+            ("駐機", True),
+        ]
+        assert checks[0].detail == "127.0.0.1:7126"
+        assert checks[1].detail == "X 0〜300 / Y 0〜300 / Z -5〜50 mm、最大 100 mm/s"
+        assert checks[3].detail == "[load_cell_probe] があります"
+        assert klipper.sent == ()
+
+    def test_a_machine_without_solder_does_not_check_the_dispenser(self):
+        """部品実装だけの機体の printer.cfg には、ディスペンサーの section が無くてよい."""
+        config = dict(FAKE_MACHINE_PRINTER_CONFIG)
+        del config["manual_stepper paste_dispenser"]
+
+        checks = check_klipper(FakeKlipper(config), attrs.evolve(MACHINE, solder=None))
+
+        assert [(check.name, check.ok) for check in checks] == [
+            ("Klipper の接続", True),
+            ("ステージ", True),
+            ("プローブ", True),
+            ("駐機", True),
+        ]
+
+    @pytest.mark.parametrize(
+        ("section", "name"),
+        [
+            ("stepper_z", "ステージ"),
+            ("printer", "ステージ"),
+            ("manual_stepper paste_dispenser", "ディスペンサー"),
+            ("output_pin air_pump", "ディスペンサー"),
+            ("load_cell_probe", "プローブ"),
+            ("gcode_macro PRESENT", "駐機"),
+        ],
+    )
+    def test_missing_section_fails_only_the_part_that_needs_it(
+        self, section: str, name: str
+    ):
+        config = {
+            key: value
+            for key, value in FAKE_MACHINE_PRINTER_CONFIG.items()
+            if key != section
+        }
+
+        checks = check_klipper(FakeKlipper(config), MACHINE)
+
+        failed = [check for check in checks if not check.ok]
+        assert [check.name for check in failed] == [name]
+        assert f"[{section}]" in failed[0].detail
+
+    def test_klipper_shutdown_fails_the_connection(self):
+        """Moonraker には届くが、MCU が切れて Klipper が shutdown している."""
+        moonraker = FakeMoonraker()
+        moonraker.config = FAKE_MACHINE_PRINTER_CONFIG
+        moonraker.webhooks = {
+            "state": "shutdown",
+            "state_message": "Lost communication with MCU 'mcu'",
+        }
+        klipper = MoonrakerKlipper(
+            "127.0.0.1", 7126, transport=httpx.MockTransport(moonraker.handle)
+        )
+
+        checks = check_klipper(klipper, MACHINE)
+
+        assert (checks[0].ok, checks[0].detail) == (
+            False,
+            "127.0.0.1:7126 の Klipper が shutdown です: "
+            "Lost communication with MCU 'mcu'",
+        )
+        assert all(check.ok for check in checks[1:])
+
+    def test_unreachable_moonraker_skips_printer_cfg(self):
+        moonraker = FakeMoonraker()
+        moonraker.up = False
+        klipper = MoonrakerKlipper(
+            "127.0.0.1", 7126, transport=httpx.MockTransport(moonraker.handle)
+        )
+
+        checks = check_klipper(klipper, MACHINE)
+
+        assert [(check.name, check.ok) for check in checks] == [
+            ("Klipper の接続", False)
+        ]
+        assert "127.0.0.1:7126 に接続できません" in checks[0].detail
+
+
+def _save_calibration(path: Path, z_position: float | None) -> Path:
+    CameraCalibration(
+        pixel_per_mm=20.0,
+        square_size_mm=1.5,
+        mean_distance_px=30.0,
+        std_distance_px=0.1,
+        resolution=(1280, 800),
+        crop_size=(600, 600),
+        calibrated_at=datetime(2026, 10, 24),
+        z_position=z_position,
+    ).save(path)
+    return path
+
+
+class TestCheckCamera:
+    @pytest.fixture
+    def calibration_file(self, tmp_path: Path) -> Path:
+        return _save_calibration(tmp_path / "calibration.json", 12.5)
+
+    def test_resolution_matches_calibration(self, calibration_file: Path):
+        camera = FakeCamera([_frame(1280, 800)])
+
+        check = check_camera(lambda: contextlib.nullcontext(camera), calibration_file)
+
+        assert (check.ok, check.detail) == (True, "1280x800（校正と一致）")
+
+    def test_resolution_differs_from_calibration(self, calibration_file: Path):
+        """[camera] の幅と高さを変えたのに校正し直していない."""
+        camera = FakeCamera([_frame(640, 480)])
+
+        check = check_camera(lambda: contextlib.nullcontext(camera), calibration_file)
+
+        assert (check.ok, check.detail) == (
+            False,
+            "カメラ 640x480 が校正 1280x800 と違います",
+        )
+
+    def test_frame_does_not_arrive(self, calibration_file: Path):
+        camera = FakeCamera(
+            [TimeoutError("フレーム待ちがタイムアウトしました"), _frame(1280, 800)]
+        )
+
+        check = check_camera(lambda: contextlib.nullcontext(camera), calibration_file)
+
+        assert not check.ok
+        assert "カメラから撮れません" in check.detail
+
+    def test_not_calibrated_yet(self, tmp_path: Path):
+        camera = FakeCamera([_frame(1280, 800)])
+
+        check = check_camera(
+            lambda: contextlib.nullcontext(camera), tmp_path / "missing.json"
+        )
+
+        assert not check.ok
+        assert "校正ファイルを読めません" in check.detail
+
+    def test_calibration_without_focus_z(self, tmp_path: Path):
+        """焦点 Z の無い校正ではジョブが始まらないので、診断でも NG にする.
+
+        ファイルは読めているので、理由は焦点 Z の欠落として示す。
+        """
+        camera = FakeCamera([_frame(1280, 800)])
+        path = _save_calibration(tmp_path / "calibration.json", None)
+
+        check = check_camera(lambda: contextlib.nullcontext(camera), path)
+
+        assert not check.ok
+        assert check.detail.startswith(
+            "校正 calibration.json に焦点 Z（z_position）がありません"
+        )
+
+
+class TestCheckAudio:
+    def test_configured_device_is_listed(self):
+        check = check_audio(FAKE_AUDIO_DEVICES, "plughw:CARD=sndrpihifiberry,DEV=0")
+
+        assert (check.ok, check.detail) == (
+            True,
+            "snd_rpi_hifiberry_dac, HifiBerry DAC HiFi pcm5102a-hifi-0",
+        )
+
+    def test_configured_device_is_missing(self):
+        """DAC が認識されていない（dtoverlay の設定漏れなど）."""
+        devices = [
+            device for device in FAKE_AUDIO_DEVICES if "hifiberry" not in device.name
+        ]
+
+        check = check_audio(devices, "plughw:CARD=sndrpihifiberry,DEV=0")
+
+        assert (check.ok, check.detail) == (
+            False,
+            "出力デバイス plughw:CARD=sndrpihifiberry,DEV=0 が見つかりません",
+        )
+
+    def test_system_default_without_any_card(self):
+        """システム既定は aplay -L の結果によらず候補に入るので、それだけでは合格にしない."""
+        check = check_audio(FAKE_AUDIO_DEVICES[:1], "default")
+
+        assert (check.ok, check.detail) == (
+            False,
+            "ALSA の再生デバイスが見つかりません",
+        )
+
+
+class TestSavedChecks:
+    """直近の結果は立ち上げ状況が読むので、ジョブの成果物とは別に残す."""
+
+    def test_round_trip(self, tmp_path: Path):
+        path = tmp_path / "webui" / "machine_check.json"
+        checks = [
+            Check("Klipper の接続", True, "localhost:7125"),
+            Check("通知音（ALSA）", False, "ALSA の再生デバイスが見つかりません"),
+        ]
+
+        save_checks(path, checks)
+
+        assert load_checks(path) == (tuple(checks), None)
+
+    def test_latest_result_replaces_the_previous_one(self, tmp_path: Path):
+        path = tmp_path / "machine_check.json"
+        save_checks(path, [Check("Klipper の接続", False, "接続できません")])
+
+        save_checks(path, [Check("Klipper の接続", True, "localhost:7125")])
+
+        assert load_checks(path) == (
+            (Check("Klipper の接続", True, "localhost:7125"),),
+            None,
+        )
+
+    def test_not_yet_checked(self, tmp_path: Path):
+        assert load_checks(tmp_path / "machine_check.json") == (
+            None,
+            "まだ診断していません",
+        )
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            '[{"name": "Klipper の接続", "passed": true}]\n',  # Check の field を変える前の形
+            "[{",
+        ],
+    )
+    def test_unreadable_result_asks_to_check_again(self, tmp_path: Path, text: str):
+        path = tmp_path / "machine_check.json"
+        path.write_text(text, encoding="utf-8")
+
+        assert load_checks(path) == (
+            None,
+            "直近の結果 machine_check.json を読めません。装置診断をやり直してください",
+        )

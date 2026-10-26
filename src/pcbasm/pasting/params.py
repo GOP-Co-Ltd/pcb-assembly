@@ -1,35 +1,80 @@
 """塗布パラメータの単一ソース.
 
 pad 単位で上書きできる 10 項目を :class:`PasteParams`（全項目確定）と
-:class:`PasteParamsPatch`（差分、``None`` = 継承）の 2 型で表す。項目の一覧・
-表示順・UI メタデータは :data:`PASTE_PARAM_FIELDS` が唯一の出典で、
-``machine.toml``（:class:`pcbasm.config.PasteDispenser`）からの写しは
-``attrs.fields`` で同名フィールドを機械的に行う。
-
-値の制約は ``PasteDispenser.validate_values`` を共用する。
-HTTP 境界の :func:`validate_param_values` は上書き可能な項目名も確認し、
-ここから先の計算層は検証済みの値を受け取る前提で再検証しない。
+:class:`PasteParamsPatch`（差分、欠落 = 継承）の 2 型で表す。項目の一覧・並び・値の制約・表示名は
+:class:`PasteParams` の attrs フィールドが唯一の出典で、``machine.toml`` の
+``[solder.defaults]`` もこの型で読む。項目名・pad 編集表の列・HTTP 境界の検証は
+``attrs.fields`` から導出する。
 
 装置側の吐出ダイナミクス（レート・加速度・リトラクト・リフト）は pad に依らないので
-:class:`DispenseSettings` に分ける。
+:class:`DispenseMotion` に分ける（設定は ``[solder.dispenser]`` と ``[solder.motion]`` に書く）。
+
+``pcbasm.config`` がこのモジュールの型で ``machine.toml`` を読むので、ここは L0 の単位だけに依存する。
+そのため設定ページの metadata は :func:`pcbasm.config.fields.setting` を呼ばずに同じキーの dict で書く（:func:`~pcbasm.config.fields.setting_fields` がそれを ``setting`` に通して検査する）。
+``order`` は ``[solder]`` の画面での通し番号。
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import Any, Literal, Self, cast
+from typing import Any, Literal, Self, get_args, override
 
 import attrs
 
-from pcbasm.config import (
-    DispenseMode,
-    LineDirection,
-    PasteDispenser,
-    PasteHeight,
-    resolve_paste_height,
+from pcbasm.validators import (
+    as_validator,
+    is_finite_number,
+    validate_finite_number,
+    validate_non_negative_number,
+    validate_positive_number,
 )
 
+DispenseMode = Literal["auto", "dot", "line", "area", "micro_line"]
+DISPENSE_MODES: tuple[DispenseMode, ...] = get_args(DispenseMode)
+LineDirection = Literal["unconstrained", "outward", "inward"]
+LINE_DIRECTIONS: tuple[LineDirection, ...] = get_args(LineDirection)
+PasteHeight = float | Literal["auto"]
 PasteParamValue = float | str
+
+
+_positive = as_validator(validate_positive_number)
+_non_negative = as_validator(validate_non_negative_number)
+_finite = as_validator(validate_finite_number)
+
+
+def _height(instance: object, attribute: attrs.Attribute, value: PasteHeight) -> None:
+    """正の高さ [mm] か ``auto``."""
+    if value != "auto":
+        _positive(instance, attribute, value)
+
+
+def _dispense_mode(_: object, __: attrs.Attribute, value: DispenseMode) -> None:
+    if value not in DISPENSE_MODES:
+        raise ValueError(f"未知の塗布方式です: {value!r}")
+
+
+def _line_direction(_: object, __: attrs.Attribute, value: LineDirection) -> None:
+    if value not in LINE_DIRECTIONS:
+        raise ValueError(f"未知の線走行方向です: {value!r}")
+
+
+def _overlap(_: object, attribute: attrs.Attribute, value: Any) -> None:
+    if not is_finite_number(value) or not 0.0 <= value < 1.0:
+        raise ValueError(f"{attribute.name}は0以上1未満である必要があります: {value!r}")
+
+
+_DISPENSE_MODE_CHOICES = (
+    ("auto", "Auto"),
+    ("dot", "点"),
+    ("line", "線"),
+    ("area", "面"),
+    ("micro_line", "微小線"),
+)
+_LINE_DIRECTION_CHOICES = (
+    ("unconstrained", "指定なし"),
+    ("outward", "部品中心 → 外側"),
+    ("inward", "外側 → 部品中心"),
+)
 
 
 @attrs.frozen
@@ -61,11 +106,12 @@ class ParamField:
     column: str | None = None
 
 
-@attrs.frozen
+@attrs.frozen(kw_only=True)
 class PasteParams:
     """Pad 1 枚に適用する塗布パラメータ 10 項目（全項目確定）.
 
-    フィールドの並びは UI の列順と一致させる（:data:`PASTE_PARAM_FIELDS` と同順）。
+    フィールド名は基板ごとの override（board_settings）の鍵なので変えない。
+    フィールドの並びは UI の列順になる（:data:`PASTE_PARAM_FIELDS`）。
 
     Attributes:
         dispense_mode: 塗布方式 auto / dot / line / area / micro_line
@@ -80,26 +126,80 @@ class PasteParams:
         micro_line_z_end: 微小線の終点で基板表面から取る隙間 [mm]、または ``auto``（塗布量から計算）
     """
 
-    dispense_mode: DispenseMode
-    line_direction: LineDirection
-    ul_per_mm2: float
-    paste_height: PasteHeight
-    prime_extra_delay: float
-    bead_width_factor: float
-    overlap: float
-    boundary_margin: float
-    micro_line_z_start: PasteHeight
-    micro_line_z_end: PasteHeight
-
-    @classmethod
-    def from_config(cls, config: PasteDispenser) -> Self:
-        """``machine.toml`` の ``[paste_dispenser]`` から同名フィールドを写す."""
-        return cls(**{name: getattr(config, name) for name in PASTE_PARAM_NAMES})
-
-    @property
-    def paste_height_mm(self) -> float:
-        """基板表面からのノズル高さ [mm]（``auto`` は ``ul_per_mm2`` を膜厚として解決）."""
-        return resolve_paste_height(self.paste_height, self.ul_per_mm2)
+    dispense_mode: DispenseMode = attrs.field(
+        default="auto",
+        validator=_dispense_mode,
+        metadata={
+            "label": "塗布方式",
+            "group": "塗布方式",
+            "order": 50,
+            "choices": _DISPENSE_MODE_CHOICES,
+        },
+    )
+    line_direction: LineDirection = attrs.field(
+        default="unconstrained",
+        validator=_line_direction,
+        metadata={
+            "label": "線の走行方向",
+            "group": "塗布方式",
+            "order": 51,
+            "choices": _LINE_DIRECTION_CHOICES,
+        },
+    )
+    ul_per_mm2: float = attrs.field(
+        validator=_positive,
+        metadata={
+            "label": "面積あたりのペースト量",
+            "unit": "uL/mm²",
+            "group": "吐出の基本",
+            "order": 14,
+        },
+    )
+    paste_height: PasteHeight = attrs.field(
+        validator=_height,
+        metadata={"label": "塗布高さ", "unit": "mm", "group": "Z 高さ", "order": 80},
+    )
+    prime_extra_delay: float = attrs.field(
+        default=0.0,
+        validator=_non_negative,
+        metadata={
+            "label": "プライム後追加遅延",
+            "unit": "s",
+            "group": "プライム・パージ",
+            "order": 40,
+            "minimum": 0.0,
+        },
+    )
+    bead_width_factor: float = attrs.field(
+        default=1.0,
+        validator=_positive,
+        metadata={"label": "ビード幅係数", "group": "塗布経路", "order": 60},
+    )
+    overlap: float = attrs.field(
+        default=0.0,
+        validator=_overlap,
+        metadata={
+            "label": "重なり率",
+            "group": "塗布経路",
+            "order": 61,
+            "minimum": 0.0,
+        },
+    )
+    boundary_margin: float = attrs.field(
+        default=0.0,
+        validator=_finite,
+        metadata={"label": "外周余白", "unit": "mm", "group": "塗布経路", "order": 62},
+    )
+    micro_line_z_start: PasteHeight = attrs.field(
+        default="auto",
+        validator=_height,
+        metadata={"label": "始点高", "unit": "mm", "group": "微小線", "order": 70},
+    )
+    micro_line_z_end: PasteHeight = attrs.field(
+        default="auto",
+        validator=_height,
+        metadata={"label": "終点高", "unit": "mm", "group": "微小線", "order": 71},
+    )
 
     @property
     def height_fields(self) -> tuple[str, ...]:
@@ -109,7 +209,7 @@ class PasteParams:
         return ("paste_height",)
 
     def patched(self, patch: PasteParamsPatch) -> Self:
-        """``patch`` の非 ``None`` 項目で上書きした新しいインスタンスを返す."""
+        """``patch`` の項目で上書きした新しいインスタンスを返す."""
         return attrs.evolve(self, **patch.to_dict())
 
     def to_dict(self) -> dict[str, Any]:
@@ -117,98 +217,24 @@ class PasteParams:
         return attrs.asdict(self)
 
 
-@attrs.frozen
-class PasteParamsPatch:
-    """塗布パラメータの差分上書き（``None`` = 継承。JSON では欠落で表現）."""
-
-    dispense_mode: DispenseMode | None = None
-    line_direction: LineDirection | None = None
-    ul_per_mm2: float | None = None
-    paste_height: PasteHeight | None = None
-    prime_extra_delay: float | None = None
-    bead_width_factor: float | None = None
-    overlap: float | None = None
-    boundary_margin: float | None = None
-    micro_line_z_start: PasteHeight | None = None
-    micro_line_z_end: PasteHeight | None = None
-
-    @classmethod
-    def from_dict(cls, values: Mapping[str, object]) -> Self:
-        """欠落項目を ``None`` として復元する（値は検証済みであること）."""
-        kwargs = {name: values.get(name) for name in PASTE_PARAM_NAMES}
-        return cls(**cast(dict[str, Any], kwargs))
-
-    def to_dict(self) -> dict[str, PasteParamValue]:
-        """非 ``None`` 項目のみの dict."""
-        return {
-            name: value
-            for name in PASTE_PARAM_NAMES
-            if (value := getattr(self, name)) is not None
-        }
-
-    def updated(
-        self,
-        values: Mapping[str, PasteParamValue] | None = None,
-        *,
-        clear: Iterable[str] = (),
-    ) -> Self:
-        """``values`` で上書きし ``clear`` の項目を継承（``None``）に戻した新パッチ."""
-        merged: dict[str, object] = dict(self.to_dict())
-        if values:
-            merged.update(values)
-        for name in clear:
-            merged.pop(name, None)
-        return self.from_dict(merged)
-
-    @property
-    def is_empty(self) -> bool:
-        return all(getattr(self, name) is None for name in PASTE_PARAM_NAMES)
+_PASTE_PARAM_ATTRIBUTES: dict[str, attrs.Attribute] = attrs.fields_dict(PasteParams)
+PASTE_PARAM_NAMES: tuple[str, ...] = tuple(_PASTE_PARAM_ATTRIBUTES)
 
 
-# UI 列順のフィールド一覧。名前と順序は PasteParams の attrs フィールドと一致する。
-PASTE_PARAM_FIELDS: tuple[ParamField, ...] = (
-    ParamField(
-        "dispense_mode",
-        "塗布方式",
-        "choice",
-        choices=(
-            ChoiceOption("auto", "Auto"),
-            ChoiceOption("dot", "点"),
-            ChoiceOption("line", "線"),
-            ChoiceOption("area", "面"),
-            ChoiceOption("micro_line", "微小線"),
-        ),
-    ),
-    ParamField(
-        "line_direction",
-        "線の走行方向",
-        "choice",
-        choices=(
-            ChoiceOption("unconstrained", "指定なし"),
-            ChoiceOption("outward", "部品中心 → 外側"),
-            ChoiceOption("inward", "外側 → 部品中心"),
-        ),
-    ),
-    ParamField("ul_per_mm2", "面積あたりのペースト量", "number", unit="μL/mm²"),
-    ParamField("paste_height", "塗布高さ", "height", unit="mm"),
-    ParamField("prime_extra_delay", "プライム後追加遅延", "number", unit="s"),
-    ParamField("bead_width_factor", "ビード幅係数", "number"),
-    ParamField("overlap", "重なり率", "number"),
-    ParamField("boundary_margin", "外周余白", "number", unit="mm"),
-    ParamField(
-        "micro_line_z_start", "始点高", "height", unit="mm", column="paste_height"
-    ),
-    ParamField(
-        "micro_line_z_end", "終点高", "height", unit="mm", column="paste_height"
-    ),
-)
-
-PASTE_PARAM_NAMES: tuple[str, ...] = tuple(field.name for field in PASTE_PARAM_FIELDS)
+def _validate_field_values(values: Mapping[str, object]) -> str | None:
+    """渡された項目の値だけを、その attrs フィールドの validator で検証する."""
+    for name, value in values.items():
+        attribute = _PASTE_PARAM_ATTRIBUTES[name]
+        try:
+            attribute.validator(None, attribute, value)  # type: ignore[misc]
+        except ValueError as exc:
+            return str(exc)
+    return None
 
 
 def validate_field_names(fields: Iterable[str]) -> str | None:
     """:data:`PASTE_PARAM_NAMES` 外の項目があればエラー文、無ければ ``None``."""
-    unknown = [field for field in fields if field not in PASTE_PARAM_NAMES]
+    unknown = [field for field in fields if field not in _PASTE_PARAM_ATTRIBUTES]
     if unknown:
         return f"未知の設定項目です: {', '.join(unknown)}"
     return None
@@ -218,12 +244,98 @@ def validate_param_values(values: Mapping[str, object]) -> str | None:
     """HTTP 境界で受けた塗布パラメータ値を検証し、不正なら日本語エラー文を返す."""
     if (message := validate_field_names(values)) is not None:
         return message
-    return PasteDispenser.validate_values(values)
+    return _validate_field_values(values)
 
 
-@attrs.frozen
-class DispenseSettings:
-    """装置側の吐出ダイナミクス（pad に依らない）.
+class PasteParamsPatch:
+    """塗布パラメータの差分上書き（書かれていない項目 = 継承。JSON でも欠落で表現）.
+
+    項目名は :data:`PASTE_PARAM_NAMES` だけを受け付ける。値は検証済みであること。
+    """
+
+    __slots__ = ("_values",)
+
+    def __init__(self, **values: PasteParamValue | None) -> None:
+        if (message := validate_field_names(values)) is not None:
+            raise TypeError(message)
+        self._values = {
+            name: value
+            for name in PASTE_PARAM_NAMES
+            if (value := values.get(name)) is not None
+        }
+
+    def to_dict(self) -> dict[str, PasteParamValue]:
+        """書かれている項目だけの dict（:data:`PASTE_PARAM_NAMES` の順）."""
+        return dict(self._values)
+
+    def updated(
+        self,
+        values: Mapping[str, PasteParamValue] | None = None,
+        *,
+        clear: Iterable[str] = (),
+    ) -> Self:
+        """``values`` で上書きし ``clear`` の項目を継承に戻した新パッチ."""
+        merged: dict[str, PasteParamValue | None] = {**self._values, **(values or {})}
+        for name in clear:
+            merged.pop(name, None)
+        return type(self)(**merged)
+
+    @property
+    def is_empty(self) -> bool:
+        return not self._values
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, PasteParamsPatch):
+            return NotImplemented
+        return self._values == other._values
+
+    @override
+    def __hash__(self) -> int:
+        return hash(tuple(self._values.items()))
+
+    @override
+    def __repr__(self) -> str:
+        items = ", ".join(f"{name}={value!r}" for name, value in self._values.items())
+        return f"PasteParamsPatch({items})"
+
+
+# pad 表で独立した列にせず、ほかの項目の列に描く項目 → その列の項目名
+_COLUMNS: dict[str, str] = {
+    "micro_line_z_start": "paste_height",
+    "micro_line_z_end": "paste_height",
+}
+
+
+def _param_field(attribute: attrs.Attribute) -> ParamField:
+    choices = tuple(
+        ChoiceOption(value, label)
+        for value, label in attribute.metadata.get("choices", ())
+    )
+    # 数値か auto を受け付ける項目（validator が _height）は height の入力欄で描く
+    is_height = attribute.validator is _height
+    return ParamField(
+        attribute.name,
+        attribute.metadata["label"],
+        "choice" if choices else "height" if is_height else "number",
+        unit=attribute.metadata.get("unit"),
+        choices=choices,
+        column=_COLUMNS.get(attribute.name),
+    )
+
+
+# UI 列順のフィールド一覧（PasteParams の attrs フィールドの順）
+PASTE_PARAM_FIELDS: tuple[ParamField, ...] = tuple(
+    _param_field(attribute) for attribute in _PASTE_PARAM_ATTRIBUTES.values()
+)
+
+
+@attrs.frozen(kw_only=True)
+class DispenseMotion:
+    """吐出の動き（pad に依らない装置側の値。fill sequence が使う）.
+
+    :attr:`pcbasm.config.solder.SolderConfig.dispense_motion` が ``[solder.dispenser]`` と ``[solder.motion]`` から組み立てる。
+    値の範囲は設定の読み込みが検証する。
 
     Attributes:
         max_fill_speed: 連続塗布できる移動速度上限 [mm/sec]
@@ -251,19 +363,3 @@ class DispenseSettings:
     def retract_accel(self) -> float:
         """リトラクション加速度 a_R [μL/sec²]."""
         return self.retract_accel_factor * self.retract_rate**2 / self.retract_amount
-
-    @classmethod
-    def from_config(
-        cls, config: PasteDispenser, *, lift_height: float | None = None
-    ) -> Self:
-        return cls(
-            max_fill_speed=config.max_fill_speed,
-            max_dispense_rate=config.max_dispense_rate,
-            dispense_accel=config.dispense_accel,
-            retract_amount=config.retract_amount,
-            retract_rate=config.effective_retract_rate,
-            retract_accel_factor=config.retract_accel_factor,
-            lift_height=config.lift_height if lift_height is None else lift_height,
-            micro_line_settle_seconds=config.micro_line_settle_seconds,
-            post_dispense_settle_seconds=config.post_dispense_settle_seconds,
-        )

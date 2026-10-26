@@ -1,6 +1,6 @@
 """`web.ui.machines` の仕様テスト.
 
-計画書 docs/plans/web-api-ui-split.md「MR4」節の契約:
+契約:
 
 - `MachineEndpoint.label` は **サーバ側で組む表示文字列**
   （`f"{machine_id}: {host}"` = hostname と所在）。JS は `textContent` に流すだけ
@@ -12,6 +12,7 @@
 import tomllib
 from pathlib import Path
 
+import attrs
 import pytest
 
 from web.ui.machines import (
@@ -23,10 +24,7 @@ from web.ui.machines import (
 )
 
 KUROUSAGI = MachineEndpoint(
-    machine_id="kurousagi002",
-    host="kurousagi002.local",
-    port=8081,
-    name="黒兎 2 号機",
+    machine_id="kurousagi002", host="kurousagi002.local", port=8081
 )
 
 
@@ -37,13 +35,18 @@ def write_machines_toml(tmp_path: Path, body: str) -> Path:
 
 
 class TestMachineEndpoint:
-    """所在と表示名の組み立て."""
+    """所在と表示文字列の組み立て."""
 
     def test_base_url_points_at_the_backend_api(self):
         assert KUROUSAGI.base_url == "http://kurousagi002.local:8081"
 
     def test_label_shows_the_hostname_and_host(self):
         assert KUROUSAGI.label == "kurousagi002: kurousagi002.local"
+
+    def test_label_marks_an_update_only_machine(self):
+        endpoint = attrs.evolve(KUROUSAGI, update_only=True)
+
+        assert endpoint.label == "kurousagi002: kurousagi002.local（更新専用）"
 
 
 class TestMachineRegistry:
@@ -81,6 +84,7 @@ class TestLoadMachinesFile:
         assert load_machines_file(tmp_path / "machines.toml") == ()
 
     def test_reads_entries_in_file_order(self, tmp_path: Path):
+        """使わなくなったキー（``name`` / ``machine_type``）は読み飛ばす."""
         path = write_machines_toml(
             tmp_path,
             """
@@ -99,13 +103,7 @@ class TestLoadMachinesFile:
         )
 
         assert load_machines_file(path) == (
-            MachineEndpoint(
-                machine_id="kurousagi002",
-                host="kurousagi002.local",
-                port=8081,
-                name="黒兎 2 号機",
-                machine_type="paste",
-            ),
+            KUROUSAGI,
             MachineEndpoint(machine_id="alpha", host="alpha.local", port=18081),
         )
 
@@ -153,10 +151,6 @@ class TestLoadMachinesFile:
                 '[[machine]]\nmachine_id = "alpha"\nhost = "alpha.local"\nport = true\n',
                 id="port が真偽値",
             ),
-            pytest.param(
-                '[[machine]]\nmachine_id = "alpha"\nhost = "alpha.local"\nname = 2\n',
-                id="name が数値",
-            ),
             pytest.param("machine = 5\n", id="machine が配列でない"),
         ),
     )
@@ -181,17 +175,15 @@ DISCOVERED_KUROUSAGI = MachineEndpoint(
     machine_id="kurousagi",
     host="192.168.100.201",
     port=8081,
-    machine_type="paste",
     source="mdns",
 )
 
 
 class TestSetDiscovered:
-    """静的登録と mDNS 発見分のマージ規則（MR5）.
+    """静的登録と mDNS 発見分のマージ規則.
 
-    静的登録は運用者が書いた設定なので、同じ machine_id を mDNS で見つけても 所在（host /
-    port）と表示名を上書きしない。上書きすると、DHCP で変わった アドレスや別 IF
-    のアドレスに勝手に切り替わって「設定したのに違う機体を 叩く」事故になる。
+    静的登録は運用者が書いた設定なので、同じ machine_id を mDNS で見つけても所在（host / port）を上書きしない。
+    上書きすると、DHCP で変わったアドレスや別 IF のアドレスに勝手に切り替わって「設定したのに違う機体を叩く」事故になる。
     """
 
     def test_discovered_only_machines_are_appended_after_static_ones(self):
@@ -215,37 +207,32 @@ class TestSetDiscovered:
 
         assert registry.list() == (first, second)
 
-    def test_static_host_port_and_name_win_for_the_same_machine_id(self):
+    def test_static_host_and_port_win_for_the_same_machine_id(self):
         static = MachineEndpoint(
-            machine_id="kurousagi",
-            host="kurousagi.local",
-            port=9000,
-            name="静的な黒兎",
+            machine_id="kurousagi", host="kurousagi.local", port=9000
         )
         registry = MachineRegistry((static,))
 
         registry.set_discovered((DISCOVERED_KUROUSAGI,))
 
         (merged,) = registry.list()
-        assert (merged.host, merged.port, merged.name) == (
-            "kurousagi.local",
-            9000,
-            "静的な黒兎",
-        )
+        assert (merged.host, merged.port) == ("kurousagi.local", 9000)
         # 出自は静的登録のまま（mDNS で見えたかどうかで表示が揺れない）
         assert merged.source == "static"
 
-    def test_missing_machine_type_is_filled_from_mdns(self):
+    @pytest.mark.parametrize("update_only", [True, False])
+    def test_update_only_follows_the_advertised_api_version(self, update_only: bool):
+        """静的登録は API 版を知らないので、同じ機体の広告に従う."""
         static = MachineEndpoint(
             machine_id="kurousagi", host="kurousagi.local", port=8081
         )
         registry = MachineRegistry((static,))
 
-        registry.set_discovered((DISCOVERED_KUROUSAGI,))
+        registry.set_discovered(
+            (attrs.evolve(DISCOVERED_KUROUSAGI, update_only=update_only),)
+        )
 
-        (merged,) = registry.list()
-        assert merged.machine_type == "paste"
-        assert merged.host == "kurousagi.local"
+        assert registry.resolve("kurousagi").update_only is update_only
 
     def test_resolve_finds_a_discovered_only_machine(self):
         registry = MachineRegistry()

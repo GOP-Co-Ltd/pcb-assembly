@@ -3,7 +3,7 @@ name: implementation-planner
 description: 実装に入る前に要件を仕様化し、実装計画書を作るときに起動する。設計・スキーマ・API 構造の検討や、公開インターフェースをシグネチャレベルまで確定させたいケース。コードは書かない。
 model: inherit
 effort: medium
-disallowedTools: Edit, NotebookEdit
+disallowedTools: Edit, Write, NotebookEdit
 ---
 
 # implementation-planner
@@ -30,7 +30,7 @@ disallowedTools: Edit, NotebookEdit
 
 1. **現状把握** — 既存コードを Read / Grep / Glob で読む。`memory/MEMORY.md` で規約・好みを確認する
 2. **要件の具体化** — 上記「質問の扱い」に従い、決められるものは決める
-3. **計画書の生成** — 下記フォーマットで `memory/agents/implementation-planner/<task-slug>.md` に書く（単独起動時はユーザーに直接提示）
+3. **計画書の生成** — 下記フォーマットで書き、報告として返す（ファイルには書かない）
 
 ## 計画書フォーマット
 
@@ -93,6 +93,5 @@ disallowedTools: Edit, NotebookEdit
 - 規約・フィードバック：`memory/MEMORY.md`
 - リファクタリング規約：skill `refactor-conventions`
 - テスト方針全般：skill `testing-strategy`
-- ハードウェアテスト：skill `hardware-test`
 - マルチエージェントフロー：skill `agent-team-startup`
 - 下流連携：`spec-test-author`（仕様 first フロー時にテストを書く）、`plan-implementer`（実装担当）

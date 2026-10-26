@@ -14,7 +14,7 @@ from pathlib import Path
 
 import attrs
 
-from pcbasm.utils import PROJECT_ROOT
+from pcbasm.paths import PROJECT_ROOT
 
 
 def _which(name: str, fallback: str) -> str:
@@ -42,13 +42,13 @@ class UpdateSettings:
     # sudoers で argv を固定するので、この 2 つは実機の絶対パスから動かさない
     systemctl_bin: str = "/usr/bin/systemctl"
     sudo_bin: str = "/usr/bin/sudo"
-    # 設置済み unit の置き場所（読み取り専用。書き込みは web-service.sh の特権経路）
+    # 設置済み unit の置き場所（読み取り専用。書き込みは install.sh services が行う）
     unit_dir: Path = Path("/etc/systemd/system")
     # 素の `uv sync` は (a) 指定しなかった dependency group を削除し（機体ごとに
     # 足した group が更新のたびに消える）、(b) pyproject と lock がずれると uv.lock を
     # 書き換える（tree が dirty になり以後の更新が全部止まる）。既定の引数でこの 2 つを防ぐ
     uv_sync_args: tuple[str, ...] = ("--locked", "--inexact")
-    # 機体ごとに無効化できる安全弁（無効なら start() は何もせず理由を返す）
+    # シミュレーション起動（PCBASM_FAKE=1）で切る安全弁（無効なら start() は何もせず理由を返す）
     enabled: bool = True
     # ハング時に打ち切るまでの上限。git はネットワーク I/O、uv sync は依存の取得を含む。
     # git_timeout は rev-parse / status などローカルで完結する読み取り専用コマンド用

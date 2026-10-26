@@ -1,14 +1,15 @@
-"""Frontend 自身の更新（`/update` と `/api/self-update/**`）の仕様テスト.
+"""更新ページ（`/update`）と frontend 自身の更新（`/api/self-update/**`）の仕様テスト.
 
-計画書「3. frontend」が契約:
+契約:
 
+- `/update` は唯一の更新操作の画面で、UI サーバー自身と登録済みの全機体のパネルを並べる
 - パスは backend と**意図的に変える**（`/m/{id}/api/update/**` は proxy で backend 行き）
 - **登録順が致命的**: `machines_api.router` → `update_api.router` → `pages.router`。
-  逆にすると `/update` が `/{tab}` キャッチオールに食われて 307 になる
+  逆にすると `/update` が `/{suffix:path}` キャッチオールに食われて 307 になる
 - frontend には操作権が無い。守るのは `expected_head` / flock / `enabled` / `confirm`
   の多層で、**いずれも認証ではない**
 
-モックは使わない（`tests/web/update_support.py` の実 git + スタブ実行ファイル）。
+モックは使わない（`tests/support/selfupdate.py` の実 git + スタブ実行ファイル）。
 """
 
 from __future__ import annotations
@@ -24,10 +25,12 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tests.helpers import FakeAudioPlayer, before_deadline
-from tests.web.update_support import UpdateSandbox, make_update_sandbox
+from pcbasm.hal.fake import FakeAudioPlayer
+from tests.support.polling import before_deadline
+from tests.support.selfupdate import UpdateSandbox, make_update_sandbox
+from tests.support.web import devices_with_audio
 from web.api.app import create_app as create_backend_app
-from web.api.settings import Settings as ApiSettings
+from web.api.env import Env as ApiEnv
 from web.selfupdate.runner import UpdateRunner
 from web.ui.app import create_app
 from web.ui.machines import MachineEndpoint
@@ -72,13 +75,13 @@ def _finish(runner: UpdateRunner) -> None:
 
 
 class TestRouteOrder:
-    """`/update` が `/{tab}` キャッチオールに食われない（登録順の回帰）."""
+    """`/update` が `/{suffix:path}` キャッチオールに食われない（登録順の回帰）."""
 
     def test_update_page_is_served_not_redirected(self, update_client: TestClient):
         response = update_client.get("/update", follow_redirects=False)
 
         assert response.status_code == 200
-        assert 'id="update-panel"' in response.text
+        assert 'data-testid="update-panel-frontend"' in response.text
 
     def test_machines_api_still_answers_json(self, update_client: TestClient):
         """先に登録した `/api/machines` を壊していない."""
@@ -99,18 +102,84 @@ class TestRouteOrder:
 class TestPage:
     """`/update` ページの中身（値は JS が status API から入れる）."""
 
-    def test_page_targets_the_frontend_update_api(self, update_client: TestClient):
-        """Backend 行きの更新 API ではなく frontend 自身のエンドポイントを見る."""
-        body = update_client.get("/update").text
+    def test_ui_server_panel_targets_the_frontend_update_api(
+        self, update_client: TestClient
+    ):
+        """UI サーバーのパネルは、backend 行きではなく frontend 自身のエンドポイントを見る."""
+        panel = _panel(update_client.get("/update").text, "frontend")
 
-        assert 'data-transport="frontend"' in body
-        assert 'data-status-url="/api/self-update"' in body
+        assert 'data-transport="frontend"' in panel
+        assert 'data-status-url="/api/self-update"' in panel
+
+    def test_machine_panel_targets_that_machine_through_the_proxy(
+        self, update_client: TestClient
+    ):
+        """機体のパネルは proxy 経由でその機体の `/api/update/**` を呼ぶ."""
+        panel = _panel(update_client.get("/update").text, "uitest")
+
+        assert 'data-transport="backend"' in panel
+        assert 'data-status-url="/m/uitest/api/update/status"' in panel
+        assert 'data-check-url="/m/uitest/api/update/check"' in panel
+        assert 'data-run-url="/m/uitest/api/update/run"' in panel
 
     def test_actions_are_not_control_gated(self, update_client: TestClient):
-        """Frontend に操作権は無い。印を付けると control.js が永久に inert にする."""
+        """このページに操作権バーは無い。印を付けると control.js が永久に inert にする.
+
+        機体の更新の確認は操作権なしで受け、実行は操作権が空いていれば backend が要求で取り、ほかの端末が持っていれば断る。
+        """
         body = update_client.get("/update").text
 
-        assert "data-requires-control" not in body.split('id="update-panel"')[1]
+        assert "data-requires-control" not in body.split('data-testid="main-pane"')[1]
+
+    def test_colocated_machine_is_explained(self, update_client: TestClient):
+        """同居機は UI サーバーと同じソースなので、どちらのパネルでも両方が更新されると案内する."""
+        note = update_client.get("/update").text.split('data-testid="update-colocated"')
+
+        assert len(note) == 2
+        assert "uitest" in note[1].split("</p>", 1)[0]
+
+    def test_no_colocation_note_on_a_frontend_only_host(
+        self,
+        ui_settings: Settings,
+        backend_app: FastAPI,
+        runner: UpdateRunner,
+    ):
+        app = create_app(
+            attrs.evolve(ui_settings, hostname="frontend-only"),
+            transport_factory=lambda _endpoint: httpx.ASGITransport(app=backend_app),
+            update_runner=runner,
+        )
+        with TestClient(app) as client:
+            body = client.get("/update").text
+
+        assert 'data-testid="update-panel-uitest"' in body
+        assert 'data-testid="update-colocated"' not in body
+
+    def test_each_machine_links_its_backup(self, update_client: TestClient):
+        """UI サーバーを更新する前に、機体ごとのバックアップ zip を同じ画面から取れる."""
+        body = update_client.get("/update").text
+
+        assert 'href="/m/uitest/api/backup"' in body
+        response = update_client.get("/m/uitest/api/backup")
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/zip"
+
+    def test_update_only_machine_has_no_backup_link(
+        self, ui_settings: Settings, runner: UpdateRunner
+    ):
+        """更新専用の機体も更新できるが、バックアップは中継しない（押しても 409 になる）."""
+        old = MachineEndpoint(
+            machine_id="old", host="127.0.0.1", port=1, update_only=True
+        )
+        app = create_app(
+            attrs.evolve(ui_settings, machines=(old,)), update_runner=runner
+        )
+        with TestClient(app) as client:
+            body = client.get("/update").text
+
+        assert 'data-status-url="/m/old/api/update/status"' in body
+        assert 'data-testid="update-only-old"' in body
+        assert "/m/old/api/backup" not in body
 
     def test_page_needs_no_backend(self, ui_settings: Settings, runner: UpdateRunner):
         """機体が 1 台も居ないホスト（frontend 専用機）でも開ける."""
@@ -229,7 +298,7 @@ class TestUpdateNotice:
     def _client(
         self,
         ui_settings: Settings,
-        backend_settings: ApiSettings,
+        backend_settings: ApiEnv,
         footprint_root: Path,
         runner: UpdateRunner,
         machine_runner: UpdateRunner,
@@ -237,7 +306,7 @@ class TestUpdateNotice:
         """Frontend も機体 backend も sandbox のリポジトリを見る構成を組む."""
         backend = create_backend_app(
             backend_settings,
-            audio_player=FakeAudioPlayer(),
+            devices=devices_with_audio(backend_settings, FakeAudioPlayer()),
             paste_test_board_footprint_root=footprint_root,
             update_runner=machine_runner,
         )
@@ -250,15 +319,13 @@ class TestUpdateNotice:
             with TestClient(app) as test_client:
                 yield test_client
         finally:
-            backend.state.preview.request_shutdown()
-            backend.state.jobs.shutdown()
-            backend.state.appstate.close()
+            backend.state.backend.close()
 
     @pytest.fixture
     def notice_client(
         self,
         ui_settings: Settings,
-        backend_settings: ApiSettings,
+        backend_settings: ApiEnv,
         paste_test_board_footprint_root: Path,
         runner: UpdateRunner,
         machine_runner: UpdateRunner,
@@ -301,7 +368,7 @@ class TestUpdateNotice:
         assert body["href"] == "/update"
         assert body["label"]
 
-    def test_machine_update_points_at_that_machine_page(
+    def test_machine_update_points_at_the_update_page(
         self,
         notice_client: TestClient,
         machine_sandbox: UpdateSandbox,
@@ -313,10 +380,10 @@ class TestUpdateNotice:
         body = notice_client.get("/api/update-notice?machine_id=uitest").json()
 
         assert body["available"] is True
-        assert body["href"] == "/m/uitest/dev/update"
+        assert body["href"] == "/update"
         assert "uitest" in body["detail"]
 
-    def test_both_hosts_pending_falls_back_to_the_update_index(
+    def test_both_hosts_pending_are_counted_together(
         self,
         notice_client: TestClient,
         sandbox: UpdateSandbox,
@@ -359,7 +426,7 @@ class TestUpdateNotice:
         machine_sandbox: UpdateSandbox,
         machine_runner: UpdateRunner,
     ):
-        """マシン非依存のページ（ピッカー・/update）には machine_id が無い."""
+        """マシン非依存のページ（機体一覧・/update）には machine_id が無い."""
         machine_sandbox.push()
         machine_runner.check()
 
@@ -370,7 +437,7 @@ class TestUpdateNotice:
     def test_colocated_host_is_counted_once(
         self,
         ui_settings: Settings,
-        backend_settings: ApiSettings,
+        backend_settings: ApiEnv,
         paste_test_board_footprint_root: Path,
         sandbox: UpdateSandbox,
         runner: UpdateRunner,
@@ -405,3 +472,10 @@ class TestUpdateNotice:
 
         assert 'id="update-badge"' in body
         assert "js/update_notice.js" in body
+
+
+def _panel(html: str, key: str) -> str:
+    """``data-testid="update-panel-<key>"`` のパネルの HTML 断片."""
+    _, _, rest = html.partition(f'data-testid="update-panel-{key}"')
+    assert rest, f"{key} のパネルがありません"
+    return rest.split("</section>", 1)[0]

@@ -60,7 +60,7 @@ gh pr create \
 
 ## 注意点
 
-- **マージはしない**。`main` への merge はユーザー判断（AGENTS.md の Git 運用に従う）。`gh pr merge` は実行しない
-- 検証（`make format && make type && make test-no-hardware`）が未実施の変更を含む場合は、PR 作成前に実行する
+- **マージはしない**。`main` への merge はユーザー判断（CLAUDE.md の Git 運用に従う）。`gh pr merge` は実行しない
+- 検証（`make check`）が未実施の変更を含む場合は、PR 作成前に実行する
 - push が reject された場合（remote が先行）は `git pull --rebase` の要否をユーザーに確認する。`--force` 系は使わない
 - `.github/workflows/` を変更する PR を push するには `gh auth` の token に `workflow` scope が要る

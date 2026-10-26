@@ -1,30 +1,16 @@
 help:  ## Show help
 	@grep -E '^[.0-9a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
 
-.PHONY: clean
-clean: ## Clean generated artifacts without traversing .git or .venv
-	rm -rf dist
-	find . -type d \( -name .git -o -name .venv \) -prune -o \
-		-type d \( -name __pycache__ -o -name .pytest_cache -o -name .ipynb_checkpoints \) \
-		-prune -exec rm -rf -- {} +
-	find . -type d \( -name .git -o -name .venv \) -prune -o \
-		-type f \( -name '*.pyc' -o -name '*.pyo' -o -name .DS_Store \) \
-		-exec rm -f -- {} +
-	rm -f .coverage
-
-setup: clean  ## Setup development environment
+setup: ## Setup development environment
 	uv venv --clear --system-site-packages
-	uv sync --all-extras
+	uv sync --locked --all-extras
 	uv run pre-commit install
 
 format: ## Run pre-commit hooks
 	uv run pre-commit run -a
 
-test: ## Run all tests (excludes e2e; see test-e2e)
+test: ## Run tests except e2e (hardware is checked by docs/acceptance.md)
 	uv run pytest -v -m "not e2e"
-
-test-no-hardware: ## Run tests without hardware
-	uv run pytest -v -m "not hardware and not e2e"
 
 test-e2e: ## Run WebUI full-stack E2E (live uvicorn + HTTP/WS/MJPEG)
 	uv run pytest -v -m e2e --timeout=180
@@ -32,57 +18,18 @@ test-e2e: ## Run WebUI full-stack E2E (live uvicorn + HTTP/WS/MJPEG)
 playwright-install: ## Install Playwright-managed Chromium when system chromium is unavailable
 	uv run playwright install chromium
 
-migrate-codex: ## Generate Codex rules from Claude settings
-	uv run python scripts/migrate_codex.py
-
-migrate-codex-check: ## Check whether generated Codex rules are current
-	uv run python scripts/migrate_codex.py --check
-
 type: ## Run type check
 	uv run pyright
-
-api-dev: ## Run backend WebAPI dev server (auto-reload)
-	uv run uvicorn web.api.app:create_app --factory --reload --host 0.0.0.0 --port 8081
 
 api: ## Run backend WebAPI server
 	uv run python -m web.api
 
-# 初回はテスト設定を複製し、以後は画面から編集した値を保持する。
-# mDNS と自己更新を切り、実運用の機体一覧やソース更新へ干渉させない。
-api-fake: ## Run backend WebAPI with fake camera and isolated config/data/port
-	@set -eu; \
-	fake_data_dir="$${PCBASM_API_DATA_DIR:-/tmp/pcbasm-webui-fake}"; \
-	fake_config_dir="$${PCBASM_CONFIG_DIR:-$$fake_data_dir/config}"; \
-	if [ ! -e "$$fake_config_dir" ]; then \
-		mkdir -p "$$(dirname "$$fake_config_dir")"; \
-		cp -a data/testing/config "$$fake_config_dir"; \
-	fi; \
-	PCBASM_CONFIG_DIR="$$fake_config_dir" \
-	PCBASM_API_FAKE_CAMERA=1 \
-	PCBASM_API_PORT=$${PCBASM_API_PORT:-8099} \
-	PCBASM_API_DATA_DIR="$$fake_data_dir" \
-	PCBASM_API_DISCOVERY_ENABLED=0 \
-	PCBASM_API_UPDATE_ENABLED=0 \
-	uv run python -m web.api
-
-ui-dev: ## Run UI frontend dev server (auto-reload)
-	uv run uvicorn web.ui.app:create_app --factory --reload --host 0.0.0.0 --port 8080
-
 ui: ## Run UI frontend server
 	uv run python -m web.ui
 
-# 隔離ポートの frontend を api-fake（8099）へ向ける。machines は env で渡せない
-# （マシン一覧は machines_file と mDNS 探索からしか得られない）ので静的登録を 1 台だけ生成する。
-# mDNS 探索も切る（実 LAN の機体が混ざると、fake backend だけを見る隔離にならない）
-ui-fake: ## Run UI frontend against api-fake (isolated port; for manual/browser E2E)
-	@mkdir -p "$${PCBASM_UI_FAKE_DIR:-/tmp/pcbasm-ui-fake}"
-	@printf '[[machine]]\nmachine_id = "fake"\nhost = "127.0.0.1"\nport = %s\nname = "fake backend"\n' \
-		"$${PCBASM_API_PORT:-8099}" > "$${PCBASM_UI_FAKE_DIR:-/tmp/pcbasm-ui-fake}/machines.toml"
-	PCBASM_UI_PORT=$${PCBASM_UI_PORT:-8098} \
-	PCBASM_UI_MACHINES_FILE="$${PCBASM_UI_FAKE_DIR:-/tmp/pcbasm-ui-fake}/machines.toml" \
-	PCBASM_UI_DISCOVERY_ENABLED=0 \
-	PCBASM_UI_UPDATE_ENABLED=0 \
-	uv run python -m web.ui
+# Klipper もカメラも fake にした backend（8099）と frontend（8098）を一時ディレクトリで起動する。
+# mDNS と自己更新は切る（実運用の機体一覧やソース更新へ干渉させない）
+dev: ## Run fake backend and frontend together (isolated ports and temp dir)
+	uv run python -m web.dev
 
-run: format test type ## Run all workflow.
-	@echo "All tasks completed successfully."
+check: format type test ## Run format, type check and tests

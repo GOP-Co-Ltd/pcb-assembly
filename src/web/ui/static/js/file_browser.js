@@ -32,7 +32,7 @@
   };
 
   const showDirectory = async (path) => {
-    const data = await api("GET", `/api/files?path=${encodeURIComponent(path)}`);
+    const data = await api("GET", `/api/selection/files?path=${encodeURIComponent(path)}`);
     fbPath.textContent = `/${data.path}`;
     fbError.hidden = true;
     fbEmpty.hidden = data.entries.length !== 0;
@@ -55,7 +55,7 @@
         appendEntry(entry.name, entry.type, async () => {
           fbError.hidden = true;
           try {
-            await api("PUT", "/api/pcb-file", { path: childPath });
+            await api("PUT", "/api/selection/pcb-file", { path: childPath });
             browser.close();
             window.location.reload();
           } catch (err) {
@@ -88,7 +88,7 @@
     const form = new FormData();
     form.append("file", file);
     try {
-      await api("POST", "/api/pcb-file/upload", form);
+      await api("POST", "/api/selection/pcb-file/upload", form);
       browser.close();
       window.location.reload();
     } catch (err) {

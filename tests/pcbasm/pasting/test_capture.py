@@ -5,24 +5,23 @@
 渡さない場合は ``board_transform`` だけでカメラ位置と board→pixel affine が決まる。
 """
 
-from datetime import UTC, datetime
-
 import numpy as np
 import pytest
 import shapely
 
-from pcbasm.config import Machine
+from pcbasm.align import BoardFrame
+from pcbasm.board import Copper, Layer
+from pcbasm.config import MachineConfig, load_machine
 from pcbasm.geometry import Identity, Point2d, Shift
 from pcbasm.hal import XYZStage
+from pcbasm.hal.fake import FakeCamera, FakeKlipper
+from pcbasm.kicad import load_board
 from pcbasm.pasting.capture import PointCapturer
 from pcbasm.pasting.session import PasteSession
-from pcbasm.pcb import Copper, Layer, PcbFile
-from pcbasm.posctrl import BoardCalibrationResult
 from pcbasm.vision import Image
-from pcbasm.vision.calibration import CalibrationResult
-from tests.helpers import TESTING_CONFIG_DIR, TESTING_DATA_DIR, FakeCamera, FakeKlipper
+from tests.support.camera_model import make_camera_model
+from tests.support.paths import LED_BLINKER_PCB, TEST_CONFIG_DIR
 
-LED_BLINKER = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
 PPM = 10.0
 RESOLUTION = (640, 480)
 FOCUS_Z = 12.0
@@ -44,28 +43,20 @@ def _frame(width: int, height: int) -> Image:
 
 
 def _session(
-    camera: FakeCamera, klipper: FakeKlipper, machine: Machine | None = None
+    camera: FakeCamera, klipper: FakeKlipper, machine: MachineConfig | None = None
 ) -> PasteSession:
-    result = BoardCalibrationResult(
-        machine=machine or Machine(TESTING_CONFIG_DIR / "machine.toml"),
-        klipper=klipper,
-        stage=XYZStage(klipper.readonly),
-        camera=camera,
-        calibration=CalibrationResult(
-            pixel_per_mm=PPM,
-            square_size_mm=1.0,
-            mean_distance_px=PPM,
-            std_distance_px=0.0,
-            resolution=RESOLUTION,
-            crop_size=(400, 400),
-            calibrated_at=datetime(2026, 8, 20, 12, 0, 0, tzinfo=UTC),
-            z_position=FOCUS_Z,
-        ),
-        offset_transform=Identity(),
+    board_frame = BoardFrame(
+        board=load_board(LED_BLINKER_PCB),
+        camera_model=make_camera_model(PPM, RESOLUTION, focus_z=FOCUS_Z),
         board_transform=Shift(BOARD_SHIFT.x, BOARD_SHIFT.y),
-        pcb=PcbFile(LED_BLINKER),
     )
-    return PasteSession.from_calibration(result)
+    return PasteSession.from_board_frame(
+        board_frame,
+        machine or load_machine(TEST_CONFIG_DIR / "machine.toml"),
+        klipper=klipper,
+        stage=XYZStage(klipper),
+        camera=camera,
+    )
 
 
 def _capturer(
@@ -225,15 +216,17 @@ class TestPointCapturerWithAlignmentCorrection:
         )
 
 
-def _machine_with_settle(tmp_path, *, move_sec: float, probe_sec: float) -> Machine:
-    """検証用 machine.toml の末尾に `[settle]` を足した Machine を作る."""
+def _machine_with_settle(
+    tmp_path, *, move_sec: float, probe_sec: float
+) -> MachineConfig:
+    """検証用 machine.toml の末尾に `[settle]` を足した MachineConfig を作る."""
     path = tmp_path / "machine.toml"
-    source = (TESTING_CONFIG_DIR / "machine.toml").read_text(encoding="utf-8")
+    source = (TEST_CONFIG_DIR / "machine.toml").read_text(encoding="utf-8")
     path.write_text(
         f"{source}\n[settle]\nmove_sec = {move_sec}\nprobe_sec = {probe_sec}\n",
         encoding="utf-8",
     )
-    return Machine(path)
+    return load_machine(path)
 
 
 class TestSettleWiring:
@@ -244,10 +237,10 @@ class TestSettleWiring:
     """
 
     @pytest.fixture
-    def machine(self, tmp_path) -> Machine:
+    def machine(self, tmp_path) -> MachineConfig:
         return _machine_with_settle(tmp_path, move_sec=0.8, probe_sec=0.3)
 
-    def test_capture_dwells_for_the_move_settle(self, machine: Machine):
+    def test_capture_dwells_for_the_move_settle(self, machine: MachineConfig):
         klipper = FakeKlipper()
         session = _session(FakeCamera([_frame(*RESOLUTION)]), klipper, machine)
         capturer = PointCapturer(session, crop_size_px=CROP_SIZE_PX)
@@ -256,7 +249,7 @@ class TestSettleWiring:
 
         assert "G4 P800" in klipper.sent_lines
 
-    def test_probe_dwells_for_the_probe_settle(self, machine: Machine):
+    def test_probe_dwells_for_the_probe_settle(self, machine: MachineConfig):
         klipper = FakeKlipper()
         session = _session(FakeCamera([_frame(*RESOLUTION)]), klipper, machine)
 
@@ -264,7 +257,9 @@ class TestSettleWiring:
 
         assert "G4 P300" in klipper.sent_lines
 
-    def test_height_measurement_dwells_for_the_move_settle(self, machine: Machine):
+    def test_height_measurement_dwells_for_the_move_settle(
+        self, machine: MachineConfig
+    ):
         """高さ計測の点間移動は、プローブ後の待ちではなく移動の静定を使う."""
         klipper = FakeKlipper()
         session = _session(FakeCamera([_frame(*RESOLUTION)]), klipper, machine)

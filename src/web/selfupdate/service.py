@@ -23,7 +23,7 @@ UNIT_NAMES: dict[str, str] = {
 # 同居機の argv は api → ui の 1 通りしか sudoers に無い。順序も契約の一部
 CANONICAL_ORDER: tuple[str, ...] = ("api", "ui")
 
-# フル unit 名 → キー（`web-service.sh` の対象名）。unit を `render` に掛けるときに使う
+# フル unit 名 → キー（`install.sh render` の対象名）
 UNIT_KEYS: dict[str, str] = {name: key for key, name in UNIT_NAMES.items()}
 
 # 表示名（サーバ側で文言を組むため。JS やテンプレートに複製しない）
@@ -36,7 +36,7 @@ UNIT_LABELS: dict[str, str] = {
 # `systemctl is-active` の答えのうち「更新後に再起動すべき」もの。
 # `failed` を必ず含める。起動に失敗したリビジョンを直して更新し直すとき、
 # 停止している unit を対象から外すと、修正が永久に適用されない
-# （計画書「既知のリスク 1: ロールバック無し」からの復帰経路）。
+# （ロールバックが無いので、壊れたリビジョンから抜け出す道はこれしかない）。
 # `inactive` / `deactivating` は意図的に止めているので起動しない。
 RESTARTABLE_STATES = frozenset({"active", "activating", "reloading", "failed"})
 
@@ -104,7 +104,7 @@ def restart_permitted(settings: UpdateSettings, units: tuple[str, ...]) -> str |
         timeout=settings.systemctl_timeout,
     )
     hint = (
-        "./scripts/install-update-sudoers.sh install を実行してください"
+        f"ssh して '{install_command(units)}' を実行してください"
         "（現在の許可は sudo -n -l で確認できます）。"
     )
     if not listing.ok:
@@ -162,12 +162,11 @@ def schedule_restart(settings: UpdateSettings, units: tuple[str, ...]) -> str | 
 
 
 def stale_units(settings: UpdateSettings, units: tuple[str, ...]) -> tuple[str, ...]:
-    """設置済み unit ファイルが現在の `web-service.sh` の出力と食い違うものを返す.
+    """設置済み unit ファイルが現在の `install.sh render` の出力と食い違うものを返す.
 
-    計画書「既知のリスク 6」。`render_unit` の出力が変わった更新を取り込んでも、
-    `/etc/systemd/system` の unit は古いままになる（本 MR 自身が `TimeoutStopSec` と
-    `StartLimitIntervalSec` を足した）。読み取りだけを行い、自動 install はしない
-    （root 権限を増やさない）。判定できない場合は「食い違い無し」として扱う。
+    `install.sh render` の出力が変わった更新を取り込んでも、`/etc/systemd/system` の unit は古いままになる。
+    読み取りだけを行い、自動 install はしない（root 権限を増やさない）。
+    判定できない場合は「食い違い無し」として扱う。
 
     Args:
         settings: リポジトリの場所を持つ設定
@@ -176,7 +175,7 @@ def stale_units(settings: UpdateSettings, units: tuple[str, ...]) -> tuple[str, 
     Returns:
         再 install が要る unit 名
     """
-    script = settings.repo_root / "scripts" / "web-service.sh"
+    script = settings.repo_root / "install.sh"
     if not script.is_file():
         return ()
     stale: list[str] = []
@@ -204,11 +203,17 @@ def stale_units(settings: UpdateSettings, units: tuple[str, ...]) -> tuple[str, 
     return tuple(stale)
 
 
+def install_command(units: tuple[str, ...]) -> str:
+    """`units` の unit と sudoers を設置し直すコマンド."""
+    target = "all" if len(units) == len(UNIT_NAMES) else UNIT_KEYS[units[0]]
+    return f"./install.sh services {target}"
+
+
 def stale_unit_warning(units: tuple[str, ...]) -> str:
     """Unit 定義が古い旨の警告文（表示文字列はサーバが組む）."""
     return (
         f"systemd の unit 定義が現在のソースと食い違っています（{' '.join(units)}）。"
-        "ssh して './scripts/web-service.sh install all' を実行し直してください"
+        f"ssh して '{install_command(units)}' を実行し直してください"
         "（更新自体は完了しています）。"
     )
 

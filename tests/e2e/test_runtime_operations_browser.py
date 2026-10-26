@@ -11,31 +11,33 @@ import pytest
 from playwright.sync_api import expect
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from tests.e2e.conftest import (
+from pcbasm.hal.fake import FakeAudioPlayer
+from tests.support.browser import (
     E2E_MACHINE_ID,
     LiveServer,
     LiveUi,
     acquire_control,
     configure_synthetic_job,
-    make_ui_settings,
     start_app,
 )
-from tests.helpers import FakeAudioPlayer
+from tests.support.web import devices_with_audio, make_ui_settings
 from web.api.app import create_app as create_api_app
-from web.api.jobs.context import JobContext
-from web.api.settings import Settings
+from web.api.env import Env
+from web.api.jobs.runtime.context import JobContext
 from web.ui.app import create_app
 from web.ui.machines import MachineEndpoint
 
 
 @pytest.fixture
-def live_server(e2e_settings: Settings) -> Iterator[LiveServer]:
+def live_server(e2e_settings: Env) -> Iterator[LiveServer]:
     """実カタログのフォーム定義を、装置を使わない対話ジョブへ接続する。
 
     JobDefinition.run と JobManager の公開コンストラクタで構成する。
     機械フローは対象外とし、HTTP・WS・キュー・実行中パラメータは実装を通す。
     """
-    app = create_api_app(e2e_settings, audio_player=FakeAudioPlayer())
+    app = create_api_app(
+        e2e_settings, devices=devices_with_audio(e2e_settings, FakeAudioPlayer())
+    )
 
     def run(ctx: JobContext) -> None:
         ctx.progress("キャリブレーションメニュー")
@@ -47,7 +49,7 @@ def live_server(e2e_settings: Settings) -> Iterator[LiveServer]:
                 return
 
     configure_synthetic_job(app, "dispense_calibration", run)
-    catalog = app.state.catalog
+    catalog = app.state.backend.catalog
     catalog.register(
         attrs.evolve(catalog.get("dispense_calibration"), name="other_calibration")
     )
@@ -148,7 +150,7 @@ def _start(page, ui: LiveUi, name: str = "dispense_calibration") -> dict:
 
 def _restart(page, ui: LiveUi) -> dict:
     assert page.request.post(f"{ui.base_url}/api/jobs/current/abort").status == 200
-    expect(page.locator("#jc-status")).to_have_attribute("data-status", "aborted")
+    expect(page.get_by_test_id("jc-status")).to_have_attribute("data-status", "aborted")
     return _start(page, ui)
 
 
@@ -158,11 +160,11 @@ class TestScopedRuntimeOperations:
     ):
         ui, transport = delayed_operation_ui
         page = browser_page
-        page.goto(f"{ui.base_url}/pasting/dispense_calibration")
+        page.goto(f"{ui.base_url}/dispense_calibration")
         acquire_control(page)
         _start(page, ui)
         transport.pause("params")
-        field = page.locator("#param-line_length")
+        field = page.get_by_test_id("param-line_length")
         field.fill("29")
         assert transport.wait_received()
         replacement = _restart(page, ui)
@@ -170,7 +172,9 @@ class TestScopedRuntimeOperations:
         with page.expect_response("**/api/jobs/current/params") as rejected:
             transport.resume()
         assert rejected.value.status == 409
-        expect(page.locator("#toasts")).to_contain_text("ジョブが切り替わりました")
+        expect(page.get_by_test_id("toasts")).to_contain_text(
+            "ジョブが切り替わりました"
+        )
         current = page.request.get(f"{ui.base_url}/api/jobs/current").json()["job"]
         assert current["id"] == replacement["id"]
         assert current["params"]["line_length"] == 11.0
@@ -185,27 +189,29 @@ class TestScopedRuntimeOperations:
     ):
         ui, transport = delayed_operation_ui
         page = browser_page
-        page.goto(f"{ui.base_url}/pasting/dispense_calibration")
+        page.goto(f"{ui.base_url}/dispense_calibration")
         acquire_control(page)
         _start(page, ui)
         transport.pause("command")
-        page.locator("#lc-extrude").click()
+        page.get_by_test_id("lc-extrude").click()
         assert transport.wait_received()
         _restart(page, ui)
         transport.resume()
 
-        expect(page.locator("#toasts")).to_contain_text("ジョブが切り替わりました")
-        expect(page.locator("#jc-log")).not_to_contain_text("command:extrude")
-        page.locator("#lc-suck").click()
-        expect(page.locator("#jc-log")).to_contain_text("command:suck")
+        expect(page.get_by_test_id("toasts")).to_contain_text(
+            "ジョブが切り替わりました"
+        )
+        expect(page.get_by_test_id("jc-log")).not_to_contain_text("command:extrude")
+        page.get_by_test_id("lc-suck").click()
+        expect(page.get_by_test_id("jc-log")).to_contain_text("command:suck")
 
     def test_another_job_with_the_same_stage_does_not_enable_this_pages_buttons(
         self, live_ui: LiveUi, browser_page
     ):
         page = browser_page
-        page.goto(f"{live_ui.base_url}/pasting/dispense_calibration")
+        page.goto(f"{live_ui.base_url}/dispense_calibration")
         acquire_control(page)
         _start(page, live_ui, "other_calibration")
 
-        expect(page.locator("#lc-extrude")).to_be_disabled()
-        expect(page.locator("#calib-all")).to_be_disabled()
+        expect(page.get_by_test_id("lc-extrude")).to_be_disabled()
+        expect(page.get_by_test_id("calib-all")).to_be_disabled()

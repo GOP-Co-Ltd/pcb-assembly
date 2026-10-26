@@ -1,4 +1,4 @@
-"""FillPlan.build / FillPlan.for_pad / FillPlan.mode_for_pad のテスト.
+"""フィルパス生成（FillPlan と塗布高さ）のテスト.
 
 面塗布（外周＋牛耕式ジグザグ）・線塗布・点塗布のフォールバック階層は
 「ポリゴン形状 × ノズル径」の組み合わせで誘発し、公開 API 経由で振る舞い
@@ -8,7 +8,7 @@
 は既存の面塗布契約テストのために paths を list で返す薄いラッパ。
 
 しきい値はハードコードせず、形状・ノズル径・overlap・margin を parametrize して
-そこから導出する（契約メモ §5）。
+そこから導出する。
 """
 
 from typing import Any
@@ -19,14 +19,16 @@ from shapely import LineString, Polygon
 from shapely.affinity import rotate
 from shapely.geometry import Point as ShapelyPoint
 
-from pcbasm.config import (
-    DISPENSE_MODES,
-    PasteDispenser as PasteDispenserConfig,
-    Toolhead,
-)
+from pcbasm.config.solder import AutoModeConfig, SolderConfig
 from pcbasm.geometry import Point2d
-from pcbasm.pasting.fill_path import FillPlan, micro_line_auto_height
-from pcbasm.pasting.params import PasteParams
+from pcbasm.pasting.fill_path import FillPlan, paste_height_mm
+from pcbasm.pasting.params import (
+    DISPENSE_MODES,
+    DispenseMotion,
+    LineDirection,
+    PasteParams,
+)
+from tests.support.solder import solder_config
 
 # セグメント内包・外周マージン判定の浮動小数誤差を吸収する微小バッファ（定数）。
 # ジグザグ端点が外周に乗るため、境界一致を covers が拾えるよう微小に膨らませる。
@@ -46,25 +48,22 @@ def build_paste_fill_path(
     kwargs.setdefault("dispense_mode", "area")
     kwargs.setdefault("auto_line_aspect_ratio", _AUTO_LINE_ASPECT_RATIO)
     kwargs.setdefault("auto_area_short_side_factor", _AUTO_AREA_SHORT_SIDE_FACTOR)
+    kwargs.setdefault("nozzle_outer_diameter", nozzle_diameter)
     plan = FillPlan.build(polygon, nozzle_diameter, **kwargs)
     return [list(path) for path in plan.paths]
 
 
-def _config(nozzle_diameter: float) -> PasteDispenserConfig:
-    return PasteDispenserConfig(
-        rotations_per_ul=45.0,
+def _config(
+    nozzle_diameter: float, nozzle_outer_diameter: float | None = None
+) -> SolderConfig:
+    return solder_config(
         nozzle_diameter=nozzle_diameter,
-        max_fill_speed=2.0,
-        max_dispense_rate=5.0,
-        dispense_accel=10.0,
-        retract_amount=10.0,
-        retract_rate=10.0,
-        retract_accel_factor=2.0,
-        toolhead=Toolhead(x=0.0, y=0.0),
-        paste_height=0.5,
-        ul_per_mm2=0.05,
-        auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
-        auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
+        nozzle_outer_diameter=nozzle_outer_diameter,
+        auto=AutoModeConfig(
+            line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+            area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
+        ),
+        defaults=PasteParams(ul_per_mm2=0.05, paste_height=0.5),
     )
 
 
@@ -180,6 +179,7 @@ class TestDispenseModes:
             dispense_mode="dot",
             auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
             auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
+            nozzle_outer_diameter=1.0,
         )
 
         assert plan.dispense_mode == "dot"
@@ -193,6 +193,7 @@ class TestDispenseModes:
             dispense_mode="line",
             auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
             auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
+            nozzle_outer_diameter=0.5,
         )
 
         assert plan.dispense_mode == "line"
@@ -206,6 +207,7 @@ class TestDispenseModes:
             dispense_mode="area",
             auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
             auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
+            nozzle_outer_diameter=1.0,
         )
         dot_plan = FillPlan.build(
             _rectangle(0.2, 0.2),
@@ -213,6 +215,7 @@ class TestDispenseModes:
             dispense_mode="area",
             auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
             auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
+            nozzle_outer_diameter=1.0,
         )
 
         assert line_plan.dispense_mode == "line"
@@ -229,6 +232,7 @@ class TestDispenseModes:
             dispense_mode="auto",
             auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
             auto_area_short_side_factor=_AREA_DISABLED_FACTOR,
+            nozzle_outer_diameter=0.34,
         )
 
         assert plan.dispense_mode == "line"
@@ -256,6 +260,7 @@ class TestDispenseModes:
             dispense_mode="auto",
             auto_line_aspect_ratio=aspect_ratio,
             auto_area_short_side_factor=area_factor,
+            nozzle_outer_diameter=0.34,
         )
 
         assert plan.dispense_mode == expected_mode
@@ -283,6 +288,7 @@ class TestDispenseModes:
             dispense_mode="auto",
             auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
             auto_area_short_side_factor=factor,
+            nozzle_outer_diameter=nozzle_diameter,
         )
 
         assert plan.dispense_mode == expected_mode
@@ -297,6 +303,7 @@ class TestDispenseModes:
             dispense_mode="auto",
             auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
             auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
+            nozzle_outer_diameter=0.34,
         )
 
         assert plan.dispense_mode in {"dot", "line", "area", "micro_line"}
@@ -351,13 +358,6 @@ class TestMicroLine:
         assert start.y == pytest.approx(0.25)
         assert end.y == pytest.approx(0.63)
 
-    def test_outer_diameter_defaults_to_inner_diameter(self):
-        plan = self._build(_rectangle(0.25, 0.88), nozzle_outer_diameter=None)
-
-        start, end = sorted(plan.paths[0], key=lambda point: point.y)
-        assert start.y == pytest.approx(0.15)
-        assert end.y == pytest.approx(0.73)
-
     def test_falls_back_to_dot_when_too_short_for_outer_diameter(self):
         # 長辺 0.35 <= 2 * 0.2 なので線が引けない
         plan = self._build(_rectangle(0.1, 0.35), dispense_mode="micro_line")
@@ -372,53 +372,104 @@ class TestMicroLine:
         assert plan.dispense_mode == "line"
 
 
-class TestMicroLineAutoHeight:
-    """微小線の自動高さ g = V / (w × (L + D))。w は pad の短辺と外径の小さい方、D は外径."""
+class TestMicroLineHeight:
+    """微小線は向きを揃えた後の始点に z_start、終点に z_end を付ける.
+
+    auto は g = V / (w × (L + D))。V は pad の全量、w は pad の短辺と外径の小さい方、D は外径。
+    """
 
     @staticmethod
-    def _line(polygon: Polygon) -> tuple[Point2d, ...]:
-        plan = FillPlan.build(
-            polygon,
-            0.3,
-            dispense_mode="micro_line",
-            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
-            auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
-            nozzle_outer_diameter=0.4,
+    def _heights(polygon: Polygon, ul_per_mm2: float) -> tuple[float, float]:
+        config = _config(0.3, nozzle_outer_diameter=0.4)
+        params = PasteParams(
+            dispense_mode="micro_line", ul_per_mm2=ul_per_mm2, paste_height=0.5
         )
-        return plan.paths[0]
+
+        plan = FillPlan.for_pad(polygon, config=config, params=params)
+
+        assert plan.dispense_mode == "micro_line"
+        start, end = plan.paths[0]
+        return start.z, end.z
 
     def test_narrow_pad_uses_short_side_as_width(self):
-        polygon = _rectangle(0.25, 0.88)
-
-        height = micro_line_auto_height(
-            polygon, self._line(polygon), amount_ul=0.011, nozzle_outer_diameter=0.4
-        )
+        # V = 0.25 × 0.88 × 0.05 = 0.011
+        heights = self._heights(_rectangle(0.25, 0.88), ul_per_mm2=0.05)
 
         # w = 0.25（短辺 < 外径）、L + D = 0.48 + 0.4 = pad の長辺 0.88
-        assert height == pytest.approx(0.011 / (0.25 * 0.88))
+        assert heights == pytest.approx((0.011 / (0.25 * 0.88),) * 2)
 
     def test_wide_pad_uses_outer_diameter_as_width(self):
         polygon = rotate(_rectangle(0.5, 2.0), 30.0, origin=(0.0, 0.0))
 
-        height = micro_line_auto_height(
-            polygon, self._line(polygon), amount_ul=0.05, nozzle_outer_diameter=0.4
-        )
+        # V = 0.5 × 2.0 × 0.05 = 0.05
+        heights = self._heights(polygon, ul_per_mm2=0.05)
 
         # w = 0.4（外径 < 短辺）、L + D = 1.6 + 0.4 = 2.0
-        assert height == pytest.approx(0.05 / (0.4 * 2.0))
+        assert heights == pytest.approx((0.05 / (0.4 * 2.0),) * 2)
 
     def test_short_line_keeps_height_bounded(self):
         # 長辺が外径に近く L がほぼ 0 でも、端面の下の分（D）があるので発散しない
-        polygon = _rectangle(0.25, 0.42)
+        heights = self._heights(_rectangle(0.25, 0.42), ul_per_mm2=0.2)
 
-        height = micro_line_auto_height(
-            polygon,
-            self._line(polygon),
-            amount_ul=0.25 * 0.42 * 0.2,
-            nozzle_outer_diameter=0.4,
+        assert heights == pytest.approx((0.2, 0.2))
+
+    @pytest.mark.parametrize(
+        ("line_direction", "z_near_reference"), [("outward", 0.08), ("inward", 0.05)]
+    )
+    def test_z_start_follows_the_oriented_start(
+        self, line_direction: LineDirection, z_near_reference: float
+    ):
+        config = _config(0.3, nozzle_outer_diameter=0.4)
+        params = PasteParams(
+            dispense_mode="micro_line",
+            ul_per_mm2=0.05,
+            paste_height=0.5,
+            line_direction=line_direction,
+            micro_line_z_start=0.08,
+            micro_line_z_end=0.05,
+        )
+        reference = Point2d(0.125, 5.0)
+
+        plan = FillPlan.for_pad(
+            _rectangle(0.25, 0.88),
+            config=config,
+            params=params,
+            line_reference=reference,
         )
 
-        assert height == pytest.approx(0.2)
+        near = min(plan.paths[0], key=lambda point: (point.to2d() - reference).norm)
+        assert near.z == z_near_reference
+
+
+class TestPasteHeight:
+    """点・線・面の経路は、全点の z に基板表面からの塗布高さ（auto は膜厚 ul_per_mm2）を持つ."""
+
+    @pytest.mark.parametrize(
+        ("paste_height", "ul_per_mm2", "expected"),
+        [(0.3, 0.1, 0.3), ("auto", 0.12, 0.12)],
+    )
+    def test_paste_height_mm_resolves_auto(self, paste_height, ul_per_mm2, expected):
+        params = PasteParams(ul_per_mm2=ul_per_mm2, paste_height=paste_height)
+
+        assert paste_height_mm(params) == pytest.approx(expected)
+
+    @pytest.mark.parametrize(
+        ("dispense_mode", "polygon"),
+        [
+            ("area", _rectangle(5.0, 4.0)),
+            ("line", _rectangle(1.0, 4.0)),
+            ("dot", _rectangle(1.0, 1.0)),
+        ],
+    )
+    def test_every_point_is_at_paste_height(self, dispense_mode, polygon):
+        params = PasteParams(
+            dispense_mode=dispense_mode, ul_per_mm2=0.08, paste_height="auto"
+        )
+
+        plan = FillPlan.for_pad(polygon, config=_config(0.5), params=params)
+
+        assert plan.dispense_mode == dispense_mode
+        assert {point.z for path in plan.paths for point in path} == {0.08}
 
 
 class TestAreaFill:
@@ -501,7 +552,7 @@ class TestAreaFill:
 
 
 class TestSegmentContainment:
-    """セグメント内包契約（契約メモ §3・最重要・テストの軸）.
+    """どのセグメントも元ポリゴンの内側に収まる（このテストの軸）.
 
     各成分ポリラインの隣接セグメント LineString が、build に渡した
     元 polygon に ``covers`` される（微小 EPS buffer 許容）。元ポリゴン外を
@@ -687,7 +738,7 @@ class TestNegativeExteriorMargin:
         # Arrange: margin=0 では buffer(-0.5) が消えて線も引けず点になる 0.8 角の pad
         polygon = _rectangle(0.8, 0.8)
         config = _config(nozzle_diameter=1.0)
-        base = PasteParams.from_config(config)
+        base = config.defaults
         params = attrs.evolve(base, dispense_mode="area")
 
         # Act
@@ -779,10 +830,10 @@ class TestFillPlanForPad:
 
         assert plan.dispense_mode == expected_mode
         start, end = plan.paths[0]
-        assert (start - reference).norm < (end - reference).norm
+        assert (start.to2d() - reference).norm < (end.to2d() - reference).norm
 
     def test_micro_line_uses_configured_outer_diameter(self):
-        config = attrs.evolve(_config(0.3), nozzle_outer_diameter=0.4)
+        config = _config(0.3, nozzle_outer_diameter=0.4)
         params = self._paste(dispense_mode="micro_line", boundary_margin=0.0)
 
         plan = FillPlan.for_pad(_rectangle(0.25, 0.88), config=config, params=params)

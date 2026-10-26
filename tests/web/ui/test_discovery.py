@@ -1,4 +1,4 @@
-"""`web.ui.discovery` の仕様テスト（計画書 web-api-ui-split.md「MR5」節）.
+"""`web.ui.discovery` の仕様テスト.
 
 `endpoint_from_service_info` は純関数なので、実 `ServiceInfo` を組んで検証する
 （モックを使わない）。広告 → 探索の通しは `tests/e2e/test_discovery_e2e.py`。
@@ -15,9 +15,8 @@ import pytest
 from fastapi import FastAPI
 from zeroconf import ServiceInfo
 
-from tests.helpers import random_service_type
-from web.api.discovery import SERVICE_TYPE
-from web.api.models import API_VERSION
+from tests.support.web import random_service_type
+from web.contract.discovery import API_VERSION, SERVICE_TYPE
 from web.ui.app import create_app
 from web.ui.discovery import MachineDiscovery, endpoint_from_service_info
 from web.ui.settings import Settings
@@ -37,7 +36,6 @@ def make_info(
     if properties is None:
         properties = {
             b"id": b"kurousagi",
-            b"type": b"paste",
             b"api": str(API_VERSION).encode(),
         }
     return ServiceInfo(
@@ -60,13 +58,12 @@ class TestEndpointFromServiceInfo:
         assert endpoint.machine_id == "kurousagi"
         assert endpoint.host == "192.168.100.201"
         assert endpoint.port == 8081
-        assert endpoint.machine_type == "paste"
         assert endpoint.source == "mdns"
 
     @pytest.mark.parametrize(
         "properties",
         (
-            pytest.param({b"type": b"paste"}, id="id 欠落"),
+            pytest.param({}, id="id 欠落"),
             pytest.param({b"id": b"\xff\xfe"}, id="id が非 UTF-8"),
         ),
     )
@@ -80,44 +77,37 @@ class TestEndpointFromServiceInfo:
         assert endpoint is not None
         assert endpoint.machine_id == "alpha"
 
-    def test_non_utf8_machine_type_is_dropped(self):
-        endpoint = endpoint_from_service_info(
-            make_info(properties={b"id": b"alpha", b"type": b"\xfe"})
-        )
-
-        assert endpoint is not None
-        assert endpoint.machine_type is None
-
     def test_advertisement_without_ipv4_address_is_dropped(self):
         assert endpoint_from_service_info(make_info(addresses=[])) is None
 
     def test_advertisement_without_port_is_dropped(self):
         assert endpoint_from_service_info(make_info(port=0)) is None
 
-    def test_mismatched_api_version_is_dropped(self):
-        """描けない版の backend はドロップダウンに出さない（D3）."""
-        info = make_info(
-            properties={b"id": b"alpha", b"api": str(API_VERSION + 1).encode()}
-        )
+    def test_matching_api_version_is_fully_usable(self):
+        endpoint = endpoint_from_service_info(make_info())
 
-        assert endpoint_from_service_info(info) is None
+        assert endpoint is not None
+        assert endpoint.update_only is False
 
     @pytest.mark.parametrize(
         "properties",
         (
+            {b"id": b"alpha", b"api": str(API_VERSION + 1).encode()},
             {b"id": b"alpha"},
             {b"id": b"alpha", b"api": b"\xff"},
             {b"id": b"alpha", b"api": b"not-a-number"},
         ),
-        ids=("missing", "non_utf8", "not_a_number"),
+        ids=("mismatched", "missing", "non_utf8", "not_a_number"),
     )
-    def test_unreadable_api_version_is_treated_as_compatible(
+    def test_other_api_version_is_listed_as_update_only(
         self, properties: dict[bytes, bytes]
     ):
+        """描けない版の backend も一覧に残し、更新と緊急停止だけを使えるようにする."""
         endpoint = endpoint_from_service_info(make_info(properties=properties))
 
         assert endpoint is not None
         assert endpoint.machine_id == "alpha"
+        assert endpoint.update_only is True
 
 
 class TestDiscoveryWithoutMulticast:
@@ -150,7 +140,7 @@ class TestDiscoveryWithoutMulticast:
 
 
 class TestDiscoveryIsolation:
-    """共有 fixture が実 LAN を探索しないことの見張り（T3）.
+    """共有 fixture が実 LAN を探索しないことの見張り.
 
     ここが落ちたら fixture の `discovery_enabled=False` が外れている。
     """
@@ -167,7 +157,7 @@ class TestDiscoveryIsolation:
         """`Settings.from_env()` 経路（uvicorn --factory と同じ）でも探索しない.
 
         共有 fixture の `discovery_enabled=False` はこの経路を通らない。守っているのは
-        `tests/conftest.py` の autouse fixture（`PCBASM_UI_DISCOVERY_ENABLED=0`）だけ
+        `tests/conftest.py` の autouse fixture（`PCBASM_FAKE=1`）だけ
         なので、そこが外れたらここが落ちる。
 
         lifespan は起動しない（`TestClient` を被せない）。`app.state.discovery` は
@@ -175,7 +165,7 @@ class TestDiscoveryIsolation:
         この見張りが守っている性質そのもの（実 LAN を探索しない）を破る。
         """
         # リポジトリの config/machines.toml を拾って実機の登録を混ぜない
-        monkeypatch.setenv("PCBASM_UI_MACHINES_FILE", str(tmp_path / "absent.toml"))
+        monkeypatch.setenv("PCBASM_CONFIG_DIR", str(tmp_path))
 
         app = create_app()
 

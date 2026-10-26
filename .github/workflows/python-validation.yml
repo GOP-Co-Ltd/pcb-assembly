@@ -12,9 +12,13 @@ on:
       # 失敗し得るため（*.py だけでは pytest も pyright も走らない）
       - "src/web/ui/templates/**"
       - "src/web/ui/static/**"
-      # テストが読む画像・基板・設定と、実際に起動する運用スクリプト
-      - "data/testing/**"
+      # テストの入力と golden（tests/data、tests/golden）、同梱資産とシミュレーション起動の設定（data/）、
+      # 実際に起動する運用スクリプト
+      - "tests/**"
+      - "data/**"
       - "scripts/**"
+      - install.sh
+      - "deploy/**"
       - Makefile
       - github-runner/setup.sh
       - pyproject.toml
@@ -32,6 +36,8 @@ jobs:
   pyright:
     runs-on: [self-hosted, linux, ARM64, rpi-ci]
     timeout-minutes: 15
+    env:
+      UV_NO_SYNC: "1"
     steps:
       - uses: actions/checkout@v5
 
@@ -44,7 +50,7 @@ jobs:
           uv sync --locked --all-groups
 
       - name: Run pyright
-        run: uv run --no-sync pyright
+        run: make type
 
   pytest:
     runs-on: [self-hosted, linux, ARM64, rpi-ci]
@@ -52,6 +58,7 @@ jobs:
     env:
       OPENBLAS_NUM_THREADS: "1"
       OMP_NUM_THREADS: "1"
+      UV_NO_SYNC: "1"
     steps:
       - uses: actions/checkout@v5
 
@@ -66,10 +73,10 @@ jobs:
       - name: Fetch LFS objects
         run: git lfs pull
 
-      - name: Run non-hardware tests
-        run: >-
-          uv run --no-sync pytest -v -m "not hardware and not e2e"
-          --timeout=180 --junitxml=pytest-report.xml
+      - name: Run tests
+        run: make test
+        env:
+          PYTEST_ADDOPTS: --timeout=180 --junitxml=pytest-report.xml
 
       - name: Prepare Chromium for browser tests
         run: |
@@ -78,9 +85,9 @@ jobs:
           fi
 
       - name: Run WebUI E2E tests
-        run: >-
-          uv run --no-sync pytest -v -m "not hardware and e2e"
-          --timeout=180 --junitxml=e2e-report.xml
+        run: make test-e2e
+        env:
+          PYTEST_ADDOPTS: --junitxml=e2e-report.xml
 
       - name: Upload JUnit report
         if: always()

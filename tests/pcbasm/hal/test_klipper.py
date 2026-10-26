@@ -1,121 +1,188 @@
+"""`pcbasm.hal.klipper` の仕様テスト.
+
+Moonraker のプロトコルは httpx.MockTransport で固定する。
+
+接続先と timeout の受け渡しは、応答しない実ソケットで確かめる。
+"""
+
+import socket
+from collections.abc import Callable
+from pathlib import Path
+
+import httpx
 import pytest
-from pytest_mock import MockerFixture
 
-from pcbasm.gcode import PRESENT_MACRO, GCode
-from pcbasm.hal.klipper import GCodeMacro, Klipper
-from tests.helpers import mark_hardware
+from pcbasm.gcode import GCode
+from pcbasm.hal.fake import FakeKlipper
+from pcbasm.hal.klipper import KlipperError, MoonrakerKlipper, open_klipper
+from pcbasm.machine.journal import Journal, format_block
 
 
-class TestKlipper:
-    """Klipperクラスのテスト."""
+def _moonraker(handler: Callable[[httpx.Request], httpx.Response]) -> MoonrakerKlipper:
+    return MoonrakerKlipper("moonraker", 7125, transport=httpx.MockTransport(handler))
 
-    @pytest.fixture
-    def klipper(self) -> Klipper:
-        return Klipper()
 
-    @mark_hardware
-    def test_send_gcode(self, klipper: Klipper):
-        result = klipper.send_gcode("M115")
+class TestMoonrakerKlipper:
+    """Moonraker REST API との対応."""
 
-        assert "result" in result
+    def test_send_gcode_posts_script_and_returns_response(self):
+        requests: list[httpx.Request] = []
 
-    @mark_hardware
-    def test_get_status(self, klipper: Klipper):
-        homed_axes = klipper.get_status("toolhead", "homed_axes")
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(200, json={"result": "ok"})
 
-        assert isinstance(homed_axes, str)
+        response = _moonraker(handler).send_gcode(["G28", "M400"])
 
-    @mark_hardware
-    def test_get_status_gcode_position(self, klipper: Klipper):
-        position = klipper.get_status("gcode_move", "gcode_position")
+        assert response == {"result": "ok"}
+        (request,) = requests
+        assert request.method == "POST"
+        assert request.url.path == "/printer/gcode/script"
+        assert request.url.params["script"] == "G28\nM400"
 
-        assert isinstance(position, list)
-        assert len(position) >= 3  # X, Y, Zはあるはず
+    def test_send_gcode_applies_per_send_timeout(self):
+        timeouts: list[float | None] = []
 
-    @mark_hardware
-    def test_get_config(self, klipper: Klipper):
-        config = klipper.get_config()
+        def handler(request: httpx.Request) -> httpx.Response:
+            timeouts.append(request.extensions["timeout"]["read"])
+            return httpx.Response(200, json={"result": "ok"})
 
-        assert isinstance(config, dict)
-
-    @mark_hardware
-    def test_get_macros(self, klipper: Klipper):
-        macros = klipper.get_macros()
-
-        assert isinstance(macros, dict)
-        for name, macro in macros.items():
-            assert isinstance(name, str)
-            assert isinstance(macro, GCodeMacro)
-
-    def test_get_macros_parses_config(self, mocker):
-        klipper = Klipper()
-        mocker.patch.object(
-            klipper,
-            "get_config",
-            return_value={
-                "gcode_macro TEST_MACRO": {
-                    "gcode": "G28",
-                    "description": "テストマクロ",
-                },
-                "gcode_macro NO_DESC": {
-                    "gcode": "M400",
-                },
-                "stepper_x": {"step_pin": "PC0"},
-            },
+        klipper = MoonrakerKlipper(
+            "moonraker", 7125, timeout=60.0, transport=httpx.MockTransport(handler)
         )
+        klipper.send_gcode("M400")
+        klipper.send_gcode("M400", timeout=5.0)
 
-        macros = klipper.get_macros()
+        assert timeouts == [60.0, 5.0]
 
-        assert len(macros) == 2
-        assert macros["TEST_MACRO"] == GCodeMacro(
-            gcode=GCode("G28"), description="テストマクロ"
-        )
-        assert macros["NO_DESC"] == GCodeMacro(gcode=GCode("M400"), description=None)
-
-    def test_send_present_or_relax_uses_present_macro(self, mocker: MockerFixture):
-        klipper = Klipper()
-        has_macro = mocker.patch.object(klipper, "has_macro", return_value=True)
-        send_gcode = mocker.patch.object(klipper, "send_gcode")
-
-        klipper.send_present_or_relax()
-
-        has_macro.assert_called_once_with(PRESENT_MACRO)
-        send_gcode.assert_called_once()
-        assert send_gcode.call_args.args == (GCode("PRESENT"),)
-        assert send_gcode.call_args.kwargs["timeout"] > 10.0
-
-    def test_send_present_or_relax_warns_and_relaxes_without_macro(
-        self, mocker: MockerFixture
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda klipper: klipper.send_gcode("G1 X1000"),
+            lambda klipper: klipper.emergency_stop(),
+        ],
+        ids=["send_gcode", "emergency_stop"],
+    )
+    def test_refusal_raises_klipper_error_caught_as_runtime_error(
+        self, call: Callable[[MoonrakerKlipper], object]
     ):
-        klipper = Klipper()
-        mocker.patch.object(klipper, "has_macro", return_value=False)
-        send_gcode = mocker.patch.object(klipper, "send_gcode")
-        warnings: list[str] = []
+        klipper = _moonraker(lambda request: httpx.Response(400))
 
-        klipper.send_present_or_relax(warn=warnings.append)
+        with pytest.raises(KlipperError, match="Bad Request") as exc:
+            call(klipper)
 
-        send_gcode.assert_called_once()
-        assert send_gcode.call_args.args == (GCode("M84"),)
-        assert send_gcode.call_args.kwargs["timeout"] > 10.0
-        assert len(warnings) == 1
-        assert "PRESENT" in warnings[0]
-        assert "M84" in warnings[0]
+        assert isinstance(exc.value, RuntimeError)
 
-    def test_send_present_or_relax_warns_and_relaxes_when_macro_check_fails(
-        self, mocker: MockerFixture
-    ):
-        klipper = Klipper()
-        mocker.patch.object(
-            klipper, "has_macro", side_effect=RuntimeError("config unavailable")
+    def test_emergency_stop_posts_to_emergency_stop_endpoint(self):
+        paths: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            paths.append(f"{request.method} {request.url.path}")
+            return httpx.Response(200, json={"result": "ok"})
+
+        _moonraker(handler).emergency_stop()
+
+        assert paths == ["POST /printer/emergency_stop"]
+
+    def test_get_status_queries_object_attribute(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.url.path == "/printer/objects/query"
+            assert dict(request.url.params) == {"toolhead": "homed_axes"}
+            status = {"toolhead": {"homed_axes": "xy"}}
+            return httpx.Response(200, json={"result": {"status": status}})
+
+        assert _moonraker(handler).get_status("toolhead", "homed_axes") == "xy"
+
+    def test_get_config_returns_printer_cfg(self):
+        config = {"stepper_x": {"position_max": "300"}}
+        queries: list[dict[str, str]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            queries.append(dict(request.url.params))
+            status = {"configfile": {"config": config}}
+            return httpx.Response(200, json={"result": {"status": status}})
+
+        assert _moonraker(handler).get_config() == config
+        assert queries == [{"configfile": "config"}]
+
+    def test_get_config_reads_printer_cfg_once_per_connection(self):
+        """Mainsail で printer.cfg を書き換えると、次に開いた接続から見える."""
+        configs = [{"stepper_x": {"position_max": "300"}}, {"stepper_x": {}}]
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            status = {"configfile": {"config": configs.pop(0)}}
+            return httpx.Response(200, json={"result": {"status": status}})
+
+        klipper = _moonraker(handler)
+        connection = klipper.connection()
+
+        assert connection.get_config() == {"stepper_x": {"position_max": "300"}}
+        assert connection.get_config() == {"stepper_x": {"position_max": "300"}}
+        assert klipper.connection().get_config() == {"stepper_x": {}}
+
+    def test_connection_replaces_only_timeout_and_journal(self, tmp_path: Path):
+        requests: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            status = {"toolhead": {"homed_axes": "xyz"}}
+            return httpx.Response(200, json={"result": {"status": status}})
+
+        klipper = _moonraker(handler)
+        journal = Journal(tmp_path / "journal.gcode")
+        connection = klipper.connection(timeout=10.0, journal=journal)
+
+        connection.send_gcode("M400")
+        connection.get_status("toolhead", "homed_axes")
+        klipper.send_gcode("G28")
+
+        assert [
+            (request.url.host, request.extensions["timeout"]["read"])
+            for request in requests
+        ] == [("moonraker", 10.0), ("moonraker", 10.0), ("moonraker", None)]
+        assert journal.path.read_text(encoding="utf-8") == format_block(
+            GCode("M400"), 10.0
         )
-        send_gcode = mocker.patch.object(klipper, "send_gcode")
-        warnings: list[str] = []
 
-        klipper.send_present_or_relax(warn=warnings.append)
+    def test_query_error_response_raises_http_error(self):
+        klipper = _moonraker(lambda request: httpx.Response(503))
 
-        send_gcode.assert_called_once()
-        assert send_gcode.call_args.args == (GCode("M84"),)
-        assert send_gcode.call_args.kwargs["timeout"] > 10.0
-        assert len(warnings) == 1
-        assert "PRESENT" in warnings[0]
-        assert "config unavailable" in warnings[0]
+        with pytest.raises(httpx.HTTPStatusError):
+            klipper.get_status("toolhead", "homed_axes")
+
+
+class TestOpenKlipper:
+    """open_klipper は接続先と timeout をそのまま写す.
+
+    root conftest が差し替えるのは ``pcbasm.hal.open_klipper`` なので、
+    ``pcbasm.hal.klipper`` から import した実物を検査できる。
+    """
+
+    @pytest.mark.timeout(10)
+    def test_connects_to_configured_address_with_timeout(self):
+        # 待ち受けるだけで応答しない相手。接続先が違えば ConnectError、timeout が無ければ待ち続ける
+        with socket.create_server(("127.0.0.1", 0)) as server:
+            klipper = open_klipper("127.0.0.1", server.getsockname()[1], timeout=0.2)
+
+            with pytest.raises(httpx.ReadTimeout):
+                klipper.send_gcode("M115")
+
+    @pytest.mark.timeout(10)
+    def test_journals_each_send_as_fake_klipper_records_it(self, tmp_path: Path):
+        # 応答しない相手なので送信は失敗するが、送ろうとしたブロックはジャーナルに残る
+        journal = Journal(tmp_path / "journal.gcode")
+        with socket.create_server(("127.0.0.1", 0)) as server:
+            klipper = open_klipper("127.0.0.1", server.getsockname()[1]).connection(
+                timeout=0.2, journal=journal
+            )
+            with pytest.raises(httpx.ReadTimeout):
+                klipper.send_gcode("G28\nM400")
+            with pytest.raises(httpx.ReadTimeout):
+                klipper.send_gcode(GCode.relax(), timeout=0.1)
+        fake = FakeKlipper(timeout=0.2)
+        fake.send_gcode("G28\nM400")
+        fake.send_gcode(GCode.relax(), timeout=0.1)
+
+        assert journal.path.read_text(encoding="utf-8") == "".join(
+            format_block(sent.gcode, sent.timeout) for sent in fake.sent
+        )

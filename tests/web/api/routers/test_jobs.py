@@ -1,26 +1,24 @@
-"""`web.api.routers.jobs` の仕様テスト（REST + WS /api/ws）.
+"""`web.api.routers.jobs` の仕様テスト（REST + WS /api/jobs/ws）.
 
-計画書 webui-phase3.md「src/webui/routers/jobs.py」節 + spec §6 / §9 が契約:
+契約:
 
 - POST /api/jobs/{name} → 201 {"job": JobSummary} / 404 / 400 / 409
 - GET /api/jobs/current → {"job": JobSummary | null}（WS 再接続時の同期用）
 - POST /api/jobs/current/abort → 200 {"aborted": true} / 409
 - POST /api/jobs/last/apply → 200 {"applied": {...}}（machine.toml へ書込・
   コメント保持）/ 409、POST /api/jobs/last/discard → 200（冪等）
-- WS /api/ws: job_status / log / progress / prompt / prompt_resolved /
+- WS /api/jobs/ws: job_status / log / progress / prompt / prompt_resolved /
   state_changed / error、クライアント → respond_prompt
-  （クライアント → command / abort の配線は ``test_control_api.py`` が担保）
+  （クライアント → command / abort の配線は ``test_session.py`` が担保）
 - 排他の波及: ジョブ実行中は machine-control / マシン切替 / 設定保存 /
   PCB 切替が 409
 - /artifacts: 成果物 URL 配信 + traversal 拒否
-- /api/state に job ブリーフ
+- /api/session/state に job ブリーフ
 
-MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
-
-- GET /api/jobs → {"jobs": [JobSpecInfo]}。登録順の全件（hidden も filter しない）で、
+- GET /api/jobs → {"jobs": [JobSpecInfo]}。登録順の全件で、
   `params` は保存済み既定値を `default` に反映した状態
-- preview ペイン / ローディング UI の有無は JobDefinition の provides_preview /
-  loading_param / loading_stages が正（pages.py のハードコード辞書は撤去済み）
+- preview ペイン / ローディング欄の有無は JobDefinition の provides_preview /
+  loading（LoadingPanel）が正。ローディング欄の既定値は保存済み既定値を反映して返す
 
 同期待ちは threading.Event ゲート付き合成ジョブ + ポーリング / WS 受信駆動で
 決定的に行う（sleep 固定値のアサート禁止）。
@@ -41,22 +39,31 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.testclient import WebSocketTestSession
 
-from pcbasm.vision import CalibrationResult
-from tests.web.api.jobs.conftest import register_gated, register_synthetic
-from web.api.config_store import ConfigStore
-from web.api.jobs.catalog import ParamSpec
-from web.api.jobs.context import (
+from pcbasm.vision import CameraCalibration
+from tests.support import polling
+from tests.support.job_demo import register_job_demo
+from tests.support.web import register_gated, register_synthetic
+from web.api.backend import Backend
+from web.api.jobs.runtime.catalog import ParamSpec
+from web.api.jobs.runtime.context import JobContext
+from web.api.jobs.runtime.manager import JobManager
+from web.api.jobs.runtime.record import (
     ApplyFile,
     ApplyPayload,
     Artifact,
-    JobContext,
     JobResult,
     PromptSpec,
 )
-from web.api.jobs.manager import JobManager
-from web.api.state import AppState
+from web.api.machine_config import MachineConfigFile
 
 _TERMINAL = ("succeeded", "failed", "aborted")
+
+
+@pytest.fixture
+def app(app: FastAPI) -> FastAPI:
+    """ジョブ機構を通す題材として、検証用の ``job_demo`` を登録した app."""
+    register_job_demo(app.state.backend.catalog)
+    return app
 
 
 def _current_job(client: TestClient) -> dict[str, Any] | None:
@@ -89,10 +96,9 @@ def _register_gated(
 ) -> threading.Event:
     """App の catalog へ gated 合成ジョブを登録する（jobs/conftest 共有形の薄い委譲）."""
     return register_gated(
-        app.state.catalog,
+        app.state.backend.catalog,
         name=name,
         notify_on_completion=notify_on_completion,
-        hidden=True,
     )
 
 
@@ -110,7 +116,7 @@ def _register_runtime_editable(
         ctx.prompt(PromptSpec(kind="confirm", message="待機"))
 
     register_synthetic(
-        app.state.catalog,
+        app.state.backend.catalog,
         run,
         name=name,
         label="実行中編集ジョブ",
@@ -134,7 +140,6 @@ def _register_runtime_editable(
             ),
         ),
         persisted_params=("line_length",),
-        hidden=True,
     )
 
 
@@ -172,9 +177,9 @@ def _receive_until(
 
 def _complete_job_demo(
     client: TestClient, app: FastAPI, *, answer: float = 61.5
-) -> None:
-    """job_demo を起動し、prompt 2 回を manager 経由で応答して完走させる."""
-    jobs: JobManager = app.state.jobs
+) -> str:
+    """job_demo を起動し、prompt 2 回を manager 経由で応答して完走させ、ジョブ ID を返す."""
+    jobs: JobManager = app.state.backend.jobs
     response = client.post(
         "/api/jobs/job_demo", json={"params": {"steps": 1, "interval": 0.01}}
     )
@@ -190,7 +195,7 @@ def _complete_job_demo(
             answered.add(prompt_id)
         job = _current_job(client)
         if job is not None and job["status"] == "succeeded":
-            return
+            return job["id"]
         if job is not None and job["status"] in ("failed", "aborted"):
             pytest.fail(f"job_demo が {job['status']} になりました: {job}")
         time.sleep(0.02)
@@ -205,21 +210,21 @@ def _jobs_by_name(client: TestClient) -> dict[str, dict[str, Any]]:
 
 
 class TestJobCatalogApi:
-    """GET /api/jobs — ジョブカタログの公開表現（MR2）."""
+    """GET /api/jobs — ジョブカタログの公開表現."""
 
-    def test_includes_hidden_jobs(self, client: TestClient, app: FastAPI):
-        """Hidden ジョブも filter しない（実行時登録され POST もできるため）."""
+    def test_includes_jobs_registered_after_startup(
+        self, client: TestClient, app: FastAPI
+    ):
+        """起動後に catalog へ登録したジョブも返る（E2E が合成ジョブを足すため）."""
         register_synthetic(
-            app.state.catalog,
+            app.state.backend.catalog,
             lambda ctx: JobResult(summary="ok"),
-            name="hidden_router_job",
-            hidden=True,
+            name="late_router_job",
         )
 
         jobs = _jobs_by_name(client)
 
-        assert jobs["hidden_router_job"]["hidden"] is True
-        assert jobs["paste_solder"]["hidden"] is False
+        assert {"late_router_job", "paste_solder"} <= jobs.keys()
 
     def test_reports_preview_and_loading_facts_from_definition(
         self, client: TestClient
@@ -229,23 +234,47 @@ class TestJobCatalogApi:
 
         paste_solder = jobs["paste_solder"]
         assert paste_solder["provides_preview"] is True
-        assert paste_solder["loading_param"] == "amount"
-        assert paste_solder["loading_stages"] == "ローディング"
+        assert paste_solder["loading"] == {
+            "amount": 0.1,
+            "rotation": None,
+            "stages": ["ローディング"],
+        }
 
-        # メニュー段階のプライムでもボタンを有効化する（カンマ区切り）
-        assert jobs["dispense_calibration"]["loading_stages"] == (
-            "キャリブレーションメニュー,ローディング"
-        )
+        # メニュー段階のプライムでもボタンを有効化する
+        assert jobs["dispense_calibration"]["loading"]["stages"] == [
+            "キャリブレーションメニュー",
+            "ローディング",
+        ]
 
         # カメラもローディングも使わない生成ジョブ
         assert jobs["generate_rect_pcb"]["provides_preview"] is False
-        assert jobs["generate_rect_pcb"]["loading_param"] is None
+        assert jobs["generate_rect_pcb"]["loading"] is None
+
+    def test_loading_panel_defaults_reflect_saved_defaults(
+        self, client: TestClient, backend: Backend
+    ):
+        """ローディング欄の既定値は、フォームと同じく保存済み既定値を反映して返る."""
+        backend.selection.merge_job_param_defaults(
+            "loading", {"amount": 0.2, "rate": 1.5}
+        )
+
+        loading = _jobs_by_name(client)["loading"]["loading"]
+
+        assert loading["amount"] == 0.2
+        assert loading["rotation"] == {
+            "rotations": 5.0,
+            "rate": 1.5,
+            "accel": 0.5,
+            "retract_rotations": 0.0,
+        }
 
     def test_param_specs_expose_every_declared_field(
         self, client: TestClient, app: FastAPI
     ):
         """ParamSpec の全フィールドがそのまま公開される（フォーム描画に必要な全量）."""
-        specs = {spec.name: spec for spec in app.state.catalog.get("loading").params}
+        specs = {
+            spec.name: spec for spec in app.state.backend.catalog.get("loading").params
+        }
 
         params = {p["name"]: p for p in _jobs_by_name(client)["loading"]["params"]}
 
@@ -262,13 +291,27 @@ class TestJobCatalogApi:
                 "runtime_editable": spec.runtime_editable,
                 "minimum": spec.minimum,
                 "optional": spec.optional,
+                "group": None,
             }
 
-    def test_params_reflect_saved_defaults(
-        self, client: TestClient, appstate: AppState
-    ):
+    def test_param_groups_are_exposed(self, client: TestClient):
+        """フォーム内のまとまりと、普段は畳むまとまりかが公開される."""
+        params = {
+            p["name"]: p
+            for p in _jobs_by_name(client)["paste_volume_calibration"]["params"]
+        }
+
+        assert params["plate_width"]["group"] == {"label": "銅板", "advanced": False}
+        assert params["min_contrast"]["group"] == {
+            "label": "円検出のハイパラ",
+            "advanced": True,
+        }
+
+    def test_params_reflect_saved_defaults(self, client: TestClient, backend: Backend):
         """保存済み既定値が ParamSpec.default に反映された状態で返る（SSR と同じ）."""
-        appstate.merge_job_param_defaults("loading", {"amount": 0.2, "rate": 1.5})
+        backend.selection.merge_job_param_defaults(
+            "loading", {"amount": 0.2, "rate": 1.5}
+        )
 
         params = {p["name"]: p for p in _jobs_by_name(client)["loading"]["params"]}
 
@@ -276,13 +319,14 @@ class TestJobCatalogApi:
         assert params["rate"]["default"] == 1.5
 
     def test_params_ignore_type_mismatched_saved_values(
-        self, client: TestClient, app: FastAPI, appstate: AppState
+        self, client: TestClient, app: FastAPI, backend: Backend
     ):
         """型不一致の保存値は黙って除外され、spec 既定値のまま返る."""
         spec_default = {
-            spec.name: spec.default for spec in app.state.catalog.get("loading").params
+            spec.name: spec.default
+            for spec in app.state.backend.catalog.get("loading").params
         }
-        appstate.merge_job_param_defaults("loading", {"amount": "とても多め"})
+        backend.selection.merge_job_param_defaults("loading", {"amount": "とても多め"})
 
         params = {p["name"]: p for p in _jobs_by_name(client)["loading"]["params"]}
 
@@ -358,14 +402,21 @@ class TestStartJob:
 
         assert response.status_code == 400
 
-    def test_double_start_returns_409(self, client: TestClient, app: FastAPI):
+    def test_double_start_returns_409(
+        self, client: TestClient, app: FastAPI, backend: Backend
+    ):
+        """装置を使わないジョブの実行中も別のジョブは始めず、走っているジョブの成果物を残す."""
         gate = _register_gated(app)
-        assert client.post("/api/jobs/gated_router", json={}).status_code == 201
+        running = client.post("/api/jobs/gated_router", json={}).json()["job"]
         _wait_job_status(client, "running")
 
         response = client.post("/api/jobs/job_demo", json={"params": {"steps": 1}})
 
         assert response.status_code == 409
+        current = _current_job(client)
+        assert current is not None
+        assert current["id"] == running["id"]
+        assert (backend.env.webui_data_dir / running["id"]).is_dir()
 
         gate.set()
         _wait_job_status(client, "succeeded")
@@ -379,7 +430,7 @@ class TestSaveParamDefaults:
     """
 
     def test_saves_persisted_values_for_next_form(
-        self, client: TestClient, appstate: AppState
+        self, client: TestClient, backend: Backend
     ):
         response = client.post(
             "/api/jobs/loading/param-defaults",
@@ -400,13 +451,13 @@ class TestSaveParamDefaults:
             "rate": 1.5,
             "accel": 2.0,
         }
-        # 実行を経ずに次回フォームの既定値になる（MR4 以降、これが描画に乗ることは
+        # 実行を経ずに次回フォームの既定値になる（これが描画に乗ることは
         # frontend 側の tests/web/ui/test_pages.py が `GET /api/jobs` 経由で確かめる）
-        assert appstate.job_param_defaults("loading")["rotations"] == 7.0
-        assert appstate.job_param_defaults("loading")["amount"] == 0.4
+        assert backend.selection.job_param_defaults("loading")["rotations"] == 7.0
+        assert backend.selection.job_param_defaults("loading")["amount"] == 0.4
 
     def test_ignores_non_persisted_and_invalid_values(
-        self, client: TestClient, appstate: AppState
+        self, client: TestClient, backend: Backend
     ):
         response = client.post(
             "/api/jobs/loading/param-defaults",
@@ -421,7 +472,7 @@ class TestSaveParamDefaults:
 
         assert response.status_code == 200, response.text
         assert response.json()["defaults"] == {"amount": 0.5}
-        assert appstate.job_param_defaults("loading") == {"amount": 0.5}
+        assert backend.selection.job_param_defaults("loading") == {"amount": 0.5}
 
     def test_overflowing_json_number_does_not_poison_the_next_form(
         self, client: TestClient
@@ -483,6 +534,20 @@ class TestCurrentAndAbort:
         done = _wait_job_status(client, "succeeded")
         assert done["error"] is None
 
+    def test_current_reports_elapsed_seconds_kept_after_completion(
+        self, client: TestClient, app: FastAPI, backend: Backend
+    ):
+        gate = _register_gated(app)
+        assert client.post("/api/jobs/gated_router", json={}).status_code == 201
+        running = _wait_job_status(client, "running")
+
+        gate.set()
+        polling.wait_until(lambda: backend.lock.owner is None)
+        done = _wait_job_status(client, "succeeded")
+
+        assert done["elapsed_seconds"] >= running["elapsed_seconds"] >= 0.0
+        assert _current_job(client) == done
+
     def test_abort_running_job_returns_200_and_aborts(
         self, client: TestClient, app: FastAPI
     ):
@@ -513,30 +578,35 @@ class TestCurrentAndAbort:
 
 
 class TestUpdateCurrentParams:
-    """PUT /api/jobs/current/params（計画書「能力 1」routers 節が契約）.
+    """PUT /api/jobs/current/params.
 
     実行中ジョブの runtime_editable な subset を out-of-band で patch する:
-    - アクティブジョブ無し → 400
+    - 終了したジョブ → 400
     - 正常 → 200 で {"params": {...}} を返し、GET /jobs/current が新値を映す
 
     値そのものの受理 / 拒否（固定キー・未知キー・型不正・負 removal_z_offset）は
     ``tests/web/api/jobs/test_catalog.py`` と ``test_manager.py`` が担保する。
     """
 
-    def _put_params(
-        self, client: TestClient, values: dict[str, object], *, persist: bool = False
-    ):
+    def _put_params(self, client: TestClient, job_id: str, values: dict[str, object]):
         return client.put(
-            "/api/jobs/current/params", json={"values": values, "persist": persist}
+            "/api/jobs/current/params",
+            json={"values": values, "expected_job_id": job_id},
         )
 
-    def test_without_active_job_returns_400(self, client: TestClient):
-        response = self._put_params(client, {"line_length": 5.0})
+    def test_finished_job_returns_400(self, client: TestClient, app: FastAPI):
+        _register_runtime_editable(app)
+        client.post("/api/jobs/runtime_editable_router", json={})
+        job = _wait_job_status(client, "waiting_input")
+        client.post("/api/jobs/current/abort")
+        _wait_job_status(client, "aborted")
+
+        response = self._put_params(client, job["id"], {"line_length": 5.0})
 
         assert response.status_code == 400
 
     def test_old_job_cannot_update_a_replacement_or_its_saved_defaults(
-        self, client: TestClient, app: FastAPI, appstate: AppState
+        self, client: TestClient, app: FastAPI, backend: Backend
     ):
         _register_runtime_editable(app)
         client.post("/api/jobs/runtime_editable_router", json={})
@@ -545,7 +615,7 @@ class TestUpdateCurrentParams:
         _wait_job_status(client, "aborted")
         client.post("/api/jobs/runtime_editable_router", json={})
         current = _wait_job_status(client, "waiting_input")
-        saved = appstate.job_param_defaults(current["name"])
+        saved = backend.selection.job_param_defaults(current["name"])
 
         response = client.put(
             "/api/jobs/current/params",
@@ -559,7 +629,7 @@ class TestUpdateCurrentParams:
         assert response.status_code == 409, response.text
         assert "ジョブが切り替わりました" in response.json()["detail"]
         assert _wait_job_status(client, "waiting_input")["params"] == current["params"]
-        assert appstate.job_param_defaults(current["name"]) == saved
+        assert backend.selection.job_param_defaults(current["name"]) == saved
         response = client.put(
             "/api/jobs/current/params",
             json={
@@ -569,7 +639,9 @@ class TestUpdateCurrentParams:
             },
         )
         assert response.status_code == 200, response.text
-        assert appstate.job_param_defaults(current["name"])["line_length"] == 12.5
+        assert (
+            backend.selection.job_param_defaults(current["name"])["line_length"] == 12.5
+        )
         assert client.post("/api/jobs/current/abort").status_code == 200
         _wait_job_status(client, "aborted")
 
@@ -580,6 +652,25 @@ class TestUpdateCurrentParams:
         )
         assert response.status_code == 409
 
+    def test_missing_expected_job_id_is_rejected_with_422(
+        self, client: TestClient, app: FastAPI
+    ):
+        """画面で確かめたジョブを指さない変更は、別のジョブに効きうるので受け付けない."""
+        _register_runtime_editable(app)
+        client.post("/api/jobs/runtime_editable_router", json={})
+        job = _wait_job_status(client, "waiting_input")
+
+        response = client.put(
+            "/api/jobs/current/params", json={"values": {"line_length": 12.5}}
+        )
+
+        assert response.status_code == 422
+        current = _current_job(client)
+        assert current is not None
+        assert current["params"] == job["params"]
+        assert client.post("/api/jobs/current/abort").status_code == 200
+        _wait_job_status(client, "aborted")
+
     def test_runtime_editable_update_returns_200_and_reflects_in_current(
         self, client: TestClient, app: FastAPI
     ):
@@ -587,9 +678,9 @@ class TestUpdateCurrentParams:
         assert (
             client.post("/api/jobs/runtime_editable_router", json={}).status_code == 201
         )
-        _wait_job_status(client, "waiting_input")
+        job = _wait_job_status(client, "waiting_input")
 
-        response = self._put_params(client, {"line_length": 12.5})
+        response = self._put_params(client, job["id"], {"line_length": 12.5})
 
         assert response.status_code == 200, response.text
         assert response.json()["params"] == {"line_length": 12.5}
@@ -603,17 +694,17 @@ class TestUpdateCurrentParams:
 
 
 class TestStateBrief:
-    """GET /api/state の job ブリーフ."""
+    """GET /api/session/state の job ブリーフ."""
 
     def test_state_job_is_null_initially(self, client: TestClient):
-        assert client.get("/api/state").json()["job"] is None
+        assert client.get("/api/session/state").json()["job"] is None
 
     def test_state_reports_running_job_brief(self, client: TestClient, app: FastAPI):
         gate = _register_gated(app)
         assert client.post("/api/jobs/gated_router", json={}).status_code == 201
         _wait_job_status(client, "running")
 
-        brief = client.get("/api/state").json()["job"]
+        brief = client.get("/api/session/state").json()["job"]
 
         assert brief is not None
         assert brief["id"]
@@ -636,21 +727,19 @@ class TestExclusionPropagation:
 
         try:
             assert (
-                client.post(
-                    "/api/machine-control", json={"action": "relax"}
+                client.post("/api/machine/command", json={"type": "relax"}).status_code
+                == 409
+            )
+            assert (
+                client.put(
+                    "/api/machine_config",
+                    json={"values": {"solder.motion.max_fill_speed": 0.9}},
                 ).status_code
                 == 409
             )
             assert (
                 client.put(
-                    "/api/settings/machine",
-                    json={"values": {"paste_dispenser.max_fill_speed": 0.9}},
-                ).status_code
-                == 409
-            )
-            assert (
-                client.put(
-                    "/api/pcb-file", json={"path": "boards/sample.kicad_pcb"}
+                    "/api/selection/pcb-file", json={"path": "boards/sample.kicad_pcb"}
                 ).status_code
                 == 409
             )
@@ -677,7 +766,7 @@ class TestApplyDiscard:
                 )
             )
 
-        register_synthetic(app.state.catalog, run, name="calibration_write")
+        register_synthetic(app.state.backend.catalog, run, name="calibration_write")
         destination = config_dir / filename
         destination.mkdir()  # 実ファイルシステムの書込失敗。モックは使わない。
         machine_file = config_dir / "machine.toml"
@@ -699,9 +788,7 @@ class TestApplyDiscard:
             assert response.status_code == 200, response.text
             assert destination.read_bytes() == content
             assert (
-                ConfigStore(config_dir).read_machine_settings()[
-                    "camera.calibration_file"
-                ]
+                MachineConfigFile(config_dir).values()["camera.calibration_file"]
                 == filename
             )
             assert not _wait_job_status(client, "succeeded")["apply_available"]
@@ -729,7 +816,7 @@ class TestApplyDiscard:
         assert machine_file.read_bytes() == original
         assert _current_job(client) == current
 
-        with client.websocket_connect("/api/ws") as ws:
+        with client.websocket_connect("/api/jobs/ws") as ws:
             response = client.post(
                 f"/api/jobs/last/{action}", json={"expected_job_id": current["id"]}
             )
@@ -743,9 +830,7 @@ class TestApplyDiscard:
             assert event["job"]["status"] == "succeeded"
 
         if action == "apply":
-            assert response.json()["applied"] == {
-                "paste_dispenser.pad_align.canny_low": 62.5
-            }
+            assert response.json()["applied"] == {"alignment.canny_low": 62.5}
         else:
             assert machine_file.read_bytes() == original
             assert (
@@ -767,13 +852,13 @@ class TestApplyDiscard:
     def test_apply_writes_machine_toml_preserving_comments(
         self, client: TestClient, app: FastAPI, config_dir: Path
     ):
-        _complete_job_demo(client, app, answer=61.5)
+        body = {"expected_job_id": _complete_job_demo(client, app, answer=61.5)}
 
-        response = client.post("/api/jobs/last/apply")
+        response = client.post("/api/jobs/last/apply", json=body)
 
         assert response.status_code == 200
         applied = response.json()["applied"]
-        assert applied == {"paste_dispenser.pad_align.canny_low": 61.5}
+        assert applied == {"alignment.canny_low": 61.5}
 
         toml_text = (config_dir / "machine.toml").read_text(encoding="utf-8")
         assert "61.5" in toml_text
@@ -781,50 +866,102 @@ class TestApplyDiscard:
         assert "Cannyエッジ検出の下側閾値" in toml_text
 
     def test_second_apply_returns_409(self, client: TestClient, app: FastAPI):
-        _complete_job_demo(client, app)
-        assert client.post("/api/jobs/last/apply").status_code == 200
+        body = {"expected_job_id": _complete_job_demo(client, app)}
+        assert client.post("/api/jobs/last/apply", json=body).status_code == 200
 
-        assert client.post("/api/jobs/last/apply").status_code == 409
+        assert client.post("/api/jobs/last/apply", json=body).status_code == 409
 
     def test_discard_then_apply_returns_409_and_discard_is_idempotent(
         self, client: TestClient, app: FastAPI
     ):
-        _complete_job_demo(client, app)
+        body = {"expected_job_id": _complete_job_demo(client, app)}
 
-        assert client.post("/api/jobs/last/discard").status_code == 200
-        assert client.post("/api/jobs/last/apply").status_code == 409
+        assert client.post("/api/jobs/last/discard", json=body).status_code == 200
+        assert client.post("/api/jobs/last/apply", json=body).status_code == 409
         # 冪等
-        assert client.post("/api/jobs/last/discard").status_code == 200
+        assert client.post("/api/jobs/last/discard", json=body).status_code == 200
 
     def test_apply_without_applicable_job_returns_409(self, client: TestClient):
-        assert client.post("/api/jobs/last/apply").status_code == 409
+        body = {"expected_job_id": "no-such-job"}
 
-    def test_apply_while_machine_lock_held_returns_409(
-        self, client: TestClient, app: FastAPI, appstate: AppState
+        assert client.post("/api/jobs/last/apply", json=body).status_code == 409
+
+    @pytest.mark.parametrize("path", ["/api/jobs/last/apply", "/api/jobs/last/discard"])
+    def test_missing_expected_job_id_is_rejected_with_422(
+        self, client: TestClient, app: FastAPI, path: str
     ):
+        """画面で確かめたジョブを指さない要求は、別のジョブの結果を反映しうるので受け付けない."""
         _complete_job_demo(client, app)
 
-        with appstate.machine_lock("pytest-control"):
-            assert client.post("/api/jobs/last/apply").status_code == 409
+        assert client.post(path).status_code == 422
+        assert client.post(path, json={}).status_code == 422
+
+    def test_apply_while_machine_lock_held_returns_409(
+        self, client: TestClient, app: FastAPI, backend: Backend
+    ):
+        body = {"expected_job_id": _complete_job_demo(client, app)}
+
+        with backend.lock.hold("pytest-control"):
+            assert client.post("/api/jobs/last/apply", json=body).status_code == 409
 
         # ロック解放後は反映できる
-        assert client.post("/api/jobs/last/apply").status_code == 200
+        assert client.post("/api/jobs/last/apply", json=body).status_code == 200
 
 
 class TestWebSocket:
-    """WS /api/ws のイベント往復（受信駆動）."""
+    """WS /api/jobs/ws のイベント往復（受信駆動）."""
 
     @pytest.mark.parametrize("message", [None, [], 42, "command"])
     def test_non_object_message_returns_error_and_keeps_the_connection(
         self, client: TestClient, message: object
     ):
-        with client.websocket_connect("/api/ws") as ws:
+        with client.websocket_connect("/api/jobs/ws") as ws:
             ws.send_json(message)
             error, _ = _receive_until(ws, lambda event: event["type"] == "error")
             assert "JSON オブジェクト" in error["detail"]
             ws.send_json({"type": "invalid-after-recovery"})
             error, _ = _receive_until(ws, lambda event: event["type"] == "error")
             assert "invalid-after-recovery" in error["detail"]
+
+    @pytest.mark.parametrize("expected_job_id", [None, 42])
+    def test_command_without_expected_job_id_returns_error_and_is_not_delivered(
+        self, client: TestClient, app: FastAPI, expected_job_id: object
+    ):
+        """ジョブを指さないコマンドは、別のジョブに届きうるので受け付けない."""
+
+        def run(ctx: JobContext) -> JobResult:
+            command = ctx.next_command(timeout=None)
+            assert command is not None
+            return JobResult(summary=command["type"])
+
+        register_synthetic(
+            app.state.backend.catalog,
+            run,
+            name="scoped_commands",
+            accepts_commands=True,
+        )
+        with client.websocket_connect("/api/jobs/ws") as ws:
+            client.post("/api/jobs/scoped_commands", json={})
+            current = _wait_job_status(client, "running")
+            message: dict[str, object] = {"type": "command", "command": {"type": "a"}}
+            if expected_job_id is not None:
+                message["expected_job_id"] = expected_job_id
+            ws.send_json(message)
+            error, _ = _receive_until(ws, lambda event: event["type"] == "error")
+            assert "expected_job_id" in error["detail"]
+            ws.send_json(
+                {
+                    "type": "command",
+                    "expected_job_id": current["id"],
+                    "command": {"type": "current"},
+                }
+            )
+            final, _ = _receive_until(
+                ws,
+                lambda event: event["type"] == "job_status"
+                and event["job"]["status"] == "succeeded",
+            )
+        assert final["job"]["result"]["summary"] == "current"
 
     def test_old_job_command_is_rejected_and_the_connection_still_accepts_current_job(
         self, client: TestClient, app: FastAPI
@@ -835,9 +972,12 @@ class TestWebSocket:
             return JobResult(summary=command["type"])
 
         register_synthetic(
-            app.state.catalog, run, name="scoped_commands", accepts_commands=True
+            app.state.backend.catalog,
+            run,
+            name="scoped_commands",
+            accepts_commands=True,
         )
-        with client.websocket_connect("/api/ws") as ws:
+        with client.websocket_connect("/api/jobs/ws") as ws:
             client.post("/api/jobs/scoped_commands", json={})
             previous = _wait_job_status(client, "running")
             client.post("/api/jobs/current/abort")
@@ -871,7 +1011,7 @@ class TestWebSocket:
         )
 
     def test_job_demo_full_event_stream(self, client: TestClient):
-        with client.websocket_connect("/api/ws") as ws:
+        with client.websocket_connect("/api/jobs/ws") as ws:
             response = client.post(
                 "/api/jobs/job_demo",
                 json={"params": {"steps": 2, "interval": 0.01}},
@@ -918,14 +1058,13 @@ class TestWebSocket:
             )
 
         register_synthetic(
-            app.state.catalog,
+            app.state.backend.catalog,
             run,
             name="labeled_prompt_router",
             label="ラベル付きプロンプト",
-            hidden=True,
         )
 
-        with client.websocket_connect("/api/ws") as ws:
+        with client.websocket_connect("/api/jobs/ws") as ws:
             response = client.post("/api/jobs/labeled_prompt_router", json={})
             assert response.status_code == 201
 
@@ -955,7 +1094,7 @@ class TestWebSocket:
     def test_invalid_respond_prompt_yields_error_and_keeps_connection(
         self, client: TestClient
     ):
-        with client.websocket_connect("/api/ws") as ws:
+        with client.websocket_connect("/api/jobs/ws") as ws:
             response = client.post(
                 "/api/jobs/job_demo",
                 json={"params": {"steps": 1, "interval": 0.01}},
@@ -990,10 +1129,10 @@ class TestWebSocket:
             assert final["job"]["status"] == "succeeded"
 
     def test_pcb_switch_broadcasts_state_changed(self, client: TestClient):
-        with client.websocket_connect("/api/ws") as ws:
+        with client.websocket_connect("/api/jobs/ws") as ws:
             assert (
                 client.put(
-                    "/api/pcb-file", json={"path": "boards/sample.kicad_pcb"}
+                    "/api/selection/pcb-file", json={"path": "boards/sample.kicad_pcb"}
                 ).status_code
                 == 200
             )
@@ -1002,30 +1141,27 @@ class TestWebSocket:
 
 
 class TestCameraCalibrationApplyFlow:
-    """Phase 4: camera_calibration の WS 完走 → POST /api/jobs/last/apply.
+    """camera_calibration の WS 完走 → POST /api/jobs/last/apply.
 
-    計画書 webui-phase4.md §4「tests/webui/routers/test_jobs.py（追記）」が契約:
-    checkerboard FakeCamera で WS 完走後、Apply で tmp config の machine.toml
-    の calibration_file 更新 + JSON ファイル生成を実ファイルで確認する。
+    checkerboard の FakeCamera で WS 完走後、Apply の結果を実ファイルで確かめる。
 
-    計画書 webui-camera-calib.md「設計判断 a」追記: crop は job param から
-    削除され machine.toml `[camera.crop]` 由来になったため、開始前に
-    ConfigStore で crop を checkerboard.png（400x400）へ合わせる。
+    確かめるのは machine.toml の calibration_file の更新と、校正 JSON の生成。
+
+    crop は `[camera.crop]` から取るので、開始前に checkerboard.png（400x400）へ合わせる。
     """
 
+    @pytest.mark.usefixtures("unreachable_klipper")
     def test_ws_full_run_then_apply_writes_calibration_files(
         self,
         checkerboard_camera_client: TestClient,
-        store: ConfigStore,
+        machine_config: MachineConfigFile,
         config_dir: Path,
     ):
         # checkerboard.png（400x400・1 マス約 66.7px）に合わせて crop を書く
         # （既定 600 は画像をはみ出す）
-        store.write_machine_settings(
-            {"camera.crop.width": 400, "camera.crop.height": 400}
-        )
+        machine_config.write({"camera.crop.width": 400, "camera.crop.height": 400})
         client = checkerboard_camera_client
-        with client.websocket_connect("/api/ws") as ws:
+        with client.websocket_connect("/api/jobs/ws") as ws:
             response = client.post(
                 "/api/jobs/camera_calibration",
                 json={"params": {"square_size": 10.0}},
@@ -1044,7 +1180,9 @@ class TestCameraCalibrationApplyFlow:
             assert apply_info is not None
             assert "camera.calibration_file" in apply_info["values"]
 
-        response = client.post("/api/jobs/last/apply")
+        response = client.post(
+            "/api/jobs/last/apply", json={"expected_job_id": final["job"]["id"]}
+        )
 
         assert response.status_code == 200
         applied = response.json()["applied"]
@@ -1058,17 +1196,17 @@ class TestCameraCalibrationApplyFlow:
         # tomlkit によりコメントが保持される
         assert "非リッスンポート" in toml_text
 
-        loaded = CalibrationResult.load(config_dir / filename)
+        loaded = CameraCalibration.load(config_dir / filename)
         # 400px / 6 マス / 10mm ≈ 6.67 px/mm（素材と整合する実数値）
         assert loaded.pixel_per_mm == pytest.approx(400 / 6 / 10, rel=0.01)
         assert loaded.z_position is None  # Klipper 不通（port 7126）の best-effort
 
 
+@pytest.mark.usefixtures("unreachable_klipper")
 class TestPastingJobsOverWs:
-    """Phase 5: pasting ジョブの WS 往復と実行中 artifacts 配信（装置なし）.
+    """Pasting ジョブの WS 往復と実行中 artifacts 配信（装置なし）.
 
-    計画書 webui-phase5.md §4「tests/webui/routers/test_jobs.py（追記）」が契約。
-    Klipper は テスト用 config（port 7126 = 接続拒否）。
+    Klipper はテスト用 config（port 7126 = 接続拒否）。
     """
 
     def test_height_plane_artifact_is_served_while_waiting_confirm(
@@ -1077,11 +1215,11 @@ class TestPastingJobsOverWs:
         """計画点 PNG はジョブ実行中（confirm 待ち）でも /artifacts から配信される."""
         assert (
             client.put(
-                "/api/pcb-file", json={"path": copper_pcb_path.as_posix()}
+                "/api/selection/pcb-file", json={"path": copper_pcb_path.as_posix()}
             ).status_code
             == 200
         )
-        with client.websocket_connect("/api/ws") as ws:
+        with client.websocket_connect("/api/jobs/ws") as ws:
             response = client.post("/api/jobs/height_plane", json={})
             assert response.status_code == 201
             job_id = response.json()["job"]["id"]
@@ -1131,11 +1269,10 @@ class TestArtifacts:
             )
 
         register_synthetic(
-            app.state.catalog,
+            app.state.backend.catalog,
             run,
             name="artifact_job",
             label="成果物ジョブ",
-            hidden=True,
         )
         assert client.post("/api/jobs/artifact_job", json={}).status_code == 201
         job = _wait_job_status(client, "succeeded")
@@ -1148,6 +1285,31 @@ class TestArtifacts:
         response = client.get(url)
         assert response.status_code == 200
         assert response.text == "hello artifacts"
+
+    @pytest.mark.usefixtures("unreachable_klipper")
+    @pytest.mark.parametrize("fails", [False, True], ids=["succeeded", "failed"])
+    def test_machine_job_links_its_journal(
+        self, client: TestClient, app: FastAPI, backend: Backend, fails: bool
+    ):
+        """装置を動かすジョブは、失敗しても送信の G-code ジャーナルを成果物に出す."""
+
+        def run(ctx: JobContext) -> None:
+            if fails:
+                raise RuntimeError("意図的な失敗")
+
+        register_synthetic(app.state.backend.catalog, run, uses_machine=True)
+        assert client.post("/api/jobs/synthetic", json={}).status_code == 201
+        polling.wait_until(lambda: backend.lock.owner is None)
+        job = _current_job(client)
+
+        assert job is not None
+        assert job["status"] == ("failed" if fails else "succeeded")
+        [artifact] = job["result"]["artifacts"]
+        assert artifact["label"] == "G-code ジャーナル"
+        assert artifact["url"].startswith("/artifacts/journal/")
+        response = client.get(artifact["url"])
+        assert response.status_code == 200
+        assert "M84" in response.text
 
     def test_path_traversal_is_rejected(self, client: TestClient):
         response = client.get("/artifacts/%2e%2e/webui_state.json")

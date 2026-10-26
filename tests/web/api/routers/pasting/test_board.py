@@ -1,0 +1,1361 @@
+"""`web.api.routers.pasting.board` の仕様テスト.
+
+契約:
+
+- PCB 未選択 → 409
+- GET /api/pasting/board の構造（outline / pads / tree / defaults /
+  overrides、pad.resolved / enabled）
+- PATCH node（enabled トグル → affected_pads、values upsert → 子 pad の
+  resolved 反映、clear → 継承復帰）
+- PATCH pads 一括
+- 未知キー / 未知 node → 400
+- 予測所要時間（printer.cfg を読めなければ理由を返す）
+
+実 PCB（led_blinker）を読む経路は ``copper_pcb_path`` fixture を使う
+（pcbnew 依存。conftest が pcb_browse_root へコピー済み）。設定書き込み先は
+tmp（webui_settings の tmp data_dir 配下）。
+
+node_id 規約（契約）: L0 / L1:{package} / L2:{designator} /
+L3:{designator}:{shape_label} / L4:{designator}:{pad_ref}。
+pad id = {designator}.{pad_ref}。
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import shutil
+from collections import Counter
+from pathlib import Path
+from urllib.parse import unquote
+
+import pytest
+from fastapi.testclient import TestClient
+from shapely import Polygon
+
+from pcbasm.pasting.overrides import BoardOverrides
+from pcbasm.pasting.params import PASTE_PARAM_NAMES
+from tests.support.moonraker import FakeMoonraker
+from tests.support.paths import FILL_COVERAGE_PCB, LED_BLINKER_PCB
+from web.api.backend import Backend
+from web.api.env import Env
+
+# selected_client が選ぶ PCB（copper_pcb_path）。PATCH の expected_pcb に添える
+_SELECTED_PCB = "real/led_blinker.kicad_pcb"
+# led_blinker の安定した参照点
+_U1_PADS = {f"U1.{n}" for n in range(1, 7)}  # U1 は 6 pad、全て同形状（L3 単一）
+
+
+@pytest.fixture
+def selected_client(
+    client: TestClient, backend: Backend, copper_pcb_path: Path
+) -> TestClient:
+    """led_blinker を選択済みの TestClient."""
+    backend.selection.select(copper_pcb_path)
+    return client
+
+
+def _get_config(client: TestClient) -> dict:
+    response = client.get("/api/pasting/board")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _pad_by_id(config: dict, pad_id: str) -> dict:
+    return next(pad for pad in config["pads"] if pad["id"] == pad_id)
+
+
+def _node_by_id(node: dict, node_id: str) -> dict:
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if current["id"] == node_id:
+            return current
+        stack.extend(current["children"])
+    raise AssertionError(f"node not found: {node_id}")
+
+
+def _leaf_pad_ids(node: dict) -> set[str]:
+    if node["level"] == 4:
+        _, designator, pad_number = node["id"].split(":", 2)
+        return {f"{designator}.{pad_number}"}
+    ids: set[str] = set()
+    for child in node["children"]:
+        ids |= _leaf_pad_ids(child)
+    return ids
+
+
+def _saved_board_settings_doc(webui_settings: Env) -> dict:
+    paths = list((webui_settings.webui_data_dir / "board_settings").rglob("*.json"))
+    assert len(paths) == 1
+    return json.loads(paths[0].read_text(encoding="utf-8"))
+
+
+class TestPcbNotSelected:
+    """PCB 未選択 → 409."""
+
+    @pytest.mark.parametrize(
+        ("method", "suffix", "payload"),
+        [
+            pytest.param("GET", "", None, id="config"),
+            pytest.param("GET", "/copper", None, id="copper"),
+            pytest.param(
+                "PATCH",
+                "/node",
+                {"node": "L0", "enabled": False, "expected_pcb": _SELECTED_PCB},
+                id="node",
+            ),
+            pytest.param(
+                "PATCH",
+                "/initial-purge",
+                {"point": None, "expected_pcb": _SELECTED_PCB},
+                id="purge",
+            ),
+            pytest.param("POST", "/route", {"layer": "Top"}, id="route"),
+            pytest.param("POST", "/fill-path", {"layer": "Top"}, id="fill-path"),
+            pytest.param("GET", "/tact-estimate", None, id="tact-estimate"),
+            pytest.param("POST", "/import", {"document": {}}, id="import"),
+            pytest.param("POST", "/reset", {"expected_pcb": _SELECTED_PCB}, id="reset"),
+        ],
+    )
+    def test_requires_selected_pcb(
+        self, client: TestClient, method: str, suffix: str, payload: dict | None
+    ):
+        response = client.request(method, f"/api/pasting/board{suffix}", json=payload)
+
+        assert response.status_code == 409
+
+
+class TestUnreadableBoardSettings:
+    """保存済みの塗布設定を読めない基板は、理由とファイルの場所を 409 で返す（500 にしない）."""
+
+    @pytest.mark.parametrize(
+        ("method", "suffix", "payload"),
+        [
+            pytest.param("GET", "", None, id="config"),
+            pytest.param(
+                "PATCH",
+                "/node",
+                {"node": "L0", "enabled": False, "expected_pcb": _SELECTED_PCB},
+                id="node",
+            ),
+            pytest.param("POST", "/route", {"layer": "Top"}, id="route"),
+        ],
+    )
+    def test_reports_the_reason_and_the_file(
+        self,
+        selected_client: TestClient,
+        webui_settings: Env,
+        method: str,
+        suffix: str,
+        payload: dict | None,
+    ):
+        path = _break_saved_settings(selected_client, webui_settings)
+
+        response = selected_client.request(
+            method, f"/api/pasting/board{suffix}", json=payload
+        )
+
+        assert response.status_code == 409
+        assert response.json() == {
+            "detail": (
+                "保存済みの基板の塗布設定を読めません: 基板の塗布設定 schema v1 が不正です: "
+                f"未知のキーです: initial_purge_pad_id ({path})"
+            ),
+            "board_settings_unreadable": True,
+            "pcb_file": _SELECTED_PCB,
+        }
+
+    def test_reset_overwrites_with_the_defaults(
+        self, selected_client: TestClient, webui_settings: Env
+    ):
+        """初期化すると読めない設定を初期値で上書きし、pad 編集へ戻れる."""
+        _break_saved_settings(selected_client, webui_settings)
+
+        response = selected_client.post(
+            "/api/pasting/board/reset", json={"expected_pcb": _SELECTED_PCB}
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["overrides"] == {}
+        assert _get_config(selected_client)["overrides"] == {}
+
+    def test_reset_refuses_a_board_other_than_the_selected_one(
+        self, selected_client: TestClient, webui_settings: Env
+    ):
+        """初期化を押した画面の基板と選択中の基板が違えば、選択中の基板の設定を消さない."""
+        path = _break_saved_settings(selected_client, webui_settings)
+        before = path.read_text(encoding="utf-8")
+
+        response = selected_client.post(
+            "/api/pasting/board/reset", json={"expected_pcb": "other.kicad_pcb"}
+        )
+
+        assert response.status_code == 409
+        assert path.read_text(encoding="utf-8") == before
+
+    def test_import_overwrites_without_reading_the_saved_settings(
+        self, selected_client: TestClient, webui_settings: Env
+    ):
+        """書き出し済みの設定の読み込みも、読めない設定を置き換えられる."""
+        selected_client.patch(
+            "/api/pasting/board/pads",
+            json={"ids": ["U1.2"], "enabled": False, "expected_pcb": _SELECTED_PCB},
+        )
+        exported = selected_client.get("/api/pasting/board/export").json()
+        _break_saved_settings(selected_client, webui_settings)
+
+        response = selected_client.post(
+            "/api/pasting/board/import", json={"document": exported}
+        )
+
+        assert response.status_code == 200, response.text
+        assert _pad_by_id(_get_config(selected_client), "U1.2")["enabled"] is False
+
+
+def _break_saved_settings(client: TestClient, webui_settings: Env) -> Path:
+    """選択中基板の保存済みの設定を、読めない内容（未知のキー入り）で書き、そのパスを返す."""
+    doc = client.get("/api/pasting/board/export").json()
+    doc["settings"]["initial_purge_pad_id"] = "U1.1"
+    board_id = BoardOverrides(webui_settings.webui_data_dir).board_id(_SELECTED_PCB)
+    path = webui_settings.webui_data_dir / "board_settings" / f"{board_id}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    return path
+
+
+class TestReplacedBoard:
+    """同名で内容の違う基板に差し替えると、次の preview が新しい pad を使う."""
+
+    @staticmethod
+    def _pad_ids(client: TestClient) -> set[str]:
+        return {pad["id"] for pad in _get_config(client)["pads"]}
+
+    @staticmethod
+    def _upload(client: TestClient, fixture: Path) -> None:
+        response = client.post(
+            "/api/selection/pcb-file/upload",
+            files={"file": ("board.kicad_pcb", fixture.read_bytes())},
+        )
+        assert response.status_code == 201, response.text
+
+    def test_reupload_under_the_same_name(self, client: TestClient):
+        self._upload(client, LED_BLINKER_PCB)
+        assert _U1_PADS <= self._pad_ids(client)
+
+        self._upload(client, FILL_COVERAGE_PCB)
+
+        ids = self._pad_ids(client)
+        assert {"CONCAVE_L.#1", "CONCAVE_L.#2"} <= ids
+        assert not _U1_PADS & ids
+
+    def test_file_replaced_on_disk_without_selecting_again(
+        self, selected_client: TestClient, pcb_root: Path, copper_pcb_path: Path
+    ):
+        assert _U1_PADS <= self._pad_ids(selected_client)
+
+        shutil.copy(FILL_COVERAGE_PCB, pcb_root / copper_pcb_path)
+
+        ids = self._pad_ids(selected_client)
+        assert {"CONCAVE_L.#1", "CONCAVE_L.#2"} <= ids
+        assert not _U1_PADS & ids
+
+
+class TestGetPadConfig:
+    """GET /api/pasting/board の構造."""
+
+    def test_board_geometry_and_initial_hierarchy(self, selected_client: TestClient):
+        config = _get_config(selected_client)
+
+        assert config["pcb_file"].endswith("led_blinker.kicad_pcb")
+        assert config["width"] > 0
+        assert config["height"] > 0
+        assert len(config["outline"]) >= 4
+        assert isinstance(config["tree"], dict)
+        assert config["tree"]["id"] == "L0"
+        assert config["tree"]["level"] == 0
+        assert len(config["pads"]) == 18
+        assert config["overrides"] == {}
+        assert "L1:SOT-23-6" in {child["id"] for child in config["tree"]["children"]}
+
+    def test_defaults_come_from_machine_config(self, selected_client: TestClient):
+        config = _get_config(selected_client)
+        defaults = config["defaults"]
+
+        assert defaults["enabled"] is True
+        assert defaults["dispense_mode"] == "auto"
+        assert defaults["line_direction"] == "unconstrained"
+        assert (
+            defaults["prime_extra_delay"] == 0.0
+        )  # テスト用 config の machine.toml 由来
+        assert defaults["paste_height"] == "auto"
+        assert defaults["bead_width_factor"] == 1.0  # PasteDispenser 既定
+        assert defaults["boundary_margin"] == 0.0
+
+    def test_pad_geometry_resolved_values_and_node_path(
+        self, selected_client: TestClient
+    ):
+        config = _get_config(selected_client)
+        pad = _pad_by_id(config, "U1.1")
+
+        assert pad["designator"] == "U1"
+        assert pad["pad_number"] == "1"
+        assert pad["package"] == "SOT-23-6"
+        assert pad["layer"] in ("Top", "Bottom")
+        assert len(pad["polygon"]) >= 4
+        assert all(len(point) == 2 for point in pad["polygon"])
+        assert pad["enabled"] is True
+        assert pad["resolved"]["dispense_mode"] == "auto"
+        assert pad["resolved"]["line_direction"] == "unconstrained"
+        assert pad["resolved"]["prime_extra_delay"] == 0.0
+        assert pad["resolved"]["paste_height"] == "auto"
+
+        node_ids = pad["node_ids"]
+        assert all(isinstance(node_id, str) for node_id in node_ids)
+        assert [node_id.split(":", 1)[0] for node_id in node_ids] == [
+            "L0",
+            "L1",
+            "L2",
+            "L3",
+            "L4",
+        ]
+        assert node_ids[0] == "L0"
+        assert "L1:SOT-23-6" in node_ids
+        assert "L2:U1" in node_ids
+        assert any(node_id.startswith("L3:U1:") for node_id in node_ids)
+        assert node_ids[-1] == "L4:U1:1"
+
+    def test_l3_membership_is_discoverable_from_node_ids(
+        self, selected_client: TestClient
+    ):
+        config = _get_config(selected_client)
+        u1_node = _node_by_id(config["tree"], "L2:U1")
+        l3_node = next(child for child in u1_node["children"] if child["level"] == 3)
+        l3_node_id = l3_node["id"]
+
+        expected_pad_ids = _leaf_pad_ids(l3_node)
+        matched_pad_ids = {
+            pad["id"] for pad in config["pads"] if l3_node_id in pad["node_ids"]
+        }
+
+        assert expected_pad_ids
+        assert matched_pad_ids == expected_pad_ids
+
+
+class TestInitialPurgePadConfig:
+    """GET/PATCH initial_purge."""
+
+    def test_get_includes_default_initial_purge_resolution(
+        self, selected_client: TestClient
+    ):
+        config = _get_config(selected_client)
+        initial = config["initial_purge"]
+
+        assert initial["initial_purge_ul"] == pytest.approx(0.1)
+        assert initial["point"] is None
+        assert initial["resolved"]["source"] == "default"
+        assert initial["resolved"]["amount"] == pytest.approx(0.1)
+        # 自動は面積最大 pad の中心座標
+        assert initial["resolved"]["point"] == pytest.approx([15.0, 4.212500000000003])
+        assert initial["default_point"] == initial["resolved"]["point"]
+        assert "自動" in initial["selection_label"]
+
+    def test_amount_is_a_machine_setting_resolved_with_the_board_point(
+        self,
+        selected_client: TestClient,
+        config_dir: Path,
+        webui_settings: Env,
+    ):
+        """量は machine 設定、位置は基板設定に書き、解決では両方を使う."""
+        amount = selected_client.put(
+            "/api/machine_config",
+            json={"values": {"solder.initial_purge_ul": 0.22}},
+        )
+        assert amount.status_code == 200, amount.text
+
+        response = selected_client.patch(
+            "/api/pasting/board/initial-purge",
+            json={"point": [15.0, 4.0], "expected_pcb": _SELECTED_PCB},
+        )
+
+        assert response.status_code == 200, response.text
+        initial = response.json()["initial_purge"]
+        assert initial["initial_purge_ul"] == pytest.approx(0.22)
+        assert initial["point"] == pytest.approx([15.0, 4.0])
+        assert initial["resolved"]["amount"] == pytest.approx(0.22)
+        machine_toml = config_dir / "machine.toml"
+        assert "initial_purge_ul = 0.22" in machine_toml.read_text(encoding="utf-8")
+        doc = _saved_board_settings_doc(webui_settings)
+        assert doc["settings"]["initial_purge_point"] == pytest.approx([15.0, 4.0])
+
+    def test_board_patch_does_not_take_the_amount(
+        self, selected_client: TestClient, config_dir: Path
+    ):
+        """基板の PATCH は位置だけを受ける（量を送れば 422 で、machine.toml を書かない）."""
+        machine_toml = config_dir / "machine.toml"
+        before = machine_toml.read_text(encoding="utf-8")
+
+        response = selected_client.patch(
+            "/api/pasting/board/initial-purge",
+            json={
+                "point": [15.0, 4.0],
+                "initial_purge_ul": 0.25,
+                "expected_pcb": _SELECTED_PCB,
+            },
+        )
+
+        assert response.status_code == 422
+        assert machine_toml.read_text(encoding="utf-8") == before
+
+
+class TestInitialPurgePoint:
+    """PATCH initial-purge の座標指定（パージは pad ではなく座標で扱う）."""
+
+    def test_patch_saves_the_point_and_resolves_it(
+        self, selected_client: TestClient, webui_settings: Env
+    ):
+        response = selected_client.patch(
+            "/api/pasting/board/initial-purge",
+            json={"point": [15.0, 4.0], "expected_pcb": _SELECTED_PCB},
+        )
+
+        assert response.status_code == 200, response.text
+        initial = response.json()["initial_purge"]
+        assert initial["point"] == pytest.approx([15.0, 4.0])
+        assert initial["resolved"]["source"] == "explicit"
+        assert initial["resolved"]["point"] == pytest.approx([15.0, 4.0])
+        assert "15.00" in initial["selection_label"]
+
+        doc = _saved_board_settings_doc(webui_settings)
+        assert doc["settings"]["initial_purge_point"] == pytest.approx([15.0, 4.0])
+
+    def test_null_point_returns_to_the_automatic_selection(
+        self, selected_client: TestClient, webui_settings: Env
+    ):
+        saved = selected_client.patch(
+            "/api/pasting/board/initial-purge",
+            json={"point": [15.0, 4.0], "expected_pcb": _SELECTED_PCB},
+        )
+        assert saved.status_code == 200, saved.text
+
+        response = selected_client.patch(
+            "/api/pasting/board/initial-purge",
+            json={"point": None, "expected_pcb": _SELECTED_PCB},
+        )
+
+        assert response.status_code == 200, response.text
+        initial = response.json()["initial_purge"]
+        assert initial["point"] is None
+        assert initial["resolved"]["source"] == "default"
+        doc = _saved_board_settings_doc(webui_settings)
+        assert "initial_purge_point" not in doc["settings"]
+
+    def test_point_outside_the_outline_returns_400(self, selected_client: TestClient):
+        response = selected_client.patch(
+            "/api/pasting/board/initial-purge",
+            json={"point": [999.0, 999.0], "expected_pcb": _SELECTED_PCB},
+        )
+
+        assert response.status_code == 400
+        assert "基板外形" in response.json()["detail"]
+
+    @pytest.mark.parametrize("value", [[15.0], [15.0, 4.0, 1.0]])
+    def test_malformed_point_returns_400(
+        self, selected_client: TestClient, value: list[float]
+    ):
+        response = selected_client.patch(
+            "/api/pasting/board/initial-purge",
+            json={"point": value, "expected_pcb": _SELECTED_PCB},
+        )
+
+        assert response.status_code == 400
+
+
+class TestFlowCalibrationPoints:
+    """PATCH flow-calibration の測定位置（machine 設定とは別入口）.
+
+    測定位置は 1 点ずつ足していく。
+
+    置き換え方式なので、クライアントは今の並びに 1 点足した配列を送る。
+    """
+
+    def test_is_unset_and_disabled_by_default(self, selected_client: TestClient):
+        flow = _get_config(selected_client)["flow_calibration"]
+
+        assert flow["points"] == []
+        assert flow["planned"] is False
+        assert flow["enabled"] is False
+        assert "未設定" in flow["selection_label"]
+
+    def test_patch_saves_the_points(
+        self, selected_client: TestClient, webui_settings: Env
+    ):
+        response = selected_client.patch(
+            "/api/pasting/board/flow-calibration",
+            json={"points": [[15.0, 4.0]], "expected_pcb": _SELECTED_PCB},
+        )
+
+        assert response.status_code == 200, response.text
+        flow = response.json()["flow_calibration"]
+        assert flow["points"] == [pytest.approx([15.0, 4.0])]
+        assert "15.00" in flow["selection_label"]
+
+        doc = _saved_board_settings_doc(webui_settings)
+        assert doc["settings"]["flow_calibration_points"] == [
+            pytest.approx([15.0, 4.0])
+        ]
+
+    def test_points_accumulate_one_at_a_time_in_order(
+        self, selected_client: TestClient
+    ):
+        first = selected_client.patch(
+            "/api/pasting/board/flow-calibration",
+            json={"points": [[10.0, 4.0]], "expected_pcb": _SELECTED_PCB},
+        )
+        assert first.status_code == 200, first.text
+
+        second = selected_client.patch(
+            "/api/pasting/board/flow-calibration",
+            json={"points": [[10.0, 4.0], [13.0, 4.0]], "expected_pcb": _SELECTED_PCB},
+        )
+
+        assert second.status_code == 200, second.text
+        flow = second.json()["flow_calibration"]
+        assert flow["points"] == [
+            pytest.approx([10.0, 4.0]),
+            pytest.approx([13.0, 4.0]),
+        ]
+        assert "2 点" in flow["selection_label"]
+
+    def test_an_empty_list_returns_to_unset(
+        self, selected_client: TestClient, webui_settings: Env
+    ):
+        saved = selected_client.patch(
+            "/api/pasting/board/flow-calibration",
+            json={"points": [[15.0, 4.0]], "expected_pcb": _SELECTED_PCB},
+        )
+        assert saved.status_code == 200, saved.text
+
+        response = selected_client.patch(
+            "/api/pasting/board/flow-calibration",
+            json={"points": [], "expected_pcb": _SELECTED_PCB},
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["flow_calibration"]["points"] == []
+        doc = _saved_board_settings_doc(webui_settings)
+        assert "flow_calibration_points" not in doc["settings"]
+
+    def test_a_point_outside_the_outline_returns_400(self, selected_client: TestClient):
+        response = selected_client.patch(
+            "/api/pasting/board/flow-calibration",
+            json={
+                "points": [[10.0, 4.0], [999.0, 999.0]],
+                "expected_pcb": _SELECTED_PCB,
+            },
+        )
+
+        assert response.status_code == 400
+        assert "基板外形" in response.json()["detail"]
+
+    def test_an_empty_body_reports_the_current_state_without_saving(
+        self, selected_client: TestClient, webui_settings: Env
+    ):
+        response = selected_client.patch(
+            "/api/pasting/board/flow-calibration",
+            json={"expected_pcb": _SELECTED_PCB},
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["flow_calibration"]["points"] == []
+        assert not list(
+            (webui_settings.webui_data_dir / "board_settings").rglob("*.json")
+        )
+
+    def test_measurement_is_planned_once_the_calibration_file_is_set(
+        self, selected_client: TestClient
+    ):
+        enabled = selected_client.put(
+            "/api/machine_config",
+            json={"values": {"solder.volume_correction.calibration_file": "cal.json"}},
+        )
+        assert enabled.status_code == 200, enabled.text
+        saved = selected_client.patch(
+            "/api/pasting/board/flow-calibration",
+            json={"points": [[10.0, 4.0], [13.0, 4.0]], "expected_pcb": _SELECTED_PCB},
+        )
+        assert saved.status_code == 200, saved.text
+
+        flow = saved.json()["flow_calibration"]
+
+        assert flow["enabled"] is True
+        assert flow["planned"] is True
+        assert flow["points"] == [
+            pytest.approx([10.0, 4.0]),
+            pytest.approx([13.0, 4.0]),
+        ]
+
+    def test_points_are_kept_and_shown_without_a_calibration_file(
+        self, selected_client: TestClient
+    ):
+        """校正ファイルが無くても座標は返す.
+
+        図から消えると位置を直せない。
+        """
+        response = selected_client.patch(
+            "/api/pasting/board/flow-calibration",
+            json={"points": [[10.0, 4.0]], "expected_pcb": _SELECTED_PCB},
+        )
+
+        assert response.status_code == 200, response.text
+        flow = response.json()["flow_calibration"]
+        assert flow["enabled"] is False
+        assert flow["planned"] is False
+        assert flow["points"] == [pytest.approx([10.0, 4.0])]
+        assert "校正ファイル未設定" in flow["selection_label"]
+
+    def test_the_crop_size_is_reported_for_the_viewer(
+        self, selected_client: TestClient
+    ):
+        """点線の四角は撮影範囲そのもの.
+
+        寸法はサーバーが返す。
+        """
+        configured = selected_client.put(
+            "/api/machine_config",
+            json={"values": {"solder.volume_correction.crop_size_mm": 2.5}},
+        )
+        assert configured.status_code == 200, configured.text
+
+        flow = _get_config(selected_client)["flow_calibration"]
+
+        assert flow["crop_size_mm"] == pytest.approx(2.5)
+
+    def test_overlapping_crops_are_reported_without_failing(
+        self, selected_client: TestClient
+    ):
+        """Crop へ隣のドットが写り込む配置.
+
+        保存は通し、理由を載せる。
+        """
+        configured = selected_client.put(
+            "/api/machine_config",
+            json={
+                "values": {
+                    "solder.volume_correction.calibration_file": "cal.json",
+                    "solder.volume_correction.crop_size_mm": 4.0,
+                }
+            },
+        )
+        assert configured.status_code == 200, configured.text
+        # 片方だけ書いても machine.toml は壊れない（pad-config が引けること）
+        assert selected_client.get("/api/pasting/board").status_code == 200
+
+        response = selected_client.patch(
+            "/api/pasting/board/flow-calibration",
+            json={"points": [[10.0, 4.0], [12.0, 4.0]], "expected_pcb": _SELECTED_PCB},
+        )
+
+        assert response.status_code == 200, response.text
+        flow = response.json()["flow_calibration"]
+        assert flow["planned"] is False
+        assert flow["points"] == [
+            pytest.approx([10.0, 4.0]),
+            pytest.approx([12.0, 4.0]),
+        ]
+        assert flow["overlapping"] == [True, True]
+        assert flow["error"] is not None
+        assert "撮影範囲" in flow["error"]
+        # 画面の本文は selection_label だけなので、理由はそこにも出す
+        assert "撮影範囲" in flow["selection_label"]
+
+
+class TestPadConfigCopper:
+    """GET pad-config/copper は表示用に簡略化した銅箔島を返す."""
+
+    def test_returns_islands_for_the_selected_board(self, selected_client: TestClient):
+        response = selected_client.get("/api/pasting/board/copper")
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["pcb_file"] == _get_config(selected_client)["pcb_file"]
+        assert body["tolerance_mm"] == pytest.approx(0.02)
+        assert body["islands"]
+        island = body["islands"][0]
+        assert island["layer"] in {"Top", "Bottom"}
+        # 各環は閉環（末尾が始点の重複）
+        for ring in island["rings"]:
+            assert len(ring) >= 4
+            assert ring[0] == ring[-1]
+
+    def test_holes_follow_the_exterior_ring(self, selected_client: TestClient):
+        # led_blinker の銅箔には簡略化後も穴が残る
+        body = selected_client.get("/api/pasting/board/copper").json()
+
+        island = next(island for island in body["islands"] if len(island["rings"]) > 1)
+        exterior, *holes = island["rings"]
+        outer = Polygon(exterior)
+        assert all(outer.contains(Polygon(hole)) for hole in holes)
+
+    def test_coordinates_are_rounded_to_three_decimals(
+        self, selected_client: TestClient
+    ):
+        # 形を見せる用途なので転送量を抑える
+        body = selected_client.get("/api/pasting/board/copper").json()
+
+        values = [
+            value
+            for island in body["islands"]
+            for ring in island["rings"]
+            for point in ring
+            for value in point
+        ]
+        assert values
+        assert all(round(value, 3) == value for value in values)
+
+    def test_islands_stay_inside_the_board_outline(self, selected_client: TestClient):
+        config = _get_config(selected_client)
+        body = selected_client.get("/api/pasting/board/copper").json()
+
+        xs = [
+            point[0]
+            for island in body["islands"]
+            for ring in island["rings"]
+            for point in ring
+        ]
+        ys = [
+            point[1]
+            for island in body["islands"]
+            for ring in island["rings"]
+            for point in ring
+        ]
+
+        assert min(xs) >= -0.5
+        assert min(ys) >= -0.5
+        assert max(xs) <= config["width"] + 0.5
+        assert max(ys) <= config["height"] + 0.5
+
+    def test_requires_no_control_lease(self, selected_client: TestClient):
+        # 装置を動かさない読み取りなので操作権は要らない
+        assert selected_client.get("/api/pasting/board/copper").status_code == 200
+
+
+class TestTreeNodeResolution:
+    """GET tree の各ノードの resolved / own_override / own_summary /
+    descendant_summary 契約.
+
+    各ノード行に解決済み値・自ノードの明示 override・子孫 override 集計を載せ、JS が再計算せず表示できるようにする。継承・上書き・集計の分岐そのものは
+    ``tests/pcbasm/pasting/test_settings.py`` が担保するため、ここでは 1 往復の
+    レスポンスに 4 種が揃うことだけを見る。
+    """
+
+    def test_node_rows_carry_resolved_own_override_and_summaries(
+        self, selected_client: TestClient
+    ):
+        for payload in (
+            {"node": "L2:U1", "values": {"prime_extra_delay": 0.3}},
+            {"node": "L2:U1", "enabled": False},
+            {"node": "L4:U1:1", "values": {"bead_width_factor": 0.8}},
+        ):
+            patched = selected_client.patch(
+                "/api/pasting/board/node",
+                json={**payload, "expected_pcb": _SELECTED_PCB},
+            )
+            assert patched.status_code == 200, patched.text
+
+        config = _get_config(selected_client)
+        u1_node = _node_by_id(config["tree"], "L2:U1")
+
+        # override の無いルートは machine 既定へ解決される
+        assert config["tree"]["resolved"] == config["defaults"]
+        # 自ノードの明示 override と、それを反映した解決値
+        assert u1_node["own_override"]["enabled"] is False
+        assert u1_node["own_override"]["values"] == {"prime_extra_delay": 0.3}
+        assert u1_node["resolved"]["prime_extra_delay"] == 0.3
+        assert u1_node["own_summary"] == {
+            "enabled": True,
+            "fields": ["prime_extra_delay"],
+            "count": 2,
+        }
+        # 子孫（L4:U1:1）の override だけを集計する（自ノードは数えない）
+        descendant_summary = u1_node["descendant_summary"]
+        assert descendant_summary["node_count"] == 1
+        assert descendant_summary["field_counts"]["bead_width_factor"] == 1
+        # 祖先の override は子孫ノードへ継承される
+        l4_node = _node_by_id(u1_node, "L4:U1:1")
+        assert l4_node["resolved"]["prime_extra_delay"] == 0.3
+
+    def test_auto_rows_carry_the_applied_dispense_mode_of_the_fill_path(
+        self, selected_client: TestClient
+    ):
+        """Auto の行は、塗布パスと同じ判定の実際の方式を件数と表示文字列で持つ."""
+        applied_modes = Counter(
+            pad["dispense_mode"]
+            for layer in ("Top", "Bottom")
+            for pad in selected_client.post(
+                "/api/pasting/board/fill-path", json={"layer": layer}
+            ).json()["pads"]
+        )
+
+        root = _get_config(selected_client)["tree"]
+
+        applied = root["applied"]["dispense_mode"]
+        assert root["resolved"]["dispense_mode"] == "auto"
+        assert applied["counts"] == dict(applied_modes)
+        assert applied["label"].startswith("→ ")
+        assert applied["title"]
+
+    def test_rows_whose_explicit_mode_is_realized_carry_nothing(
+        self, selected_client: TestClient
+    ):
+        patched = selected_client.patch(
+            "/api/pasting/board/node",
+            json={
+                "node": "L0",
+                "values": {"dispense_mode": "dot"},
+                "expected_pcb": _SELECTED_PCB,
+            },
+        )
+        assert patched.status_code == 200, patched.text
+
+        stack = [_get_config(selected_client)["tree"]]
+        while stack:
+            node = stack.pop()
+            assert node["applied"] == {}, node["id"]
+            stack.extend(node["children"])
+
+    def test_fields_metadata_drives_ui_columns(self, selected_client: TestClient):
+        """Pad-config の fields は PASTE_PARAM_FIELDS と同順・同集合で、JS の唯一の出典."""
+        fields = _get_config(selected_client)["fields"]
+
+        assert [field["name"] for field in fields] == list(PASTE_PARAM_NAMES)
+        assert {field["kind"] for field in fields} == {"choice", "number", "height"}
+        by_name = {field["name"]: field for field in fields}
+        assert by_name["dispense_mode"]["kind"] == "choice"
+        assert [c["value"] for c in by_name["dispense_mode"]["choices"]] == [
+            "auto",
+            "dot",
+            "line",
+            "area",
+            "micro_line",
+        ]
+        assert by_name["paste_height"] == {
+            "name": "paste_height",
+            "label": "塗布高さ",
+            "kind": "height",
+            "unit": "mm",
+            "choices": [],
+            "column": None,
+        }
+        assert by_name["ul_per_mm2"]["unit"] == "uL/mm²"
+        # 微小線の始点高・終点高は塗布高さの列に描く
+        assert [
+            field["name"] for field in fields if field["column"] == "paste_height"
+        ] == ["micro_line_z_start", "micro_line_z_end"]
+
+    def test_defaults_fall_back_to_machine_micro_line_defaults(
+        self, selected_client: TestClient
+    ):
+        # 検証用 machine.toml は微小線の項目を書いていないので、装置設定の既定値が返る
+        defaults = _get_config(selected_client)["defaults"]
+
+        assert defaults["micro_line_z_start"] == "auto"
+        assert defaults["micro_line_z_end"] == "auto"
+        assert "micro_line_settle_seconds" not in defaults
+
+
+class TestPatchNode:
+    """PATCH /api/pasting/board/node."""
+
+    @pytest.mark.parametrize("node", ["L0", "L4:U1:1"])
+    def test_enable_toggle_affects_the_subtree_and_persists(
+        self, selected_client: TestClient, node: str
+    ):
+        response = selected_client.patch(
+            "/api/pasting/board/node",
+            json={"node": node, "enabled": False, "expected_pcb": _SELECTED_PCB},
+        )
+
+        assert response.status_code == 200, response.text
+        config = _get_config(selected_client)
+        expected = {pad["id"] for pad in config["pads"]} if node == "L0" else {"U1.1"}
+        assert {pad["id"] for pad in response.json()["affected_pads"]} == expected
+        # machine 既定は書き換えず override として保存される
+        assert config["defaults"]["enabled"] is True
+        assert config["overrides"][node]["enabled"] is False
+        assert {pad["id"] for pad in config["pads"] if not pad["enabled"]} == expected
+
+    def test_micro_line_node_shows_start_and_end_heights(
+        self, selected_client: TestClient
+    ):
+        # 塗布高さの列に出す項目はサーバーが決める。微小線のノードとその子孫は始点高・終点高
+        response = selected_client.patch(
+            "/api/pasting/board/node",
+            json={
+                "node": "L2:U1",
+                "values": {"dispense_mode": "micro_line"},
+                "expected_pcb": _SELECTED_PCB,
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        root = _get_config(selected_client)["tree"]
+        micro = ["micro_line_z_start", "micro_line_z_end"]
+        assert root["height_fields"] == ["paste_height"]
+        assert _node_by_id(root, "L2:U1")["height_fields"] == micro
+        assert _node_by_id(root, "L4:U1:1")["height_fields"] == micro
+
+    def test_l2_values_upsert_reflects_on_children(self, selected_client: TestClient):
+        response = selected_client.patch(
+            "/api/pasting/board/node",
+            json={
+                "node": "L2:U1",
+                "values": {"bead_width_factor": 0.8},
+                "expected_pcb": _SELECTED_PCB,
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        affected = response.json()["affected_pads"]
+        assert {pad["id"] for pad in affected} == _U1_PADS
+        for pad in affected:
+            assert pad["resolved"]["bead_width_factor"] == 0.8
+
+    @pytest.mark.parametrize("node", ["L0", "L2:U1"])
+    def test_value_upsert_persists_on_reget(
+        self, selected_client: TestClient, node: str
+    ):
+        selected_client.patch(
+            "/api/pasting/board/node",
+            json={
+                "node": node,
+                "values": {"prime_extra_delay": 0.3},
+                "expected_pcb": _SELECTED_PCB,
+            },
+        )
+
+        config = _get_config(selected_client)
+        assert config["overrides"][node]["values"]["prime_extra_delay"] == 0.3
+        # machine 既定そのものは書き換わらない
+        assert config["defaults"]["prime_extra_delay"] == 0.0
+        # node の配下だけが解決値に反映される（L2:U1 なら R1 等へ波及しない）
+        reflected = {
+            pad["id"]
+            for pad in config["pads"]
+            if pad["resolved"]["prime_extra_delay"] == 0.3
+        }
+        expected = {pad["id"] for pad in config["pads"]} if node == "L0" else _U1_PADS
+        assert reflected == expected
+
+    def test_mode_and_height_upsert_persist_on_reget(self, selected_client: TestClient):
+        selected_client.patch(
+            "/api/pasting/board/node",
+            json={
+                "node": "L2:U1",
+                "values": {
+                    "dispense_mode": "line",
+                    "paste_height": "auto",
+                },
+                "expected_pcb": _SELECTED_PCB,
+            },
+        )
+        selected_client.patch(
+            "/api/pasting/board/node",
+            json={
+                "node": "L4:U1:1",
+                "values": {"paste_height": 0.25},
+                "expected_pcb": _SELECTED_PCB,
+            },
+        )
+
+        config = _get_config(selected_client)
+        assert config["overrides"]["L2:U1"]["values"]["dispense_mode"] == "line"
+        assert config["overrides"]["L2:U1"]["values"]["paste_height"] == "auto"
+        assert _pad_by_id(config, "U1.2")["resolved"]["dispense_mode"] == "line"
+        assert _pad_by_id(config, "U1.2")["resolved"]["paste_height"] == "auto"
+        assert _pad_by_id(config, "U1.1")["resolved"]["paste_height"] == 0.25
+
+    @pytest.mark.parametrize("node", ["L0", "L2:U1"])
+    def test_clear_returns_to_inheritance(self, selected_client: TestClient, node: str):
+        selected_client.patch(
+            "/api/pasting/board/node",
+            json={
+                "node": node,
+                "values": {"prime_extra_delay": 0.3},
+                "expected_pcb": _SELECTED_PCB,
+            },
+        )
+
+        response = selected_client.patch(
+            "/api/pasting/board/node",
+            json={
+                "node": node,
+                "clear": ["prime_extra_delay"],
+                "expected_pcb": _SELECTED_PCB,
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        config = _get_config(selected_client)
+        # override が空 + enabled 継承 → ノードは overrides から消える（疎）
+        assert node not in config["overrides"]
+        assert _pad_by_id(config, "U1.1")["resolved"]["prime_extra_delay"] == 0.0
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            pytest.param(
+                {"node": "L2:U1", "values": {"no_such_field": 1.0}},
+                id="unknown-value-key",
+            ),
+            # fill_speed は pad override から廃止された（max_fill_speed は装置一律設定）。
+            # PASTE_PARAM_NAMES から消えたため未知項目として 400 になる。
+            pytest.param(
+                {"node": "L2:U1", "values": {"fill_speed": 0.3}},
+                id="removed-fill-speed-value",
+            ),
+            pytest.param(
+                {"node": "L2:U1", "clear": ["fill_speed"]},
+                id="removed-fill-speed-clear",
+            ),
+            pytest.param(
+                {"node": "L2:U1", "values": {"dispense_mode": "spray"}},
+                id="unknown-dispense-mode",
+            ),
+            pytest.param(
+                {"node": "L2:U1", "values": {"line_direction": "sideways"}},
+                id="unknown-line-direction",
+            ),
+            pytest.param(
+                {"node": "L2:U1", "values": {"paste_height": 0.0}},
+                id="invalid-paste-height",
+            ),
+            pytest.param({"node": "L2:NOPE", "enabled": False}, id="unknown-node"),
+        ],
+    )
+    def test_invalid_patch_returns_400(
+        self, selected_client: TestClient, payload: dict
+    ):
+        response = selected_client.patch(
+            "/api/pasting/board/node",
+            json={**payload, "expected_pcb": _SELECTED_PCB},
+        )
+        assert response.status_code == 400
+
+
+class TestPatchPads:
+    """PATCH /api/pasting/board/pads（一括 enabled）."""
+
+    def test_bulk_disable_returns_and_persists_only_selected_pads(
+        self, selected_client: TestClient, webui_settings: Env
+    ):
+        response = selected_client.patch(
+            "/api/pasting/board/pads",
+            json={
+                "ids": ["U1.1", "U1.2"],
+                "enabled": False,
+                "expected_pcb": _SELECTED_PCB,
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        affected = response.json()["affected_pads"]
+        assert {pad["id"] for pad in affected} == {"U1.1", "U1.2"}
+        assert all(pad["enabled"] is False for pad in affected)
+
+        config = _get_config(selected_client)
+        assert _pad_by_id(config, "U1.1")["enabled"] is False
+        assert _pad_by_id(config, "U1.2")["enabled"] is False
+        assert _pad_by_id(config, "U1.3")["enabled"] is True
+
+        assert list((webui_settings.webui_data_dir / "board_settings").rglob("*.json"))
+        assert not (webui_settings.data_dir / "board_settings").exists()
+
+
+class TestExportImport:
+    """GET export / POST import."""
+
+    def test_export_round_trip_preserves_settings_and_download_metadata(
+        self, selected_client: TestClient
+    ):
+        selected_client.patch(
+            "/api/pasting/board/node",
+            json={
+                "node": "L2:U1",
+                "values": {"prime_extra_delay": 0.3},
+                "expected_pcb": _SELECTED_PCB,
+            },
+        )
+
+        response = selected_client.get("/api/pasting/board/export")
+
+        assert response.status_code == 200, response.text
+        assert "attachment" in response.headers["content-disposition"]
+        doc = response.json()
+        assert doc["version"] == 1
+        assert doc["source_pcb"].endswith("led_blinker.kicad_pcb")
+        assert isinstance(doc["board_signature"], str)
+        level = next(
+            item for item in doc["settings"]["levels"] if item["key"] == ["L2", "U1"]
+        )
+        assert level["override"]["prime_extra_delay"] == 0.3
+        disposition = response.headers["content-disposition"]
+        filename = re.search(r'filename="([^"]+)"', disposition)
+        assert filename is not None, disposition
+        assert re.fullmatch(
+            r"led_blinker-paste-overrides-\d{8}T\d{6}\.json", filename.group(1)
+        ), filename.group(1)
+
+        # export 後に override を公開 API で消し、import が復元することを見る
+        cleared = selected_client.patch(
+            "/api/pasting/board/node",
+            json={
+                "node": "L2:U1",
+                "clear": ["prime_extra_delay"],
+                "expected_pcb": _SELECTED_PCB,
+            },
+        )
+        assert cleared.status_code == 200, cleared.text
+        assert "L2:U1" not in _get_config(selected_client)["overrides"]
+
+        imported = selected_client.post(
+            "/api/pasting/board/import", json={"document": doc}
+        )
+        assert imported.status_code == 200, imported.text
+        for config in (imported.json(), _get_config(selected_client)):
+            assert config["overrides"]["L2:U1"]["values"]["prime_extra_delay"] == 0.3
+            assert _pad_by_id(config, "U1.1")["resolved"]["prime_extra_delay"] == 0.3
+
+    def test_export_filename_keeps_non_ascii_board_name(
+        self, client: TestClient, backend: Backend, pcb_root: Path
+    ):
+        japanese = pcb_root / "real" / "日本語基板.kicad_pcb"
+        japanese.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(LED_BLINKER_PCB, japanese)
+        backend.selection.select(japanese.relative_to(pcb_root))
+
+        response = client.get("/api/pasting/board/export")
+
+        assert response.status_code == 200, response.text
+        disposition = response.headers["content-disposition"]
+        encoded = re.search(r"filename\*=UTF-8''([^;]+)", disposition)
+        assert encoded is not None, disposition
+        assert unquote(encoded.group(1)).startswith("日本語基板-paste-overrides-")
+
+    def test_import_rejects_wrong_signature(self, selected_client: TestClient):
+        doc = selected_client.get("/api/pasting/board/export").json()
+        doc["board_signature"] = "wrong"
+
+        response = selected_client.post(
+            "/api/pasting/board/import", json={"document": doc}
+        )
+
+        assert response.status_code == 400
+
+
+class TestPadConfigRoute:
+    """POST /api/pasting/board/route（選択基板の有効 pad を要求 layer で順路化）."""
+
+    def _post_route(self, client: TestClient, layer: str) -> dict:
+        response = client.post("/api/pasting/board/route", json={"layer": layer})
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    def test_route_includes_only_requested_layer(self, selected_client: TestClient):
+        config = _get_config(selected_client)
+        expected_ids = {
+            pad["id"]
+            for pad in config["pads"]
+            if pad["layer"] == "Bottom" and pad["enabled"]
+        }
+
+        route = self._post_route(selected_client, "Bottom")
+
+        assert route["layer"] == "Bottom"
+        assert {pad["id"] for pad in route["pads"]} == expected_ids
+        assert [pad["order"] for pad in route["pads"]] == list(
+            range(1, len(route["pads"]) + 1)
+        )
+        assert all(len(pad["center"]) == 2 for pad in route["pads"])
+
+
+class TestPadConfigFillPath:
+    """POST /api/pasting/board/fill-path（解決済み設定で有効 pad の塗布パス）."""
+
+    def _post_fill_path(self, client: TestClient, layer: str) -> dict:
+        response = client.post("/api/pasting/board/fill-path", json={"layer": layer})
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    def test_fill_path_includes_only_enabled_requested_layer(
+        self, selected_client: TestClient
+    ):
+        config = _get_config(selected_client)
+        expected_ids = {
+            pad["id"]
+            for pad in config["pads"]
+            if pad["layer"] == "Top" and pad["enabled"]
+        }
+
+        fill_path = self._post_fill_path(selected_client, "Top")
+
+        assert fill_path["layer"] == "Top"
+        assert fill_path["nozzle_diameter"] == pytest.approx(0.34)
+        assert {pad["id"] for pad in fill_path["pads"]} == expected_ids
+        assert fill_path["pads"]
+        for pad in fill_path["pads"]:
+            assert pad["dispense_mode"] in {"dot", "line", "area"}
+            assert pad["path_count"] == len(pad["paths"])
+            assert pad["point_count"] == sum(len(path) for path in pad["paths"])
+            assert all(len(point) == 2 for path in pad["paths"] for point in path)
+
+    def test_fill_path_uses_resolved_dispense_mode(self, selected_client: TestClient):
+        patch = selected_client.patch(
+            "/api/pasting/board/node",
+            json={
+                "node": "L0",
+                "values": {"dispense_mode": "dot"},
+                "expected_pcb": _SELECTED_PCB,
+            },
+        )
+        assert patch.status_code == 200, patch.text
+
+        fill_path = self._post_fill_path(selected_client, "Top")
+
+        assert fill_path["pads"]
+        assert {pad["dispense_mode"] for pad in fill_path["pads"]} == {"dot"}
+        assert all(pad["point_count"] == pad["path_count"] for pad in fill_path["pads"])
+
+
+class TestTactEstimate:
+    """GET /api/pasting/board/tact-estimate（装置を動かさずに塗布の所要時間を予測する）."""
+
+    def _estimate(self, client: TestClient) -> dict:
+        response = client.get("/api/pasting/board/tact-estimate")
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    def test_adds_the_setup_to_the_paste_time(
+        self, selected_client: TestClient, moonraker: FakeMoonraker
+    ):
+        enabled_top = [
+            pad
+            for pad in _get_config(selected_client)["pads"]
+            if pad["layer"] == "Top" and pad["enabled"]
+        ]
+
+        estimate = self._estimate(selected_client)
+
+        assert estimate["error"] is None
+        assert estimate["total_seconds"] > 300.0
+        assert estimate["detail"].startswith(
+            f"{len(enabled_top)} pad（前段 0時間5分0秒 + 塗布 "
+        )
+        assert re.fullmatch(r"0時間\d+分\d+秒", estimate["label"])
+
+    def test_setup_sec_comes_from_the_machine_settings(
+        self, selected_client: TestClient, moonraker: FakeMoonraker
+    ):
+        before = self._estimate(selected_client)["total_seconds"]
+        response = selected_client.put(
+            "/api/machine_config", json={"values": {"solder.tact.setup_sec": 60.0}}
+        )
+        assert response.status_code == 200, response.text
+
+        after = self._estimate(selected_client)["total_seconds"]
+
+        assert after == pytest.approx(before - 240.0)
+
+    def test_disabled_pads_shorten_the_estimate(
+        self, selected_client: TestClient, moonraker: FakeMoonraker
+    ):
+        before = self._estimate(selected_client)
+        patch = selected_client.patch(
+            "/api/pasting/board/node",
+            json={"node": "L2:U1", "enabled": False, "expected_pcb": _SELECTED_PCB},
+        )
+        assert patch.status_code == 200, patch.text
+
+        after = self._estimate(selected_client)
+
+        assert after["total_seconds"] < before["total_seconds"]
+
+    @pytest.mark.usefixtures("unreachable_klipper")
+    def test_unreachable_klipper_returns_the_reason(self, selected_client: TestClient):
+        estimate = self._estimate(selected_client)
+
+        assert estimate["total_seconds"] is None
+        assert estimate["label"] is None
+        assert estimate["error"].startswith("Klipper から printer.cfg を読めないので")
+
+
+class TestExpectedPcb:
+    """expected_pcb による PCB 切替の検出（不一致は 409、欠けていれば 422）."""
+
+    def test_matching_expected_pcb_is_accepted(self, selected_client: TestClient):
+        pcb_file = _get_config(selected_client)["pcb_file"]
+
+        response = selected_client.patch(
+            "/api/pasting/board/node",
+            json={"node": "L0", "enabled": False, "expected_pcb": pcb_file},
+        )
+
+        assert response.status_code == 200, response.text
+
+    @pytest.mark.parametrize(
+        ("path", "body"),
+        [
+            ("/api/pasting/board/node", {"node": "L0", "enabled": False}),
+            ("/api/pasting/board/pads", {"ids": ["U1.1"], "enabled": False}),
+            ("/api/pasting/board/initial-purge", {"point": None}),
+        ],
+    )
+    def test_other_pcb_is_rejected_with_409(
+        self, selected_client: TestClient, path: str, body: dict
+    ):
+        response = selected_client.patch(
+            path, json={**body, "expected_pcb": "boards/other.kicad_pcb"}
+        )
+
+        assert response.status_code == 409, response.text
+
+    @pytest.mark.parametrize(
+        ("path", "body"),
+        [
+            ("/api/pasting/board/node", {"node": "L0", "enabled": False}),
+            ("/api/pasting/board/pads", {"ids": ["U1.1"], "enabled": False}),
+            ("/api/pasting/board/initial-purge", {"point": None}),
+            ("/api/pasting/board/flow-calibration", {"points": []}),
+        ],
+    )
+    def test_missing_expected_pcb_is_rejected_with_422(
+        self, selected_client: TestClient, path: str, body: dict
+    ):
+        """編集開始時の PCB を添えない PATCH は、切替を検出できないので受け付けない."""
+        response = selected_client.patch(path, json=body)
+
+        assert response.status_code == 422, response.text
+
+    def test_rejected_patch_does_not_persist(
+        self, selected_client: TestClient, webui_settings: Env
+    ):
+        # 先に成功する PATCH を通して JSON を作る（「一度も書かれていない」
+        # 状態と「409 で書かれなかった」状態を区別するため）
+        accepted = selected_client.patch(
+            "/api/pasting/board/pads",
+            json={"ids": ["U1.2"], "enabled": False, "expected_pcb": _SELECTED_PCB},
+        )
+        assert accepted.status_code == 200, accepted.text
+        before = _saved_board_settings_doc(webui_settings)
+
+        selected_client.patch(
+            "/api/pasting/board/pads",
+            json={
+                "ids": ["U1.1"],
+                "enabled": False,
+                "expected_pcb": "boards/other.kicad_pcb",
+            },
+        )
+
+        assert _saved_board_settings_doc(webui_settings) == before
+        assert _pad_by_id(_get_config(selected_client), "U1.1")["enabled"] is True

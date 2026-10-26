@@ -1,62 +1,24 @@
-"""Pasting タブのジョブ定義（塗布 / 高さ計測 / ローディング / キャリブレーション / dataset）.
+"""はんだ塗布（pcbasm.pasting）を呼ぶジョブ."""
 
-各ジョブは 1 モジュール 1 ジョブで ``register(catalog)`` を持つ。共有の WS コマンド解釈・
-prompt・ワークフロー駆動は :mod:`web.api.jobs.pasting.common`。
-"""
+from __future__ import annotations
 
-from web.api.jobs.catalog import JobCatalog
-from web.api.jobs.pasting import (
-    dataset_finalize,
-    dispense_calibration,
-    generate_rect_pcb,
-    height_plane,
-    loading,
-    paste_solder,
-    paste_volume_calibration,
-    paste_volume_refit,
-    toolhead_offset,
-)
-from web.api.jobs.pasting.common import (
-    APPLY_DIGITS,
-    LOADING_STAGE,
-    Extrude,
-    Finish,
-    InvalidLoadingCommand,
-    LoadingTotals,
-    Rotate,
-    parse_loading_command,
-)
-from web.api.jobs.pasting.dispense_calibration import (
-    CALIBRATION_MENU_STAGE,
-    parse_run_calib_command,
-)
+from pathlib import Path
 
-__all__ = [
-    "APPLY_DIGITS",
-    "CALIBRATION_MENU_STAGE",
-    "LOADING_STAGE",
-    "Extrude",
-    "Finish",
-    "InvalidLoadingCommand",
-    "LoadingTotals",
-    "Rotate",
-    "parse_loading_command",
-    "parse_run_calib_command",
-    "register_pasting_jobs",
-]
+import attrs
+
+from pcbasm.pasting.overrides import BoardOverrides
 
 
-def register_pasting_jobs(catalog: JobCatalog) -> None:
-    """Pasting タブのジョブを UI の並び順で登録する."""
-    for module in (
-        paste_solder,
-        height_plane,
-        loading,
-        dispense_calibration,
-        paste_volume_calibration,
-        paste_volume_refit,
-        dataset_finalize,
-        generate_rect_pcb,
-        toolhead_offset,
-    ):
-        module.register(catalog)
+@attrs.frozen
+class PasteStores:
+    """塗布のジョブが読み書きする永続データ（Backend が組み、catalog の登録時に渡す）.
+
+    Attributes:
+        overrides: 基板ごとの塗布設定。HTTP 経路と同じインスタンスを渡す（別だと更新ロックで直列化できない）
+        paste_dataset_dir: 塗布量校正の材料にする dataset の置き場所
+        paste_volume_calibration_dir: 塗布量校正の置き場所
+    """
+
+    overrides: BoardOverrides
+    paste_dataset_dir: Path
+    paste_volume_calibration_dir: Path

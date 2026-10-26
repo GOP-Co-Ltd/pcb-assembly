@@ -7,10 +7,11 @@
 // 統一しているのは、ジョブ状態を見て .disabled を書くモジュールと同じ属性を使うと、
 // 二重管理により「ジョブ終了時に閲覧者のボタンが再び押せるようになる」バグが起きるため。
 //
-// SSR は backend へのサーバ間通信でブラウザの cookie を持たないため「自分が保持者か」を
-// 判定できない。したがって初期値は viewer（fail-closed）で、状態を更新する契機は次の 3 つだけ。
-// (a) ページロード後の GET /api/state、(b) WS の control_changed（job_console.js が
-// 中継）、(c) api() の 423（app.js が onDenied を呼ぶ）。
+// held / viewer / free は backend がリクエスト元ごとに判定して control.state で返す（ここで導出しない）。
+// SSR は backend へのサーバ間通信でブラウザの cookie を持たないため状態を描けない。
+// したがって初期値は viewer（fail-closed）で、状態を更新する契機は次の 3 つだけ。
+// (a) ページロード後の GET /api/session/state、(b) WS の control_changed（job_console.js が
+// 中継）、(c) api() の 423（api.js が onDenied を呼ぶ）。
 
 (() => {
   const { toast, api } = window.webui;
@@ -33,31 +34,19 @@
   const promptHint = document.getElementById("jc-prompt-hint");
 
   let state = INITIAL_STATE;
-  // LeaseInfo（{key, display_name, held, connections}）。誰も保持していなければ null
+  // ControlInfo（{state, display_name, connections}）。誰も保持していなければ null
   let holder = null;
-  // GET /api/state の you.key（届くまでは null = 保持者と一致しない = 閲覧者）
-  let myKey = null;
 
-  function stateOf(control) {
-    if (!control) return "unknown";
-    if (!control.held) return "free";
-    return control.key === myKey ? "held" : "viewer";
-  }
-
-  // {control, you} を反映する（GET /api/state と /api/control/* の戻りが同じ形）
-  function applySnapshot(data) {
-    if (data.you?.key) myKey = data.you.key;
-    const control = data.control ?? null;
-    holder = control?.held ? control : null;
-    state = stateOf(control);
+  // ControlInfo を反映する（GET /api/session/state・/api/session/control/* の control と、WS の control_changed）
+  function applyControl(control) {
+    state = control.state;
+    holder = state === "free" ? null : control;
     render();
   }
 
   // 423 の body（{detail, holder}）。holder は誰も保持していなければ null
   function onDenied(data) {
-    holder = data.holder?.held ? data.holder : null;
-    state = holder ? "viewer" : "free";
-    render();
+    applyControl(data.holder ?? { state: "free" });
   }
 
   function holderName() {
@@ -106,7 +95,7 @@
 
   async function refresh() {
     try {
-      applySnapshot(await api("GET", "/api/state"));
+      applyControl((await api("GET", "/api/session/state")).control);
     } catch {
       // 状態が読めない間も操作不可のままにする（fail-closed）。トーストは出さない
       // （出すと backend 不通のページで毎回表示される）
@@ -117,7 +106,7 @@
 
   async function post(url, successMessage) {
     try {
-      applySnapshot(await api("POST", url));
+      applyControl((await api("POST", url)).control);
       if (successMessage !== null) toast(successMessage);
     } catch (err) {
       // 423 のときは api() が onDenied を呼んで状態を直している
@@ -151,30 +140,30 @@
       writeNameCookie(nameInput.value.trim());
       // 保持者の表示名は backend が持っているので更新を通知する。閲覧者の表示名は
       // 取得時にヘッダで届くので送らない
-      if (state === "held") post("/api/control/name", null);
+      if (state === "held") post("/api/session/control/name", null);
     });
   }
   if (acquireButton) {
     acquireButton.addEventListener("click", () =>
-      post("/api/control/acquire", "操作権を取得しました")
+      post("/api/session/control/acquire", "操作権を取得しました")
     );
   }
   if (releaseButton) {
     releaseButton.addEventListener("click", () =>
-      post("/api/control/release", "操作権を解放しました")
+      post("/api/session/control/release", "操作権を解放しました")
     );
   }
   if (takeoverButton) {
     takeoverButton.addEventListener("click", () =>
-      post("/api/control/takeover", "操作権を奪取しました")
+      post("/api/session/control/takeover", "操作権を奪取しました")
     );
   }
 
   window.webui.control = {
-    // app.js が 423 のときだけ呼ぶ
+    // api.js が 423 のときだけ呼ぶ
     onDenied,
-    // job_console.js が WS の control_changed を中継する（you は前回値を使う）
-    applyControl: (control) => applySnapshot({ control }),
+    // job_console.js が WS の control_changed を中継する
+    applyControl,
     // WS 再接続時に取り直す（切断中の control_changed を受け取れていないため）
     refresh,
     state: () => state,

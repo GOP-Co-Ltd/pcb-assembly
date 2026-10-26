@@ -33,16 +33,16 @@ import attrs
 import httpx
 import pytest
 
-from tests.e2e.conftest import (
-    LiveServer,
+from tests.support.browser import LiveServer, start_app
+from tests.support.web import (
     make_api_settings,
     make_ui_settings,
-    start_app,
+    random_service_type,
+    skip_if_no_mdns,
 )
-from tests.helpers import random_service_type, skip_if_no_mdns
 from web.api.app import create_app as create_backend_app
 from web.api.discovery import ServiceAdvertiser
-from web.api.settings import Settings
+from web.api.env import Env
 from web.ui.discovery import MachineDiscovery
 from web.ui.machines import MachineEndpoint
 from web.ui.settings import Settings as UiSettings
@@ -140,8 +140,8 @@ async def advertising(
     advertiser = ServiceAdvertiser(
         machine_id=machine_id,
         port=18081,
-        machine_type="paste",
         addresses=(LOOPBACK,),
+        capabilities=("solder",),
         service_type=service_type,
         interfaces=(LOOPBACK,),
     )
@@ -172,7 +172,6 @@ class TestAdvertiseAndDiscover:
                 found = collector.find("e2emdns")
                 assert found is not None
                 assert (found.host, found.port) == (LOOPBACK, 18081)
-                assert found.machine_type == "paste"
                 assert found.source == "mdns"
 
         run(scenario)
@@ -197,11 +196,11 @@ class TestAdvertiseAndDiscover:
 
 
 class TestBackendAppAdvertises:
-    """実 backend アプリ（uvicorn）の広告（実装契約 §4 の配線）."""
+    """実 backend アプリ（uvicorn）の広告."""
 
     @pytest.fixture
-    def advertising_settings(self, tmp_path: Path, service_type: str) -> Settings:
-        """広告を有効にした backend Settings（ループバックに閉じる）."""
+    def advertising_settings(self, tmp_path: Path, service_type: str) -> Env:
+        """広告を有効にした backend Env（ループバックに閉じる）."""
         return attrs.evolve(
             make_api_settings(tmp_path / "api", hostname="e2eadv"),
             discovery_enabled=True,
@@ -211,7 +210,7 @@ class TestBackendAppAdvertises:
         )
 
     @pytest.fixture
-    def live_backend(self, advertising_settings: Settings) -> Iterator[LiveServer]:
+    def live_backend(self, advertising_settings: Env) -> Iterator[LiveServer]:
         running = start_app(create_backend_app(advertising_settings))
         try:
             yield LiveServer(
@@ -226,14 +225,16 @@ class TestBackendAppAdvertises:
     def test_lifespan_advertises_with_the_machine_info_id(
         self, live_backend: LiveServer, service_type: str
     ):
-        """広告 ID は `/api/machine-info` と同じ導出（D7）."""
+        """広告 ID は `/api/session/machine-info` と同じ導出."""
 
         async def scenario() -> None:
             async with browsing(service_type) as collector:
                 await wait_for(lambda: collector.find("e2eadv") is not None)
 
                 async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
-                    info = await client.get(f"{live_backend.base_url}/api/machine-info")
+                    info = await client.get(
+                        f"{live_backend.base_url}/api/session/machine-info"
+                    )
 
                 assert info.status_code == 200, info.text
                 assert info.json()["machine_id"] == "e2eadv"
@@ -242,17 +243,17 @@ class TestBackendAppAdvertises:
 
 
 class TestDiscoveryIsolation:
-    """E2E の共有 fixture が実 LAN へ広告・探索しないことの見張り（T3）.
+    """E2E の共有 fixture が実 LAN へ広告・探索しないことの見張り.
 
     ここが落ちたら fixture の `discovery_enabled=False` が外れている。E2E は実 uvicorn
     を起こすので、外れると実 LAN に広告が出る。
     """
 
     def test_shared_settings_opt_out_of_discovery(
-        self, tmp_path: Path, e2e_settings: Settings
+        self, tmp_path: Path, e2e_settings: Env
     ):
         # 既定は有効（実運用は広告する）。だから共有 fixture 側の明示が要件になる
-        assert Settings().discovery_enabled is True
+        assert Env(tmp_path, tmp_path).discovery_enabled is True
         assert UiSettings().discovery_enabled is True
 
         # e2e_settings が同じ tmp_path の "api" を使うのでディレクトリを分ける

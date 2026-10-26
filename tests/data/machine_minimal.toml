@@ -1,0 +1,62 @@
+# machine.toml の最小版。pcbasm の単体テストがパスを渡して読む（完全版は config/machine.toml）
+# Klipper は非リッスンの port 7126 を指し、誤って実機の Moonraker（7125）へつながない
+
+[klipper]
+host = "127.0.0.1"
+port = 7126
+
+[camera]
+device_id = 0
+width = 640
+height = 480
+fps = 30.0
+format = "YUYV"
+calibration_file = "calibration.json"
+
+[camera.crop]
+width = 400
+height = 400
+
+[reference_point]
+x = 23.1
+y = 8.3
+target_diameter = 3.0
+
+[reference_point.offsets]
+top_left = [0.0, -5.0]
+top_right = [0.0, -5.0]
+bottom_left = [5.0, 5.0]
+bottom_right = [5.0, 5.0]
+
+[probe]
+min_radius = 0.7
+
+[solder]
+paste_density = 3.78
+
+[solder.dispenser]
+rotations_per_ul = 1.0
+max_dispense_rate = 5.0
+dispense_accel = 10.0
+retract_amount = 10.0
+retract_rate = 50.0
+retract_accel_factor = 2.0
+
+[solder.nozzle]
+diameter = 0.21 # ノズル内径 [mm] (27G相当)
+
+[solder.nozzle.offset]
+x = 13.2
+y = 54.7
+
+[solder.motion]
+max_fill_speed = 2.0
+lift_height = 3.0
+
+[solder.defaults]
+dispense_mode = "auto"
+ul_per_mm2 = 0.2
+paste_height = "auto"
+
+[solder.auto]
+line_aspect_ratio = 1.618

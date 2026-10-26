@@ -6,9 +6,9 @@
   <p id="fb-path" class="fb-path"></p>
   <p id="fb-error" class="fb-error" role="alert" hidden></p>
   <p id="fb-empty" class="muted" role="status" hidden>選択できる PCB ファイルやフォルダーがありません。</p>
-  <ul id="fb-entries" class="fb-entries"></ul>
+  <ul id="fb-entries" data-testid="fb-entries" class="fb-entries"></ul>
   <div class="fb-actions">
     <button id="fb-upload" type="button">この端末からアップロード</button>
-    <input id="fb-upload-input" type="file" accept=".kicad_pcb" hidden>
+    <input id="fb-upload-input" data-testid="fb-upload-input" type="file" accept=".kicad_pcb" hidden>
   </div>
 </dialog>

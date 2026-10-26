@@ -4,7 +4,7 @@
 
 緊急停止と abort は安全のため誰でも常に可能なので、ここではゲートしない。
 
-FastAPI に依存しない純ロジックである。
+FastAPI に依存しない。API 表現への変換（:func:`control_payload`）と WS のイベント（:func:`control_changed_event`）もここに置く。
 
 自動解放はしない。時間・無操作・WebSocket の切断では失効しない。
 保持者が替わるのは、空きのときの ``claim`` と、``takeover`` による奪取だけである。
@@ -19,6 +19,9 @@ import threading
 from collections.abc import Callable
 
 import attrs
+
+from web.api.events import Event
+from web.contract.models import ControlInfo, ControlState
 
 _KEY_LENGTH = 8
 
@@ -47,10 +50,10 @@ class ClientIdentity:
 
 @attrs.frozen
 class LeaseInfo:
-    """操作権リースの公開スナップショット（生 ``session_id`` を含まない）.
+    """操作権リースのスナップショット（生 ``session_id`` を含まない）.
 
-    「自分が保持者か」はこの値だけでは決まらない。クライアントは自身の
-    ``key`` と ``key`` を比較して判定する。
+    「自分が保持者か」はこの値だけでは決まらない。:func:`control_payload` がリクエスト元の
+    ``ClientIdentity.key`` と ``key`` を比べて判定する。
 
     Attributes:
         key: 保持者の公開キー（未保持なら None）
@@ -220,3 +223,25 @@ class ControlLease:
         """保持者が変わったことを通知する（必ずロック解放後に呼ぶ）."""
         if changed and self._on_change is not None:
             self._on_change()
+
+
+def control_payload(info: LeaseInfo, identity: ClientIdentity) -> ControlInfo:
+    """リーススナップショットを、``identity`` から見た API 表現へ変換する（唯一の変換点）."""
+    state: ControlState
+    if not info.held:
+        state = "free"
+    elif info.key == identity.key:
+        state = "held"
+    else:
+        state = "viewer"
+    return ControlInfo(
+        state=state, display_name=info.display_name, connections=info.connections
+    )
+
+
+def control_changed_event() -> Event:
+    """WS の control_changed イベントを組む（保持者が変わったことだけを知らせる）.
+
+    状態は受け手ごとに違うので、``control`` は送信ループが接続ごとに詰める（``routers.jobs``）。
+    """
+    return {"type": "control_changed"}

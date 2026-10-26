@@ -1,0 +1,150 @@
+# send timeout=None
+G1 X41.23914077030641 Y85.90330550791747 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z-0.25 F6000.0
+M400
+# send timeout=None
+G1 X44.18733903379106 Y90.81880954790608 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z-0.25 F6000.0
+M400
+# send timeout=None
+G1 X48.2390448160384 Y85.93995725473741 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z-0.25 F6000.0
+M400
+# send timeout=None
+G1 X51.53723828180965 Y90.85729388206701 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z-0.25 F6000.0
+M400
+# send timeout=None
+G1 X55.41284172973619 Y85.97751951080559 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z-0.25 F6000.0
+M400
+# send timeout=None
+G1 X55.39085068164423 Y90.17746193824479 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z-0.25 F6000.0
+M400
+# send timeout=None
+G1 X55.361529284188286 Y95.77738517483036 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z-0.25 F6000.0
+M400
+# send timeout=None
+G1 X51.83408845120734 Y101.00898733571938 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z-0.25 F6000.0
+M400
+# send timeout=None
+G1 X55.1673012451956 Y105.27649841533713 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z-0.25 F6000.0
+M400
+# send timeout=None
+G1 X47.96031759062179 Y105.53876650469422 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z-0.25 F6000.0
+M400
+# send timeout=None
+G1 X47.280485646799555 Y101.68515410485963 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z-0.25 F6000.0
+M400
+# send timeout=None
+G1 X47.49905716276705 Y97.76177848216909 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z-0.25 F6000.0
+M400
+# send timeout=None
+G1 X41.010388140748944 Y95.95775722815426 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z-0.25 F6000.0
+M400
+# send timeout=None
+G1 X43.434203596328956 Y100.96500523953546 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z-0.25 F6000.0
+M400
+# send timeout=None
+G1 X40.960413544889796 Y105.5021147578743 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z-0.25 F6000.0
+M400

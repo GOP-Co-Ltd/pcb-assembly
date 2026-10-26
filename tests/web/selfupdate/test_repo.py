@@ -1,13 +1,12 @@
 """`web.selfupdate.repo` の契約テスト（実 git に対して走らせる）.
 
-計画書「1. 共通モジュール `src/web/selfupdate/`」の `repo.py` と、その直後の
+契約:
 
-- 「`git pull` は分解する」（`fetch` → 判定 → `merge --ff-only`）
-- 「dirty 判定は `git status --porcelain --untracked-files=no`。untracked は report に
-  記録するだけで中断しない」
-- 確定要件「ff 不可（dirty / ローカル commit / 分岐）は **何もせず中断**」
+- `git pull` は分解する（`fetch` → 判定 → `merge --ff-only`）
+- dirty 判定は `git status --porcelain --untracked-files=no`。untracked は report に記録するだけで中断しない
+- ff 不可（dirty / ローカル commit / 分岐）は **何もせず中断**する
 
-が契約。`fast_forward_blocker` は「例外でなく `str | None`」規約の適用点なので、
+`fast_forward_blocker` は「例外でなく `str | None`」規約の適用点なので、
 中断すべき状況を 1 つ残らず列挙して固定する。
 
 モックは使わない。remote は `tmp_path` 上の bare リポジトリなのでネットワークにも出ない。
@@ -20,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.web.selfupdate.conftest import git, head, local_commit, push_commit
+from tests.support.selfupdate import git, head, local_commit, push_commit
 from web.selfupdate.repo import (
     RepoState,
     capture_state,
@@ -157,7 +156,7 @@ class TestFastForwardBlocker:
     def test_untracked_files_alone_do_not_block(
         self, settings: UpdateSettings, publisher: Path
     ):
-        """Ignore 漏れのファイル 1 つで全機体の更新が止まるのは脆い（計画書「1.」）.
+        """Ignore 漏れのファイル 1 つで全機体の更新が止まるのは脆い.
 
         実際に pull と衝突する場合は `merge --ff-only` が非 0 で落ちて fail-closed になる。
         """
@@ -241,7 +240,7 @@ class TestMergeFastForward:
     def test_diverged_history_leaves_head_and_worktree_untouched(
         self, settings: UpdateSettings, publisher: Path
     ):
-        """Fast-forward できないなら「何もせず中断」（確定要件）."""
+        """Fast-forward できないなら何もせず中断する."""
         push_commit(publisher, body="second\n")
         local_commit(settings.repo_root)
         assert fetch(settings) is None

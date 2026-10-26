@@ -7,14 +7,18 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import expect
 
-from tests.e2e.conftest import (
+from tests.e2e.network import DelayedHttp, delayed_ui
+from tests.support.browser import (
+    SELECTED_LED_BLINKER,
     LiveServer,
     LiveUi,
     acquire_control,
     get_pad_config,
+    pad_child_rows,
+    pad_field,
+    pad_row,
     select_led_blinker,
 )
-from tests.e2e.network import DelayedHttp, delayed_ui
 
 
 @pytest.fixture
@@ -25,7 +29,7 @@ def delayed_save_ui(
         live_server,
         tmp_path,
         method="PATCH",
-        path_suffixes=("/api/pasting/pad-config/node",),
+        path_suffixes=("/api/pasting/board/node",),
         response=True,
     ) as pair:
         yield pair
@@ -33,9 +37,9 @@ def delayed_save_ui(
 
 def _open_editor(live_server: LiveServer, live_ui: LiveUi, page):
     select_led_blinker(live_server)
-    page.goto(f"{live_ui.base_url}/pasting/paste_solder", wait_until="domcontentloaded")
+    page.goto(f"{live_ui.base_url}/paste_solder", wait_until="domcontentloaded")
     acquire_control(page)
-    root = page.locator('tr[data-node-id="L0"]')
+    root = pad_row(page, "L0")
     expect(root).to_be_visible()
     return root
 
@@ -47,20 +51,22 @@ class TestPadEditorKeyboard:
         ui, transport = delayed_save_ui
         page = browser_page
         root = _open_editor(live_server, ui, page)
-        field = root.locator('input[data-field="ul_per_mm2"]')
-        child = page.locator(
-            'tr[data-node-id]:not([data-node-id="L0"]) input[data-field="ul_per_mm2"]'
-        ).first
+        field = pad_field(root, "pad-setting-input", "ul_per_mm2")
+        child = pad_field(pad_child_rows(page), "pad-setting-input", "ul_per_mm2").first
         child.fill("0.23")
         field.focus()
         assert transport.wait_received()
 
         response = page.request.patch(
-            f"{ui.base_url}/api/pasting/pad-config/node",
-            data={"node": "L0", "values": {"ul_per_mm2": 0.31}},
+            f"{ui.base_url}/api/pasting/board/node",
+            data={
+                "node": "L0",
+                "values": {"ul_per_mm2": 0.31},
+                "expected_pcb": SELECTED_LED_BLINKER,
+            },
         )
         assert response.status == 200
-        with page.expect_response("**/api/pasting/pad-config"):
+        with page.expect_response("**/api/pasting/board"):
             transport.resume()
         expect(field).to_have_value("0.31")
         expect(field).to_be_focused()
@@ -80,23 +86,23 @@ class TestPadEditorKeyboard:
         ui, transport = delayed_save_ui
         page = browser_page
         root = _open_editor(live_server, ui, page)
-        first = root.locator('input[data-field="ul_per_mm2"]')
+        first = pad_field(root, "pad-setting-input", "ul_per_mm2")
         first.fill("0.15")
 
-        row = page.locator('tr[data-node-id]:not([data-node-id="L0"])').first
-        field = row.locator(f'input[data-field="{field_name}"]')
+        row = pad_child_rows(page).first
+        field = pad_field(row, "pad-setting-input", field_name)
         if field_name == "paste_height":
-            row.locator('select[data-field="paste_height"]').select_option("manual")
+            pad_field(row, "pad-height-mode-select", "paste_height").select_option(
+                "manual"
+            )
         field.focus()
         assert transport.wait_received()
         field.fill(draft)
 
-        with page.expect_response("**/api/pasting/pad-config"):
+        with page.expect_response("**/api/pasting/board"):
             transport.resume()
         expect(
-            root.locator(
-                '[data-testid="pad-own-override-marker"][data-field="ul_per_mm2"]'
-            )
+            pad_field(root, "pad-own-override-marker", "ul_per_mm2")
         ).to_be_attached()
         # 値が後から偶然保存されて戻るまで待たず、再描画直後の入力を確かめる。
         assert field.input_value() == draft
@@ -104,18 +110,14 @@ class TestPadEditorKeyboard:
         expect(field).to_be_focused()
         field.fill("0.23")
         field.press("Enter")
-        expect(
-            row.locator(
-                f'[data-testid="pad-own-override-marker"][data-field="{field_name}"]'
-            )
-        ).to_be_attached()
+        expect(pad_field(row, "pad-own-override-marker", field_name)).to_be_attached()
 
         page.reload()
         expect(field).to_have_value("0.23")
         if field_name == "paste_height":
-            expect(row.locator('select[data-field="paste_height"]')).to_have_value(
-                "manual"
-            )
+            expect(
+                pad_field(row, "pad-height-mode-select", "paste_height")
+            ).to_have_value("manual")
 
     def test_toggle_keeps_focus_and_reports_expansion(
         self, live_server: LiveServer, live_ui: LiveUi, browser_page
@@ -141,12 +143,10 @@ class TestPadEditorKeyboard:
         self, live_server: LiveServer, live_ui: LiveUi, browser_page
     ):
         root = _open_editor(live_server, live_ui, browser_page)
-        field = root.locator('input[data-field="ul_per_mm2"]')
+        field = pad_field(root, "pad-setting-input", "ul_per_mm2")
         field.fill("0.15")
         field.press("Enter")
-        marker = root.locator(
-            '[data-testid="pad-own-override-marker"][data-field="ul_per_mm2"]'
-        )
+        marker = pad_field(root, "pad-own-override-marker", "ul_per_mm2")
         expect(marker).to_be_attached()
         expect(field).to_be_focused()
         expect(field).to_have_value("0.15")
@@ -154,9 +154,7 @@ class TestPadEditorKeyboard:
             re.compile(re.escape(get_pad_config(live_server)["tree"]["label"]))
         )
 
-        clear = root.locator(
-            '[data-testid="pad-clear-override"][data-field="ul_per_mm2"]'
-        )
+        clear = pad_field(root, "pad-clear-override", "ul_per_mm2")
         clear.focus()
         clear.press("Enter")
         expect(marker).not_to_be_attached()

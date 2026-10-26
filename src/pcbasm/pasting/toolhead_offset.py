@@ -16,24 +16,21 @@ import attrs
 from cattrs.preconf.json import make_converter
 from shapely import Point as ShapelyPoint, Polygon
 
-from pcbasm.gcode import GCode
-from pcbasm.geometry import Identity, Point2d
-from pcbasm.pasting.applicator import PasteApplicator, build_applicator
-from pcbasm.pasting.params import PasteParamsPatch
-from pcbasm.pasting.probe import ProbeExecutor
-from pcbasm.posctrl import (
+from pcbasm.align import (
     DETECTION_MAX_ATTEMPTS,
     DETECTION_RETRY_SEC,
-    BoardCalibrationResult,
     CircleDetectionError,
     OffsetObserver,
     XYPositionAdjustor,
 )
+from pcbasm.gcode import GCode
+from pcbasm.geometry import Point2d, Shift
+from pcbasm.pasting.applicator import PasteApplicator
+from pcbasm.pasting.session import PasteSession
 from pcbasm.vision import FrameSink, Image, PasteDotDetector
 
 _converter = make_converter()
 _converter.register_unstructure_hook(Point2d, lambda p: {"x": p.x, "y": p.y})
-_converter.register_structure_hook(Point2d, lambda d, _: Point2d(x=d["x"], y=d["y"]))
 
 MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT = 5
 
@@ -148,22 +145,12 @@ class ToolheadOffsetResult:
         """辞書に変換."""
         return _converter.unstructure(self)
 
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Self:
-        """辞書から生成."""
-        return _converter.structure(data, cls)
-
     def save(self, path: Path) -> None:
         """JSON ファイルに保存."""
         path.write_text(
             json.dumps(self.to_dict(), indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
-
-    @classmethod
-    def load(cls, path: Path) -> Self:
-        """JSON ファイルから読み込み."""
-        return cls.from_dict(json.loads(path.read_text(encoding="utf-8")))
 
 
 def plan_toolhead_offset_points(
@@ -349,54 +336,42 @@ class ToolheadOffsetProcedure:
 
     def __init__(
         self,
-        result: BoardCalibrationResult,
+        session: PasteSession,
         *,
-        tolerance: float,
         lift_height: float,
         diameter_min: float,
         diameter_max: float,
         point_spacing: float,
         frame_sink: FrameSink | None = None,
     ) -> None:
-        """Board 計測結果と計測パラメータから HAL と検出器を配線する.
+        """塗布セッションと計測パラメータから検出器を配線する.
 
         Args:
-            result: ボードキャリブレーション結果
-            tolerance: 位置合わせ許容誤差 [mm]（円検出の標準偏差上限にも使う）
+            session: 計測済みの基板で組んだ塗布セッション
             lift_height: 吐出後の上昇高さ [mm]
             diameter_min: 検出円の最小直径 [mm]
             diameter_max: 検出円の最大直径 [mm]
             point_spacing: 計測点の最小間隔 [mm]（円検出 ROI の一辺に使う）
             frame_sink: 検出注釈画像を送る sink
         """
-        machine = result.machine
-        self._klipper = result.klipper
-        self._stage = result.stage
-        self._camera = result.camera
-        self._calibration = result.calibration
-        self._board_transform = result.board_transform
-        self._dispenser_config = machine.paste_dispenser
-        self._toolhead_transform = machine.paste_dispenser.toolhead.to_transform()
+        machine = session.machine
+        tolerance = machine.alignment.tolerance
+        camera_model = session.board_frame.camera_model
+        self._session = session
         self._lift_height = lift_height
-        # 静定・サンプリングは機体設定の値を使う（他の計測と同じ現象・同じ検出器）
-        self._settle_sec = machine.settle.move_sec
-        self._probe_executor = ProbeExecutor(
-            klipper=result.klipper,
-            stage=result.stage,
-            lift_height=machine.probe.lift_height,
-            settle_sec=machine.settle.probe_sec,
-        )
-        roi_side = max(1, round(point_spacing * result.calibration.pixel_per_mm))
+        roi_side = max(1, round(point_spacing * camera_model.pixel_per_mm))
         self._roi_size = (roi_side, roi_side)
         detector = PasteDotDetector(
-            pixel_per_mm=result.calibration.pixel_per_mm,
+            pixel_per_mm=camera_model.pixel_per_mm,
             diameter_min_mm=diameter_min,
             diameter_max_mm=diameter_max,
             crop_size=self._roi_size,
         )
+        # 静定・サンプリングは機体設定の値を使う（他の計測と同じ現象・同じ検出器）
         observer = OffsetObserver(
             detector=detector,
-            camera=result.camera,
+            camera=session.camera,
+            camera_model=camera_model,
             crop_size=self._roi_size,
             frame_sink=frame_sink,
             sample_count=machine.detection.sample_count,
@@ -408,9 +383,9 @@ class ToolheadOffsetProcedure:
         self._adjustor = XYPositionAdjustor(
             settle_sec=machine.settle.move_sec,
             observe=observer.observe,
-            klipper=result.klipper,
-            stage=result.stage,
-            offset_transform=result.offset_transform,
+            klipper=session.klipper,
+            stage=session.stage,
+            camera_model=camera_model,
             tolerance=tolerance,
         )
 
@@ -421,13 +396,14 @@ class ToolheadOffsetProcedure:
 
     def probe(self, point: Point2d) -> ProbedPoint:
         """吐出位置へ移動してプローブし、基板表面の絶対 Z を得る."""
-        camera_position = self._board_transform.apply(point)
-        dispense_position = self._toolhead_transform.apply(camera_position)
-        self._klipper.send_gcode(
-            self._stage.move(x=dispense_position.x, y=dispense_position.y)
+        session = self._session
+        camera_position = session.board_frame.board_transform.apply(point)
+        dispense_position = session.toolhead_offset.apply(camera_position)
+        session.klipper.send_gcode(
+            session.stage.move(x=dispense_position.x, y=dispense_position.y)
             + GCode.wait_for_done()
         )
-        surface_z = self._probe_executor.probe()
+        surface_z = session.probe_executor.probe()
         return ProbedPoint(
             point=ToolheadOffsetPoint(
                 board=point, camera=camera_position, dispense=dispense_position
@@ -437,28 +413,17 @@ class ToolheadOffsetProcedure:
 
     def applicator(self) -> PasteApplicator:
         """塗布フェーズ用の :class:`PasteApplicator`（``lift_height`` 上書き）を作る."""
-        return build_applicator(
-            self._klipper,
-            self._stage,
-            self._dispenser_config,
-            lift_height=self._lift_height,
-        )
+        return self._session.make_applicator(lift_height=self._lift_height)
 
     def deposit(
         self, applicator: PasteApplicator, probed: ProbedPoint, *, amount_ul: float
     ) -> None:
         """プローブ済み点の吐出位置へ、表面 Z + 塗布高さで点塗布する."""
-        default_params = applicator.default_params
-        # transform は Identity なので machine XY と絶対 Z（表面 + 塗布高さ）を渡す。
+        # 吐出位置は machine XY なので、変換は Z を表面の高さへ持ち上げるだけ
         applicator.deposit_at(
             probed.point.dispense,
             amount_ul=amount_ul,
-            transform=Identity(),
-            params=default_params.patched(
-                PasteParamsPatch(
-                    paste_height=probed.surface_z + default_params.paste_height_mm
-                )
-            ),
+            transform=Shift(z=probed.surface_z),
         )
 
     def measure(
@@ -468,13 +433,15 @@ class ToolheadOffsetProcedure:
 
         規定回数の再取得でも検出できなければ ROI 画像付きの失敗を返す。
         """
+        session = self._session
         point = probed.point
-        self._klipper.send_gcode(
-            self._stage.move(
-                x=point.camera.x, y=point.camera.y, z=self._calibration.z_position
+        session.klipper.send_gcode(
+            session.stage.move_settled(
+                x=point.camera.x,
+                y=point.camera.y,
+                z=session.board_frame.camera_model.focus_z,
+                settle_sec=session.machine.settle.move_sec,
             )
-            + GCode.wait(self._settle_sec)
-            + GCode.wait_for_done()
         )
         try:
             camera_final_position = self._adjustor.adjust()
@@ -483,7 +450,7 @@ class ToolheadOffsetProcedure:
                 index=index,
                 board_position=point.board,
                 reason=str(exc),
-                image=self._camera.capture().crop_center(self._roi_size),
+                image=session.camera.capture().crop_center(self._roi_size),
             )
         return ToolheadOffsetSample.from_positions(
             board_position=point.board,

@@ -1,5 +1,5 @@
-{% extends "tab.html" %}
-{% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
+{% extends "feature.html" %}
+{% import "partials/forms.html" as forms %}
 {% block main %}
 <h2>{{ feature_label }}</h2>
 <section class="status-card nozzle-position-card">
@@ -17,12 +17,12 @@
   <ol>
     <li>全軸をホーミングする（未ホーミングでは記録できない）</li>
     <li>マシン操作パネルのジョグでノズルをキャップ位置へ合わせる</li>
-    <li>「現在位置を記録」を押す（machine.toml の [paste_dispenser.nozzle_cap] に保存される）</li>
+    <li>「現在位置を記録」を押す（machine.toml の [solder.nozzle.cap] に保存される）</li>
   </ol>
   <h4>記録位置</h4>
   <div id="nc-current" data-testid="nozzle-cap-current">
     {%- if nozzle_cap is not none -%}
-    X {{ "%.3f" | format(nozzle_cap.x) }} / Y {{ "%.3f" | format(nozzle_cap.y) }} / Z {{ "%.3f" | format(nozzle_cap.z) }}
+    {{ nozzle_cap.label }}
     {%- else -%}
     未記録
     {%- endif -%}
@@ -51,7 +51,7 @@
   <ol>
     <li>全軸をホーミングする（未ホーミングでは記録できない）</li>
     <li>マシン操作パネルのジョグでノズル先端をクリーナー面へ<strong>触れるだけ</strong>当てる（押し込まない）</li>
-    <li>「現在位置を記録」を押す（machine.toml の [paste_dispenser.nozzle_clean] に保存される）</li>
+    <li>「現在位置を記録」を押す（machine.toml の [solder.nozzle.clean] に保存される）</li>
   </ol>
   <h4>記録位置</h4>
   <div id="ncl-current" data-testid="nozzle-clean-current">
@@ -65,29 +65,25 @@
           data-requires-control>現在位置を記録</button>
   <h4>テスト実行</h4>
   <p>
-    記録した位置と下の動作設定で、はんだ塗布の開始時と同じ手順を 1 回だけ実行し、
-    最後にノズルキャップ位置へ戻す（接近 → パージ → 十字往復 → 退避 → キャップ）。
+    記録した位置と下の動作設定で、はんだ塗布と同じクリーニングを 1 回だけ行うジョブを実行する
+    （接近 → パージ → 十字往復 → 退避）。未ホーミングなら先にホーミングし、終了時はほかのジョブと同じくキャップへ駐機して脱力する。
     押し込み量とこすり幅は結果を見て追い込む値なので、塗布を 1 枚通さずに
     ここで効き具合を確かめられる。
   </p>
-  <button id="ncl-test" data-testid="nozzle-clean-test"
-          data-requires-control>クリーニング動作をテスト</button>
+  <form class="job-form" data-job-name="nozzle_clean_test" data-requires-control>
+    <button type="submit" data-testid="nozzle-clean-test">クリーニング動作をテスト</button>
+  </form>
+  {% with job_name = "nozzle_clean_test" %}
+  {% include "partials/job_console.html" %}
+  {% endwith %}
   {% if nozzle_clean_fields %}
   <h4>動作設定</h4>
   {# 入力後は即保存する。押し込み量とこすり幅は結果を見ながら調整する値なので、記録と同じ画面に置く。 #}
   <form class="paste-auto-thresholds" data-testid="nozzle-clean-settings" data-requires-control
-        data-machine-settings data-endpoint="/api/settings/machine">
+        data-machine-settings data-endpoint="/api/machine_config">
     {% for field in nozzle_clean_fields %}
     <label for="ncl-{{ field.key }}">{{ field.label }}
-      <input id="ncl-{{ field.key }}" name="{{ field.key }}"
-             data-type="{{ field.value_type }}" type="number"
-             step="{{ 1 if field.value_type == 'int' else 'any' }}"
-             {% if field.key not in positive_only_keys %}min="0"{% endif %}
-             aria-label="{{ field.label }}"
-             value="{{ field.value if field.value is not none else field.resolved if field.resolved is not none else '' }}"
-             placeholder="未設定"
-             data-testid="nozzle-clean-{{ field.key }}">
-      {% if field.unit %}<span class="unit">{{ field.unit }}</span>{% endif %}
+      {{ forms.setting_input(field, "ncl", testid="nozzle-clean") }}
     </label>
     {% endfor %}
   </form>
@@ -97,5 +93,5 @@
 {% block scripts %}
 {{ super() }}
 <script src="{{ static_asset('js/settings.js') }}"></script>
-<script src="{{ static_asset('js/nozzle_cap.js') }}"></script>
+<script src="{{ static_asset('js/pasting/nozzle_cap.js') }}"></script>
 {% endblock %}

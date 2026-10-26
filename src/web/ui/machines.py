@@ -20,14 +20,14 @@ DEFAULT_BACKEND_PORT = 8081
 
 @attrs.frozen
 class MachineEndpoint:
-    """1 台の backend WebAPI の所在と表示名."""
+    """1 台の backend WebAPI の所在."""
 
     machine_id: str
     host: str
     port: int
-    name: str | None = None
-    machine_type: str | None = None
     source: Literal["static", "mdns"] = "static"
+    # 広告の API 版がこの frontend と違う（または読めない）。更新と緊急停止だけを中継する
+    update_only: bool = False
 
     @property
     def base_url(self) -> str:
@@ -41,9 +41,10 @@ class MachineEndpoint:
         表示文字列はサーバ側で組む（クライアントで組むと表示規則が JS 側に分散する）。
         ``machine_id`` は backend の hostname。``host`` を併記するのは、
         ``.local`` 名や IP の取り違えを画面で見分けられるようにするため。
-        静的登録の ``name`` は表示に使わない（同名の機体を見分けられないため）。
+        更新専用の機体は、選んでも通常の画面が開かないことを名前の時点で示す。
         """
-        return f"{self.machine_id}: {self.host}"
+        label = f"{self.machine_id}: {self.host}"
+        return f"{label}（更新専用）" if self.update_only else label
 
 
 class UnknownMachine(LookupError):
@@ -68,7 +69,7 @@ def _merge(
     """静的登録と mDNS 発見分をマージする.
 
     同一 ``machine_id`` は静的登録の ``host`` / ``port`` を優先し（``source`` も
-    ``"static"`` のまま）、静的側が持たない ``machine_type`` だけ mDNS 側で埋める。
+    ``"static"`` のまま）、静的側が持たない ``update_only`` を mDNS 側で埋める。
     順序は静的登録が先、その後に mDNS だけで見つかったマシン（発見順）。
     """
     by_discovered_id: dict[str, MachineEndpoint] = {}
@@ -93,12 +94,10 @@ def _merge(
 def _fill_gaps(
     static: MachineEndpoint, discovered: MachineEndpoint | None
 ) -> MachineEndpoint:
-    """静的登録が持たない表示情報だけを mDNS 側で埋める."""
+    """静的登録が持たない情報（API 版の一致）だけを mDNS 側で埋める."""
     if discovered is None:
         return static
-    return attrs.evolve(
-        static, machine_type=static.machine_type or discovered.machine_type
-    )
+    return attrs.evolve(static, update_only=discovered.update_only)
 
 
 class MachineRegistry:
@@ -197,8 +196,6 @@ def _endpoint_from_entry(
         machine_id=_required_str(entry, "machine_id", where),
         host=_required_str(entry, "host", where),
         port=port,
-        name=_optional_str(entry, "name", where),
-        machine_type=_optional_str(entry, "machine_type", where),
     )
 
 
@@ -207,10 +204,3 @@ def _required_str(entry: Mapping[str, object], key: str, where: str) -> str:
     if not isinstance(value, str) or not value:
         raise ValueError(f"{where}.{key} は非空の文字列である必要があります: {value!r}")
     return value
-
-
-def _optional_str(entry: Mapping[str, object], key: str, where: str) -> str | None:
-    value = entry.get(key)
-    if value is None:
-        return None
-    return _required_str(entry, key, where)

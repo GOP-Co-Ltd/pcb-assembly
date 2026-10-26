@@ -6,9 +6,11 @@ from typing import Literal
 import attrs
 from shapely import Point, Polygon
 
+from pcbasm.board import Pad
 from pcbasm.geometry import Point2d
-from pcbasm.pcb import Pad, PadShapeKey
-from pcbasm.utils import is_finite_number
+from pcbasm.pasting.hierarchy import PadShapeKey
+from pcbasm.pasting.labels import fmt_xy, purge_point_label
+from pcbasm.validators import is_finite_number
 
 PurgeSource = Literal["explicit", "default"]
 
@@ -67,20 +69,13 @@ def resolve_initial_purge(
     return _resolved(amount, default_point, "default"), None
 
 
-def validate_initial_purge(
-    *,
-    amount_ul: float,
-    point: Point2d | None,
-    outline: Polygon,
+def validate_initial_purge_point(
+    *, point: Point2d | None, outline: Polygon
 ) -> str | None:
-    """初回パージ設定を検証し、不正なら日本語エラー文、正常なら ``None``.
+    """保存する初回パージ位置を検証する（不正なら日本語エラー文、正常・自動なら ``None``）.
 
-    ``amount_ul == 0``（機能無効）でも明示された ``point`` は検証する
-    （無効化中でも基板外の座標を保存させないため）。
+    量は machine 設定なので見ない（量が 0 で無効化中でも、基板外の座標は保存させない）。
     """
-    amount, error = _validate_amount(amount_ul)
-    if amount is None:
-        return error
     if point is None:
         return None
     return _validate_point(point, outline)
@@ -119,11 +114,6 @@ def resolve_initial_purge_for(
     return InitialPurgeResolution(resolved, default_point, error)
 
 
-def purge_point_label(point: Point2d) -> str:
-    """パージ座標の表示用文字列（サーバー側で組んで返す）."""
-    return f"({point.x:.2f}, {point.y:.2f}) mm"
-
-
 def _largest_pad_center(routed_pads: Sequence[Pad]) -> Point2d | None:
     """面積最大の pad の中心。同面積の判定は塗布順路と同じ量子化面積で行う."""
     if not routed_pads:
@@ -156,8 +146,5 @@ def _validate_point(point: Point2d, outline: Polygon) -> str | None:
     if not is_finite_number(point.x) or not is_finite_number(point.y):
         return f"パージ位置は有限な座標で指定してください: ({point.x}, {point.y})"
     if not outline.covers(Point(point.x, point.y)):
-        return (
-            "パージ位置は基板外形の内側で指定してください: "
-            f"({point.x:.3f}, {point.y:.3f})"
-        )
+        return f"パージ位置は基板外形の内側で指定してください: {fmt_xy(point, 3)}"
     return None

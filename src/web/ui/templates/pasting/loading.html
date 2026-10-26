@@ -1,6 +1,5 @@
-{% extends "tab.html" %}
-{% import "partials/job_params.html" as job_params %}
-{% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
+{% extends "feature.html" %}
+{% import "partials/forms.html" as forms %}
 {% block main %}
 <h2>{{ feature_label }}</h2>
 <p class="job-intro">
@@ -8,24 +7,25 @@
   移動が済むと下の「ローディング」欄のボタンが押せるようになります。
   押出・吸引でペーストを送り、済んだら「ローディング終了」を押します。
 </p>
-<form id="job-form" class="job-form loading-run-form" data-requires-control
+{# 回転押出などの値は「ローディング」欄の入力を hidden へ写して送る（loading_controls.js）。次回の既定値として即保存する #}
+<form id="job-form" class="job-form loading-run-form" data-requires-control{% if persists_params %} data-persist-params{% endif %}
       data-job-name="{{ job_name }}" data-testid="job-form">
   {% for spec in loading_control_specs %}
-  <input type="hidden" id="param-{{ spec.name }}" name="{{ spec.name }}"
+  <input type="hidden" id="param-{{ spec.name }}" data-testid="param-{{ spec.name }}" name="{{ spec.name }}"
          data-param-type="{{ spec.value_type }}"
          value="{{ spec.default if spec.default is not none else '' }}">
   {% endfor %}
   <fieldset class="job-param-group loading-position">
     <legend>ローディング位置（任意）</legend>
     {% for spec in loading_position_specs %}
-    {{ job_params.param_field(spec) }}
+    {{ forms.param_field(spec) }}
     {% endfor %}
     <small class="job-param-help">空欄の軸はホーミング後の位置を維持します。</small>
   </fieldset>
   <button type="submit" id="job-run" data-testid="job-run">ローディング開始</button>
 </form>
 {% include "partials/loading_controls.html" %}
-<section id="loading-mass-calibration" class="loading-mass-calibration">
+<section id="loading-mass-calibration" data-testid="loading-mass-calibration" class="loading-mass-calibration">
   <h3>質量キャリブレーション</h3>
   <p class="job-intro">
     rotations_per_ul などの初期値をゼロから作るときに使います。
@@ -35,12 +35,12 @@
   </p>
   <div class="loading-control-group">
     <label for="lc-mass-mg">計測質量 <span class="unit">[mg]</span></label>
-    <input type="number" id="lc-mass-mg" step="any" min="0" value="">
+    <input type="number" id="lc-mass-mg" data-testid="lc-mass-mg" step="any" min="0" value="">
   </div>
   <dl class="loading-calibration-result">
     <div>
       <dt>体積</dt>
-      <dd><output id="lc-volume-ul">-</output> <span class="unit">uL</span></dd>
+      <dd><output id="lc-volume-ul" data-testid="lc-volume-ul">-</output> <span class="unit">uL</span></dd>
     </div>
     <div>
       <dt>密度</dt>
@@ -59,32 +59,32 @@
     <tbody>
       <tr>
         <th>rotations_per_ul <span class="unit">[rev/uL]</span></th>
-        <td><output id="lc-rotations-per-ul">-</output></td>
-        <td><output id="lc-current-rotations-per-ul">{{ "%.6f"|format(current_rotations_per_ul) }}</output></td>
-        <td><button id="lc-apply-rotations-per-ul" type="button" data-requires-control disabled>適用</button></td>
+        <td><output id="lc-rotations-per-ul" data-testid="lc-rotations-per-ul">-</output></td>
+        <td><output id="lc-current-rotations-per-ul" data-testid="lc-current-rotations-per-ul">{{ "%.6f"|format(current_rotations_per_ul) }}</output></td>
+        <td><button id="lc-apply-rotations-per-ul" data-testid="lc-apply-rotations-per-ul" type="button" data-requires-control disabled>適用</button></td>
       </tr>
       <tr>
         <th>max_dispense_rate <span class="unit">[uL/s]</span></th>
-        <td><output id="lc-dispense-rate">-</output></td>
-        <td><output id="lc-current-dispense-rate">{{ "%.6f"|format(current_max_dispense_rate) }}</output></td>
-        <td><button id="lc-apply-dispense-rate" type="button" data-requires-control disabled>適用</button></td>
+        <td><output id="lc-dispense-rate" data-testid="lc-dispense-rate">-</output></td>
+        <td><output id="lc-current-dispense-rate" data-testid="lc-current-dispense-rate">{{ "%.6f"|format(current_max_dispense_rate) }}</output></td>
+        <td><button id="lc-apply-dispense-rate" data-testid="lc-apply-dispense-rate" type="button" data-requires-control disabled>適用</button></td>
       </tr>
       <tr>
         <th>dispense_accel <span class="unit">[uL/s²]</span></th>
-        <td><output id="lc-dispense-accel">-</output></td>
-        <td><output id="lc-current-dispense-accel">{{ "%.6f"|format(current_dispense_accel) }}</output></td>
-        <td><button id="lc-apply-dispense-accel" type="button" data-requires-control disabled>適用</button></td>
+        <td><output id="lc-dispense-accel" data-testid="lc-dispense-accel">-</output></td>
+        <td><output id="lc-current-dispense-accel" data-testid="lc-current-dispense-accel">{{ "%.6f"|format(current_dispense_accel) }}</output></td>
+        <td><button id="lc-apply-dispense-accel" data-testid="lc-apply-dispense-accel" type="button" data-requires-control disabled>適用</button></td>
       </tr>
     </tbody>
   </table>
-  <p id="lc-calibration-message" class="loading-calibration-message"></p>
+  <p id="lc-calibration-message" data-testid="lc-calibration-message" class="loading-calibration-message"></p>
   <div class="loading-calibration-actions">
-    <button id="lc-apply-all" type="button" data-requires-control disabled>一括適用</button>
+    <button id="lc-apply-all" data-testid="lc-apply-all" type="button" data-requires-control disabled>一括適用</button>
   </div>
 </section>
 {% include "partials/job_console.html" %}
 {% endblock %}
 {% block scripts %}
 {{ super() }}
-<script src="{{ static_asset('js/loading_controls.js') }}"></script>
+<script src="{{ static_asset('js/pasting/loading_controls.js') }}"></script>
 {% endblock %}

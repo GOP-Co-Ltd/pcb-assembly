@@ -7,8 +7,8 @@ description: WebUI（backend src/web/api/ と frontend src/web/ui/）をロジ�
 
 計算・ドメインロジックは pcbasm（`src/pcbasm/`）に集約し、WebUI は入出力変換と pcbasm
 呼び出しに徹する。WebUI は **2 プロセス**（backend WebAPI = `src/web/api/`、
-UI frontend = `src/web/ui/`）なので、薄く保つ対象が 3 層ある。関連: AGENTS.md「WebUI 設計」、
-skill `webui-e2e`。
+UI frontend = `src/web/ui/`）なので、薄く保つ対象が 3 層ある。関連: `CLAUDE.md`「WebUI 設計」、
+skill [webui-e2e](../webui-e2e/SKILL.md)。
 
 ## レイヤ責務
 
@@ -60,7 +60,7 @@ skill `webui-e2e`。
 
 ## 検証
 
-- `make test-no-hardware`（`tests/web/api/` の resolved/集計/バリデーション、`tests/web/ui/` の
+- `make check`（`tests/web/api/` の resolved/集計/バリデーション、`tests/web/ui/` の
     SSR ページと中継、pcbasm の純ロジック契約テスト）
-- `make test-e2e` / `make api-fake` + `make ui-fake`（ブラウザで表示が API 由来であることを確認）。
+- `make test-e2e` / `make dev`（ブラウザで表示が API 由来であることを確認）。
     詳細は skill `webui-e2e`

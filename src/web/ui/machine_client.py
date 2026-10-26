@@ -1,8 +1,7 @@
 """Backend WebAPI (`web.api`) への HTTP クライアント.
 
 SSR ページのハンドラが backend のクライアントになる。取得した値は
-`web.api.models` の pydantic モデル（pydantic のみを import する contract モジュール）
-で検証してからテンプレートへ渡す。
+`web.contract.models` の pydantic モデルで検証してからテンプレートへ渡す。
 
 backend のレスポンスはキャッシュしない。frontend は backend の WS を自前で
 購読しないため、他の操作者による変更でキャッシュを無効化する条件を正しく書けない。
@@ -17,13 +16,14 @@ from collections.abc import Callable
 import httpx
 from pydantic import BaseModel
 
-from web.api.models import (
+from web.contract.models import (
     JobCatalogResponse,
     MachineInfo,
     MachineSettingsResponse,
+    ReadinessResponse,
     StateResponse,
-    UpdateStatusResponse,
 )
+from web.contract.update import UpdateStatusResponse
 from web.ui.machines import MachineEndpoint
 
 
@@ -127,23 +127,27 @@ class MachineClient:
         self._gateway = gateway
 
     async def machine_info(self) -> MachineInfo:
-        """`GET /api/machine-info`（到達性プローブ兼用）."""
-        return await self._fetch(MachineInfo, "/api/machine-info")
+        """`GET /api/session/machine-info`（到達性プローブ兼用）."""
+        return await self._fetch(MachineInfo, "/api/session/machine-info")
 
     async def state(self) -> StateResponse:
-        """`GET /api/state`."""
-        return await self._fetch(StateResponse, "/api/state")
+        """`GET /api/session/state`."""
+        return await self._fetch(StateResponse, "/api/session/state")
 
     async def machine_settings(self) -> MachineSettingsResponse:
-        """`GET /api/settings/machine`."""
-        return await self._fetch(MachineSettingsResponse, "/api/settings/machine")
+        """`GET /api/machine_config`."""
+        return await self._fetch(MachineSettingsResponse, "/api/machine_config")
 
     async def update_status(self) -> UpdateStatusResponse:
         """`GET /api/update/status`（fetch を伴わないので毎分読んでよい）."""
         return await self._fetch(UpdateStatusResponse, "/api/update/status")
 
+    async def readiness(self) -> ReadinessResponse:
+        """`GET /api/readiness`（設定エラーの間も返る）."""
+        return await self._fetch(ReadinessResponse, "/api/readiness")
+
     async def jobs(self) -> JobCatalogResponse:
-        """`GET /api/jobs`（hidden を含む全件）."""
+        """`GET /api/jobs`."""
         return await self._fetch(JobCatalogResponse, "/api/jobs")
 
     async def _fetch[ModelT: BaseModel](self, model: type[ModelT], path: str) -> ModelT:

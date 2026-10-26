@@ -1,0 +1,77 @@
+# usaremino の筐体に部品実装（Pick and Place）を載せた機体の雛形。共通の節と空の [pnp] だけを持つ
+# printer.cfg は usaremino と同じもの（部品実装のハードウェアの設定は PnP の実装時に足す）
+
+[klipper]
+host = "localhost"
+port = 7125
+
+[settle]
+# 装置の静定待ち（長いほどタクトが伸び、短いほど検出がぶれる）
+move_sec = 0.5 # ステージ移動後、撮影・計測に入るまでの待ち [sec]
+probe_sec = 0.0 # PROBE 実行後の待ち [sec]
+
+[detection]
+# 円・塗布痕の統計検出（1 観測 = sample_count 枚の平均）
+sample_count = 10 # 1 観測で撮るフレーム数
+minimum_sample_count = 5 # 1 観測に必要な有効検出数
+
+[camera]
+device_id = 0
+width = 1280
+height = 800
+fps = 30.0
+format = "YUYV"
+# キャリブレーション結果は機体固有なのでテンプレートには含めない。
+# WebUI の camera_calibration ジョブを実行し、Apply でこのキーごと更新する
+calibration_file = "calibration.json"
+
+[camera.crop]
+width = 600
+height = 600
+
+[probe]
+min_radius = 0.3            # サンプル点が銅箔境界から確保すべき最小距離 [mm]
+board_edge_margin = 2.0     # サンプル点が基板外形から確保すべき最小距離 [mm]
+min_samples = 6             # 最小サンプル数 (2次曲面フィットに必要)
+max_samples = 15            # 最大サンプル数
+lift_height = 0.5
+
+[reference_point]
+# 基準点（top left）のおおよその絶対位置 (mm)
+x = 8.5
+y = 5.7
+# 基準点の直径 (mm)
+target_diameter = 3.0
+
+# 基盤からみた基準点の相対位置 (mm)
+[reference_point.offsets] # [x, y]で記述
+top_left = [2.5, -5.0]
+top_right = [-2.5, -5.0]
+bottom_left = [2.5, 5.0]
+bottom_right = [-2.5, 5.0]
+
+# ジョブ完了通知音の出力先。省略時は ALSA のシステム既定デバイス・音量 0.75。
+# WebUI の /dev/audio で選ぶと config/machine.toml 側に書き込まれる
+# [audio]
+# device = "default" # aplay -L の PCM 名（例 plughw:CARD=sndrpihifiberry,DEV=0）
+# volume = 0.75      # 0.0〜1.0
+
+[audio]
+device = "plughw:CARD=MAX98357A,DEV=0"
+volume = 0.3
+
+[alignment]
+# pad単位の銅箔照合による位置合わせ
+max_correction = 0.5         # 1回の照合で許容する最大ずれ [mm]。超過は誤マッチとして照合失敗
+search_window = 1.0 # 照合の探索窓 片側幅 [mm]
+canny_low = 104.0   # Cannyエッジ検出の下側閾値
+canny_high = 235.0  # Cannyエッジ検出の上側閾値
+blur_ksize = 1      # GaussianBlurカーネルサイズ (奇数)
+region_size_px = 200
+max_passes = 5
+board_edge_margin = 1.0
+converge_tolerance = 0.015
+region_overlap = 0.2
+
+# この節があれば、部品実装（Pick and Place）機として使える。中身は PnP の実装時に足す
+[pnp]

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from pcbasm.gcode import GCode
+from pcbasm.align import CopperProjector
 from pcbasm.geometry import Point2d, Transform
 from pcbasm.pasting.session import PasteSession
-from pcbasm.posctrl import CopperProjector
 from pcbasm.vision.crop import RectCrop, crop_centered
 from pcbasm.vision.image import FrameSink
 
@@ -38,7 +37,7 @@ class PointCapturer:
         # 静定待ちは機体設定の値を使う（撮影点への移動は他の計測と同じ現象）
         self._settle_sec = session.machine.settle.move_sec
         self._frame_sink = frame_sink
-        self._projector = CopperProjector.from_calibration(session.calibration_result)
+        self._projector = CopperProjector.from_board_frame(session.board_frame)
 
     def capture(
         self,
@@ -59,11 +58,12 @@ class PointCapturer:
             center, offset=offset, correction=correction
         )
         session.klipper.send_gcode(
-            session.stage.move(
-                x=stage_xy.x, y=stage_xy.y, z=session.calibration.z_position
+            session.stage.move_settled(
+                x=stage_xy.x,
+                y=stage_xy.y,
+                z=session.board_frame.camera_model.focus_z,
+                settle_sec=self._settle_sec,
             )
-            + GCode.wait(self._settle_sec)
-            + GCode.wait_for_done()
         )
         image = session.camera.capture()
         if self._frame_sink is not None:
@@ -73,11 +73,9 @@ class PointCapturer:
             if correction is None
             else self._projector.with_correction(correction)
         )
-        matrix, translation = projector.board_to_pixel_affine(stage_xy)
         return crop_centered(
             image,
             center,
-            matrix,
-            translation,
+            projector.board_to_pixel(stage_xy),
             pixel_size=self._crop_size_px,
         )

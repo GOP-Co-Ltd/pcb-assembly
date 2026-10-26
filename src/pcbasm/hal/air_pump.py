@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pcbasm.gcode import GCode
 
-from .klipper import ReadonlyKlipper
+from .klipper import KlipperClient
 
 _PIN_NAME = "air_pump"
 _CONFIG_SECTION = f"output_pin {_PIN_NAME}"
@@ -14,7 +14,7 @@ class AirPump:
     ``on`` / ``off`` は G-code を返すだけで送信しない。
     """
 
-    def __init__(self, klipper: ReadonlyKlipper) -> None:
+    def __init__(self, klipper: KlipperClient) -> None:
         """Klipper 設定に air_pump の出力ピンがあるか確かめる.
 
         ``[output_pin air_pump]`` が無ければ RuntimeError を送出する。

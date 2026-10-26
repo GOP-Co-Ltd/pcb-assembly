@@ -1,6 +1,6 @@
 """UI frontend 自身が返す JSON の pydantic モデル.
 
-backend の値を中継するモデルは `web.api.models` を使う。ここに置くのは frontend が
+backend の値を中継するモデルは `web.contract.models` を使う。ここに置くのは frontend が
 持つ情報（マシン登録一覧）だけ。
 """
 
@@ -10,7 +10,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-# 更新ページの入口（機体ごとのページはここからリンクする）
+# 唯一の更新ページ（UI サーバー自身と全機体の更新を並べる）
 UPDATE_INDEX_PATH = "/update"
 
 
@@ -19,10 +19,8 @@ class MachineSummary(BaseModel):
 
     machine_id: str
     label: str
-    name: str | None
     host: str
     port: int
-    machine_type: str | None
     source: Literal["static", "mdns"]
     current: bool
 
@@ -46,5 +44,5 @@ class UpdateNoticeResponse(BaseModel):
     label: str = ""
     # tooltip に出す内訳（ホストごとに 1 行）
     detail: str = ""
-    # バッジの遷移先（複数ホストが待っているときは UI サーバーの更新ページ）
+    # バッジの遷移先（更新ページ）
     href: str = UPDATE_INDEX_PATH

@@ -12,7 +12,10 @@ from pcbasm.vision.detection import (
     validate_paste_diameters,
 )
 from pcbasm.vision.dot import DotDetectionSpec
-from tests.helpers import PASTE_VOLUME_MATERIAL_DIR, PASTE_VOLUME_PIXEL_PER_MM
+from tests.support.paste_volume import (
+    PASTE_VOLUME_MATERIAL_DIR,
+    PASTE_VOLUME_PIXEL_PER_MM,
+)
 
 
 class TestCircleDetector:
@@ -50,7 +53,6 @@ class TestCircleDetector:
         assert result.center.x == pytest.approx(100.0, abs=2.0)
         assert result.center.y == pytest.approx(100.0, abs=2.0)
         assert result.offset.px.norm == pytest.approx(0.0, abs=2.0)
-        assert result.offset.mm.norm == pytest.approx(0.0, abs=0.2)
 
     def test_detect_nearest_center_calculates_offset(
         self, detector: CircleDetector, image_with_offset_circle: Image
@@ -61,9 +63,6 @@ class TestCircleDetector:
         # 画像中心(100, 100)から円中心(120, 130)へのオフセット
         assert result.offset.px.x == pytest.approx(20.0, abs=2.0)
         assert result.offset.px.y == pytest.approx(30.0, abs=2.0)
-        # mm単位 (10 pixel/mm)
-        assert result.offset.mm.x == pytest.approx(2.0, abs=0.2)
-        assert result.offset.mm.y == pytest.approx(3.0, abs=0.2)
 
     def test_blank_image_yields_no_circle(self, detector: CircleDetector):
         blank_image = Image(np.full((200, 200, 3), 255, dtype=np.uint8))
@@ -150,8 +149,6 @@ class TestCircleDetector:
         assert result.mean.x == pytest.approx(expected_mean, abs=3.0)
         assert result.mean.y == pytest.approx(0.0, abs=3.0)
         assert result.std.x == pytest.approx(expected_std, abs=2.0)
-        # mm単位 (10 pixel/mm)
-        assert result.mean_mm.x == pytest.approx(expected_mean / 10.0, abs=0.3)
 
     def test_detect_with_statistics_returns_none_for_empty_images(
         self, detector: CircleDetector
@@ -238,7 +235,7 @@ class TestCircleDetector:
         return Image(np.full((200, 200, 3), 255, dtype=np.uint8))
 
 
-# 実素材 `data/testing/paste-volume/` の参考直径 [mm]（出典は同 directory の README）。
+# 実素材 `tests/data/paste-volume/` の参考直径 [mm]（出典は同 directory の README）。
 # OpenCV のバージョンで下位桁が動きうるので広めの許容で突き合わせる
 MATERIAL_DIAMETER_MM: tuple[tuple[str, float], ...] = (
     ("small", 0.587),
@@ -276,7 +273,7 @@ def _shifted(image: Image, dx: int, dy: int) -> Image:
 class TestPasteDotDetector:
     """塗布痕（暗い円）を単一フレームの背景差分 + Otsu で検出する契約.
 
-    実素材は ``data/testing/paste-volume/`` の塗布後画像。合成画像では銅板テクスチャ・
+    実素材は ``tests/data/paste-volume/`` の塗布後画像。合成画像では銅板テクスチャ・
     照明ムラ・ペーストの質感が再現できないので、検出できる/できないの要件は実素材で固める。
     """
 
@@ -309,7 +306,7 @@ class TestPasteDotDetector:
         measured_mm = 2.0 * detected.radius / PASTE_VOLUME_PIXEL_PER_MM
         assert measured_mm == pytest.approx(diameter_mm, abs=DIAMETER_TOLERANCE_MM)
         # 素材は塗布痕を中心に切り出してあるので、ズレは ROI 中心の近傍に収まる
-        assert detected.offset.mm.norm < 0.2
+        assert detected.offset.px.norm < 0.2 * PASTE_VOLUME_PIXEL_PER_MM
 
     @pytest.mark.parametrize("view", [0, 1])
     def test_blank_material_is_not_detected(

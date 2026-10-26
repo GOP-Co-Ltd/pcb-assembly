@@ -9,8 +9,8 @@ from .audio import (
 )
 from .camera import Camera, CameraInfo, Resolution, create_camera, get_camera_info
 from .framehub import FrameHub, FrameSource
-from .klipper import GCodeMacro, Klipper, ReadonlyKlipper
-from .manual_stepper import HomingDirection, ManualStepper
+from .klipper import KlipperClient, KlipperError, MoonrakerKlipper, open_klipper
+from .manual_stepper import ManualStepper
 from .paste_dispenser import PasteDispenser
 from .stage import Limits, ScalarLimits, Speed, XYZStage
 
@@ -34,11 +34,11 @@ __all__ = [
     "FrameHub",
     "FrameSource",
     # klipper
-    "GCodeMacro",
-    "Klipper",
-    "ReadonlyKlipper",
+    "KlipperClient",
+    "KlipperError",
+    "MoonrakerKlipper",
+    "open_klipper",
     # manual_stepper
-    "HomingDirection",
     "ManualStepper",
     # stage
     "ScalarLimits",

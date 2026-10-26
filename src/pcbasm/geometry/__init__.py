@@ -2,14 +2,12 @@ from .path import Path
 from .polygon import (
     OrientedBox,
     clip_segment,
-    display_rings,
     exterior_points,
     merge_islands,
     offset_components,
     oriented_bbox,
     transform_polygon,
 )
-from .polyline import polyline_length, ring_segment
 from .routing import sort_by_nearest
 from .sampling import (
     SamplingDiagnostics,
@@ -17,6 +15,7 @@ from .sampling import (
     sampling_diagnostics,
 )
 from .transform import (
+    Affine2d,
     Compose,
     HeightPlane,
     Identity,
@@ -30,6 +29,7 @@ from .transform import (
 )
 
 __all__ = [
+    "Affine2d",
     "Compose",
     "HeightPlane",
     "Identity",
@@ -44,13 +44,10 @@ __all__ = [
     "Transform",
     "Shift",
     "clip_segment",
-    "display_rings",
     "exterior_points",
     "merge_islands",
     "offset_components",
     "oriented_bbox",
-    "polyline_length",
-    "ring_segment",
     "sample_points_in_polygons",
     "sampling_diagnostics",
     "sort_by_nearest",

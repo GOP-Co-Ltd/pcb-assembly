@@ -1,0 +1,136 @@
+"""重複する pixel ROI から銅箔照合領域を計画する."""
+
+from collections.abc import Sequence
+
+import attrs
+import numpy as np
+from shapely import Point, Polygon
+from shapely.affinity import translate
+from shapely.geometry.base import BaseGeometry
+from shapely.ops import nearest_points
+
+from pcbasm.align.copper import CopperProjector
+from pcbasm.geometry import Point2d, Transform, sort_by_nearest
+from pcbasm.vision import PixelRect
+
+
+@attrs.frozen
+class AlignmentRegion:
+    """1 つの銅箔照合領域.
+
+    Attributes:
+        index: 巡回順の番号（pad 中心の再照合では -1）
+        board_center: 領域中心（board 座標）
+        anchor: 領域中心を撮るステージ位置（機械座標）
+        roi: 照合に使う画像中心の ROI（全画面 px）
+        board_area: 領域が覆う範囲（board 座標）
+    """
+
+    index: int
+    board_center: Point2d
+    anchor: Point2d
+    roi: PixelRect
+    board_area: Polygon
+
+    def covers(self, board_point: Point2d) -> bool:
+        """領域が board 座標の点を境界込みで覆うか返す."""
+        return self.board_area.covers(Point(board_point.x, board_point.y))
+
+
+def plan_alignment_regions(
+    projector: CopperProjector,
+    board_transform: Transform,
+    pad_centers: Sequence[Point2d],
+    *,
+    safe_area: BaseGeometry,
+    roi: PixelRect,
+    overlap: float,
+    tour_start: Point2d,
+) -> list[AlignmentRegion]:
+    """塗布対象 pad の中心を覆う重複 ROI を計画し、巡回順に返す.
+
+    領域は ``safe_area`` の内側に収める。
+    そのため、外形近くの pad はどの領域にも覆われないことがある。
+
+    巡回順は ``tour_start``（機械座標）からの最近傍順とする。
+
+    ``roi`` は画像中心の正方 ROI で、その一辺が領域の大きさになる。
+
+    ``roi`` と ``overlap`` は設定（:class:`~pcbasm.config.alignment.AlignmentConfig`）と照合器の組み立てで検証済みとする。
+
+    Returns:
+        領域のリスト。銅箔・pad・安全領域のどれかが空、または領域が収まらなければ空リスト
+    """
+    if not projector.polygons or not pad_centers or safe_area.is_empty:
+        return []
+
+    minx, miny, maxx, maxy = safe_area.bounds
+    reference_center = Point2d((minx + maxx) / 2, (miny + maxy) / 2)
+    affine = projector.board_to_pixel(board_transform.apply(reference_center))
+    # 逆向きは並進を引いてから逆行列を掛ける。Affine2d.inverse() とは丸めが違い、領域の計画が変わる
+    inverse = np.linalg.inv(affine.matrix)
+    pad_pixels = affine.map(np.array([[p.x, p.y] for p in pad_centers]))
+
+    region_size_px = roi[2] - roi[0]
+    half = region_size_px / 2
+    stride = region_size_px * (1.0 - overlap)
+    corner_offsets_px = np.array(
+        [[-half, -half], [half, -half], [half, half], [-half, half]]
+    )
+    corner_offsets_board = corner_offsets_px @ inverse.T
+    allowed_centers = safe_area
+    for offset_x, offset_y in corner_offsets_board:
+        allowed_centers = allowed_centers.intersection(
+            translate(safe_area, xoff=-offset_x, yoff=-offset_y)
+        )
+    if allowed_centers.is_empty:
+        return []
+    _, top_left_center = nearest_points(Point(minx, miny), allowed_centers)
+    base = affine.map(np.array([top_left_center.x, top_left_center.y]))
+    lower = np.ceil((pad_pixels.min(axis=0) - half - base) / stride).astype(int)
+    upper = np.floor((pad_pixels.max(axis=0) + half - base) / stride).astype(int)
+
+    candidates: dict[tuple[float, float], tuple[Point2d, Polygon]] = {}
+    for column in range(int(lower[0]), int(upper[0]) + 1):
+        for row in range(int(lower[1]), int(upper[1]) + 1):
+            center_px = base + np.array([column, row]) * stride
+            board_center_xy = (center_px - affine.shift) @ inverse.T
+            board_center = Point2d(
+                x=float(board_center_xy[0]), y=float(board_center_xy[1])
+            )
+            corners = (center_px + corner_offsets_px - affine.shift) @ inverse.T
+            board_area = Polygon(corners)
+            if not any(
+                board_area.covers(Point(center.x, center.y)) for center in pad_centers
+            ):
+                continue
+            _, fitted_center = nearest_points(
+                Point(board_center.x, board_center.y), allowed_centers
+            )
+            xoff = fitted_center.x - board_center.x
+            yoff = fitted_center.y - board_center.y
+            board_center = Point2d(fitted_center.x, fitted_center.y)
+            board_area = translate(board_area, xoff=xoff, yoff=yoff)
+            if not safe_area.covers(board_area):
+                continue
+            key = (round(board_center.x, 9), round(board_center.y, 9))
+            candidates.setdefault(key, (board_center, board_area))
+
+    ordered = sort_by_nearest(
+        [
+            (board_transform.apply(board_center), board_center, board_area)
+            for board_center, board_area in candidates.values()
+        ],
+        tour_start.to3d(),
+        key=lambda entry: entry[0].to3d(),
+    )
+    return [
+        AlignmentRegion(
+            index=index,
+            board_center=board_center,
+            anchor=anchor,
+            roi=roi,
+            board_area=board_area,
+        )
+        for index, (anchor, board_center, board_area) in enumerate(ordered)
+    ]

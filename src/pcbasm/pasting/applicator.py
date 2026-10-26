@@ -8,6 +8,7 @@
 ``FillSequence``）に委譲し、ここは座標変換と送信・結果集約だけを担う。
 
 座標変換（board → machine）は呼び出しごとに受け取る。applicator は基板を知らない。
+塗布 Z（基板表面からのノズル高さ）は :mod:`pcbasm.pasting.fill_path` が決め、ここは変換を当てるだけ。
 
 :class:`~pcbasm.pasting.dispense.DispenseSummary` は HAL 非依存の値なので
 :mod:`pcbasm.pasting.dispense` に置き、ここから再公開する。
@@ -22,19 +23,21 @@ from typing import Literal, Self
 import attrs
 from shapely import Polygon
 
-from pcbasm.config import PasteDispenser as PasteDispenserConfig
+from pcbasm.config.solder import SolderConfig
 from pcbasm.gcode import GCode
-from pcbasm.geometry import Path, Point2d, Transform
-from pcbasm.hal import Klipper, PasteDispenser, Speed, XYZStage
+from pcbasm.geometry import Path, Point2d, Point3d, Transform
+from pcbasm.hal import KlipperClient, PasteDispenser, Speed, XYZStage
 from pcbasm.pasting.dispense import DispenseSummary
 from pcbasm.pasting.fill_path import (
     AppliedDispenseMode,
     FillPlan,
-    micro_line_auto_height,
+    amount_per_path_ul,
+    paste_height_mm,
 )
 from pcbasm.pasting.fill_sequence import FillSequence, MicroLineSequence
-from pcbasm.pasting.params import DispenseSettings, PasteParams
-from pcbasm.utils import get_class_module_path
+from pcbasm.pasting.params import PasteParams
+
+logger = logging.getLogger(__name__)
 
 
 @attrs.frozen
@@ -93,28 +96,25 @@ class PasteApplicationResult:
 
 
 def build_applicator(
-    klipper: Klipper,
+    klipper: KlipperClient,
     stage: XYZStage,
-    config: PasteDispenserConfig,
+    config: SolderConfig,
     *,
-    rotations_per_ul: float | None = None,
     lift_height: float | None = None,
 ) -> PasteApplicator:
     """Machine 設定からディスペンサー HAL ごと :class:`PasteApplicator` を組み立てる.
 
+    基板を使わない操作（ローディング・ノズルキャップ）の入口。
+    計測済みの基板へ塗るときは :meth:`PasteSession.make_applicator <pcbasm.pasting.session.PasteSession.make_applicator>` を使う。
+
     Args:
         klipper: Klipper クライアント
         stage: XYZ ステージ
-        config: ``Machine.paste_dispenser``
-        rotations_per_ul: μL → 回転数の係数 [rev/μL] の上書き（キャリブ検証ループで
-            新値を反映した applicator を作り直す経路）。``None`` で config の値
+        config: ``MachineConfig.solder``
         lift_height: 塗布後の上昇高さ [mm] の上書き。``None`` で config の値
     """
     dispenser = PasteDispenser(
-        klipper=klipper.readonly,
-        rotations_per_ul=(
-            config.rotations_per_ul if rotations_per_ul is None else rotations_per_ul
-        ),
+        klipper=klipper, rotations_per_ul=config.dispenser.rotations_per_ul
     )
     return PasteApplicator(klipper, dispenser, stage, config, lift_height=lift_height)
 
@@ -137,33 +137,36 @@ class PasteApplicator:
     2 を省くと最初の 1 回だけ prime の分が余計に出る。
 
     Example:
-        with build_applicator(klipper, stage, machine.paste_dispenser) as applicator:
+        with build_applicator(klipper, stage, machine.solder) as applicator:
             applicator.retract()
             applicator.apply(pad.polygon, params=params, transform=pad_transform)
     """
 
     def __init__(
         self,
-        klipper: Klipper,
+        klipper: KlipperClient,
         dispenser: PasteDispenser,
         stage: XYZStage,
-        config: PasteDispenserConfig,
+        config: SolderConfig,
         *,
         lift_height: float | None = None,
     ) -> None:
-        """設定は検証済みの ``Machine.paste_dispenser`` から写す（ここでは再検証しない）."""
+        """設定は検証済みの ``MachineConfig.solder`` を使う（ここでは再検証しない）."""
         self._klipper = klipper
         self._dispenser = dispenser
         self._stage = stage
         self._config = config
-        self._settings = DispenseSettings.from_config(config, lift_height=lift_height)
-        self._default_params = PasteParams.from_config(config)
-        self._logger = logging.getLogger(get_class_module_path(self.__class__))
+        motion = config.dispense_motion
+        self._motion = (
+            motion
+            if lift_height is None
+            else attrs.evolve(motion, lift_height=lift_height)
+        )
 
     @property
     def default_params(self) -> PasteParams:
-        """Machine 設定由来の塗布パラメータ（pad 個別設定が無いときに使う）."""
-        return self._default_params
+        """Machine 設定の塗布パラメータ既定値（pad 個別設定が無いときに使う）."""
+        return self._config.defaults
 
     @property
     def rotations_per_ul(self) -> float:
@@ -173,10 +176,10 @@ class PasteApplicator:
     def adopt_rotations_per_ul(self, rotations_per_ul: float) -> None:
         """運転中に μL → 回転数の換算係数を差し替える.
 
-        運転時流量キャリブレーションが求めた係数を、残りの pad へ適用するための入口。
+        運転時補正と吐出量キャリブレーション ① が、求めた係数を以降の吐出へ適用する唯一の入口。
         ``with`` を抜けずに差し替えるので AirPump の OFF→ON が入らない。
         """
-        self._logger.info(
+        logger.info(
             "rotations_per_ul を差し替え: %.6f → %.6f rev/uL",
             self._dispenser.rotations_per_ul,
             rotations_per_ul,
@@ -198,12 +201,12 @@ class PasteApplicator:
         Args:
             amount_ul: 押し出し量 [μL]（正: 吐出、負: リトラクション）
         """
-        self._logger.info("ペーストローディング: %s μL", amount_ul)
+        logger.info("ペーストローディング: %s μL", amount_ul)
         push = self._dispenser.pushpull(
-            amount_ul, self._settings.retract_rate, self._settings.retract_accel
+            amount_ul, self._motion.retract_rate, self._motion.retract_accel
         )
         self._klipper.send_gcode(push + GCode.wait_for_done())
-        self._logger.info("ローディング完了")
+        logger.info("ローディング完了")
 
     def load_rotations(
         self,
@@ -230,7 +233,7 @@ class PasteApplicator:
             self._rotate(-retract_rotations, rate, accel)
 
     def _rotate(self, rotations: float, rate: float, accel: float) -> None:
-        self._logger.info(
+        logger.info(
             "ペーストローディング: %s rev @ %s rev/s, accel=%s rev/s^2",
             rotations,
             rate,
@@ -238,11 +241,11 @@ class PasteApplicator:
         )
         gc = self._dispenser.rotate_revolutions(rotations, rate, accel)
         self._klipper.send_gcode(gc + GCode.wait_for_done())
-        self._logger.info("ローディング完了")
+        logger.info("ローディング完了")
 
     def retract(self) -> None:
         """リトラクション量分だけペーストを引き戻す（ブロッキング）."""
-        self.load(-self._settings.retract_amount)
+        self.load(-self._motion.retract_amount)
 
     def prime(self) -> None:
         """リトラクション量分だけ押し戻して引き込みを解消する（ブロッキング）.
@@ -254,7 +257,7 @@ class PasteApplicator:
         いるので、これを使うのはそれらを経由しない押し出し（ノズルクリーニングの
         パージ）を挟むときだけ。
         """
-        self.load(self._settings.retract_amount)
+        self.load(self._motion.retract_amount)
 
     def apply(
         self,
@@ -272,9 +275,8 @@ class PasteApplicator:
         塗布量はポリゴン面積 × ``ul_per_mm2`` を成分数で均等配分する。
         フィル経路が空（空・不正なポリゴン）なら何も送らず、``sequences`` が空の結果を返す。
 
-        方式が micro_line なら ``paste_height`` を使わず、始点を ``micro_line_z_start``、
-        終点を ``micro_line_z_end`` の高さにした経路を ``MicroLineSequence`` で送る
-        （``auto`` は :func:`~pcbasm.pasting.fill_path.micro_line_auto_height` で求める）。
+        経路の z（基板表面からのノズル高さ）は :meth:`FillPlan.for_pad <pcbasm.pasting.fill_path.FillPlan.for_pad>` が決める。
+        方式が micro_line なら、その経路を ``MicroLineSequence`` で送る。
 
         Args:
             polygon: 塗布対象のポリゴン（board 座標, mm）
@@ -286,20 +288,16 @@ class PasteApplicator:
             polygon, config=self._config, params=params, line_reference=line_reference
         )
         if not plan.paths:
-            self._logger.warning("フィルパスが空です。スキップします。")
+            logger.warning("フィルパスが空です。スキップします。")
             return PasteApplicationResult(())
 
-        per_component_ul = polygon.area * params.ul_per_mm2 / len(plan.paths)
+        per_component_ul = amount_per_path_ul(polygon, params, len(plan.paths))
         if plan.dispense_mode == "micro_line":
             (line,) = plan.paths
             return PasteApplicationResult(
                 (
                     self._draw_micro_line(
-                        polygon,
-                        line,
-                        amount_ul=per_component_ul,
-                        params=params,
-                        transform=transform,
+                        line, amount_ul=per_component_ul, transform=transform
                     ),
                 )
             )
@@ -309,7 +307,6 @@ class PasteApplicator:
                     path,
                     applied_mode=plan.dispense_mode,
                     amount_ul=per_component_ul,
-                    paste_height_mm=params.paste_height_mm,
                     prime_extra_delay=params.prime_extra_delay,
                     transform=transform,
                 )
@@ -336,14 +333,13 @@ class PasteApplicator:
             transform: 塗布点に適用する座標変換
             params: 塗布高さ・プライム遅延に使うパラメータ（``None`` で machine 既定）
         """
-        params = self._default_params if params is None else params
+        params = self._config.defaults if params is None else params
         return PasteApplicationResult(
             (
                 self._draw_polyline(
-                    (point,),
+                    (point.to3d(paste_height_mm(params)),),
                     applied_mode="dot",
                     amount_ul=amount_ul,
-                    paste_height_mm=params.paste_height_mm,
                     prime_extra_delay=params.prime_extra_delay,
                     transform=transform,
                 ),
@@ -375,12 +371,12 @@ class PasteApplicator:
             rate_cap: 吐出レートの頭打ち値 [μL/sec]（``None`` で ``max_dispense_rate``、
                 ``math.inf`` で cap 無効）
         """
+        z = paste_height_mm(self._config.defaults)
         return self._draw_polyline(
-            (start, end),
+            (start.to3d(z), end.to3d(z)),
             applied_mode="line",
             amount_ul=amount_ul,
-            paste_height_mm=self._default_params.paste_height_mm,
-            prime_extra_delay=self._default_params.prime_extra_delay,
+            prime_extra_delay=self._config.defaults.prime_extra_delay,
             transform=transform,
             fill_speed=fill_speed,
             rate_cap=rate_cap,
@@ -388,11 +384,10 @@ class PasteApplicator:
 
     def _draw_polyline(
         self,
-        raw: Sequence[Point2d],
+        raw: Sequence[Point3d],
         *,
         applied_mode: AppliedDispenseMode,
         amount_ul: float,
-        paste_height_mm: float,
         prime_extra_delay: float,
         transform: Transform,
         fill_speed: float | None = None,
@@ -400,14 +395,14 @@ class PasteApplicator:
     ) -> DispenseExecution:
         """1 本のポリラインを ``amount_ul`` [μL] で塗布する共通プリミティブ.
 
-        各点に Z を付与 → ``transform`` 適用 → ``FillSequence`` 送信を 1 本ぶん行う。
+        ``raw`` の z は基板表面からのノズル高さ。``transform`` 適用 → ``FillSequence`` 送信を 1 本ぶん行う。
         ``apply`` の各成分・``deposit_at``・``draw_line`` が共用する。
         """
-        path = Path(p.to3d(paste_height_mm) for p in raw).transformed(transform)
+        path = Path(raw).transformed(transform)
         sequence = FillSequence(
             path=path,
             total_amount_ul=amount_ul,
-            settings=self._settings,
+            motion=self._motion,
             prime_extra_delay=prime_extra_delay,
             fill_speed=fill_speed,
             rate_cap=rate_cap,
@@ -427,45 +422,17 @@ class PasteApplicator:
         )
 
     def _draw_micro_line(
-        self,
-        polygon: Polygon,
-        line: Sequence[Point2d],
-        *,
-        amount_ul: float,
-        params: PasteParams,
-        transform: Transform,
+        self, line: Sequence[Point3d], *, amount_ul: float, transform: Transform
     ) -> DispenseExecution:
         """微小線 1 本を ``amount_ul`` [μL] で塗布する.
 
-        ``line`` は ``FillPlan`` の 2 点経路。始点に ``micro_line_z_start``、終点に
-        ``micro_line_z_end`` の Z を付与し、``transform`` を適用して送信する。
-        ``auto`` の高さは ``polygon`` と ``line``、塗布量から求める。
+        ``line`` は ``FillPlan`` の 2 点経路（z は始点高と終点高）。``transform`` を適用して送信する。
         """
-        auto = micro_line_auto_height(
-            polygon,
-            line,
-            amount_ul=amount_ul,
-            nozzle_outer_diameter=self._config.effective_nozzle_outer_diameter,
-        )
-        start, end = line
-        path = Path(
-            [
-                start.to3d(
-                    auto
-                    if params.micro_line_z_start == "auto"
-                    else params.micro_line_z_start
-                ),
-                end.to3d(
-                    auto
-                    if params.micro_line_z_end == "auto"
-                    else params.micro_line_z_end
-                ),
-            ]
-        ).transformed(transform)
+        path = Path(line).transformed(transform)
         sequence = MicroLineSequence(
             path=path,
             total_amount_ul=amount_ul,
-            settings=self._settings,
+            motion=self._motion,
         )
         self._klipper.send_gcode(
             sequence.to_gcode(self._stage, self._dispenser) + GCode.wait_for_done()

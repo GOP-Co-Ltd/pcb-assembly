@@ -18,7 +18,7 @@ class CopperEdgeDetector:
     """エッジ検出で画像から銅箔の境界を抽出する.
 
     銅箔境界は撮像範囲からはみ出すなどして閉じているとは限らない。そのため 領域（閉輪郭）は抽出せず、2 値エッジマスクをそのまま返す。mm
-    変換や 設計データとのマッチングは呼び出し側（posctrl 層）で行う。
+    変換や 設計データとのマッチングは呼び出し側（align 層）で行う。
     """
 
     def __init__(
@@ -54,16 +54,3 @@ class CopperEdgeDetector:
         processed = cv2.GaussianBlur(gray, kernel, 0)
         edges = cv2.Canny(processed, self._canny_low, self._canny_high)
         return CopperEdgeDetection(processed=Image(processed), edges=edges)
-
-    def detect_edges(self, image: Image) -> ImageArray:
-        """2 値エッジマスク (uint8, 0/255) を返す.
-
-        detect() と同じ前処理を適用した結果を返す。
-
-        Args:
-            image: 入力画像
-
-        Returns:
-            入力と同サイズの 2 値エッジマスク
-        """
-        return self.detect(image).edges

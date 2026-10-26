@@ -8,22 +8,24 @@
 </head>
 {# data-control の初期値は viewer（fail-closed）。SSR は backend へのサーバ間通信で
    ブラウザの cookie を持たないため「自分が保持者か」を判定できない。実際の値は
-   control.js が GET /api/state / WS control_changed / 423 で入れ替える #}
+   control.js が GET /api/session/state / WS control_changed / 423 で入れ替える #}
 <body data-machine-base="{{ base }}" data-control="viewer">
 <header class="topbar" data-testid="topbar">
   <nav class="tabs" data-testid="top-tabs" aria-label="作業分野">
-    {% for tab in tabs %}
-    <a href="{{ base }}/{{ tab }}" class="tab{% if tab == active_tab %} active{% endif %}"
-       {% if tab == active_tab %}aria-current="{% if active_feature %}true{% else %}page{% endif %}"{% endif %}>{{ tab_labels[tab] }}</a>
+    {# 作業分野のタブは機体のページにだけ出す（リンク先はタブの先頭の機能） #}
+    {% for tab, label, href in tabs %}
+    <a href="{{ href }}" class="tab{% if tab == active_tab %} active{% endif %}"
+       {% if tab == active_tab %}aria-current="true"{% endif %}>{{ label }}</a>
     {% endfor %}
-    {# 一括管理はマシン非依存のページなので machine prefix を付けない #}
-    <a href="{{ bulk_path }}" class="tab{% if active_tab == 'bulk' %} active{% endif %}"
-       {% if active_tab == 'bulk' %}aria-current="page"{% endif %}>{{ bulk_label }}</a>
+    {# 機体一覧はマシン非依存のページなので machine prefix を付けない #}
+    <a href="/machines" class="tab{% if active_tab == 'machines' %} active{% endif %}"
+       {% if active_tab == 'machines' %}aria-current="page"{% endif %}>機体一覧</a>
   </nav>
   <div class="global-controls">
     {% include "partials/machine_selector.html" %}
-    {# 対象未選択の案内画面には機体コマンドを出さない #}
+    {# 対象未選択の案内画面には機体コマンドを出さない。更新専用の機体には中継されないので出さない #}
     {% if base %}
+    {% if not update_only %}
     <details class="topbar-menu" data-testid="topbar-menu" data-responsive-menu="(max-width: 1180px)" open>
       <summary>操作・設定</summary>
       <div class="topbar-menu-content">
@@ -34,38 +36,63 @@
           {{ selected_pcb or "PCB未選択" }}
         </button>
         {% include "partials/update_notice.html" %}
-        <a href="{{ base }}/settings" class="icon-link" title="マシン設定">設定</a>
+        {# 立ち上げの段が残っている間だけ出す（着地点は変えず、ここからチェックリストへ行けるようにする） #}
+        {% if readiness and not readiness.complete %}
+        <a href="{{ base }}/commissioning" class="readiness-chip" title="立ち上げチェックリストを開く"
+           data-testid="readiness-chip">{{ readiness.label }}</a>
+        {% endif %}
+        <a href="{{ base }}/machine_config" class="icon-link" title="マシン設定">設定</a>
         {% if mainsail_url %}
         <a href="{{ mainsail_url }}" target="_blank" rel="noopener" class="icon-link" title="Klipper (Mainsail) を開く">Klipper</a>
         {% endif %}
-        {# ファームウェアだけでなく WebUI のサービスも停止するので、誤クリックで LAN 中の
-           画面が切断されないよう確認を挟む（緊急停止には付けない。即時性が要る） #}
-        <button id="firmware-restart" class="firmware-restart" title="ファームウェア再起動"
+        {# 緊急停止や Klipper の異常から戻す操作。ファームウェアだけでなく WebUI のサービスも
+           止まるので、誤クリックで LAN 中の画面が切断されないよう確認を挟む（緊急停止には付けない。即時性が要る） #}
+        <button id="firmware-restart" class="firmware-restart" title="Klipper と WebUI のサービスを再起動して復旧する"
                 data-testid="firmware-restart" data-requires-control
-                data-confirm="ファームウェアと WebUI のサービスを再起動します。この画面も一時的に切れます。実行しますか？">ファームウェア再起動</button>
+                data-confirm="Klipper（FIRMWARE_RESTART）と、この機体の WebUI のサービスを再起動します。実行中のジョブは止まり、この画面も一時的に切れます。実行しますか？">再起動（復旧）</button>
       </div>
     </details>
+    {% endif %}
     {# 緊急停止は安全操作なので操作権に依らず誰でも押せる（data-requires-control 禁止）。
-       実行中のジョブも中止する。Klipper は停止状態になり、復帰にはファームウェア再起動が要る #}
-    <button id="estop" class="estop" title="緊急停止（実行中のジョブも中止。復帰には「ファームウェア再起動」）" data-testid="estop">緊急停止</button>
+       実行中のジョブも中止する。Klipper は停止状態になり、復帰には「再起動（復旧）」が要る。
+       更新専用の機体にも中継されるので、ここでも出す #}
+    <button id="estop" class="estop" title="緊急停止（実行中のジョブも中止。復帰には「再起動（復旧）」）" data-testid="estop">緊急停止</button>
     {% else %}
     {% include "partials/update_notice.html" %}
     {% endif %}
   </div>
 </header>
+{# 設定エラー（degraded）の間は全ページに理由を出す。直せば次のページ表示で消える #}
+{% if config_error %}
+<div class="config-error" role="alert" data-testid="config-error">
+  設定エラーのためジョブを実行できません: {{ config_error }}
+  （<a href="{{ base }}/machine_config">マシン設定</a>か<a href="{{ base }}/config_history">設定履歴</a>から直してください）
+</div>
+{% endif %}
+{% if config_notice %}
+<div class="config-notice" role="status" data-testid="config-notice">
+  {{ config_notice }}（<a href="{{ base }}/config_history">設定履歴</a>）
+</div>
+{% endif %}
+{% if pcb_notice %}
+<div class="config-notice" role="status" data-testid="pcb-notice">{{ pcb_notice }}</div>
+{% endif %}
 <main class="layout {% block layout_class %}{% endblock %}">
 {% block content %}{% endblock %}
 </main>
 {% include "partials/file_browser.html" %}
-<section id="job-completion-notice" class="job-completion-notice" hidden
+<section id="job-completion-notice" data-testid="job-completion-notice" class="job-completion-notice" hidden
          role="status" aria-live="assertive" aria-atomic="true">
-  <span id="job-completion-message"></span>
-  <button id="job-completion-dismiss" type="button" aria-label="終了通知を閉じる">閉じる</button>
+  <span id="job-completion-message" data-testid="job-completion-message"></span>
+  <button id="job-completion-dismiss" data-testid="job-completion-dismiss" type="button" aria-label="終了通知を閉じる">閉じる</button>
 </section>
-<div id="toasts" class="toasts"></div>
+<div id="toasts" data-testid="toasts" class="toasts"></div>
+{# 共通の部品。api.js（HTTP と保存待ち）→ app.js（トースト等）→ ws.js（WS）の順に window.webui へ足す #}
+<script src="{{ static_asset('js/api.js') }}"></script>
 <script src="{{ static_asset('js/app.js') }}"></script>
+<script src="{{ static_asset('js/ws.js') }}"></script>
 <script src="{{ static_asset('js/file_browser.js') }}"></script>
-{# 全ページで読む（操作権の状態はどのページでも要る）。app.js の後、かつ子テンプレートの
+{# 全ページで読む（操作権の状態はどのページでも要る）。共通の部品の後、かつ子テンプレートの
    scripts ブロックで読む job_console.js より前（window.webui.control を先に定義する） #}
 <script src="{{ static_asset('js/control.js') }}"></script>
 <script src="{{ static_asset('js/machine_selector.js') }}"></script>

@@ -1,4 +1,4 @@
-"""`web.api.discovery` の仕様テスト（計画書 web-api-ui-split.md「MR5」節）.
+"""`web.api.discovery` の仕様テスト.
 
 ここは **ソケットを開かない範囲**を押さえる:
 
@@ -24,20 +24,22 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from zeroconf import ServiceInfo
 
-from tests.helpers import random_service_type
+from tests.support.web import random_service_type
 from web.api.app import create_app
 from web.api.discovery import (
-    SERVICE_TYPE,
-    TXT_KEY_API,
-    TXT_KEY_ID,
-    TXT_KEY_TYPE,
     ServiceAdvertiser,
     build_service_info,
     local_ipv4_addresses,
     select_advertise_addresses,
 )
-from web.api.models import API_VERSION
-from web.api.settings import Settings, resolve_machine_id
+from web.api.env import Env, resolve_machine_id
+from web.contract.discovery import (
+    API_VERSION,
+    SERVICE_TYPE,
+    TXT_KEY_API,
+    TXT_KEY_CAPABILITIES,
+    TXT_KEY_ID,
+)
 
 # このホストに存在しないアドレス（TEST-NET-3）。zeroconf は bind できず OSError
 UNUSABLE_INTERFACE = "203.0.113.9"
@@ -97,8 +99,8 @@ class TestBuildServiceInfo:
         return build_service_info(
             machine_id="kurousagi",
             port=8081,
-            machine_type="paste",
             addresses=("192.168.100.201",),
+            capabilities=("solder", "pnp"),
         )
 
     def test_server_is_a_dedicated_name_not_the_avahi_hostname(self, info: ServiceInfo):
@@ -113,22 +115,12 @@ class TestBuildServiceInfo:
         assert info.properties == {
             TXT_KEY_ID.encode(): b"kurousagi",
             TXT_KEY_API.encode(): str(API_VERSION).encode(),
-            TXT_KEY_TYPE.encode(): b"paste",
+            TXT_KEY_CAPABILITIES.encode(): b"solder,pnp",
         }
 
     def test_address_and_port_are_advertised(self, info: ServiceInfo):
         assert info.parsed_addresses() == ["192.168.100.201"]
         assert info.port == 8081
-
-    def test_missing_machine_type_is_absent_from_txt(self):
-        info = build_service_info(
-            machine_id="alpha",
-            port=8081,
-            machine_type=None,
-            addresses=("10.0.0.3",),
-        )
-
-        assert set(info.properties) == {TXT_KEY_ID.encode(), TXT_KEY_API.encode()}
 
 
 class TestAdvertiserWithoutMulticast:
@@ -143,8 +135,8 @@ class TestAdvertiserWithoutMulticast:
         return ServiceAdvertiser(
             machine_id="alpha",
             port=8081,
-            machine_type=None,
             addresses=("10.0.0.3",),
+            capabilities=("solder",),
             service_type=random_service_type(),
             interfaces=(UNUSABLE_INTERFACE,),
         )
@@ -163,22 +155,19 @@ class TestAdvertiserWithoutMulticast:
 
 
 class TestAdvertiserWithUnbuildableServiceInfo:
-    """ServiceInfo が組めない設定でもアプリを落とさない（M2 の回帰）.
+    """ServiceInfo が組めない設定でもアプリを落とさない.
 
-    `_build_info` は machine.toml 由来の値（machine_id / TXT）を使うので、組み立て
-    自体が失敗しうる。組み立てを `start` の try の外に置くと lifespan で例外が抜け、
+    `_build_info` はホスト名由来の machine_id を使うので、組み立て自体が失敗しうる。組み立てを `start` の try の外に置くと lifespan で例外が抜け、
     ``Application startup failed. Exiting.`` になって backend が起動しない。
     """
 
     @staticmethod
-    def _advertiser(
-        *, machine_id: str = "alpha", machine_type: str | None = None
-    ) -> ServiceAdvertiser:
+    def _advertiser(*, machine_id: str) -> ServiceAdvertiser:
         return ServiceAdvertiser(
             machine_id=machine_id,
             port=8081,
-            machine_type=machine_type,
             addresses=("10.0.0.3",),
+            capabilities=("solder",),
             service_type=random_service_type(),
             interfaces=(UNUSABLE_INTERFACE,),
         )
@@ -194,52 +183,39 @@ class TestAdvertiserWithUnbuildableServiceInfo:
 
         assert "BadTypeInNameException" in caplog.text
 
-    def test_too_long_txt_value_warns_instead_of_raising(
-        self, caplog: pytest.LogCaptureFixture
-    ):
-        """TXT 値（machine.toml の machine_type）が長すぎる場合.
-
-        zeroconf は ValueError を投げる。`zeroconf.Error` のサブクラスではないので
-        except に ValueError を含めていないと lifespan まで抜ける。
-        """
-        advertiser = self._advertiser(machine_type="x" * 300)
-
-        with caplog.at_level(logging.WARNING):
-            asyncio.run(advertiser.start())
-
-        assert "ValueError" in caplog.text
-
 
 class TestMachineIdResolution:
-    """`resolve_machine_id` — 広告と `/api/machine-info` が同じ ID を使う（D7）."""
+    """`resolve_machine_id` — 広告と machine-info が同じ ID を使う."""
 
-    def test_injected_hostname_wins(self):
-        assert resolve_machine_id(Settings(hostname="injected")) == "injected"
+    def test_injected_hostname_wins(self, tmp_path: Path):
+        settings = Env(tmp_path, tmp_path, hostname="injected")
+
+        assert resolve_machine_id(settings) == "injected"
 
     def test_machine_info_and_advertisement_share_the_id(
-        self, client: TestClient, webui_settings: Settings
+        self, client: TestClient, webui_settings: Env
     ):
-        """`/api/machine-info` の machine_id と広告の instance 名が一致する."""
-        machine_id = client.get("/api/machine-info").json()["machine_id"]
+        """`/api/session/machine-info` の machine_id と広告の instance 名が一致する."""
+        machine_id = client.get("/api/session/machine-info").json()["machine_id"]
         info = build_service_info(
             machine_id=resolve_machine_id(webui_settings),
             port=webui_settings.port,
-            machine_type=None,
             addresses=(),
+            capabilities=(),
         )
 
         assert info.name == f"{machine_id}.{SERVICE_TYPE}"
 
 
 class TestDiscoveryIsolation:
-    """共有 fixture が実 LAN へ広告しないことの見張り（T3）.
+    """共有 fixture が実 LAN へ広告しないことの見張り.
 
     ここが落ちたら fixture の `discovery_enabled=False` が外れている。 `tests/web/api`
     は 1000 件超が同じ fixture を使うので、外れると全件が mDNS を撒く。
     """
 
     def test_app_built_from_the_fixture_has_no_advertiser(self, app: FastAPI):
-        assert app.state.advertiser is None
+        assert app.state.backend.advertiser is None
 
     def test_app_built_from_env_has_no_advertiser(
         self,
@@ -247,20 +223,20 @@ class TestDiscoveryIsolation:
         tmp_path: Path,
         config_dir: Path,
     ):
-        """`Settings.from_env()` 経路（uvicorn --factory と同じ）でも広告しない.
+        """`Env.from_env()` 経路（uvicorn --factory と同じ）でも広告しない.
 
         共有 fixture の `discovery_enabled=False` はこの経路を通らない。守っているのは
-        `tests/conftest.py` の autouse fixture（`PCBASM_API_DISCOVERY_ENABLED=0`）だけ
-        なので、そこが外れたらここが落ちる（外れると env から Settings を組む既存
+        `tests/conftest.py` の autouse fixture（`PCBASM_FAKE=1`）だけ
+        なので、そこが外れたらここが落ちる（外れると env から Env を組む既存
         テストが運用サービス型で全 IF に広告を出す）。
 
-        lifespan は起動しない（`TestClient` を被せない）。`app.state.advertiser` は
+        lifespan は起動しない（`TestClient` を被せない）。`app.state.backend.advertiser` は
         `create_app` が設定し `_lifespan` は start / stop するだけなので、起動すると
         この見張りが守っている性質そのもの（実 LAN に広告を出さない）を破る。
         """
         monkeypatch.setenv("PCBASM_CONFIG_DIR", str(config_dir))
-        monkeypatch.setenv("PCBASM_API_DATA_DIR", str(tmp_path / "data"))
+        monkeypatch.setenv("PCBASM_DATA_DIR", str(tmp_path / "data"))
 
-        app = create_app(Settings.from_env())
+        app = create_app(Env.from_env())
 
-        assert app.state.advertiser is None
+        assert app.state.backend.advertiser is None

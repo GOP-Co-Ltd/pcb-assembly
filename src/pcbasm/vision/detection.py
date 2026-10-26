@@ -9,7 +9,7 @@ import attrs
 import cv2
 
 from pcbasm.geometry import Point2d
-from pcbasm.utils import is_finite_number
+from pcbasm.validators import is_finite_number
 
 from .dot import (
     DarkSpot,
@@ -25,7 +25,7 @@ from .image import Image
 # 塗布痕として採る円形度の下限。実素材では塗布痕が 0.95 以上、未塗布板に残る大きな
 # 成分（ヘアライン・照明ムラ）が 0.2 以下に分かれる。小片の円形度は 1 を超えうるので
 # この下限では除外できない（小片は直径下限で除外する）
-# 出典: data/testing/paste-volume/README.md
+# 出典: tests/data/paste-volume/README.md
 DEFAULT_MIN_CIRCULARITY = 0.7
 
 
@@ -36,18 +36,11 @@ class Offset:
     +x は画像の右、+y は画像の下。
 
     crop した検出器では crop 画像の中心が基準になる。
+
+    mm へは :meth:`~pcbasm.vision.CameraModel.pixel_offset_to_camera` で写す。
     """
 
     px: Point2d  # pixel 単位
-    pixel_per_mm: float
-
-    @property
-    def mm(self) -> Point2d:
-        """Mm 単位のオフセット."""
-        return Point2d(
-            x=self.px.x / self.pixel_per_mm,
-            y=self.px.y / self.pixel_per_mm,
-        )
 
 
 @attrs.frozen
@@ -65,24 +58,7 @@ class OffsetStatistics:
 
     mean: Point2d  # 平均オフセット (pixel)
     std: Point2d  # 標準偏差 (pixel)
-    pixel_per_mm: float
     sample_count: int  # 有効サンプル数
-
-    @property
-    def mean_mm(self) -> Point2d:
-        """平均オフセット (mm 単位)."""
-        return Point2d(
-            x=self.mean.x / self.pixel_per_mm,
-            y=self.mean.y / self.pixel_per_mm,
-        )
-
-    @property
-    def std_mm(self) -> Point2d:
-        """標準偏差 (mm 単位)."""
-        return Point2d(
-            x=self.std.x / self.pixel_per_mm,
-            y=self.std.y / self.pixel_per_mm,
-        )
 
 
 def validate_paste_diameters(diameter_min: float, diameter_max: float) -> str | None:
@@ -106,7 +82,7 @@ class CenterOffsetDetector(ABC):
 
     検出方式（Hough / 背景差分 + Otsu）ごとに :meth:`detect_nearest_center` を実装し、
     複数フレームの統計集約はここで共有する。
-    :class:`~pcbasm.posctrl.OffsetObserver` はこの契約だけに依存する。
+    :class:`~pcbasm.align.OffsetObserver` はこの契約だけに依存する。
     """
 
     def __init__(self, pixel_per_mm: float) -> None:
@@ -167,7 +143,6 @@ class CenterOffsetDetector(ABC):
                 x=statistics.pstdev(offsets_x),
                 y=statistics.pstdev(offsets_y),
             ),
-            pixel_per_mm=self._pixel_per_mm,
             sample_count=len(offsets_x),
         )
 
@@ -178,7 +153,6 @@ class CenterOffsetDetector(ABC):
                 x=center.x - image.width / 2,
                 y=center.y - image.height / 2,
             ),
-            pixel_per_mm=self._pixel_per_mm,
         )
 
 

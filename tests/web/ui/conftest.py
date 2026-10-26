@@ -10,7 +10,7 @@ backend app（`web.api.create_app`）を httpx の `ASGITransport` で in-proces
 - `ASGITransport` はレスポンスを最後までバッファしてから返すので、MJPEG
   （終端しない multipart）を読むと永久にハングする
 - `ASGITransport` は websocket scope を扱えないので WS 中継も検証できない
-- backend 側の lifespan も走らない（`JobManager.bind_loop` が呼ばれないため
+- backend 側の lifespan も走らない（`EventBus.bind_loop` が呼ばれないため
   ジョブ実行と WS イベント配信は成立しない）
 
 → MJPEG / WS / ジョブ実行は `tests/e2e` で実 uvicorn（実ソケット経由）で検証する。
@@ -28,16 +28,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tests.helpers import copy_testing_config
+from tests.support.web import BACKEND_MACHINE_ID, copy_test_config
 from web.api.app import create_app as create_backend_app
-from web.api.settings import Settings as ApiSettings
+from web.api.env import Env as ApiEnv
 from web.ui.machines import MachineEndpoint
 from web.ui.settings import Settings
-
-# frontend の登録 id と backend の自己申告 id を一致させる（SSR ページが
-# backend から取った machine_id と URL の machine_id を突き合わせられるように）
-BACKEND_MACHINE_ID = "uitest"
-BACKEND_MACHINE_NAME = "UI テスト機"
 
 
 @pytest.fixture
@@ -50,19 +45,18 @@ def backend_pcb_root(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def backend_settings(tmp_path: Path, backend_pcb_root: Path) -> ApiSettings:
-    """上流 backend の Settings（`data/testing/config` を tmp_path へコピーして使う）."""
+def backend_settings(tmp_path: Path, backend_pcb_root: Path) -> ApiEnv:
+    """上流 backend の Settings（tests/data/config を tmp_path へコピーして使う）."""
     data_dir = tmp_path / "backend" / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
-    return ApiSettings(
-        config_dir=copy_testing_config(tmp_path / "backend"),
+    return ApiEnv(
+        config_dir=copy_test_config(tmp_path / "backend"),
         data_dir=data_dir,
         pcb_browse_root=backend_pcb_root,
         # 公開範囲はセキュリティ境界なので既定から暗黙に広げない
         pcb_browse_allowed=(backend_pcb_root,),
         pcb_browse_start=backend_pcb_root,
         pcb_upload_dir=backend_pcb_root / "uploads",
-        mainsail_url="http://mainsail.invalid",
         hostname=BACKEND_MACHINE_ID,
         # 実 LAN へ mDNS を撒かない
         discovery_enabled=False,
@@ -71,7 +65,7 @@ def backend_settings(tmp_path: Path, backend_pcb_root: Path) -> ApiSettings:
 
 @pytest.fixture
 def backend_app(
-    backend_settings: ApiSettings,
+    backend_settings: ApiEnv,
     paste_test_board_footprint_root: Path,
 ) -> Iterator[FastAPI]:
     """実物の backend app。lifespan は走らないので後始末だけ明示的に行う."""
@@ -80,9 +74,7 @@ def backend_app(
         paste_test_board_footprint_root=paste_test_board_footprint_root,
     )
     yield app
-    app.state.preview.request_shutdown()
-    app.state.jobs.shutdown()
-    app.state.appstate.close()
+    app.state.backend.close()
 
 
 @pytest.fixture
@@ -94,10 +86,11 @@ def ui_settings(tmp_path: Path) -> Settings:
                 machine_id=BACKEND_MACHINE_ID,
                 host="127.0.0.1",
                 port=8081,
-                name=BACKEND_MACHINE_NAME,
             ),
         ),
         machines_file=tmp_path / "machines.toml",
+        # 同居機として組む（machine を指定しない URL が、この機体の URL へ 307 する）
+        hostname=BACKEND_MACHINE_ID,
         # 実 LAN を探索しない（探索は tests/web/ui/test_discovery.py と e2e が見る）
         discovery_enabled=False,
         # 自己更新の report / ロックをリポジトリの data/ に落とさない

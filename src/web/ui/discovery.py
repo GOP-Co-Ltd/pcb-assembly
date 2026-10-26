@@ -1,7 +1,6 @@
 """LAN 上の backend WebAPI を mDNS (DNS-SD) で探索する.
 
-ワイヤ定数（サービス型・TXT キー）は広告側（`web.api.discovery`）から import する
-（定義箇所を 1 つに保つため、`web.ui` → `web.api` の import を許容する）。
+ワイヤ定数（サービス型・TXT キー）は広告側と共有する `web.contract.discovery` に置く。
 
 生存判定はしない。PTR は other-TTL 4500s で残り、電源断では goodbye が送られない
 ので、停止した機体は最大 75 分一覧に残る。到達不能なマシンを選ぶと 503 ページになる
@@ -24,13 +23,7 @@ from zeroconf import (
 )
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo, AsyncZeroconf
 
-from web.api.discovery import (
-    SERVICE_TYPE,
-    TXT_KEY_API,
-    TXT_KEY_ID,
-    TXT_KEY_TYPE,
-)
-from web.api.models import API_VERSION
+from web.contract.discovery import API_VERSION, SERVICE_TYPE, TXT_KEY_API, TXT_KEY_ID
 from web.ui.machines import MachineEndpoint
 
 logger = logging.getLogger(__name__)
@@ -56,19 +49,8 @@ def _instance_id(info: ServiceInfo) -> str:
 
 
 def _api_compatible(properties: Mapping[bytes, bytes | None]) -> bool:
-    """広告の ``api`` がこの frontend で描画できる版か.
-
-    欠損・decode 不能・数値でない場合は互換扱いで通す。
-
-    版を読めて、かつ版が違うときだけ除外する（描画できない backend を一覧に出さない）。
-    """
-    raw = _text(properties, TXT_KEY_API)
-    if raw is None:
-        return True
-    try:
-        return int(raw) == API_VERSION
-    except ValueError:
-        return True
+    """広告の ``api`` がこの frontend で描画できる版か（読めない版は描画できない扱い）."""
+    return _text(properties, TXT_KEY_API) == str(API_VERSION)
 
 
 def endpoint_from_service_info(info: ServiceInfo) -> MachineEndpoint | None:
@@ -79,11 +61,10 @@ def endpoint_from_service_info(info: ServiceInfo) -> MachineEndpoint | None:
 
     Returns:
         変換した MachineEndpoint。machine_id が判らない / IPv4 アドレスが無い /
-        port が無い / API 版が違う場合は None（一覧に出さない）
+        port が無い場合は None（一覧に出さない）。API 版が違う backend も一覧から
+        外さず、更新専用にする（WebUI から更新して版を揃え、緊急停止もできるように）
     """
     properties = info.properties
-    if not _api_compatible(properties):
-        return None
     machine_id = _text(properties, TXT_KEY_ID) or _instance_id(info)
     if not machine_id:
         return None
@@ -95,8 +76,8 @@ def endpoint_from_service_info(info: ServiceInfo) -> MachineEndpoint | None:
         machine_id=machine_id,
         host=addresses[0],
         port=info.port,
-        machine_type=_text(properties, TXT_KEY_TYPE),
         source="mdns",
+        update_only=not _api_compatible(properties),
     )
 
 

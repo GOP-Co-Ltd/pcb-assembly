@@ -1,0 +1,416 @@
+"""テスト塗布基板configとschema 1文書のテスト."""
+
+import json
+from pathlib import Path
+from typing import cast
+
+import pytest
+
+from pcbasm.pasting.test_board.config import (
+    BoardConfig,
+    BoardConfigError,
+    BoardSpec,
+    CustomPadShapeId,
+    PatternSpec,
+    PurgePadSpec,
+    parse_board_document,
+)
+from pcbasm.paths import PROJECT_ROOT
+from tests.pcbasm.pasting.test_board.support import (
+    CUSTOM_A,
+    R0402,
+    R0603,
+    custom_pad,
+)
+
+
+class TestBoardConfig:
+    """Configの有限値・enum・count validation."""
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            pytest.param(
+                BoardConfig(
+                    board=BoardSpec(
+                        width_mm=3_000.0,
+                        edge_margin_mm=0.0,
+                    )
+                ),
+                id="board-outside-signed-32-bit-nm",
+            ),
+            pytest.param(
+                BoardConfig(
+                    board=BoardSpec(
+                        width_mm=0.000_000_6,
+                        edge_margin_mm=0.0,
+                    )
+                ),
+                id="board-below-one-nm",
+            ),
+            pytest.param(
+                BoardConfig(
+                    custom_pads=(
+                        custom_pad(
+                            CUSTOM_A,
+                            "outside coordinate range",
+                            width_mm=3_000.0,
+                        ),
+                    ),
+                    patterns=(PatternSpec(CUSTOM_A),),
+                ),
+                id="custom-pad-outside-signed-32-bit-nm",
+            ),
+            pytest.param(
+                BoardConfig(
+                    custom_pads=(
+                        custom_pad(
+                            CUSTOM_A,
+                            "below one nanometre",
+                            width_mm=0.000_000_6,
+                        ),
+                    ),
+                    patterns=(PatternSpec(CUSTOM_A),),
+                ),
+                id="custom-pad-below-one-nm",
+            ),
+            pytest.param(
+                BoardConfig(
+                    custom_pads=(
+                        custom_pad(
+                            CUSTOM_A,
+                            "maximum vector is unsafe for pad size",
+                            width_mm=2_147.483_647,
+                        ),
+                    ),
+                    patterns=(PatternSpec(CUSTOM_A),),
+                ),
+                id="custom-pad-at-signed-32-bit-nm-max",
+            ),
+            pytest.param(
+                BoardConfig(purge_pad=PurgePadSpec(width_mm=2_147.483_647)),
+                id="purge-pad-at-signed-32-bit-nm-max",
+            ),
+        ],
+    )
+    def test_kicad_unrepresentable_dimensions_are_config_errors(self, config):
+        assert config.validate() is not None
+
+        with pytest.raises(BoardConfigError):
+            config.normalized()
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            pytest.param(
+                BoardConfig(
+                    board=BoardSpec(
+                        width_mm=2_147.483_647,
+                        edge_margin_mm=0.0,
+                    )
+                ),
+                id="board-at-signed-32-bit-nm-max",
+            ),
+            pytest.param(
+                BoardConfig(
+                    custom_pads=(
+                        custom_pad(
+                            CUSTOM_A,
+                            "one nanometre below vector maximum",
+                            width_mm=2_147.483_646,
+                        ),
+                    ),
+                    patterns=(PatternSpec(CUSTOM_A),),
+                ),
+                id="custom-pad-one-nm-below-vector-max",
+            ),
+            pytest.param(
+                BoardConfig(purge_pad=PurgePadSpec(width_mm=2_147.483_646)),
+                id="purge-pad-one-nm-below-vector-max",
+            ),
+        ],
+    )
+    def test_kicad_boundary_dimensions_are_valid(self, config):
+        assert config.validate() is None
+        assert config.normalized() == config
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            BoardConfig(board=BoardSpec(width_mm=0.0)),
+            BoardConfig(board=BoardSpec(edge_margin_mm=-1.0)),
+            BoardConfig(purge_pad=PurgePadSpec(width_mm=0.0)),
+            BoardConfig(patterns=()),
+            BoardConfig(patterns=(PatternSpec(R0402, rotation_span_deg=0.0),)),
+            BoardConfig(patterns=(PatternSpec(R0402, rotation_span_deg=361.0),)),
+            BoardConfig(patterns=(PatternSpec(R0402, rotation_count=0),)),
+            BoardConfig(patterns=(PatternSpec(R0402, repeat_count=0),)),
+            BoardConfig(
+                patterns=(
+                    PatternSpec(
+                        R0402,
+                        rotation_count=10**400,
+                    ),
+                )
+            ),
+            BoardConfig(
+                patterns=(
+                    PatternSpec(
+                        R0402,
+                        rotation_count=1,
+                        repeat_count=5_001,
+                    ),
+                    PatternSpec(
+                        R0603,
+                        rotation_count=1,
+                        repeat_count=5_001,
+                    ),
+                )
+            ),
+            BoardConfig(
+                custom_pads=(
+                    custom_pad(
+                        CUSTOM_A,
+                        "triangle",
+                        shape=cast(
+                            CustomPadShapeId,
+                            "triangle",
+                        ),
+                    ),
+                ),
+                patterns=(PatternSpec(CUSTOM_A),),
+            ),
+            BoardConfig(
+                custom_pads=(
+                    custom_pad(
+                        CUSTOM_A,
+                        "bad radius",
+                        shape="roundrect",
+                        width_mm=1.0,
+                        height_mm=0.5,
+                        corner_radius_mm=0.3,
+                    ),
+                ),
+                patterns=(PatternSpec(CUSTOM_A),),
+            ),
+            BoardConfig(patterns=(PatternSpec(CUSTOM_A),)),
+            BoardConfig(patterns=(PatternSpec("unknown"),)),
+            BoardConfig(
+                patterns=(
+                    PatternSpec(R0402),
+                    PatternSpec(R0402),
+                )
+            ),
+        ],
+    )
+    def test_invalid_config_is_rejected_by_public_validation(self, config):
+        assert config.validate() is not None
+
+        with pytest.raises(BoardConfigError):
+            config.normalized()
+
+    def test_exactly_ten_thousand_generated_pads_is_valid(self):
+        config = BoardConfig(
+            patterns=(
+                PatternSpec(
+                    R0402,
+                    rotation_count=100,
+                    repeat_count=100,
+                ),
+            )
+        )
+
+        assert config.validate() is None
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            pytest.param(
+                BoardConfig(
+                    board=BoardSpec(
+                        width_mm=True  # type: ignore[arg-type]
+                    )
+                ),
+                id="bool-for-a-float-field",
+            ),
+            pytest.param(
+                BoardConfig(
+                    board=BoardSpec(
+                        width_mm="40"  # type: ignore[arg-type]
+                    )
+                ),
+                id="str-for-a-float-field",
+            ),
+            pytest.param(
+                BoardConfig(
+                    board=BoardSpec(
+                        width_mm=10**400  # type: ignore[arg-type]
+                    )
+                ),
+                id="int-that-overflows-a-float",
+            ),
+            pytest.param(
+                BoardConfig(
+                    patterns=(
+                        PatternSpec(
+                            R0402,
+                            rotation_count=1.5,  # type: ignore[arg-type]
+                        ),
+                    )
+                ),
+                id="non-integer-for-an-int-field",
+            ),
+        ],
+    )
+    def test_invalid_runtime_values_do_not_leak_exceptions(self, config):
+        assert config.validate() is not None
+
+        with pytest.raises(BoardConfigError):
+            config.normalized()
+
+
+class TestBoardDocument:
+    """自己識別付きschema 1 JSON文書の公開parse契約."""
+
+    def test_round_trip_preserves_the_normalized_config(self):
+        config = BoardConfig(
+            board=BoardSpec(pad_gap_mm=1.5),
+            custom_pads=(custom_pad(CUSTOM_A, "Custom oval", "oval", 1.5, 0.5),),
+            patterns=(
+                PatternSpec(R0603, 360.0, 8, 2),
+                PatternSpec(R0402, 180.0, 4, 3),
+                PatternSpec(CUSTOM_A, 180.0, 2, 2),
+            ),
+        )
+
+        document = config.normalized().to_document()
+        restored, error = parse_board_document(document)
+
+        assert document["kind"] == "paste_test_board"
+        assert document["schema_version"] == 1
+        assert document["board"]["pad_gap_mm"] == 1.5
+        assert document["custom_pads"][0]["shape"] == "oval"
+        assert [item["catalog_id"] for item in document["patterns"]] == [
+            R0402,
+            R0603,
+            CUSTOM_A,
+        ]
+        assert (restored, error) == (config.normalized(), None)
+
+    @pytest.mark.parametrize(
+        ("key", "value", "reason"),
+        [
+            (
+                "kind",
+                "calibration_board",
+                "テスト塗布基板ではありません: kind='calibration_board'",
+            ),
+            ("kind", True, "テスト塗布基板ではありません: kind=True"),
+            ("schema_version", 0, "未対応のテスト塗布基板です: schema_version=0"),
+            ("schema_version", 2, "未対応のテスト塗布基板です: schema_version=2"),
+            ("schema_version", "1", "未対応のテスト塗布基板です: schema_version='1'"),
+            ("schema_version", True, "未対応のテスト塗布基板です: schema_version=True"),
+        ],
+    )
+    def test_rejects_wrong_document_identity(
+        self, key: str, value: object, reason: str
+    ):
+        document = BoardConfig().normalized().to_document()
+        document[key] = value
+
+        assert parse_board_document(document) == (None, reason)
+
+    def test_rejects_extra_top_level_or_nested_fields(self):
+        top_level = BoardConfig().normalized().to_document()
+        top_level["unexpected"] = True
+        nested = BoardConfig().normalized().to_document()
+        nested["board"]["unexpected"] = True
+
+        reason = "テスト塗布基板 schema v1 が不正です: 未知のキーです: unexpected"
+        assert parse_board_document(top_level) == (None, reason)
+        assert parse_board_document(nested) == (None, reason)
+
+    @pytest.mark.parametrize(
+        ("document", "reason"),
+        [
+            ({}, "未対応のテスト塗布基板です: schema_version=None"),
+            (
+                {"kind": "paste_test_board", "schema_version": 1},
+                "テスト塗布基板 schema v1 が不正です: "
+                "必須の項目がありません: board, purge_pad, custom_pads, patterns",
+            ),
+        ],
+    )
+    def test_malformed_documents_return_a_reason_without_an_exception(
+        self, document: dict, reason: str
+    ):
+        assert parse_board_document(document) == (None, reason)
+
+    @pytest.mark.parametrize(
+        ("section", "key"),
+        [("board", "pad_gap_mm"), ("purge_pad", "width_mm")],
+    )
+    def test_rejects_a_missing_key_instead_of_filling_the_default(
+        self, section: str, key: str
+    ):
+        document = BoardConfig().normalized().to_document()
+        del document[section][key]
+
+        assert parse_board_document(document) == (
+            None,
+            f"テスト塗布基板 schema v1 が不正です: 必須の項目がありません: {key}",
+        )
+
+    def test_accepts_integral_numbers_from_a_browser_roundtrip(self):
+        """ブラウザで読み込んだ document は ``40.0`` が ``40`` になっている."""
+        document = BoardConfig().normalized().to_document()
+        document["board"]["width_mm"] = 40
+        document["patterns"][0]["rotation_span_deg"] = 180
+
+        restored, _ = parse_board_document(document)
+
+        assert restored == BoardConfig().normalized()
+        assert restored is not None
+        assert type(restored.board.width_mm) is float
+        assert type(restored.patterns[0].rotation_span_deg) is float
+
+    def test_rejects_a_fractional_count(self):
+        document = BoardConfig().normalized().to_document()
+        document["patterns"][0]["rotation_count"] = 4.0
+
+        assert parse_board_document(document) == (
+            None,
+            "テスト塗布基板 schema v1 が不正です: 整数が必要です: 4.0",
+        )
+
+    def test_rejects_a_value_out_of_the_domain(self):
+        document = BoardConfig().normalized().to_document()
+        document["board"]["width_mm"] = -1.0
+
+        assert parse_board_document(document) == (None, "基板幅は正の有限値が必要です")
+
+    @pytest.mark.parametrize(
+        "path",
+        sorted((PROJECT_ROOT / "data" / "paste-test-board").glob("*.json")),
+        ids=lambda path: path.name,
+    )
+    def test_reads_every_tracked_board_document(self, path: Path):
+        document = json.loads(path.read_text(encoding="utf-8"))
+
+        assert parse_board_document(document)[1] is None
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("patterns", "not-a-list"),
+            ("custom_pads", {}),
+        ],
+    )
+    def test_rejects_malformed_config_fields(self, key: str, value: object):
+        document = BoardConfig().normalized().to_document()
+        document[key] = value
+
+        assert parse_board_document(document) == (
+            None,
+            f"テスト塗布基板 schema v1 が不正です: 配列が必要です: {value!r}",
+        )

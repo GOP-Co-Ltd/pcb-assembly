@@ -6,12 +6,12 @@ import httpx
 import pytest
 from playwright.sync_api import expect
 
-from tests.e2e.conftest import LiveServer, LiveUi, acquire_control
-from tests.web.api.conftest import COPPER_PCB_FIXTURE
+from tests.support.browser import LiveServer, LiveUi, acquire_control
+from tests.support.paths import LED_BLINKER_PCB
 
 
 def _open_file_browser(live_ui: LiveUi, page):
-    page.goto(f"{live_ui.base_url}/pasting/loading")
+    page.goto(f"{live_ui.base_url}/loading")
     acquire_control(page)
     menu = page.get_by_test_id("topbar-menu")
     if menu.get_attribute("open") is None:
@@ -25,7 +25,7 @@ def _open_file_browser(live_ui: LiveUi, page):
 
 
 def _selected_pcb(live_server: LiveServer) -> str | None:
-    response = httpx.get(f"{live_server.base_url}/api/state", timeout=10.0)
+    response = httpx.get(f"{live_server.base_url}/api/session/state", timeout=10.0)
     assert response.status_code == 200, response.text
     return response.json()["pcb_file"]
 
@@ -38,7 +38,7 @@ class TestPcbFileBrowser:
         directory = live_server.settings.pcb_browse_root / "試作基板"
         directory.mkdir()
         filename = "assembly_board_revision_" * 5 + ".kicad_pcb"
-        shutil.copyfile(COPPER_PCB_FIXTURE, directory / filename)
+        shutil.copyfile(LED_BLINKER_PCB, directory / filename)
         browser_page.set_viewport_size({"width": width, "height": 844})
         dialog = _open_file_browser(live_ui, browser_page)
         folder = dialog.get_by_role("button", name="試作基板")
@@ -62,7 +62,7 @@ class TestPcbFileBrowser:
 
         file = dialog.get_by_role("button", name=filename)
         expect(file).to_be_visible()
-        assert dialog.locator("#fb-entries").evaluate(
+        assert dialog.get_by_test_id("fb-entries").evaluate(
             "el => el.scrollWidth <= el.clientWidth"
         )
         assert dialog.evaluate("el => el.scrollWidth <= el.clientWidth")
@@ -80,7 +80,7 @@ class TestPcbFileBrowser:
         self, live_server: LiveServer, live_ui: LiveUi, browser_page
     ):
         pcb = live_server.settings.pcb_browse_root / "board.kicad_pcb"
-        shutil.copyfile(COPPER_PCB_FIXTURE, pcb)
+        shutil.copyfile(LED_BLINKER_PCB, pcb)
         dialog = _open_file_browser(live_ui, browser_page)
         file = dialog.get_by_role("button", name=pcb.name)
         expect(file).to_be_visible()
@@ -90,7 +90,7 @@ class TestPcbFileBrowser:
         expect(dialog).to_be_visible()
         assert _selected_pcb(live_server) is None
 
-        shutil.copyfile(COPPER_PCB_FIXTURE, pcb)
+        shutil.copyfile(LED_BLINKER_PCB, pcb)
         file.press("Enter")
         expect(dialog).to_be_hidden()
         assert _selected_pcb(live_server) == pcb.name
@@ -102,7 +102,7 @@ class TestPcbFileBrowser:
         expect(dialog.get_by_role("status")).to_contain_text(
             "選択できる PCB ファイルやフォルダーがありません"
         )
-        upload = dialog.locator('input[type="file"]')
+        upload = dialog.get_by_test_id("fb-upload-input")
         upload.set_input_files(
             {"name": "invalid.txt", "mimeType": "text/plain", "buffer": b"not a PCB"}
         )
@@ -112,8 +112,8 @@ class TestPcbFileBrowser:
         assert _selected_pcb(live_server) is None
         assert not live_server.settings.pcb_upload_dir.exists()
 
-        upload.set_input_files(COPPER_PCB_FIXTURE)
+        upload.set_input_files(LED_BLINKER_PCB)
         expect(dialog).to_be_hidden()
-        assert _selected_pcb(live_server) == f"uploads/{COPPER_PCB_FIXTURE.name}"
-        saved = live_server.settings.pcb_upload_dir / COPPER_PCB_FIXTURE.name
-        assert saved.read_bytes() == COPPER_PCB_FIXTURE.read_bytes()
+        assert _selected_pcb(live_server) == f"uploads/{LED_BLINKER_PCB.name}"
+        saved = live_server.settings.pcb_upload_dir / LED_BLINKER_PCB.name
+        assert saved.read_bytes() == LED_BLINKER_PCB.read_bytes()

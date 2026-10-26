@@ -1,6 +1,6 @@
 """校正ファイル（schema v1）の DTO・strict parse・永続化の公開契約.
 
-on-disk の出典は ``data/testing/schemas/paste_volume_calibration_v1.json``。
+on-disk の出典は ``tests/data/schemas/paste_volume_calibration_v1.json``。
 検出ハイパラと係数は不可分（違うハイパラで測った直径に係数を当てても意味がない）
 なので、同じ document へ一緒に持つことを固める。
 """
@@ -25,13 +25,12 @@ from pcbasm.pasting.paste_volume.calibration import (
     parse_calibration,
     write_calibration,
 )
-from tests.helpers import TESTING_DATA_DIR
-
-PIN = TESTING_DATA_DIR / "schemas" / "paste_volume_calibration_v1.json"
+from pcbasm.paths import PROJECT_ROOT
+from tests.support.paths import PASTE_VOLUME_CALIBRATION
 
 
 def _document() -> dict:
-    return json.loads(PIN.read_text(encoding="utf-8"))
+    return json.loads(PASTE_VOLUME_CALIBRATION.read_text(encoding="utf-8"))
 
 
 def _parsed() -> PasteVolumeCalibration:
@@ -224,6 +223,17 @@ class TestCalibrationFiles:
 
     def test_lists_nothing_when_the_directory_is_missing(self, tmp_path: Path):
         assert list_calibrations(tmp_path / "absent") == ()
+
+    @pytest.mark.parametrize(
+        "path",
+        list_calibrations(PROJECT_ROOT / "data" / "paste-volume-calibrations"),
+        ids=lambda path: path.name,
+    )
+    def test_loads_every_tracked_calibration(self, path: Path):
+        calibration, error = load_calibration(path)
+
+        assert error is None, error
+        assert calibration is not None
 
 
 class TestCalibrationPath:

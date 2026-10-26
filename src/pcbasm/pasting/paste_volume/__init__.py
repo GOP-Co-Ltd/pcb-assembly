@@ -8,7 +8,9 @@
 - :mod:`pcbasm.pasting.paste_volume.model` — 切片 0 固定の 3 次モデルとフィット
 - :mod:`pcbasm.pasting.paste_volume.calibration` — 校正ファイルの schema と読み書き
 - :mod:`pcbasm.pasting.paste_volume.estimator` — 校正から塗布量を推定する公開 API
+- :mod:`pcbasm.pasting.paste_volume.runtime_correction` — 塗布ジョブ中に ``rotations_per_ul`` を補正する運転時補正
+- :mod:`pcbasm.pasting.paste_volume.dataset` — 校正の材料にする点塗布画像の収集
 
 このパッケージは re-export を持たない。利用側は必要なサブモジュールを直接 import する
-（``import pcbasm.pasting`` が cv2 を引き込まない契約を ``tests/test_package.py`` が固定する）。
+（``import pcbasm.pasting`` が cv2 を引き込まない契約を ``tests/repo/test_package.py`` が固定する）。
 """

@@ -1,20 +1,24 @@
 """多点ツールヘッドオフセット計測の仕様テスト.
 
 ``ToolheadOffsetProcedure`` は自前 HAL の fake（``FakeKlipper`` / ``FakeCamera``）に
-実 ``XYZStage`` / ``ProbeExecutor`` / ``PasteApplicator`` を組み合わせ、送信 G-code で検証する。
+実 ``PasteSession``（``XYZStage`` / ``ProbeExecutor`` / ``PasteApplicator``）を組み合わせ、送信 G-code で検証する。
 """
 
 import math
-from datetime import UTC, datetime
+from datetime import datetime
 
 import cv2
 import numpy as np
 import pytest
 from shapely import Point as ShapelyPoint, Polygon
 
-from pcbasm.config import Machine
+from pcbasm.align import BoardFrame
+from pcbasm.config import MachineConfig, load_machine
 from pcbasm.geometry import Identity, Point2d, Shift
 from pcbasm.hal import XYZStage
+from pcbasm.hal.fake import FakeCamera, FakeKlipper
+from pcbasm.kicad import load_board
+from pcbasm.pasting.session import PasteSession
 from pcbasm.pasting.toolhead_offset import (
     MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT,
     ToolheadOffsetDiagnostics,
@@ -24,14 +28,11 @@ from pcbasm.pasting.toolhead_offset import (
     ToolheadOffsetSample,
     plan_toolhead_offset_points,
 )
-from pcbasm.pcb import PcbFile
-from pcbasm.posctrl import BoardCalibrationResult
 from pcbasm.vision import Image
-from pcbasm.vision.calibration import CalibrationResult
-from tests.helpers import TESTING_CONFIG_DIR, TESTING_DATA_DIR, FakeCamera, FakeKlipper
+from tests.support.camera_model import make_camera_model
+from tests.support.paths import LED_BLINKER_PCB, TEST_CONFIG_DIR
 
 CALIBRATED_AT = datetime(2026, 7, 17, 12, 0, 0)
-LED_BLINKER = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
 PPM = 10.0
 FOCUS_Z = 12.0
 BOARD_SHIFT = Point2d(100.0, 50.0)
@@ -124,13 +125,9 @@ class TestToolheadOffsetResult:
         assert stable.is_within_tolerance is True
         assert variable.is_within_tolerance is False
 
-    def test_to_dict_from_dict_roundtrip_uses_multipoint_format(self):
-        result = _make_result()
+    def test_to_dict_uses_multipoint_format(self):
+        data = _make_result().to_dict()
 
-        data = result.to_dict()
-        restored = ToolheadOffsetResult.from_dict(data)
-
-        assert restored == result
         assert set(data) == {
             "offset",
             "standard_deviation",
@@ -351,25 +348,27 @@ class TestToolheadOffsetDiagnostics:
         }
 
 
-def _board_result(klipper: FakeKlipper, camera: FakeCamera) -> BoardCalibrationResult:
-    return BoardCalibrationResult(
-        machine=Machine(TESTING_CONFIG_DIR / "machine.toml"),
-        klipper=klipper,
-        stage=XYZStage(klipper.readonly),
-        camera=camera,
-        calibration=CalibrationResult(
-            pixel_per_mm=PPM,
-            square_size_mm=1.0,
-            mean_distance_px=PPM,
-            std_distance_px=0.0,
-            resolution=(640, 480),
-            crop_size=(400, 400),
-            calibrated_at=datetime(2026, 8, 20, 12, 0, 0, tzinfo=UTC),
-            z_position=FOCUS_Z,
-        ),
-        offset_transform=Identity(),
+def _procedure(
+    klipper: FakeKlipper,
+    camera: FakeCamera,
+    machine: MachineConfig,
+    *,
+    diameter_min: float,
+) -> ToolheadOffsetProcedure:
+    board_frame = BoardFrame(
+        board=load_board(LED_BLINKER_PCB),
+        camera_model=make_camera_model(PPM, (640, 480), focus_z=FOCUS_Z),
         board_transform=Shift(BOARD_SHIFT.x, BOARD_SHIFT.y),
-        pcb=PcbFile(LED_BLINKER),
+    )
+    session = PasteSession.from_board_frame(
+        board_frame, machine, klipper=klipper, stage=XYZStage(klipper), camera=camera
+    )
+    return ToolheadOffsetProcedure(
+        session,
+        lift_height=5.0,
+        diameter_min=diameter_min,
+        diameter_max=2.0,
+        point_spacing=5.0,
     )
 
 
@@ -381,36 +380,24 @@ class TestToolheadOffsetProcedure:
         return FakeKlipper()
 
     @pytest.fixture
-    def result(self, klipper: FakeKlipper) -> BoardCalibrationResult:
+    def machine(self) -> MachineConfig:
+        return load_machine(TEST_CONFIG_DIR / "machine.toml")
+
+    @pytest.fixture
+    def procedure(
+        self, klipper: FakeKlipper, machine: MachineConfig
+    ) -> ToolheadOffsetProcedure:
         blank = Image(np.zeros((480, 640, 3), dtype=np.uint8))
-        return _board_result(klipper, FakeCamera([blank]))
-
-    @pytest.fixture
-    def result_with_dot(self, klipper: FakeKlipper) -> BoardCalibrationResult:
-        """ROI 中心に塗布痕があるカメラ."""
-        frame = np.full((480, 640, 3), 200, dtype=np.uint8)
-        cv2.circle(frame, (320, 240), 5, (60, 60, 60), -1)
-        return _board_result(klipper, FakeCamera([Image(frame)]))
-
-    @pytest.fixture
-    def procedure(self, result: BoardCalibrationResult) -> ToolheadOffsetProcedure:
-        return ToolheadOffsetProcedure(
-            result,
-            tolerance=0.1,
-            lift_height=5.0,
-            diameter_min=0.4,
-            diameter_max=2.0,
-            point_spacing=5.0,
-        )
+        return _procedure(klipper, FakeCamera([blank]), machine, diameter_min=0.4)
 
     def test_probe_moves_nozzle_to_dispense_position_and_reads_surface_z(
         self,
         procedure: ToolheadOffsetProcedure,
-        result: BoardCalibrationResult,
+        machine: MachineConfig,
         klipper: FakeKlipper,
     ):
         klipper.set_status("probe", "last_z_result", 1.5)
-        toolhead = result.machine.paste_dispenser.toolhead
+        toolhead = machine.require_solder().nozzle.offset
         board = Point2d(x=10.0, y=20.0)
 
         probed = procedure.probe(board)
@@ -438,7 +425,7 @@ class TestToolheadOffsetProcedure:
     def test_deposit_dispenses_at_surface_z_plus_paste_height(
         self,
         procedure: ToolheadOffsetProcedure,
-        result: BoardCalibrationResult,
+        machine: MachineConfig,
         klipper: FakeKlipper,
     ):
         klipper.set_status("probe", "last_z_result", 1.5)
@@ -448,9 +435,10 @@ class TestToolheadOffsetProcedure:
             klipper.clear_sent()
             procedure.deposit(applicator, probed, amount_ul=0.1)
             moves = klipper.g1_moves()
-            paste_height = applicator.default_params.paste_height_mm
 
-        assert result.machine.paste_dispenser.paste_height == "auto"
+        # paste_height=auto は膜厚 ul_per_mm2 を表面からの高さに使う
+        assert machine.require_solder().defaults.paste_height == "auto"
+        paste_height = machine.require_solder().defaults.ul_per_mm2
         approach, descend = moves[0], moves[1]
         assert approach["x"] == pytest.approx(probed.point.dispense.x)
         assert approach["y"] == pytest.approx(probed.point.dispense.y)
@@ -460,19 +448,16 @@ class TestToolheadOffsetProcedure:
     def test_measure_returns_sample_when_paste_dot_is_at_roi_center(
         self,
         klipper: FakeKlipper,
-        result_with_dot: BoardCalibrationResult,
+        machine: MachineConfig,
     ):
         """ROI 中心の塗布痕からオフセットを求める."""
-        procedure = ToolheadOffsetProcedure(
-            result_with_dot,
-            tolerance=0.1,
-            lift_height=5.0,
-            diameter_min=0.5,
-            diameter_max=2.0,
-            point_spacing=5.0,
+        frame = np.full((480, 640, 3), 200, dtype=np.uint8)
+        cv2.circle(frame, (320, 240), 5, (60, 60, 60), -1)
+        procedure = _procedure(
+            klipper, FakeCamera([Image(frame)]), machine, diameter_min=0.5
         )
         probed = procedure.probe(Point2d(x=10.0, y=20.0))
-        toolhead = result_with_dot.machine.paste_dispenser.toolhead
+        toolhead = machine.require_solder().nozzle.offset
         # 円検出はステージがカメラ位置に居る状態で行われる
         klipper.set_status(
             "gcode_move",

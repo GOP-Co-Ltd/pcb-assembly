@@ -1,8 +1,7 @@
 import pytest
-from pytest_mock import MockerFixture
 
-from pcbasm.hal.klipper import Klipper
-from pcbasm.hal.manual_stepper import HomingDirection, ManualStepper
+from pcbasm.hal.fake import FakeKlipper
+from pcbasm.hal.manual_stepper import ManualStepper
 
 STEPPER_NAME = "vacuum_pump"
 PREFIX = f"MANUAL_STEPPER STEPPER={STEPPER_NAME}"
@@ -12,30 +11,15 @@ class TestManualStepper:
     """ManualStepperクラスのテスト."""
 
     @pytest.fixture
-    def mock_klipper(self, mocker: MockerFixture):
-        """Klipperをモックするフィクスチャ."""
-        klipper = Klipper()
-        mocker.patch.object(
-            klipper.readonly,
-            "get_config",
-            return_value={
-                f"manual_stepper {STEPPER_NAME}": {"rotation_distance": "0.5"}
-            },
-        )
-        return klipper
+    def stepper(self) -> ManualStepper:
+        config = {f"manual_stepper {STEPPER_NAME}": {"rotation_distance": "0.5"}}
+        return ManualStepper(FakeKlipper(config), STEPPER_NAME)
 
-    @pytest.fixture
-    def stepper(self, mock_klipper: Klipper) -> ManualStepper:
-        return ManualStepper(mock_klipper.readonly, STEPPER_NAME)
-
-    def test_init_missing_stepper_section(self, mocker: MockerFixture):
-        klipper = Klipper()
-        mocker.patch.object(klipper.readonly, "get_config", return_value={})
-
+    def test_init_missing_stepper_section(self):
         with pytest.raises(
             RuntimeError, match=r"printer\.cfgに\[manual_stepper vacuum_pump\]"
         ):
-            ManualStepper(klipper.readonly, STEPPER_NAME)
+            ManualStepper(FakeKlipper({}), STEPPER_NAME)
 
     def test_rotation_distance(self, stepper: ManualStepper):
         assert stepper.rotation_distance == 0.5
@@ -102,35 +86,6 @@ class TestManualStepper:
 
     def test_sync(self, stepper: ManualStepper):
         assert stepper.sync().to_list() == [f"{PREFIX} SYNC=1"]
-
-    @pytest.mark.parametrize(
-        ("distance", "speed", "direction", "expected_suffix"),
-        [
-            (100.0, None, HomingDirection.FORWARD, "STOP_ON_ENDSTOP=1 MOVE=100.0"),
-            (
-                100.0,
-                10.0,
-                HomingDirection.BACKWARD,
-                "STOP_ON_ENDSTOP=-1 MOVE=100.0 SPEED=10.0",
-            ),
-            (
-                50.0,
-                5.0,
-                HomingDirection.FORWARD,
-                "STOP_ON_ENDSTOP=1 MOVE=50.0 SPEED=5.0",
-            ),
-        ],
-    )
-    def test_home(
-        self,
-        stepper: ManualStepper,
-        distance: float,
-        speed: float | None,
-        direction: HomingDirection,
-        expected_suffix: str,
-    ):
-        gcode = stepper.home(distance, speed, direction=direction)
-        assert gcode.to_list() == [f"{PREFIX} {expected_suffix}"]
 
     def test_enable(self, stepper: ManualStepper):
         gcode = stepper.enable()

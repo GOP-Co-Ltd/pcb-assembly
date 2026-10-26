@@ -1,0 +1,10 @@
+{
+  "commanded_ul": 0.6000000000000001,
+  "estimated_ul": 0.5503018374511849,
+  "ratio": 0.917169729085308,
+  "previous_rotations_per_ul": 45.783133,
+  "rotations_per_ul": 49.91784132001331,
+  "clamped": false,
+  "accepted_count": 3,
+  "rejections": []
+}

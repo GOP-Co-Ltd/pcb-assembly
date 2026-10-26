@@ -5,15 +5,14 @@
 
 ## 構成
 
-| モジュール     | 役割                                                                                                                                    |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `transform.py` | 点 `Point2d` / `Point3d` と変換 `Transform`（`Shift` / `Rotation` / `Scale` / `Matrix2d` / `HeightPlane` / `Identity`）、合成 `Compose` |
-| `path.py`      | 速度を持たない順序付き 3D 点列 `Path`                                                                                                   |
-| `routing.py`   | 巡回順の最適化 `sort_by_nearest`（nearest neighbor + 2-opt）                                                                            |
-| `sampling.py`  | ポリゴン内部からのプローブ点サンプリング `sample_points_in_polygons` と診断 `sampling_diagnostics`                                      |
-| `polygon.py`   | shapely ポリゴンの結合・変換・最小回転外接矩形 `oriented_bbox`・線分クリップ `clip_segment`                                             |
-| `polyline.py`  | 点列の総延長 `polyline_length`・環の部分列 `ring_segment`                                                                               |
-| `packing.py`   | 軸平行矩形のビンパッキング `pack_rects`（MaxRects）。左上原点・下向き正                                                                 |
+| モジュール     | 役割                                                                                                                                                 |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `transform.py` | 点 `Point2d` / `Point3d` と変換 `Transform`（`Shift` / `Rotation` / `Scale` / `Matrix2d` / `Affine2d` / `HeightPlane` / `Identity`）、合成 `Compose` |
+| `path.py`      | 速度を持たない順序付き 3D 点列 `Path`                                                                                                                |
+| `routing.py`   | 巡回順の最適化 `sort_by_nearest`（nearest neighbor + 2-opt）                                                                                         |
+| `sampling.py`  | ポリゴン内部からのプローブ点サンプリング `sample_points_in_polygons` と診断 `sampling_diagnostics`                                                   |
+| `polygon.py`   | shapely ポリゴンの結合・変換・最小回転外接矩形 `oriented_bbox`・線分クリップ `clip_segment`                                                          |
+| `packing.py`   | 軸平行矩形のビンパッキング `pack_rects`（MaxRects）。左上原点・下向き正                                                                              |
 
 `packing.py` 以外の公開名は `pcbasm.geometry` から re-export している。
 `packing.py` は `from pcbasm.geometry.packing import pack_rects` のように直接 import する。
@@ -27,5 +26,5 @@
 ## 置き場所の判断
 
 - 塗布・位置合わせなどのドメイン知識を含まない計算幾何だけをここに置く
-- ドメイン知識を含む計算は各ドメインパッケージ（`pasting` / `posctrl`）に置く
-- KiCad に固有の処理は `pcbasm.pcb` に置く
+- ドメイン知識を含む計算は各ドメインパッケージ（`pasting` / `align`）に置く
+- 基板データは `pcbasm.board`、KiCad に固有の処理は `pcbasm.kicad` に置く

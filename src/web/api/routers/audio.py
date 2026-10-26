@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from pcbasm.hal import AudioPlaybackError, selectable_devices
-from web.api.dependencies import AudioPlayerDep, ControlDep, StateDep
+from web.api.deps import ControlDep, DevicesDep, MachineConfigDep
 
 # 再生完了を待つ上限。success.wav が 4.8 秒あり、直前の再生が残っていると
 # キュー待ちが加わるため 10 秒では誤タイムアウトしうる
@@ -47,15 +47,15 @@ class AudioTestResponse(BaseModel):
 
 @router.get("/settings")
 def get_audio_settings(
-    state: StateDep, audio_player: AudioPlayerDep
+    machine_config: MachineConfigDep, devices: DevicesDep
 ) -> AudioSettingsResponse:
     """machine.toml で解決済みの通知音設定と、選択できるデバイス一覧を返す."""
-    audio = state.machine().audio
-    devices = selectable_devices(audio_player.list_devices(), audio.device)
+    audio = machine_config.machine().audio
+    options = selectable_devices(devices.audio.list_devices(), audio.device)
     return AudioSettingsResponse(
         devices=[
             AudioDeviceOption(name=device.name, label=device.label)
-            for device in devices
+            for device in options
         ],
         device=audio.device,
         volume=audio.volume,
@@ -65,19 +65,19 @@ def get_audio_settings(
 @router.post("/test")
 def test_audio(
     body: AudioTestRequest,
-    state: StateDep,
-    audio_player: AudioPlayerDep,
+    machine_config: MachineConfigDep,
+    devices: DevicesDep,
     _control: ControlDep,
 ) -> AudioTestResponse:
     """現在の通知音設定で指定の音を再生する.
 
-    機体のスピーカーを実際に鳴らすので操作権を要求する（`ControlDep`）。認可を
-    `Depends` で行うのは、ハンドラ本体で claim すると `klipper_errors_to_502()` が
-    423 を 502 に変換してしまうため。
+    機体のスピーカーを実際に鳴らすので操作権を要求する（`ControlDep`）。
     """
-    audio = state.machine().audio
+    audio = machine_config.machine().audio
     try:
-        audio_player.play(body.sound, audio).result(timeout=_PLAYBACK_TIMEOUT)
+        devices.audio.play(body.sound, audio.device, audio.volume).result(
+            timeout=_PLAYBACK_TIMEOUT
+        )
     except (AudioPlaybackError, TimeoutError) as exc:
         raise HTTPException(
             status_code=502, detail=f"通知音を再生できませんでした: {exc}"

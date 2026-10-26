@@ -1,0 +1,20 @@
+{# 版のずれた機体のページ（/m/<machine_id>/… のどの URL もこれになる）。
+   proxy はこの機体へ更新と緊急停止だけを中継するので、緊急停止（トップバー）と
+   更新ページへの案内だけを出す。/api/session/control/* は中継しないので操作権バーは出さない #}
+{% extends "base.html" %}
+{% block title %}{{ title }} — PCB Assembly WebUI{% endblock %}
+{% block layout_class %}single-pane{% endblock %}
+{% block content %}
+<section class="main-pane" data-testid="main-pane">
+  <h1>{{ title }}</h1>
+  <p class="placeholder" data-testid="update-only-detail">
+    この機体と UI サーバーはソフトウェアの版が違うため、更新と緊急停止だけを使えます。
+    古いほうを更新して版を揃えると、通常の画面に戻ります。
+  </p>
+  <p class="placeholder">
+    ほかの端末がこの機体の操作権を持っていると、更新は断られます。その端末で更新するか、操作権を解放してもらってください。
+  </p>
+  {# base を付けない: frontend 自身のページで、機体には中継しない #}
+  <p><a href="/update" data-testid="update-page-link">ソフトウェア更新ページを開く</a></p>
+</section>
+{% endblock %}

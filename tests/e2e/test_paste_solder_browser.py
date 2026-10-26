@@ -15,42 +15,26 @@ from typing import Any
 import httpx
 from playwright.sync_api import expect
 
-from tests.e2e.conftest import (
+from tests.support.browser import (
+    SELECTED_LED_BLINKER,
     LiveServer,
     LiveUi,
     acquire_control as _acquire_control,
     get_pad_config as _get_pad_config,
+    pad_field,
+    pad_row,
     select_led_blinker as _select_led_blinker,
     session_headers as _session_headers,
     wait_for_config,
 )
+from tests.support.moonraker import FakeMoonraker
 
 _HTTP_TIMEOUT = 10.0
 _BROWSER_TIMEOUT_MS = 10_000
-_DESCENDANT_OVERRIDE_MARKER_SELECTOR = ",".join(
-    [
-        '[data-testid="pad-descendant-override-marker"]',
-        ".pad-descendant-override-marker",
-        ".pad-descendant-override-badge",
-    ]
-)
-_DESCENDANT_FIELD_MARKER_SELECTOR = ",".join(
-    [
-        '[data-testid="pad-descendant-field-marker"]',
-        ".pad-descendant-field-marker",
-        ".pad-descendant-override-field-marker",
-    ]
-)
 _DESCENDANT_WARNING_RE = re.compile(
     r"下位|配下|子孫|個別|override|上書き|継承", re.IGNORECASE
 )
-_HIGHLIGHT_SELECTOR = ",".join(
-    [
-        '[data-testid="pad-polygon"].pad-node-highlight',
-        '[data-testid="pad-polygon"][data-highlighted="true"]',
-        '[data-testid="pad-polygon"][aria-selected="true"]',
-    ]
-)
+_HIGHLIGHT_SELECTOR = '[data-testid="pad-polygon"][data-highlighted="true"]'
 _VIEWPORTS = (
     ("desktop", 1280, 900),
     ("mobile", 390, 844),
@@ -69,13 +53,9 @@ def _pad_selector(pad_id: str) -> str:
     return f"{_testid('pad-polygon')}[data-pad-id={_css_string(pad_id)}]"
 
 
-def _row_selector(node_id: str) -> str:
-    return f"{_testid('pad-tree-row')}[data-node-id={_css_string(node_id)}]"
-
-
 def _calculate_route(live_server: LiveServer, layer: str = "Top") -> dict[str, Any]:
     response = httpx.post(
-        f"{live_server.base_url}/api/pasting/pad-config/route",
+        f"{live_server.base_url}/api/pasting/board/route",
         json={"layer": layer},
         timeout=_HTTP_TIMEOUT,
     )
@@ -85,7 +65,7 @@ def _calculate_route(live_server: LiveServer, layer: str = "Top") -> dict[str, A
 
 def _calculate_fill_path(live_server: LiveServer, layer: str = "Top") -> dict[str, Any]:
     response = httpx.post(
-        f"{live_server.base_url}/api/pasting/pad-config/fill-path",
+        f"{live_server.base_url}/api/pasting/board/fill-path",
         json={"layer": layer},
         timeout=_HTTP_TIMEOUT,
     )
@@ -97,8 +77,8 @@ def _patch_pad_config_node(
     live_server: LiveServer, node_id: str, values: dict[str, float | str]
 ):
     response = httpx.patch(
-        f"{live_server.base_url}/api/pasting/pad-config/node",
-        json={"node": node_id, "values": values},
+        f"{live_server.base_url}/api/pasting/board/node",
+        json={"node": node_id, "values": values, "expected_pcb": SELECTED_LED_BLINKER},
         timeout=_HTTP_TIMEOUT,
     )
     assert response.status_code == 200, response.text
@@ -107,12 +87,12 @@ def _patch_pad_config_node(
 
 def _open_pasting_pad_editor(page: Any, live_ui: LiveUi, feature: str):
     page.goto(
-        f"{live_ui.base_url}/pasting/{feature}",
+        f"{live_ui.base_url}/{feature}",
         wait_until="domcontentloaded",
     )
     # 変更系（pad 編集・ジョブ開始）は操作権が無いと inert でクリックが届かない
     _acquire_control(page)
-    page.locator(_testid("pad-viewer")).wait_for(
+    page.get_by_test_id("pad-viewer").wait_for(
         state="visible", timeout=_BROWSER_TIMEOUT_MS
     )
     page.wait_for_function(
@@ -169,15 +149,15 @@ def _choose_l3_node_id(config: dict[str, Any]) -> str:
 
 def _ensure_row_visible(page: Any, path_ids: list[str]) -> Any:
     for index, node_id in enumerate(path_ids):
-        row = page.locator(_row_selector(node_id))
+        row = pad_row(page, node_id)
         row.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
         if index == len(path_ids) - 1:
             row.scroll_into_view_if_needed(timeout=_BROWSER_TIMEOUT_MS)
             return row
 
-        next_row = page.locator(_row_selector(path_ids[index + 1]))
+        next_row = pad_row(page, path_ids[index + 1])
         if next_row.count() == 0 or not next_row.nth(0).is_visible():
-            toggle = row.locator(f"{_testid('pad-tree-toggle')}, button")
+            toggle = row.get_by_test_id("pad-tree-toggle")
             if toggle.count() > 0:
                 toggle.nth(0).click()
             else:
@@ -187,28 +167,24 @@ def _ensure_row_visible(page: Any, path_ids: list[str]) -> Any:
 
 
 def _ensure_row_collapsed(page: Any, node_id: str, descendant_id: str):
-    row = page.locator(_row_selector(node_id))
+    row = pad_row(page, node_id)
     row.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
-    descendant = page.locator(_row_selector(descendant_id))
+    descendant = pad_row(page, descendant_id)
     if descendant.count() > 0 and descendant.nth(0).is_visible():
-        row.locator(_testid("pad-tree-toggle")).nth(0).click()
+        row.get_by_test_id("pad-tree-toggle").nth(0).click()
     descendant.wait_for(state="hidden", timeout=_BROWSER_TIMEOUT_MS)
 
 
 def _field_cell(row: Any, field: str) -> Any:
-    return row.locator(f"td:has([data-field={_css_string(field)}])")
+    return row.locator(f'[data-testid="pad-cell"][data-column="{field}"]')
 
 
 def _field_input(row: Any, field: str) -> Any:
-    return row.locator(
-        f'input[data-testid="pad-setting-input"][data-field={_css_string(field)}]'
-    )
+    return pad_field(row, "pad-setting-input", field)
 
 
 def _field_select(row: Any, field: str, testid: str) -> Any:
-    return row.locator(
-        f"select[data-testid={_css_string(testid)}][data-field={_css_string(field)}]"
-    )
+    return pad_field(row, testid, field)
 
 
 def _highlighted_pad_ids(page: Any) -> set[str]:
@@ -383,11 +359,11 @@ class TestPasteSolderBrowserRendering:
             "preview-img",
             "job-run",
         ):
-            browser_page.locator(_testid(testid)).wait_for(
+            browser_page.get_by_test_id(testid).wait_for(
                 state="attached", timeout=_BROWSER_TIMEOUT_MS
             )
 
-        svg = browser_page.locator(_testid("pad-viewer"))
+        svg = browser_page.get_by_test_id("pad-viewer")
         assert svg.evaluate("(el) => el.tagName.toLowerCase()") == "svg"
         point_counts = browser_page.eval_on_selector_all(
             _testid("pad-polygon"),
@@ -420,13 +396,13 @@ class TestPasteSolderBrowserRendering:
             timeout=_BROWSER_TIMEOUT_MS
         )
 
-        root_row = browser_page.locator(_row_selector("L0"))
-        first_setting = root_row.locator(_testid("pad-setting-input")).nth(0)
+        root_row = pad_row(browser_page, "L0")
+        first_setting = root_row.get_by_test_id("pad-setting-input").nth(0)
         assert first_setting.input_value(timeout=_BROWSER_TIMEOUT_MS) == ""
         assert first_setting.get_attribute("placeholder") == str(
             config["defaults"]["ul_per_mm2"]
         )
-        assert root_row.locator(".pad-override-marker").count() == 0
+        assert root_row.get_by_test_id("pad-own-override-marker").count() == 0
 
     def test_dataset_collection_layout_preview_redraws_from_server_responses(
         self, live_ui: LiveUi, browser_page
@@ -435,32 +411,37 @@ class TestPasteSolderBrowserRendering:
 
         初期描画は操作権を持たない閲覧者にも出る（装置を動かさない読み取り専用計算）。
         セル数・legend・収まらない理由の文字列そのものはサーバ値なので
-        tests/web/api/routers/test_paste_dataset.py::TestPasteDatasetLayout が担当する。
+        tests/web/api/routers/pasting/test_calibration.py::TestPasteDatasetLayout が担当する。
         """
         browser_page.goto(
-            f"{live_ui.base_url}/pasting/paste_volume_calibration",
+            f"{live_ui.base_url}/paste_volume_calibration",
             wait_until="domcontentloaded",
         )
-        cells = browser_page.locator("#pdl-view .pdl-cell")
+        cells = browser_page.get_by_test_id("pdl-view").get_by_test_id("pdl-cell")
 
         # 既定は 分割数 5 × サンプル数 3 + blank 4 = 19 点。
         expect(cells).to_have_count(19, timeout=_BROWSER_TIMEOUT_MS)
-        assert browser_page.locator("#pdl-error").inner_text().strip() == ""
+        assert browser_page.get_by_test_id("pdl-error").inner_text().strip() == ""
 
         _acquire_control(browser_page)
-        browser_page.fill("#param-volume_divisions", "2")
+        browser_page.get_by_test_id("param-volume_divisions").fill("2")
 
         # 2 × 3 + blank 4 = 10 点へ入れ替わる。
         expect(cells).to_have_count(10, timeout=_BROWSER_TIMEOUT_MS)
 
-        browser_page.fill("#param-samples_per_volume", "500")
+        browser_page.get_by_test_id("param-samples_per_volume").fill("500")
 
         # 収まらない設定でも preview を消さず理由を出す。
-        expect(browser_page.locator("#pdl-error")).not_to_have_text(
+        expect(browser_page.get_by_test_id("pdl-error")).not_to_have_text(
             "", timeout=_BROWSER_TIMEOUT_MS
         )
         # 格子は残す（配置図ごと消さない）。
-        assert browser_page.locator("#pdl-view .pdl-grid-cell").count() > 0
+        assert (
+            browser_page.get_by_test_id("pdl-view")
+            .get_by_test_id("pdl-grid-cell")
+            .count()
+            > 0
+        )
 
     def test_fake_camera_preview_image_loads(
         self, live_server: LiveServer, live_ui: LiveUi, browser_page
@@ -468,7 +449,7 @@ class TestPasteSolderBrowserRendering:
         _select_led_blinker(live_server)
         _open_paste_solder(browser_page, live_ui)
 
-        preview = browser_page.locator(_testid("preview-img"))
+        preview = browser_page.get_by_test_id("preview-img")
         preview.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
         browser_page.wait_for_function(
             """(img) => img.complete && img.naturalWidth > 0 && img.naturalHeight > 0""",
@@ -483,7 +464,7 @@ class TestPasteSolderBrowserRendering:
         _select_led_blinker(live_server)
 
         _open_paste_solder(browser_page, live_ui)
-        copper = browser_page.locator(_testid("pad-copper"))
+        copper = browser_page.get_by_test_id("pad-copper")
         copper.first.wait_for(state="attached", timeout=_BROWSER_TIMEOUT_MS)
 
         assert copper.count() > 0
@@ -508,16 +489,16 @@ class TestPasteSolderBrowserRendering:
         """クリックした座標が明示パージ点になり、clear で自動解決へ戻る.
 
         パージ量・パージ点の永続化そのものは
-        tests/web/api/routers/test_pasting.py::TestInitialPurgePadConfig /
+        tests/web/api/routers/pasting/test_board.py::TestInitialPurgePadConfig /
         TestInitialPurgePoint が担当する。
         """
         _select_led_blinker(live_server)
 
         _open_paste_solder(browser_page, live_ui)
-        set_point_button = browser_page.locator(_testid("pad-set-initial-purge-point"))
-        pad_status = browser_page.locator(_testid("pad-initial-purge-pad"))
-        marker = browser_page.locator(_testid("pad-purge-marker"))
-        clear_button = browser_page.locator(_testid("pad-clear-initial-purge-point"))
+        set_point_button = browser_page.get_by_test_id("pad-set-initial-purge-point")
+        pad_status = browser_page.get_by_test_id("pad-initial-purge-pad")
+        marker = browser_page.get_by_test_id("pad-purge-marker")
+        clear_button = browser_page.get_by_test_id("pad-clear-initial-purge-point")
         set_point_button.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
         # 明示指定が無くても、自動解決されたパージ位置は図に出る
         # （どこへパージするか見えないと測定位置をそこから避けられない）
@@ -537,7 +518,7 @@ class TestPasteSolderBrowserRendering:
         )
         # 基板ビューの中央をクリックした点がパージ位置になる（外形線は
         # fill:none でヒットしないので SVG 自体を叩く）
-        browser_page.locator(_testid("pad-viewer")).click(force=True)
+        browser_page.get_by_test_id("pad-viewer").click(force=True)
         purge = _wait_for_initial_purge(live_server, resolved_source="explicit")
         assert purge["initial_purge"]["point"] is not None
 
@@ -550,6 +531,20 @@ class TestPasteSolderBrowserRendering:
         # 自動へ戻してもマーカーは消えず、自動解決された位置を指す
         _wait_for_purge_marker_source(browser_page, "default")
 
+    def test_purge_amount_is_saved_as_a_machine_setting(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
+        """初回パージ量の入力は machine 設定へ保存され、基板の解決結果に反映される."""
+        _select_led_blinker(live_server)
+
+        _open_paste_solder(browser_page, live_ui)
+        amount = browser_page.get_by_test_id("pad-initial-purge-amount")
+        amount.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+        amount.fill("0.25")
+
+        purge = _wait_for_initial_purge(live_server, amount=0.25)
+        assert _approx(purge["initial_purge"]["resolved"]["amount"], 0.25)
+
     def test_flow_calibration_points_are_added_one_click_at_a_time(
         self, live_server: LiveServer, live_ui: LiveUi, browser_page
     ):
@@ -557,9 +552,9 @@ class TestPasteSolderBrowserRendering:
         _select_led_blinker(live_server)
 
         _open_paste_solder(browser_page, live_ui)
-        add_button = browser_page.locator(_testid("pad-set-flow-calibration-point"))
-        markers = browser_page.locator(_testid("pad-flow-calibration-marker"))
-        crops = browser_page.locator(_testid("pad-flow-calibration-crop"))
+        add_button = browser_page.get_by_test_id("pad-set-flow-calibration-point")
+        markers = browser_page.get_by_test_id("pad-flow-calibration-marker")
+        crops = browser_page.get_by_test_id("pad-flow-calibration-crop")
         add_button.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
         assert markers.count() == 0
 
@@ -578,7 +573,7 @@ class TestPasteSolderBrowserRendering:
         assert markers.nth(0).locator("text").text_content() == "1"
         assert markers.nth(1).locator("text").text_content() == "2"
 
-        browser_page.locator(_testid("pad-clear-flow-calibration-point")).click()
+        browser_page.get_by_test_id("pad-clear-flow-calibration-point").click()
         _wait_for_flow_calibration_points(live_server, 0)
         _wait_for_flow_calibration_markers(browser_page, 0)
 
@@ -606,7 +601,7 @@ class TestPasteSolderBrowserPadInteraction:
             timeout=_BROWSER_TIMEOUT_MS,
         )
         assert "pad-selected" in polygon.get_attribute("class")
-        row = browser_page.locator(_row_selector(pad["node_ids"][-1]))
+        row = pad_row(browser_page, pad["node_ids"][-1])
         row.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
         assert "pad-row-focus" in row.get_attribute("class")
 
@@ -618,14 +613,14 @@ class TestPasteSolderBrowserPadInteraction:
         bottom_pad = next(pad for pad in config["pads"] if pad["layer"] == "Bottom")
 
         _open_paste_solder(browser_page, live_ui)
-        browser_page.locator(_testid("pad-layer-bottom")).check()
+        browser_page.get_by_test_id("pad-layer-bottom").check()
         bottom_polygon = browser_page.locator(_pad_selector(bottom_pad["id"]))
         bottom_polygon.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
 
-        browser_page.locator(_testid("pad-disable-all")).click()
+        browser_page.get_by_test_id("pad-disable-all").click()
         _wait_for_layer_enabled(live_server, "Bottom", False)
 
-        browser_page.locator(_testid("pad-enable-all")).click()
+        browser_page.get_by_test_id("pad-enable-all").click()
         _wait_for_layer_enabled(live_server, "Bottom", True)
 
     def test_enum_and_height_controls_persist_after_reload(
@@ -634,7 +629,7 @@ class TestPasteSolderBrowserPadInteraction:
         _select_led_blinker(live_server)
         _open_paste_solder(browser_page, live_ui)
 
-        root_row = browser_page.locator(_row_selector("L0"))
+        root_row = pad_row(browser_page, "L0")
         mode_select = _field_select(
             root_row, "dispense_mode", "pad-dispense-mode-select"
         )
@@ -646,7 +641,7 @@ class TestPasteSolderBrowserPadInteraction:
         mode_select.select_option("line")
         _wait_for_override(live_server, "L0", "dispense_mode", "line")
         _open_paste_solder(browser_page, live_ui)
-        root_row = browser_page.locator(_row_selector("L0"))
+        root_row = pad_row(browser_page, "L0")
         mode_select = _field_select(
             root_row, "dispense_mode", "pad-dispense-mode-select"
         )
@@ -655,7 +650,7 @@ class TestPasteSolderBrowserPadInteraction:
         mode_select.select_option("area")
         _wait_for_override(live_server, "L0", "dispense_mode", "area")
         _open_paste_solder(browser_page, live_ui)
-        root_row = browser_page.locator(_row_selector("L0"))
+        root_row = pad_row(browser_page, "L0")
         mode_select = _field_select(
             root_row, "dispense_mode", "pad-dispense-mode-select"
         )
@@ -670,7 +665,7 @@ class TestPasteSolderBrowserPadInteraction:
         direction_select.select_option("outward")
         _wait_for_override(live_server, "L0", "line_direction", "outward")
         _open_paste_solder(browser_page, live_ui)
-        root_row = browser_page.locator(_row_selector("L0"))
+        root_row = pad_row(browser_page, "L0")
         direction_select = _field_select(
             root_row, "line_direction", "pad-line-direction-select"
         )
@@ -685,9 +680,9 @@ class TestPasteSolderBrowserPadInteraction:
         # 完了と順序保証がなく、旧 DOM へ操作した直後に再描画で input が
         # hidden な新要素へ差し替わるレースがあった。override マーカーの
         # 出現（再描画後にのみ存在する）で UI 反映完了を待つ。
-        root_row.locator(
-            '[data-testid="pad-own-override-marker"][data-field="paste_height"]'
-        ).wait_for(state="attached", timeout=_BROWSER_TIMEOUT_MS)
+        pad_field(root_row, "pad-own-override-marker", "paste_height").wait_for(
+            state="attached", timeout=_BROWSER_TIMEOUT_MS
+        )
 
         height_select.select_option("manual")
         height_input = _field_input(root_row, "paste_height")
@@ -703,8 +698,10 @@ class TestPasteSolderBrowserPadInteraction:
         _open_paste_solder(browser_page, live_ui)
 
         # 始点高・終点高は独立した列を持たない
-        assert browser_page.locator("#pad-heading-micro_line_z_start").count() == 0
-        root_row = browser_page.locator(_row_selector("L0"))
+        assert (
+            browser_page.get_by_test_id("pad-heading-micro_line_z_start").count() == 0
+        )
+        root_row = pad_row(browser_page, "L0")
         mode_select = _field_select(
             root_row, "dispense_mode", "pad-dispense-mode-select"
         )
@@ -713,10 +710,9 @@ class TestPasteSolderBrowserPadInteraction:
 
         mode_select.select_option("micro_line")
         _wait_for_override(live_server, "L0", "dispense_mode", "micro_line")
-        height_cell = root_row.locator('td[data-column="paste_height"]')
-        z_start_mode = height_cell.locator(
-            'select[data-testid="pad-height-mode-select"]'
-            '[data-field="micro_line_z_start"]'
+        height_cell = _field_cell(root_row, "paste_height")
+        z_start_mode = pad_field(
+            height_cell, "pad-height-mode-select", "micro_line_z_start"
         )
         z_start_mode.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
         # 既定は Auto（pad ごとに自動計算）
@@ -730,21 +726,17 @@ class TestPasteSolderBrowserPadInteraction:
         )
 
         z_start_mode.select_option("manual")
-        z_start = height_cell.locator(
-            'input[data-testid="pad-setting-input"][data-field="micro_line_z_start"]'
-        )
+        z_start = pad_field(height_cell, "pad-setting-input", "micro_line_z_start")
         z_start.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
 
         z_start.fill("0.09")
         z_start.press("Enter")
         _wait_for_override(live_server, "L0", "micro_line_z_start", 0.09)
-        root_row.locator(
-            '[data-testid="pad-own-override-marker"][data-field="micro_line_z_start"]'
-        ).wait_for(state="attached", timeout=_BROWSER_TIMEOUT_MS)
-        # 項目の列見出しが無いので、「継承に戻す」はセル内のラベルで説明する
-        clear = height_cell.locator(
-            '[data-testid="pad-clear-override"][data-field="micro_line_z_start"]'
+        pad_field(root_row, "pad-own-override-marker", "micro_line_z_start").wait_for(
+            state="attached", timeout=_BROWSER_TIMEOUT_MS
         )
+        # 項目の列見出しが無いので、「継承に戻す」はセル内のラベルで説明する
+        clear = pad_field(height_cell, "pad-clear-override", "micro_line_z_start")
         assert "sublabel" in (clear.get_attribute("aria-describedby") or "")
 
     def test_applied_dispense_mode_is_shown_next_to_auto_and_hidden_when_explicit(
@@ -754,10 +746,8 @@ class TestPasteSolderBrowserPadInteraction:
         applied = _get_pad_config(live_server)["tree"]["applied"]["dispense_mode"]
 
         _open_paste_solder(browser_page, live_ui)
-        root_row = browser_page.locator(_row_selector("L0"))
-        marker = root_row.locator(
-            '[data-testid="pad-applied-value"][data-field="dispense_mode"]'
-        )
+        root_row = pad_row(browser_page, "L0")
+        marker = pad_field(root_row, "pad-applied-value", "dispense_mode")
         # 表示文字列はサーバーが組んだものをそのまま出す
         expect(marker).to_have_text(applied["label"], timeout=_BROWSER_TIMEOUT_MS)
         assert marker.get_attribute("title") == applied["title"]
@@ -789,11 +779,11 @@ class TestPasteSolderBrowserPadInteraction:
         # （座標 (1,1) だと viewport によりヘッダ等に載り不安定なため）
         row.hover()
         _wait_for_highlighted(browser_page, expected_ids)
-        browser_page.locator(_testid("pad-editor-toolbar")).hover()
+        browser_page.get_by_test_id("pad-editor-toolbar").hover()
         _wait_for_highlighted(browser_page, set())
 
         row.click()
-        browser_page.locator(_testid("pad-editor-toolbar")).hover()
+        browser_page.get_by_test_id("pad-editor-toolbar").hover()
         _wait_for_highlighted(browser_page, expected_ids)
 
     def test_route_button_draws_route_and_enabled_change_clears_it(
@@ -805,14 +795,14 @@ class TestPasteSolderBrowserPadInteraction:
         first = route["pads"][0]
 
         _open_paste_solder(browser_page, live_ui)
-        browser_page.locator(_testid("pad-calculate-route")).click()
-        browser_page.locator(_testid("pad-route-overlay")).wait_for(
+        browser_page.get_by_test_id("pad-calculate-route").click()
+        browser_page.get_by_test_id("pad-route-overlay").wait_for(
             state="attached", timeout=_BROWSER_TIMEOUT_MS
         )
-        browser_page.locator(_testid("pad-route-start")).wait_for(
+        browser_page.get_by_test_id("pad-route-start").wait_for(
             state="attached", timeout=_BROWSER_TIMEOUT_MS
         )
-        browser_page.locator(_testid("pad-route-end")).wait_for(
+        browser_page.get_by_test_id("pad-route-end").wait_for(
             state="attached", timeout=_BROWSER_TIMEOUT_MS
         )
         browser_page.wait_for_function(
@@ -826,11 +816,11 @@ class TestPasteSolderBrowserPadInteraction:
         )
         assert len(set(route_colors)) > 1
         arrow_colors = browser_page.eval_on_selector_all(
-            ".pad-route-arrow-head",
+            _testid("pad-route-arrow-head"),
             "(els) => els.map((el) => getComputedStyle(el).fill)",
         )
         assert arrow_colors == route_colors
-        assert browser_page.locator(_testid("pad-route-status")).count() == 0
+        assert browser_page.get_by_test_id("pad-route-status").count() == 0
 
         first_pad = browser_page.locator(_pad_selector(first["id"]))
         assert first_pad.get_attribute("data-route-order") == "1"
@@ -839,11 +829,11 @@ class TestPasteSolderBrowserPadInteraction:
         )
 
         first_pad.click()
-        browser_page.locator(_testid("pad-disable-selected")).click()
-        browser_page.locator(_testid("pad-route-overlay")).wait_for(
+        browser_page.get_by_test_id("pad-disable-selected").click()
+        browser_page.get_by_test_id("pad-route-overlay").wait_for(
             state="detached", timeout=_BROWSER_TIMEOUT_MS
         )
-        assert browser_page.locator(_testid("pad-route-status")).count() == 0
+        assert browser_page.get_by_test_id("pad-route-status").count() == 0
 
     def test_fill_path_button_draws_paths_and_changes_clear_it(
         self, live_server: LiveServer, live_ui: LiveUi, browser_page
@@ -855,8 +845,8 @@ class TestPasteSolderBrowserPadInteraction:
         first = fill_path["pads"][0]
 
         _open_paste_solder(browser_page, live_ui)
-        browser_page.locator(_testid("pad-calculate-fill-path")).click()
-        browser_page.locator(_testid("pad-fill-path-overlay")).wait_for(
+        browser_page.get_by_test_id("pad-calculate-fill-path").click()
+        browser_page.get_by_test_id("pad-fill-path-overlay").wait_for(
             state="attached", timeout=_BROWSER_TIMEOUT_MS
         )
         browser_page.wait_for_function(
@@ -880,30 +870,30 @@ class TestPasteSolderBrowserPadInteraction:
             "(els) => els.map((el) => getComputedStyle(el).stroke)",
         )
         arrow_colors = browser_page.eval_on_selector_all(
-            ".pad-fill-path-arrow-head",
+            _testid("pad-fill-path-arrow-head"),
             "(els) => els.map((el) => getComputedStyle(el).fill)",
         )
         assert set(fill_path_colors) == {"rgb(255, 51, 51)"}
         assert set(direction_colors) == {"rgb(255, 51, 51)"}
         assert set(arrow_colors) == {"rgb(255, 51, 51)"}
 
-        root_row = browser_page.locator(_row_selector("L0"))
+        root_row = pad_row(browser_page, "L0")
         boundary_margin = _field_input(root_row, "boundary_margin")
         boundary_margin.fill("0.3")
         boundary_margin.press("Enter")
         _wait_for_override(live_server, "L0", "boundary_margin", 0.3)
-        browser_page.locator(_testid("pad-fill-path-overlay")).wait_for(
+        browser_page.get_by_test_id("pad-fill-path-overlay").wait_for(
             state="detached", timeout=_BROWSER_TIMEOUT_MS
         )
 
-        browser_page.locator(_testid("pad-calculate-fill-path")).click()
-        browser_page.locator(_testid("pad-fill-path-overlay")).wait_for(
+        browser_page.get_by_test_id("pad-calculate-fill-path").click()
+        browser_page.get_by_test_id("pad-fill-path-overlay").wait_for(
             state="attached", timeout=_BROWSER_TIMEOUT_MS
         )
         first_pad = browser_page.locator(_pad_selector(first["id"]))
         first_pad.click()
-        browser_page.locator(_testid("pad-disable-selected")).click()
-        browser_page.locator(_testid("pad-fill-path-overlay")).wait_for(
+        browser_page.get_by_test_id("pad-disable-selected").click()
+        browser_page.get_by_test_id("pad-fill-path-overlay").wait_for(
             state="detached", timeout=_BROWSER_TIMEOUT_MS
         )
 
@@ -921,11 +911,10 @@ class TestPasteSolderBrowserPadInteraction:
         )
         assert start.status_code == 201, start.text
 
-        browser_page.locator(".pad-editor-locked").wait_for(
-            state="attached", timeout=_BROWSER_TIMEOUT_MS
+        expect(browser_page.get_by_test_id("pad-disable-all")).to_be_disabled(
+            timeout=_BROWSER_TIMEOUT_MS
         )
-        assert browser_page.locator(_testid("pad-disable-all")).is_disabled()
-        assert browser_page.locator(_testid("pad-setting-input")).nth(0).is_disabled()
+        assert browser_page.get_by_test_id("pad-setting-input").nth(0).is_disabled()
 
     def test_export_download_is_named_by_board_and_timestamp(
         self, live_server: LiveServer, live_ui: LiveUi, browser_page
@@ -934,7 +923,7 @@ class TestPasteSolderBrowserPadInteraction:
         _open_paste_solder(browser_page, live_ui)
 
         with browser_page.expect_download(timeout=_BROWSER_TIMEOUT_MS) as info:
-            browser_page.locator("#pad-export-config").click()
+            browser_page.get_by_test_id("pad-export-config").click()
 
         assert re.fullmatch(
             r"led_blinker-paste-overrides-\d{8}T\d{6}\.json",
@@ -946,20 +935,28 @@ class TestPasteSolderBrowserPadInteraction:
     ):
         _select_led_blinker(live_server)
         patch = httpx.patch(
-            f"{live_server.base_url}/api/pasting/pad-config/node",
-            json={"node": "L2:U1", "values": {"prime_extra_delay": 0.33}},
+            f"{live_server.base_url}/api/pasting/board/node",
+            json={
+                "node": "L2:U1",
+                "values": {"prime_extra_delay": 0.33},
+                "expected_pcb": SELECTED_LED_BLINKER,
+            },
             timeout=_HTTP_TIMEOUT,
         )
         assert patch.status_code == 200, patch.text
         exported = httpx.get(
-            f"{live_server.base_url}/api/pasting/pad-config/export",
+            f"{live_server.base_url}/api/pasting/board/export",
             timeout=_HTTP_TIMEOUT,
         )
         assert exported.status_code == 200, exported.text
         # export 後に override を公開 API で消し、import が復元することを見る
         cleared = httpx.patch(
-            f"{live_server.base_url}/api/pasting/pad-config/node",
-            json={"node": "L2:U1", "clear": ["prime_extra_delay"]},
+            f"{live_server.base_url}/api/pasting/board/node",
+            json={
+                "node": "L2:U1",
+                "clear": ["prime_extra_delay"],
+                "expected_pcb": SELECTED_LED_BLINKER,
+            },
             timeout=_HTTP_TIMEOUT,
         )
         assert cleared.status_code == 200, cleared.text
@@ -968,13 +965,15 @@ class TestPasteSolderBrowserPadInteraction:
         import_path = tmp_path / "paste-overrides.json"
         import_path.write_text(json.dumps(exported.json()), encoding="utf-8")
         _open_paste_solder(browser_page, live_ui)
-        browser_page.locator("#pad-import-config").set_input_files(str(import_path))
+        browser_page.get_by_test_id("pad-import-config").set_input_files(
+            str(import_path)
+        )
 
         # ページ内 fetch は同一オリジン（frontend）へ投げる。backend 直だと
         # クロスオリジンになり、無認証 = CORS 無しの backend では必ず失敗する
         browser_page.wait_for_function(
             """async (baseUrl) => {
-                const response = await fetch(`${baseUrl}/api/pasting/pad-config`);
+                const response = await fetch(`${baseUrl}/api/pasting/board`);
                 const config = await response.json();
                 return config.overrides["L2:U1"]?.values?.prime_extra_delay === 0.33;
             }""",
@@ -996,23 +995,23 @@ class TestPasteSolderBrowserOverrideVisibility:
         assert path == ["L0", "L1:SOT-23-6", "L2:U1"]
 
         _open_paste_solder(browser_page, live_ui)
-        l1_row = browser_page.locator(_row_selector("L1:SOT-23-6"))
+        l1_row = pad_row(browser_page, "L1:SOT-23-6")
         l1_row.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
         _ensure_row_collapsed(browser_page, "L1:SOT-23-6", "L2:U1")
 
-        l1_row.locator(
-            f".pad-col-node {_DESCENDANT_OVERRIDE_MARKER_SELECTOR}"
-        ).first.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+        l1_row.get_by_test_id("pad-descendant-override-badge").first.wait_for(
+            state="visible", timeout=_BROWSER_TIMEOUT_MS
+        )
         l1_prime_extra_delay_cell = _field_cell(l1_row, "prime_extra_delay")
-        l1_prime_extra_delay_cell.locator(
-            _DESCENDANT_FIELD_MARKER_SELECTOR
+        l1_prime_extra_delay_cell.get_by_test_id(
+            "pad-descendant-field-marker"
         ).first.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
 
         l1_prime_extra_delay = _field_input(l1_row, "prime_extra_delay")
         l1_prime_extra_delay.fill("0.77")
         l1_prime_extra_delay.press("Enter")
 
-        browser_page.locator(".toast").filter(
+        browser_page.get_by_test_id("toast-warning").filter(
             has_text=_DESCENDANT_WARNING_RE
         ).first.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
         _wait_for_override(live_server, "L1:SOT-23-6", "prime_extra_delay", 0.77)
@@ -1034,10 +1033,10 @@ class TestPasteSolderBrowserOverrideVisibility:
             == "0.33"
         )
         assert "override" in l2_prime_extra_delay_input.get_attribute("class")
-        l2_prime_extra_delay_cell.locator(".pad-override-marker").wait_for(
+        l2_prime_extra_delay_cell.get_by_test_id("pad-own-override-marker").wait_for(
             state="visible", timeout=_BROWSER_TIMEOUT_MS
         )
-        l2_prime_extra_delay_cell.locator(".pad-cell-clear").wait_for(
+        l2_prime_extra_delay_cell.get_by_test_id("pad-clear-override").wait_for(
             state="visible", timeout=_BROWSER_TIMEOUT_MS
         )
 
@@ -1058,11 +1057,11 @@ class TestPasteSolderBrowserOverrideVisibility:
         assert target_path[:3] == ["L0", "L1:SOT-23-6", "L2:U1"]
 
         _open_paste_solder(browser_page, live_ui)
-        l1_row = browser_page.locator(_row_selector("L1:SOT-23-6"))
+        l1_row = pad_row(browser_page, "L1:SOT-23-6")
         l1_row.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
         _ensure_row_collapsed(browser_page, "L1:SOT-23-6", "L2:U1")
 
-        browser_page.locator(_testid("pad-disable-all")).click()
+        browser_page.get_by_test_id("pad-disable-all").click()
         wait_for_config(
             live_server,
             lambda config: config["overrides"].get(target_l4, {}).get("enabled")
@@ -1070,15 +1069,72 @@ class TestPasteSolderBrowserOverrideVisibility:
             f"{target_l4} enabled override -> False",
         )
 
-        l1_row.locator(_DESCENDANT_OVERRIDE_MARKER_SELECTOR).first.wait_for(
+        l1_row.get_by_test_id("pad-descendant-override-badge").first.wait_for(
             state="visible", timeout=_BROWSER_TIMEOUT_MS
         )
         l4_row = _ensure_row_visible(browser_page, target_path)
-        enabled_checkbox = l4_row.locator('.pad-col-enabled input[type="checkbox"]')
+        enabled_checkbox = l4_row.get_by_test_id("pad-enabled-checkbox")
         assert not enabled_checkbox.is_checked()
-        inherit_button = l4_row.locator(".pad-enabled-inherit")
+        inherit_button = l4_row.get_by_test_id("pad-enabled-inherit")
         inherit_button.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
         assert not inherit_button.is_disabled()
+
+
+class TestPasteSolderBrowserTactEstimate:
+    """実行パネルの予測所要時間（文言はサーバーが組み、pad や machine 全体設定を編集すると取り直す）."""
+
+    def test_estimate_follows_pad_edits(
+        self,
+        live_server: LiveServer,
+        live_ui: LiveUi,
+        browser_page,
+        moonraker: FakeMoonraker,
+    ):
+        _select_led_blinker(live_server)
+        _open_paste_solder(browser_page, live_ui)
+        label = browser_page.get_by_test_id("tact-estimate-label")
+        detail = browser_page.get_by_test_id("tact-estimate-detail")
+        expect(label).to_have_text(re.compile(r"^\d+時間\d+分\d+秒$"))
+        expect(detail).to_have_text(
+            re.compile(r"^[1-9]\d* pad（前段 0時間5分0秒 \+ 塗布 ")
+        )
+
+        browser_page.get_by_test_id("pad-disable-all").click()
+
+        expect(label).to_have_text("0時間5分0秒")
+        expect(detail).to_have_text("0 pad（前段 0時間5分0秒 + 塗布 0時間0分0秒）")
+
+    def test_estimate_follows_machine_settings(
+        self,
+        live_server: LiveServer,
+        live_ui: LiveUi,
+        browser_page,
+        moonraker: FakeMoonraker,
+    ):
+        """Auto しきい値は塗布方式を変えるので、machine 全体設定欄を保存しても取り直す."""
+        _select_led_blinker(live_server)
+        _open_paste_solder(browser_page, live_ui)
+        label = browser_page.get_by_test_id("tact-estimate-label")
+        expect(label).to_have_text(re.compile(r"^\d+時間\d+分\d+秒$"))
+        before = label.text_content()
+
+        browser_page.get_by_test_id(
+            "auto-threshold-solder.auto.line_aspect_ratio"
+        ).fill("1.01")
+
+        expect(label).not_to_have_text(before or "")
+        expect(label).to_have_text(re.compile(r"^\d+時間\d+分\d+秒$"))
+
+    def test_unreachable_klipper_shows_the_reason(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
+        _select_led_blinker(live_server)
+        _open_paste_solder(browser_page, live_ui)
+
+        expect(browser_page.get_by_test_id("tact-estimate-label")).to_have_text("—")
+        expect(browser_page.get_by_test_id("tact-estimate-detail")).to_contain_text(
+            "printer.cfg を読めないので予測できません"
+        )
 
 
 class TestPasteSolderBrowserResponsiveLayout:
@@ -1091,11 +1147,13 @@ class TestPasteSolderBrowserResponsiveLayout:
         browser_page.set_viewport_size({"width": 1280, "height": 900})
         # localStorage を触る前にオリジンを確保する（実ページを開く。`/m/{id}` 単体は
         # 既定タブへの 307 なので、素の prefix を開くと余計な遷移が挟まる）
-        browser_page.goto(f"{live_ui.base_url}/posctrl", wait_until="domcontentloaded")
+        browser_page.goto(
+            f"{live_ui.base_url}/klipper_status", wait_until="domcontentloaded"
+        )
         browser_page.evaluate("localStorage.removeItem('mc-sidebar-collapsed')")
         _open_paste_solder(browser_page, live_ui)
 
-        browser_page.locator("#mc-toggle").click()
+        browser_page.get_by_test_id("mc-toggle").click()
         browser_page.wait_for_function(
             """() => {
                 const sidebar = document.querySelector('[data-testid="machine-control-sidebar"]');
@@ -1104,7 +1162,7 @@ class TestPasteSolderBrowserResponsiveLayout:
             }""",
             timeout=_BROWSER_TIMEOUT_MS,
         )
-        assert browser_page.locator(_testid("machine-control")).is_hidden()
+        assert browser_page.get_by_test_id("machine-control").is_hidden()
 
     def test_key_panels_do_not_create_horizontal_overflow(
         self, live_server: LiveServer, live_ui: LiveUi, browser_page

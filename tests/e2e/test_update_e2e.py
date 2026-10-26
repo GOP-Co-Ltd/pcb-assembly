@@ -11,8 +11,7 @@ git は実物（tmp 上の bare remote。ネットワークに出ない）、`uv
 `UpdateSettings` の絶対パス seam に差した実スタブ実行ファイル。実機の systemd と
 sudoers には一切触れない。
 
-**実 systemd の再起動・sudoers の実受理・ネットワーク越しの `uv sync` は Claude が
-検証できない範囲**で、ユーザーの実機確認事項（計画書「検証」節）。
+**実 systemd の再起動・sudoers の実受理・ネットワーク越しの `uv sync` はここでは確かめられない**ので、実機の受け入れ試験で確かめる。
 """
 
 from __future__ import annotations
@@ -24,17 +23,18 @@ import httpx
 import pytest
 from playwright.sync_api import expect
 
-from tests.e2e.conftest import (
+from tests.support.browser import (
     E2E_MACHINE_ID as _E2E_MACHINE_ID,
     LiveServer,
     LiveUi,
-    acquire_control as _acquire_control,
-    make_api_settings as _make_api_settings,
-    make_ui_settings as _make_ui_settings,
     start_app as _start_app,
 )
-from tests.helpers import wait_until
-from tests.web.update_support import UpdateSandbox, make_update_sandbox
+from tests.support.polling import wait_until
+from tests.support.selfupdate import UpdateSandbox, make_update_sandbox
+from tests.support.web import (
+    make_api_settings as _make_api_settings,
+    make_ui_settings as _make_ui_settings,
+)
 from web.api.app import create_app
 from web.selfupdate.runner import UpdateRunner
 from web.ui.app import create_app as create_ui_app
@@ -71,7 +71,7 @@ def update_stack(
         )
     )
     endpoint = MachineEndpoint(
-        machine_id=_E2E_MACHINE_ID, host="127.0.0.1", port=backend.port, name="E2E 機"
+        machine_id=_E2E_MACHINE_ID, host="127.0.0.1", port=backend.port
     )
     frontend = _start_app(
         create_ui_app(
@@ -151,31 +151,44 @@ class TestUpdateOverRealHttp:
 class TestUpdatePageInTheBrowser:
     """実ブラウザでの押下 → 進行表示 → 完了表示（update.js の DOM 更新）."""
 
-    def test_backend_update_page_reports_progress_and_completion(
+    def test_machine_panel_on_the_update_page_reports_progress_and_completion(
         self,
         update_stack: tuple[LiveServer, LiveUi],
         sandbox: UpdateSandbox,
         browser_page,
     ):
+        """機体の更新は更新ページ（/update）の機体のパネルから行う（操作権は空いていれば backend が取る）."""
         _server, ui = update_stack
         target = sandbox.push()
         page = browser_page
-        page.goto(f"{ui.base_url}/dev/update")
-        _acquire_control(page)
+        page.goto(f"{ui.origin}/update")
+        panel = page.get_by_test_id(f"update-panel-{_E2E_MACHINE_ID}")
         # 更新の有無は fetch しないと見えない（GET status は毎秒叩かれるので fetch しない）
-        page.locator("#update-check").click(timeout=_UI_TIMEOUT_MS)
-        expect(page.locator("#update-summary")).to_contain_text(
+        panel.get_by_test_id("update-check").click(timeout=_UI_TIMEOUT_MS)
+        expect(panel.get_by_test_id("update-summary")).to_contain_text(
             "1 件の更新", timeout=_UI_TIMEOUT_MS
         )
 
         page.once("dialog", lambda dialog: dialog.accept())
-        page.locator("#update-run").click(timeout=_UI_TIMEOUT_MS)
+        panel.get_by_test_id("update-run").click(timeout=_UI_TIMEOUT_MS)
 
-        expect(page.locator("#update-run-state")).to_be_visible(timeout=_UI_TIMEOUT_MS)
-        expect(page.locator("#update-steps li")).to_have_count(
+        expect(panel.get_by_test_id("update-run-state")).to_be_visible(
+            timeout=_UI_TIMEOUT_MS
+        )
+        expect(panel.get_by_test_id("update-steps").locator("li")).to_have_count(
             5, timeout=_UI_TIMEOUT_MS
         )
-        expect(page.locator("#update-state-label")).to_have_text(
+        expect(panel.get_by_test_id("update-state-label")).to_have_text(
             "再起動しています", timeout=_UI_TIMEOUT_MS
         )
         assert sandbox.head() == target
+
+    def test_old_machine_page_bookmark_opens_the_update_page(
+        self, update_stack: tuple[LiveServer, LiveUi], browser_page
+    ):
+        """旧 URL（機体ごとの更新ページ）のブックマークは、唯一の更新ページへ飛ぶ."""
+        _server, ui = update_stack
+        browser_page.goto(f"{ui.base_url}/dev/update")
+
+        expect(browser_page).to_have_url(f"{ui.origin}/update")
+        expect(browser_page.get_by_test_id("update-panel-frontend")).to_be_visible()

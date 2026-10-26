@@ -1,0 +1,11 @@
+{% extends "feature.html" %}
+{% block title %}Camera Preview — PCB Assembly WebUI{% endblock %}
+{% block main %}
+<h2>Camera Preview</h2>
+{% include "partials/preview_pane.html" %}
+{% include "partials/preview_controls.html" %}
+{% endblock %}
+{% block scripts %}
+{{ super() }}
+<script src="{{ static_asset('js/preview.js') }}"></script>
+{% endblock %}

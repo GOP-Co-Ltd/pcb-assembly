@@ -1,0 +1,204 @@
+# send timeout=None
+G28 X Y Z
+M400
+# send timeout=None
+G1 X8.5 Y5.7 Z12.5 F6000.0
+G4 P500
+M400
+# send timeout=None
+G1 X15.822741999715108 Y5.7 F3000.0
+G4 P500
+M400
+# send timeout=None
+G1 X8.5 Y5.7 Z12.5 F3000.0
+G4 P500
+M400
+# send timeout=None
+G1 X8.5 Y5.7 F5400.0
+G4 P500
+M400
+# send timeout=None
+G1 X8.726656299991182 Y5.508213900007462 F3000.0
+G4 P500
+M400
+# send timeout=None
+G1 X23.5 Y5.699999999999999 F5400.0
+G4 P500
+M400
+# send timeout=None
+G1 X23.761526499989824 Y5.577954300004747 F3000.0
+G4 P500
+M400
+# send timeout=None
+G1 X23.5 Y40.7 F5400.0
+G4 P500
+M400
+# send timeout=None
+G1 X23.51743509999932 Y40.57795430000475 F3000.0
+G4 P500
+M400
+# send timeout=None
+G1 X8.5 Y40.7 F5400.0
+G4 P500
+M400
+# send timeout=None
+G1 X8.552305299997965 Y40.50821390000746 F3000.0
+G4 P500
+M400
+# send timeout=None
+G1 X7.4320423974570495 Y36.41559505037935 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z1.0 F6000.0
+M400
+# send timeout=None
+G1 X10.386410337136704 Y41.32942176000617 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z1.0 F6000.0
+M400
+# send timeout=None
+G1 X14.432042397457055 Y36.44814057037808 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z1.0 F6000.0
+M400
+# send timeout=None
+G1 X21.605937649135953 Y36.481494592004125 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z1.0 F6000.0
+M400
+# send timeout=None
+G1 X21.589199953136607 Y40.68149459200413 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z1.0 F6000.0
+M400
+# send timeout=None
+G1 X17.73641033713671 Y41.36359455600483 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z1.0 F6000.0
+M400
+# send timeout=None
+G1 X21.56688302513747 Y46.28149459200414 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z1.0 F6000.0
+M400
+# send timeout=None
+G1 X13.706836804567867 Y48.27052166297007 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z1.0 F6000.0
+M400
+# send timeout=None
+G1 X7.215864768922943 Y46.47028791280182 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z1.0 F6000.0
+M400
+# send timeout=None
+G1 X9.645960905138276 Y51.4761672080063 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z1.0 F6000.0
+M400
+# send timeout=None
+G1 X7.17782840113898 Y56.01477627600676 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z1.0 F6000.0
+M400
+# send timeout=None
+G1 X14.177828401138987 Y56.047321796005484 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z1.0 F6000.0
+M400
+# send timeout=None
+G1 X13.493171289138388 Y52.19406724400561 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z1.0 F6000.0
+M400
+# send timeout=None
+G1 X18.045960905138287 Y51.51522183200478 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z1.0 F6000.0
+M400
+# send timeout=None
+G1 X21.3845355876483 Y55.78082281358782 F5400.0
+G4 P500
+M400
+# send timeout=None
+PROBE
+M400
+# send timeout=None
+G1 Z1.0 F6000.0
+M400
+# send timeout=30.0
+G90
+G1 Z0.0 F1200.0
+G1 X150.0 Y10.0 F1200.0
+G1 Z-2.0 F1200.0
+M400
+M84

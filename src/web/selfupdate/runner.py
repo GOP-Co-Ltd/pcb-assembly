@@ -1,6 +1,6 @@
 """更新の逐次実行（単一実行ロック・report 永続化・再起動の予約）.
 
-実行順序は次のとおり（計画書「1. 共通モジュール」）。
+実行順序は次のとおり。
 
 ```
 0 単一実行ロック（flock: state_dir/update.lock）  … 同居機の api/ui 同時実行も止まる
@@ -70,7 +70,10 @@ logger = logging.getLogger(__name__)
 
 
 class UpdateRunner:
-    """1 ホスト分の自己更新を受け持つ（`app.state.update` に 1 つ置く）."""
+    """1 ホスト分の自己更新を受け持つ.
+
+    backend は `Backend.update`、frontend は `app.state.update` に 1 つ置く。
+    """
 
     def __init__(self, settings: UpdateSettings) -> None:
         """設定を保持する（副作用なし）.
@@ -226,7 +229,7 @@ class UpdateRunner:
         if not settings.enabled:
             return None, (
                 "この機体では WebUI からの更新が無効化されています"
-                "（PCBASM_API_UPDATE_ENABLED / PCBASM_UI_UPDATE_ENABLED）。"
+                "（シミュレーション起動 PCBASM_FAKE=1）。"
             )
         with self._guard:
             if self.running:

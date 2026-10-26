@@ -6,13 +6,14 @@ UI の配信は ``web.ui`` の担当。
 エンドポイントを守る仕組みは 2 つあり、役割が異なる。
 
 - 操作権（``control.ControlLease``）: 誰が指示を出せるか。変更系のエンドポイントは ``ControlDep`` を引数に取り、保持者以外を 423 で断る。
-- 装置排他ロック（``AppState.machine_lock``）: 装置や設定を操作している処理が 1 つだけであること。取れなければ 409 で断る。ジョブは実行中ずっとこのロックを持つ。
+- 装置排他ロック（``lock.MachineLock``）: 装置や設定を操作している処理が 1 つだけであること。取れなければ 409 で断る。ジョブは実行中ずっとこのロックを持つ。
 
 次の操作は安全のため、または読み取りだけなので、操作権を要求しない。
 
 - 緊急停止（``POST /api/emergency-stop``）とジョブの中止（``POST /api/jobs/current/abort``、WS の ``abort``）
-- 操作権の奪取（``POST /api/control/takeover``）
+- 操作権の奪取（``POST /api/session/control/takeover``）
 - GET 全般と、装置を動かさない計算用の POST
+- 更新の確認（``POST /api/update/check``。remote を fetch するだけで、装置も作業ツリーも変えない）
 
-例外から HTTP ステータスへの変換は ``app.create_app`` の例外ハンドラと ``routers.common.klipper_errors_to_502`` に集まっている。
+例外から HTTP ステータスへの変換は ``errors`` に集まっている。
 """

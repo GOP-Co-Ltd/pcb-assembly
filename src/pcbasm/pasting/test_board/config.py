@@ -1,0 +1,481 @@
+"""テスト塗布基板の設定と JSON 形式."""
+
+from __future__ import annotations
+
+import math
+import re
+from collections.abc import Mapping
+from typing import Any, Literal, TypeAlias, TypeGuard
+
+import attrs
+
+from pcbasm.document import parse_document
+from pcbasm.kicad.footprint import format_footprint_id, parse_footprint_id
+from pcbasm.kicad.units import (
+    KICAD_COORD_MAX_NM,
+    KICAD_MAX_COORD_MM,
+    is_kicad_length,
+)
+from pcbasm.validators import is_finite_number
+
+BoardKind: TypeAlias = Literal["paste_test_board"]
+BoardSchemaVersion: TypeAlias = Literal[1]
+CustomPadShapeId: TypeAlias = Literal["circle", "rectangle", "roundrect", "oval"]
+PreviewLayer: TypeAlias = Literal["F.Cu", "F.Paste"]
+
+BOARD_KIND: BoardKind = "paste_test_board"
+BOARD_SCHEMA_VERSION: BoardSchemaVersion = 1
+
+_MAX_CALIBRATION_PAD_COUNT = 10_000
+_KICAD_MAX_PAD_SIZE_MM = (KICAD_COORD_MAX_NM - 1) / 1_000_000
+_KICAD_LENGTH_RANGE_TEXT = f"1 nm以上{KICAD_MAX_COORD_MM:.6f} mm以下"
+_KICAD_PAD_SIZE_RANGE_TEXT = f"1 nm以上{_KICAD_MAX_PAD_SIZE_MM:.6f} mm以下"
+
+
+class BoardConfigError(ValueError):
+    """基板設定がドメイン制約を満たさない（``normalized()`` の invariant）.
+
+    KiCad 環境・座標のエラーは :mod:`pcbasm.kicad` 側の例外
+    （``FootprintLibraryError`` / ``KicadError``）をそのまま使う。
+    """
+
+
+@attrs.frozen
+class CustomPadShape:
+    """WebUI で選択できる任意寸法パッド形状."""
+
+    shape: CustomPadShapeId
+    label: str
+    uses_height: bool
+    uses_corner_radius: bool
+
+    @classmethod
+    def for_id(cls, shape: CustomPadShapeId) -> CustomPadShape:
+        return _CUSTOM_PAD_SHAPE_BY_ID[shape]
+
+
+CUSTOM_PAD_SHAPES: tuple[CustomPadShape, ...] = (
+    CustomPadShape("circle", "円", False, False),
+    CustomPadShape("rectangle", "矩形", True, False),
+    CustomPadShape("roundrect", "角丸矩形", True, True),
+    CustomPadShape("oval", "長円（スロット）", True, False),
+)
+_CUSTOM_PAD_SHAPE_BY_ID = {item.shape: item for item in CUSTOM_PAD_SHAPES}
+
+
+@attrs.frozen
+class CustomPadDraft:
+    """ID 採番前の任意寸法パッド定義 [mm]."""
+
+    shape: CustomPadShapeId
+    width_mm: float
+    height_mm: float = 0.0
+    corner_radius_mm: float = 0.0
+    name: str = ""
+
+    def normalized(self) -> CustomPadDraft:
+        """形状に不要な寸法をコア側で canonical な値へ解決する."""
+
+        if (message := validate_custom_pad(self)) is not None:
+            raise BoardConfigError(message)
+        shape = _CUSTOM_PAD_SHAPE_BY_ID[self.shape]
+        return attrs.evolve(
+            self,
+            name=self.name.strip(),
+            height_mm=self.height_mm if shape.uses_height else self.width_mm,
+            corner_radius_mm=(
+                self.corner_radius_mm if shape.uses_corner_radius else 0.0
+            ),
+        )
+
+    def default_name(self) -> str:
+        """形状と寸法から既定の表示名を組み立てる."""
+
+        shape = _CUSTOM_PAD_SHAPE_BY_ID[self.shape]
+        if self.shape == "circle":
+            dimensions = f"φ{self.width_mm:.3g} mm"
+        else:
+            dimensions = f"{self.width_mm:.3g} × {self.height_mm:.3g} mm"
+        radius = (
+            f" R{self.corner_radius_mm:.3g} mm" if self.shape == "roundrect" else ""
+        )
+        return f"{shape.label} {dimensions}{radius}"
+
+
+@attrs.frozen
+class CustomPadSpec:
+    """設定 JSON へ保存する任意寸法パッド定義 [mm]."""
+
+    catalog_id: str
+    name: str
+    shape: CustomPadShapeId
+    width_mm: float
+    height_mm: float
+    corner_radius_mm: float = 0.0
+
+
+@attrs.frozen
+class BoardSpec:
+    """基板外形と配置余白 [mm]."""
+
+    width_mm: float = 40.0
+    height_mm: float = 40.0
+    edge_margin_mm: float = 1.0
+    pad_gap_mm: float = 1.0
+
+
+@attrs.frozen
+class PurgePadSpec:
+    """左上に置く専用 purge pad の寸法 [mm]."""
+
+    width_mm: float = 2.0
+    height_mm: float = 2.0
+
+
+@attrs.frozen
+class PatternSpec:
+    """1 パッド種の回転・繰り返し配置."""
+
+    catalog_id: str
+    rotation_span_deg: float = 180.0
+    rotation_count: int = 4
+    repeat_count: int = 3
+
+
+@attrs.frozen
+class _DefaultFootprint:
+    library: str
+    footprint: str
+    rotation_span_deg: float
+    rotation_count: int
+    repeat_count: int
+
+
+DEFAULT_FOOTPRINTS = (
+    _DefaultFootprint("Resistor_SMD.pretty", "R_0402_1005Metric", 180.0, 4, 3),
+    _DefaultFootprint("Resistor_SMD.pretty", "R_0603_1608Metric", 180.0, 4, 3),
+    _DefaultFootprint("Resistor_SMD.pretty", "R_0805_2012Metric", 180.0, 4, 3),
+    _DefaultFootprint("Resistor_SMD.pretty", "R_1206_3216Metric", 180.0, 4, 3),
+    _DefaultFootprint("Package_TO_SOT_SMD.pretty", "SOT-23", 180.0, 4, 2),
+    _DefaultFootprint("Package_TO_SOT_SMD.pretty", "SOT-23-5", 180.0, 4, 2),
+)
+DEFAULT_FOOTPRINT_BY_SOURCE = {
+    (item.library, item.footprint): item for item in DEFAULT_FOOTPRINTS
+}
+_DEFAULT_SOURCE_ORDER = {
+    (item.library, item.footprint): index
+    for index, item in enumerate(DEFAULT_FOOTPRINTS)
+}
+
+
+def format_pad_catalog_id(library: str, footprint: str, pad_index: int) -> str:
+    return f"{format_footprint_id(library, footprint)}#pad-{pad_index}"
+
+
+def default_patterns() -> tuple[PatternSpec, ...]:
+    return tuple(
+        PatternSpec(
+            catalog_id=format_pad_catalog_id(item.library, item.footprint, 0),
+            rotation_span_deg=item.rotation_span_deg,
+            rotation_count=item.rotation_count,
+            repeat_count=item.repeat_count,
+        )
+        for item in DEFAULT_FOOTPRINTS
+    )
+
+
+@attrs.frozen
+class BoardConfig:
+    """生成・preview・export で共有する基板設定."""
+
+    board: BoardSpec = attrs.Factory(BoardSpec)
+    purge_pad: PurgePadSpec = attrs.Factory(PurgePadSpec)
+    custom_pads: tuple[CustomPadSpec, ...] = ()
+    patterns: tuple[PatternSpec, ...] = attrs.Factory(default_patterns)
+
+    def validate(self) -> str | None:
+        """構造的なドメイン制約を検証し、問題があれば説明を返す."""
+
+        board = self.board
+        positive = (
+            ("基板幅", board.width_mm, KICAD_MAX_COORD_MM, _KICAD_LENGTH_RANGE_TEXT),
+            (
+                "基板高さ",
+                board.height_mm,
+                KICAD_MAX_COORD_MM,
+                _KICAD_LENGTH_RANGE_TEXT,
+            ),
+            (
+                "purge pad幅",
+                self.purge_pad.width_mm,
+                _KICAD_MAX_PAD_SIZE_MM,
+                _KICAD_PAD_SIZE_RANGE_TEXT,
+            ),
+            (
+                "purge pad高さ",
+                self.purge_pad.height_mm,
+                _KICAD_MAX_PAD_SIZE_MM,
+                _KICAD_PAD_SIZE_RANGE_TEXT,
+            ),
+        )
+        for label, value, maximum_mm, range_text in positive:
+            if not is_finite_number(value) or value <= 0:
+                return f"{label}は正の有限値が必要です"
+            if not is_kicad_length(value, maximum_mm=maximum_mm):
+                return f"{label}は{range_text}で指定してください"
+        nonnegative = (
+            ("外周余白", board.edge_margin_mm),
+            ("パッド間余白", board.pad_gap_mm),
+        )
+        for label, value in nonnegative:
+            if not is_finite_number(value) or value < 0:
+                return f"{label}は0以上の有限値が必要です"
+            if value != 0 and not is_kicad_length(value):
+                return f"{label}は0または{_KICAD_LENGTH_RANGE_TEXT}で指定してください"
+        if board.width_mm <= 2 * board.edge_margin_mm:
+            return "基板幅には左右の外周余白より大きい値が必要です"
+        if board.height_mm <= 2 * board.edge_margin_mm:
+            return "基板高さには上下の外周余白より大きい値が必要です"
+        if not self.patterns:
+            return "1つ以上のパッドパターンが必要です"
+
+        custom_ids: set[str] = set()
+        for custom_pad in self.custom_pads:
+            if not is_custom_pad_catalog_id(custom_pad.catalog_id):
+                return f"任意パッドIDが不正です: {custom_pad.catalog_id}"
+            if custom_pad.catalog_id in custom_ids:
+                return f"任意パッドが重複しています: {custom_pad.catalog_id}"
+            custom_ids.add(custom_pad.catalog_id)
+            if message := validate_custom_pad(custom_pad):
+                return message
+
+        seen: set[str] = set()
+        total_pad_count = 0
+        for pattern in self.patterns:
+            if not isinstance(pattern.catalog_id, str):
+                return "パッドパターンIDは文字列で指定してください"
+            is_custom_pad = is_custom_pad_catalog_id(pattern.catalog_id)
+            if parse_pad_catalog_id(pattern.catalog_id) is None and not is_custom_pad:
+                return "パッドパターンIDが不正です"
+            if is_custom_pad and pattern.catalog_id not in custom_ids:
+                return f"任意パッド定義がありません: {pattern.catalog_id}"
+            if pattern.catalog_id in seen:
+                return f"パッドパターンが重複しています: {pattern.catalog_id}"
+            seen.add(pattern.catalog_id)
+            span = pattern.rotation_span_deg
+            if not is_finite_number(span) or span <= 0 or span > 360:
+                return "回転範囲は0より大きく360以下で指定してください"
+            if (
+                isinstance(pattern.rotation_count, bool)
+                or not isinstance(pattern.rotation_count, int)
+                or pattern.rotation_count < 1
+            ):
+                return "回転分割数は1以上の整数が必要です"
+            if (
+                isinstance(pattern.repeat_count, bool)
+                or not isinstance(pattern.repeat_count, int)
+                or pattern.repeat_count < 1
+            ):
+                return "繰り返し数は1以上の整数が必要です"
+            remaining_pad_count = _MAX_CALIBRATION_PAD_COUNT - total_pad_count
+            if pattern.rotation_count > remaining_pad_count // pattern.repeat_count:
+                return "生成パッド総数は10,000以下で指定してください"
+            total_pad_count += pattern.rotation_count * pattern.repeat_count
+        return None
+
+    def normalized(self) -> BoardConfig:
+        """パターンを family・footprint・パッド種の安定順へ正規化する."""
+
+        if (message := self.validate()) is not None:
+            raise BoardConfigError(message)
+        custom_by_id = {item.catalog_id: item for item in self.custom_pads}
+        patterns = tuple(
+            sorted(
+                self.patterns,
+                key=lambda pattern: _pattern_sort_key(pattern, custom_by_id),
+            )
+        )
+        used_custom_ids = {
+            pattern.catalog_id
+            for pattern in patterns
+            if is_custom_pad_catalog_id(pattern.catalog_id)
+        }
+        return attrs.evolve(
+            self,
+            custom_pads=tuple(
+                sorted(
+                    (
+                        item
+                        for item in self.custom_pads
+                        if item.catalog_id in used_custom_ids
+                    ),
+                    key=lambda item: (item.name.casefold(), item.catalog_id),
+                )
+            ),
+            patterns=patterns,
+        )
+
+    def to_document(self) -> dict[str, Any]:
+        """この設定をそのまま自己識別可能な JSON document へ変換する."""
+
+        return attrs.asdict(
+            _BoardDocument(
+                kind=BOARD_KIND,
+                schema_version=BOARD_SCHEMA_VERSION,
+                board=self.board,
+                purge_pad=self.purge_pad,
+                custom_pads=self.custom_pads,
+                patterns=self.patterns,
+            )
+        )
+
+
+@attrs.frozen
+class _BoardDocument:
+    """設定 JSON document（schema 1）の形."""
+
+    kind: BoardKind
+    schema_version: BoardSchemaVersion
+    board: BoardSpec
+    purge_pad: PurgePadSpec
+    custom_pads: tuple[CustomPadSpec, ...]
+    patterns: tuple[PatternSpec, ...]
+
+
+def validate_custom_pad(
+    custom_pad: CustomPadDraft | CustomPadSpec,
+) -> str | None:
+    """任意寸法パッドを検証し、問題があれば説明を返す."""
+
+    if not isinstance(
+        custom_pad,
+        CustomPadDraft | CustomPadSpec,
+    ):
+        return "任意パッドの形式が不正です"
+    if not isinstance(custom_pad.name, str):
+        return "任意パッドの名称は文字列で指定してください"
+    name = custom_pad.name.strip()
+    if isinstance(custom_pad, CustomPadSpec) and not name:
+        return "任意パッドの名称を入力してください"
+    if len(name) > 120:
+        return "任意パッドの名称は120文字以下で指定してください"
+    if not is_custom_pad_shape_id(custom_pad.shape):
+        return f"任意パッド形状が不正です: {custom_pad.shape}"
+    shape = _CUSTOM_PAD_SHAPE_BY_ID[custom_pad.shape]
+    if not is_finite_number(custom_pad.width_mm) or custom_pad.width_mm <= 0:
+        return "任意パッドの幅／直径は正の有限値が必要です"
+    if not is_kicad_length(custom_pad.width_mm, maximum_mm=_KICAD_MAX_PAD_SIZE_MM):
+        return f"任意パッドの幅／直径は{_KICAD_PAD_SIZE_RANGE_TEXT}で指定してください"
+    is_draft = isinstance(custom_pad, CustomPadDraft)
+    if shape.uses_height or not is_draft:
+        if not is_finite_number(custom_pad.height_mm) or custom_pad.height_mm <= 0:
+            return "任意パッドの高さは正の有限値が必要です"
+        if not is_kicad_length(custom_pad.height_mm, maximum_mm=_KICAD_MAX_PAD_SIZE_MM):
+            return f"任意パッドの高さは{_KICAD_PAD_SIZE_RANGE_TEXT}で指定してください"
+    if (
+        not is_draft
+        and custom_pad.shape == "circle"
+        and not math.isclose(custom_pad.width_mm, custom_pad.height_mm, abs_tol=1e-9)
+    ):
+        return "円パッドの幅と高さには同じ直径を指定してください"
+    radius = custom_pad.corner_radius_mm
+    if shape.uses_corner_radius:
+        if not is_finite_number(radius):
+            return "任意パッドの角丸半径は有限値が必要です"
+        if radius <= 0:
+            return "角丸矩形の角丸半径は0より大きい値が必要です"
+        if not is_kicad_length(radius):
+            return f"任意パッドの角丸半径は{_KICAD_LENGTH_RANGE_TEXT}で指定してください"
+        if radius > min(custom_pad.width_mm, custom_pad.height_mm) / 2.0:
+            return "角丸矩形の角丸半径は短辺の半分以下で指定してください"
+    elif not is_draft:
+        if not is_finite_number(radius):
+            return "任意パッドの角丸半径は有限値が必要です"
+        if radius != 0:
+            return f"{shape.label}では角丸半径を指定できません"
+    return None
+
+
+def parse_board_document(
+    document: Mapping[str, object],
+) -> tuple[BoardConfig | None, str | None]:
+    """JSON document を正規化した設定へ変換する.
+
+    ブラウザで読み込んだ document は ``1.0`` が ``1`` になっているので、float の欄に int を受ける。
+
+    Returns:
+        ``(config, None)``。不正な形式・値なら ``(None, 理由)``
+    """
+    parsed, error = parse_document(
+        document,
+        _BoardDocument,
+        kind=BOARD_KIND,
+        version=BOARD_SCHEMA_VERSION,
+        label="テスト塗布基板",
+        int_as_float=True,
+    )
+    if parsed is None:
+        return None, error
+    config = BoardConfig(
+        board=parsed.board,
+        purge_pad=parsed.purge_pad,
+        custom_pads=parsed.custom_pads,
+        patterns=parsed.patterns,
+    )
+    if (error := config.validate()) is not None:
+        return None, error
+    return config.normalized(), None
+
+
+def is_custom_pad_shape_id(
+    value: object,
+) -> TypeGuard[CustomPadShapeId]:
+    return isinstance(value, str) and value in _CUSTOM_PAD_SHAPE_BY_ID
+
+
+def parse_pad_catalog_id(catalog_id: object) -> tuple[str, str, int] | None:
+    if not isinstance(catalog_id, str):
+        return None
+    footprint_id, separator, index_text = catalog_id.rpartition("#pad-")
+    parsed = parse_footprint_id(footprint_id)
+    if (
+        not separator
+        or parsed is None
+        or not index_text.isdigit()
+        or len(index_text) > 12
+        or (len(index_text) > 1 and index_text.startswith("0"))
+    ):
+        return None
+    return parsed[0], parsed[1], int(index_text)
+
+
+_CUSTOM_PAD_ID_PATTERN = re.compile(r"custom:[0-9a-f]{32}")
+
+
+def is_custom_pad_catalog_id(catalog_id: object) -> bool:
+    return (
+        isinstance(catalog_id, str)
+        and _CUSTOM_PAD_ID_PATTERN.fullmatch(catalog_id) is not None
+    )
+
+
+def _pattern_sort_key(
+    pattern: PatternSpec,
+    custom_by_id: Mapping[str, CustomPadSpec],
+) -> tuple[object, ...]:
+    parsed = parse_pad_catalog_id(pattern.catalog_id)
+    if parsed is None:
+        custom_pad = custom_by_id[pattern.catalog_id]
+        return (
+            2,
+            custom_pad.name.casefold(),
+            custom_pad.shape,
+            custom_pad.width_mm,
+            custom_pad.height_mm,
+            pattern.catalog_id,
+        )
+    library, footprint, pad_index = parsed
+    source = (library, footprint)
+    if source in _DEFAULT_SOURCE_ORDER:
+        return (0, _DEFAULT_SOURCE_ORDER[source], pad_index)
+    return (1, library.casefold(), footprint.casefold(), pad_index)

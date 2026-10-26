@@ -1,0 +1,276 @@
+"""Pad の階層 group-by ロジック.
+
+塗布設定の override 解決（``pcbasm.pasting.overrides``）と UI の表示が
+同一の階層を共有するため、装置非依存の純ロジックとしてここに集約する。
+
+階層は L0–L4 の 5 段で、下位ほど具体的になる。
+
+- L0 ``("L0",)`` 全部品デフォルト
+- L1 ``("L1", package)`` 同規格パーツ（``Component.package``）
+- L2 ``("L2", designator)`` 各コンポーネント
+- L3 ``("L3", designator, shape_label)`` designator 内の同形状 pad
+- L4 ``("L4", designator, pad_ref)`` 個々の pad
+
+L3 の形状分類は :class:`PadShapeKey` による。回転配置された同型 pad が
+同一キーになるよう、最小回転外接矩形の短辺/長辺で正規化する。
+L4 は pad の一意な ``ref`` から引く（同じ ``pad_number`` の分割片は ``#1`` / ``#2`` で区別される）。
+"""
+
+import hashlib
+import json
+from collections.abc import Iterator, Sequence
+from typing import Self
+
+import attrs
+
+from pcbasm.board import Component, Pad
+from pcbasm.geometry import oriented_bbox
+
+# 階層ノードのキー（例 ("L3", "U1", "0.50x0.90mm")）
+HierKey = tuple[str, ...]
+
+# 形状量子化の既定単位（mm／mm²）
+DEFAULT_SHAPE_QUANTUM = 0.01
+
+
+@attrs.frozen
+class PadShapeKey:
+    """Pad の形状・サイズ分類キー.
+
+    熱パッドと信号ピンを区別するため、量子化した面積と回転不変の
+    最小外接矩形短辺/長辺、カスタム形状フラグで pad をグループ化する。
+
+    Attributes:
+        area_q: ``round(pad.area / quantum)``（量子化面積）
+        short_q: 最小回転外接矩形の短辺 / quantum を round した値
+        long_q: 同 長辺 / quantum を round した値
+        is_custom_shape: カスタム形状かどうか
+    """
+
+    area_q: int
+    short_q: int
+    long_q: int
+    is_custom_shape: bool
+
+    @classmethod
+    def of(cls, pad: Pad, *, quantum: float = DEFAULT_SHAPE_QUANTUM) -> "PadShapeKey":
+        """Pad から形状キーを生成する.
+
+        Args:
+            pad: 対象 pad
+            quantum: 量子化単位（mm／mm²、既定 0.01）
+
+        Returns:
+            形状キー
+        """
+        box = oriented_bbox(pad.polygon)
+        short, long = (0.0, 0.0) if box is None else (box.short_length, box.long_length)
+        return cls(
+            area_q=round(pad.area / quantum),
+            short_q=round(short / quantum),
+            long_q=round(long / quantum),
+            is_custom_shape=pad.is_custom_shape,
+        )
+
+    @property
+    def label(self) -> str:
+        """人間可読なラベル（UI 表示用、例 ``"0.50x0.90mm"``）.
+
+        カスタム形状の場合は短辺×長辺の外接寸法に加え面積を併記する。
+        """
+        # PadShapeKey は量子化値しか保持しないため、既定 quantum を仮定して
+        # 表示用の寸法を復元する（label はあくまで人間向けの近似表示）。
+        short_mm = self.short_q * DEFAULT_SHAPE_QUANTUM
+        long_mm = self.long_q * DEFAULT_SHAPE_QUANTUM
+        if self.is_custom_shape:
+            area_mm2 = self.area_q * DEFAULT_SHAPE_QUANTUM
+            return f"custom {short_mm:.2f}x{long_mm:.2f}mm ({area_mm2:.2f}mm2)"
+        return f"{short_mm:.2f}x{long_mm:.2f}mm"
+
+
+@attrs.frozen
+class PadHierarchyNode:
+    """階層ツリーの 1 ノード.
+
+    Attributes:
+        level: 階層レベル（0..4）
+        key: 階層キー
+        label: UI 表示用ラベル
+        pads: このノード配下の全 pad（葉まで再帰的に含む）
+        children: 子ノード（最具体の L4 では空）
+    """
+
+    level: int
+    key: HierKey
+    label: str
+    pads: tuple[Pad, ...]
+    children: tuple["PadHierarchyNode", ...]
+
+
+@attrs.frozen
+class PadHierarchy:
+    """Pad の L0–L4 階層ツリー.
+
+    Attributes:
+        root: L0 ルートノード
+    """
+
+    root: PadHierarchyNode
+    # pad.ref -> L0..L4 の 5 キー。build 時に構築する。
+    _keys_by_pad_ref: dict[str, tuple[HierKey, ...]] = attrs.field(
+        factory=dict, eq=False, alias="keys_by_pad_ref"
+    )
+
+    @classmethod
+    def build(
+        cls,
+        components: Sequence[Component],
+        pads: Sequence[Pad],
+        *,
+        shape_quantum: float = 0.01,
+    ) -> Self:
+        """部品と pad から L0–L4 階層ツリーを構築する.
+
+        pad の package は designator で ``components`` から引く（どちらも同じ footprint 群から読むので必ずある）。
+
+        Args:
+            components: 対象部品列
+            pads: 対象 pad 列（``ref`` は一意）
+            shape_quantum: 形状量子化単位（mm／mm²、既定 0.01）
+
+        Returns:
+            構築した階層
+        """
+        package_by_designator = {c.designator: c.package for c in components}
+
+        keys_by_pad_ref: dict[str, tuple[HierKey, ...]] = {}
+        for pad in pads:
+            package = package_by_designator[pad.designator]
+            shape_label = PadShapeKey.of(pad, quantum=shape_quantum).label
+            keys_by_pad_ref[pad.ref] = _hier_keys_for(pad, package, shape_label)
+
+        root = _build_node(0, ("L0",), list(pads), keys_by_pad_ref)
+        return cls(root=root, keys_by_pad_ref=keys_by_pad_ref)
+
+    def iter_pads(self) -> Iterator[Pad]:
+        """階層に含まれる全 pad を反復する（ルート配下の順）."""
+        yield from self.root.pads
+
+    def node_keys_for_pad(self, pad: Pad) -> list[HierKey]:
+        """Pad が属する L0–L4 の 5 キーを返す.
+
+        Args:
+            pad: 対象 pad（``ref`` で照合）
+
+        Returns:
+            ``[L0, L1, L2, L3, L4]`` の 5 要素
+
+        Raises:
+            KeyError: pad がこの階層に存在しない場合
+        """
+        return list(self._keys_by_pad_ref[pad.ref])
+
+    def all_keys(self) -> set[HierKey]:
+        """階層に存在する全ノードキーの集合を返す."""
+        keys: set[HierKey] = set()
+        for pad_keys in self._keys_by_pad_ref.values():
+            keys.update(pad_keys)
+        return keys
+
+    def l4_keys_for_pad_ids(
+        self, pad_ids: Sequence[str]
+    ) -> tuple[list[HierKey], list[str]]:
+        """Pad id 列を L4 階層キー列に解決する.
+
+        Returns:
+            ``(解決できた L4 キー列, 未知だった pad id 列)``。未知 id は
+            例外ではなくリストで返す（呼び出し側でまとめて 400 にできる）。
+        """
+        resolved: list[HierKey] = []
+        unknown: list[str] = []
+        for pad_id in pad_ids:
+            keys = self._keys_by_pad_ref.get(pad_id)
+            if keys is None:
+                unknown.append(pad_id)
+                continue
+            resolved.append(keys[-1])
+        return resolved, unknown
+
+    def signature(self) -> str:
+        """Pad 構成の安定ハッシュ（L4 分割 suffix は含めない）を返す.
+
+        L4 の分割 pad suffix は署名に含めない。旧 UI では同一 ``pad_number``
+        の分割片が同じ L4 key にまとめられていたため、ここを新 key にすると既存
+        設定が不必要に「別基板」扱いされる。
+        """
+        records = []
+        for pad in self.iter_pads():
+            records.append(
+                {
+                    "id": f"{pad.designator}.{pad.pad_number}",
+                    "layer": pad.layer.value,
+                    "node_keys": [
+                        _signature_key(key, pad) for key in self.node_keys_for_pad(pad)
+                    ],
+                    "polygon": [[x, y] for x, y in pad.polygon.exterior.coords],
+                }
+            )
+        payload = json.dumps(records, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _signature_key(key: HierKey, pad: Pad) -> list[str]:
+    """署名用に L4 の分割 suffix を pad_number に戻したキー表現を返す."""
+    if key[0] == "L4":
+        return ["L4", key[1], pad.pad_number]
+    return list(key)
+
+
+def _hier_keys_for(pad: Pad, package: str, shape_label: str) -> tuple[HierKey, ...]:
+    """1 pad に対する L0–L4 のキー列を構築する（L4 の末尾は ref から designator を除いた部分）."""
+    return (
+        ("L0",),
+        ("L1", package),
+        ("L2", pad.designator),
+        ("L3", pad.designator, shape_label),
+        ("L4", pad.designator, pad.ref.removeprefix(f"{pad.designator}.")),
+    )
+
+
+# 各レベルのノードラベル（key とその pad から導出）。
+# L0 は固定文字列、L4 は pad の ref、それ以外は key の末尾。
+def _node_label(level: int, key: HierKey, pad: Pad) -> str:
+    if level == 0:
+        return "全部品"
+    if level == 4:
+        return pad.ref
+    return key[-1]
+
+
+def _build_node(
+    level: int,
+    key: HierKey,
+    pads: list[Pad],
+    keys_by_pad_ref: dict[str, tuple[HierKey, ...]],
+) -> PadHierarchyNode:
+    """``key`` のノードを構築し、配下を次レベルの key で再帰グループ化する.
+
+    L4（葉）では子を持たない。出現順は ``pads`` の順をそのまま使う。
+    """
+    children: tuple[PadHierarchyNode, ...] = ()
+    if level < 4:
+        groups: dict[HierKey, list[Pad]] = {}
+        for pad in pads:
+            child_key = keys_by_pad_ref[pad.ref][level + 1]
+            groups.setdefault(child_key, []).append(pad)
+        children = tuple(
+            _build_node(level + 1, child_key, child_pads, keys_by_pad_ref)
+            for child_key, child_pads in groups.items()
+        )
+    return PadHierarchyNode(
+        level=level,
+        key=key,
+        label=_node_label(level, key, pads[0]) if pads else "全部品",
+        pads=tuple(pads),
+        children=children,
+    )

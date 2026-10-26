@@ -1,5 +1,5 @@
-{% extends "tab.html" %}
-{% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
+{% extends "feature.html" %}
+{% import "partials/forms.html" as forms %}
 {% block main %}
 <div class="pasting-workspace" data-testid="pasting-workspace">
 <h2>{{ feature_label }}</h2>
@@ -8,27 +8,15 @@
 {% if auto_threshold_fields or pad_refinement_fields %}
 {# はんだ塗布で使う machine 全体設定。入力後は即保存する。 #}
 <form class="paste-auto-thresholds" data-testid="paste-auto-thresholds" data-requires-control
-      data-machine-settings data-endpoint="/api/settings/machine">
+      data-machine-settings data-endpoint="/api/machine_config">
   {% for field in auto_threshold_fields %}
   <label for="pat-{{ field.key }}">{{ field.label }}
-    <input id="pat-{{ field.key }}" name="{{ field.key }}"
-           data-type="{{ field.value_type }}" type="number" step="any"
-           aria-label="{{ field.label }}"
-           value="{{ field.value if field.value is not none else '' }}"
-           placeholder="未設定"
-           data-testid="auto-threshold-{{ field.key }}">
-    {% if field.unit %}<span class="unit">{{ field.unit }}</span>{% endif %}
+    {{ forms.setting_input(field, "pat", testid="auto-threshold") }}
   </label>
   {% endfor %}
   {% for field in pad_refinement_fields %}
   <label for="prf-{{ field.key }}">{{ field.label }}
-    <input id="prf-{{ field.key }}" name="{{ field.key }}"
-           data-type="{{ field.value_type }}" type="number" step="any" min="0"
-           aria-label="{{ field.label }}"
-           value="{{ field.value if field.value is not none else field.resolved if field.resolved is not none else '' }}"
-           placeholder="未設定"
-           data-testid="pad-refinement-{{ field.key }}">
-    {% if field.unit %}<span class="unit">{{ field.unit }}</span>{% endif %}
+    {{ forms.setting_input(field, "prf", testid="pad-refinement") }}
   </label>
   {% endfor %}
 </form>
@@ -43,8 +31,13 @@
     パッド編集欄の上にある数値欄は機体全体の設定で、入力するとすぐ保存されます。
   </p>
   <div class="pasting-job-panel" data-testid="pasting-job-panel">
+  {# 実行前の予測。時間と内訳の文言はサーバーが組む #}
+  <p class="tact-estimate" data-testid="tact-estimate">
+    予測所要時間 <strong id="tact-estimate-label" data-testid="tact-estimate-label">—</strong>
+    <span id="tact-estimate-detail" class="tact-estimate-detail" data-testid="tact-estimate-detail"></span>
+  </p>
   {% include "partials/job_form.html" %}
-  {% if show_loading_controls %}
+  {% if loading %}
   {% include "partials/loading_controls.html" %}
   {% endif %}
   </div>
@@ -64,10 +57,11 @@
 {% if show_preview %}
 <script src="{{ static_asset('js/preview.js') }}"></script>
 {% endif %}
-{% if show_loading_controls %}
-<script src="{{ static_asset('js/loading_controls.js') }}"></script>
+{% if loading %}
+<script src="{{ static_asset('js/pasting/loading_controls.js') }}"></script>
 {% endif %}
-<script type="module" src="{{ static_asset('js/pad_editor/index.js') }}"></script>
-<script src="{{ static_asset('js/paste_volume_calibrations.js') }}"></script>
+<script type="module" src="{{ static_asset('js/pasting/pad_editor/index.js') }}"></script>
+<script src="{{ static_asset('js/pasting/tact_estimate.js') }}"></script>
+<script src="{{ static_asset('js/pasting/paste_volume_calibrations.js') }}"></script>
 <script src="{{ static_asset('js/settings.js') }}"></script>
 {% endblock %}

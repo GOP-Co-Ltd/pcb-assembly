@@ -1,0 +1,820 @@
+"""`web.api.routers.session` の仕様テスト.
+
+- GET /api/session/state — StateResponse の全フィールド
+- GET /api/session/machine-info — backend の自己申告（machine_id / machine_type /
+  mainsail_url / fb_start / api_version）。到達性プローブも兼ねる
+- machine_id は `Env.hostname` があればそれ、無ければ backend ホストの hostname
+  （これがそのまま機体名。machine.toml に表示名の設定は持たない）
+- mainsail_url は backend 側で解決した値。リクエストのホスト名には追従しない
+  （プロキシ配下で必ず誤るため）。未設定時は `http://{machine_id}.local`
+  （machine_id が既にドットを含むなら `.local` を重ねない）
+  fake の機体（`Env.fake`）は実機の Mainsail へ導かないよう空文字を返す
+- StateResponse に nozzle_cap を追加。`[solder.nozzle.cap]` が x/y/z を揃えていない
+  machine.toml でも 200 + null（防御しないと全クライアントのポーリングが 500 する）
+
+操作権リースの HTTP / WS 境界:
+
+- `POST /api/session/control/{acquire,release,takeover,name}` は `{"control": {...}}` を返す
+  （`GET /api/session/state` の同名フィールドと同じ形）。`control.state` はリクエスト元から見た
+  操作権の状態（held / viewer / free）で、frontend は自分が保持者かを導出しない
+- セッション同定はヘッダ `X-Pcbasm-Session` → cookie `pcbasm_session` → `anonymous`、
+  表示名はヘッダ `X-Pcbasm-Client-Name`（quote 済み）→ cookie `pcbasm_name` →
+  `名前未設定 (<key>)`。壊れた入力は例外にせずフォールバックする
+- 変更系は非保持者に **423 Locked**（body に `holder`）。`emergency-stop` /
+  `jobs/current/abort` / WS `abort` / `takeover` / 全 GET は**絶対にゲートしない**
+- 拒否は Klipper 通信エラーの 502 に化けない（`ControlDeniedError` は `RuntimeError` 派生だが自分の型で 423 に写る）
+- WS は認可拒否で**切断しない**（`{"type": "error"}` を返して接続を維持する）
+
+2 クライアントの区別はリクエストごとのヘッダで行う（同一 app に 2 つ目の
+`TestClient` を被せると lifespan が二重に走り、`bind_loop` の指す loop がずれる）。
+
+ゲート網羅の掃引では「ゲートが無ければ 423 以外になる」入力を選び、ゲートが外れても
+装置を触らない / ジョブが走り出さないものにしてある（未登録ジョブ名・空 values 等）。
+"""
+
+from __future__ import annotations
+
+import socket
+import time
+from pathlib import Path
+from typing import Any
+from urllib.parse import quote
+
+import attrs
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from starlette.testclient import WebSocketTestSession
+
+from tests.support.polling import before_deadline
+from tests.support.web import register_synthetic
+from web.api.app import create_app
+from web.api.backend import Backend
+from web.api.control import ClientIdentity
+from web.api.env import Env
+from web.api.jobs.runtime.context import JobContext
+from web.api.jobs.runtime.record import PromptSpec
+from web.api.machine_config import MachineConfigFile
+
+
+class TestStateApi:
+    """GET /api/session/state."""
+
+    def test_state_reports_all_fields(self, client: TestClient, webui_settings: Env):
+        response = client.get("/api/session/state")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["pcb_file"] is None
+        assert data["busy"] is False
+        assert data["busy_owner"] is None
+        assert data["focus_z"] == -25.0
+        # machine-info と同じ解決結果（fixture の machine_id はこのホスト名）
+        assert data["mainsail_url"] == f"http://{socket.gethostname()}.local"
+        assert data["preview_clients"] == 0
+        # fixture の machine.toml に [solder.nozzle.cap] / [solder.nozzle.clean] が無いので未記録
+        assert data["nozzle_cap"] is None
+        assert data["nozzle_clean"] is None
+
+    def test_state_reports_busy_while_locked(
+        self, client: TestClient, backend: Backend
+    ):
+        with backend.lock.hold("pytest-job"):
+            data = client.get("/api/session/state").json()
+
+        assert data["busy"] is True
+        assert data["busy_owner"] == "pytest-job"
+
+    def test_state_reports_recorded_nozzle_cap(
+        self, client: TestClient, machine_config: MachineConfigFile
+    ):
+        machine_config.write({"solder.nozzle.cap.position": [10.0, 20.0, -3.5]})
+
+        data = client.get("/api/session/state").json()
+
+        # 表示文字列はサーバーが組んで返す（JS とテンプレートに整形させない）
+        assert data["nozzle_cap"] == {
+            "x": 10.0,
+            "y": 20.0,
+            "z": -3.5,
+            "label": "X10.000 Y20.000 Z-3.500",
+        }
+
+    def test_partially_recorded_nozzle_cap_reports_the_config_error(
+        self, partial_nozzle_cap: Path, client: TestClient
+    ):
+        """X だけ書かれた `[solder.nozzle.cap]` は設定エラー（degraded）.
+
+        全ページの SSR と全クライアントのポーリングが読むので、500 にせず理由を返す。
+        """
+        response = client.get("/api/session/state")
+
+        assert response.status_code == 200
+        assert response.json()["nozzle_cap"] is None
+        assert "x / y / z の 3 つ" in response.json()["config_error"]
+
+    def test_state_reports_recorded_nozzle_clean_with_server_built_label(
+        self, client: TestClient, machine_config: MachineConfigFile
+    ):
+        """表示文字列はサーバーが組んで返す（JS に整形させない）."""
+        machine_config.write(
+            {
+                "solder.nozzle.clean.position": [10.0, 20.0, -30.0],
+                "solder.nozzle.clean.press_depth": 0.4,
+            }
+        )
+
+        data = client.get("/api/session/state").json()
+
+        assert data["nozzle_clean"]["label"] == "(10.00, 20.00, -30.00) mm"
+
+    def test_partially_recorded_nozzle_clean_reports_null_without_error(
+        self, partial_nozzle_clean: Path, client: TestClient
+    ):
+        """座標の無い `[solder.nozzle.clean]` でも state は 200 + null を返す."""
+        response = client.get("/api/session/state")
+
+        assert response.status_code == 200
+        assert response.json()["nozzle_clean"] is None
+
+
+class TestMachineInfoApi:
+    """GET /api/session/machine-info — backend の自己申告（到達性プローブ兼用）."""
+
+    def test_reports_all_fields(self, webui_settings: Env):
+        settings = attrs.evolve(webui_settings, hostname="paste-01")
+        with TestClient(create_app(settings)) as client:
+            response = client.get("/api/session/machine-info")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "machine_id": "paste-01",
+            "mainsail_url": "http://paste-01.local",
+            # pcb_browse_start == pcb_browse_root なので初期表示は root
+            "fb_start": "",
+            # frontend / discovery の互換判定に使う値なので、`web.contract.discovery.API_VERSION`
+            # を import せずリテラルで固定する（import すると同語反復になり、うっかりの
+            # バンプが無音で通る）。バンプは意図的な契約変更なのでここも同時に更新する
+            "api_version": 19,
+            "capabilities": [{"name": "solder", "label": "はんだ塗布"}],
+        }
+
+    def test_mainsail_url_resolves_from_machine_id_not_request_host(
+        self, webui_settings: Env
+    ):
+        """Mainsail の URL は machine_id から解決し、リクエスト元には追従しない.
+
+        プロキシ配下（frontend 経由）ではリクエストのホスト名が frontend 機を指すため、
+        `request.url.hostname` フォールバックは必ず誤る。machine_id は短いホスト名なので
+        LAN の他端末からは mDNS の `*.local` しか引けず、`.local` を付けて返す。
+        """
+        settings = attrs.evolve(webui_settings, hostname="paste-01")
+        with TestClient(create_app(settings)) as client:
+            info = client.get("/api/session/machine-info").json()
+
+        assert info["mainsail_url"] == "http://paste-01.local"
+        assert "testserver" not in info["mainsail_url"]
+
+    def test_mainsail_url_does_not_repeat_local_on_a_dotted_machine_id(
+        self, webui_settings: Env
+    ):
+        """Machine_id が既にドットを含むなら `.local` を重ねない（FQDN 注入・`.local` 注入）."""
+        settings = attrs.evolve(webui_settings, hostname="paste-01.local")
+        with TestClient(create_app(settings)) as client:
+            info = client.get("/api/session/machine-info").json()
+
+        assert info["mainsail_url"] == "http://paste-01.local"
+
+    def test_fake_machine_does_not_link_to_a_real_mainsail(self, webui_settings: Env):
+        """Fake の機体は実機と同じ machine_id を名乗るので、そこから Mainsail を導かない."""
+        settings = attrs.evolve(webui_settings, hostname="paste-01", fake=True)
+        with TestClient(create_app(settings)) as client:
+            info = client.get("/api/session/machine-info").json()
+
+        assert info["mainsail_url"] == ""
+
+    def test_fb_start_is_relative_to_browse_root(self, webui_settings: Env):
+        settings = attrs.evolve(
+            webui_settings, pcb_browse_root=webui_settings.pcb_browse_root.parent
+        )
+        with TestClient(create_app(settings)) as client:
+            info = client.get("/api/session/machine-info").json()
+
+        assert info["fb_start"] == webui_settings.pcb_browse_start.name
+
+
+ALICE = {"X-Pcbasm-Session": "alice-session", "X-Pcbasm-Client-Name": quote("田中")}
+BOB = {"X-Pcbasm-Session": "bob-session", "X-Pcbasm-Client-Name": quote("鈴木")}
+
+FREE_CONTROL = {"state": "free", "display_name": None, "connections": 0}
+
+# WS イベントの待ち時間上限（ハングをテスト失敗に変えるための締切）
+_WS_DEADLINE = 15.0
+
+# ゲート対象（非保持者は 423）。ゲートが外れたときの応答は 4xx/5xx だが 423 ではない
+GATED_REQUESTS: list[tuple[str, str, dict[str, Any] | None]] = [
+    ("post", "/api/jobs/no_such_job", {"params": {}}),
+    ("post", "/api/jobs/no_such_job/param-defaults", {"values": {}}),
+    ("put", "/api/jobs/current/params", {"values": {}}),
+    ("post", "/api/jobs/last/apply", None),
+    ("post", "/api/jobs/last/discard", None),
+    ("put", "/api/machine_config", {"values": {}}),
+    ("post", "/api/backup/history/machine-missing.toml/restore", None),
+    # 機体のスピーカーを実際に鳴らす（`client` fixture は FakeAudioPlayer なので
+    # ゲートが外れても実 aplay は起動しない）
+    ("post", "/api/audio/test", {"sound": "success"}),
+    ("post", "/api/machine/command", {"type": "relax"}),
+    ("post", "/api/machine/firmware-restart", None),
+    ("put", "/api/selection/pcb-file", {"path": "boards/sample.kicad_pcb"}),
+    ("post", "/api/selection/pcb-file/upload", None),
+    ("post", "/api/pasting/nozzle/cap/record", None),
+    ("patch", "/api/pasting/board/node", {"node": "L1", "values": {}}),
+    ("patch", "/api/pasting/board/pads", {"ids": [], "enabled": True}),
+    ("patch", "/api/pasting/board/initial-purge", {"point": None}),
+    ("post", "/api/pasting/board/import", {"document": {}}),
+    ("post", "/api/pasting/board/reset", None),
+]
+
+# 誰でも可（安全機能・読み取り専用計算・閲覧）
+UNGATED_REQUESTS: list[tuple[str, str, dict[str, Any] | None]] = [
+    ("post", "/api/emergency-stop", None),
+    ("post", "/api/jobs/current/abort", None),
+    ("post", "/api/session/control/takeover", None),
+    ("post", "/api/pasting/board/route", {"layer": "F.Cu"}),
+    ("post", "/api/pasting/board/fill-path", {"layer": "F.Cu"}),
+    ("get", "/api/session/state", None),
+    ("get", "/api/jobs", None),
+    ("get", "/api/jobs/current", None),
+    ("get", "/api/machine_config", None),
+    ("get", "/api/backup/history", None),
+    ("get", "/api/backup", None),
+    ("get", "/api/audio/settings", None),
+    ("get", "/api/pasting/board", None),
+]
+
+
+def _request(
+    client: TestClient,
+    method: str,
+    path: str,
+    body: dict[str, Any] | None,
+    headers: dict[str, str],
+) -> int:
+    """指定 identity で 1 リクエスト送り、ステータスコードを返す."""
+    if path.endswith("/upload"):
+        # multipart 必須のエンドポイント（body 検証より前にゲートが効くかを見る）
+        response = client.post(
+            path, files={"file": ("x.kicad_pcb", b"()")}, headers=headers
+        )
+    else:
+        response = client.request(method.upper(), path, json=body, headers=headers)
+    return response.status_code
+
+
+def _control(client: TestClient, headers: dict[str, str]) -> dict[str, Any]:
+    """`GET /api/session/state` の control フィールド."""
+    response = client.get("/api/session/state", headers=headers)
+    assert response.status_code == 200
+    return response.json()["control"]
+
+
+def _receive_type(
+    ws: WebSocketTestSession, wanted: str, *, limit: int = 500
+) -> dict[str, Any]:
+    """指定 type の WS イベントが届くまで受信する（他 type は読み飛ばす）."""
+
+    def receive() -> dict[str, Any]:
+        for _ in range(limit):
+            message = ws.receive_json()
+            if message["type"] == wanted:
+                return message
+        pytest.fail(f"{limit} 件以内に type={wanted} が届きませんでした")
+
+    # `receive_json` は届くまで無期限に待つ。イベントを配らない退行（購読登録漏れ
+    # など）を「終わらないテスト」ではなく失敗にするため締切をテスト側に持たせる
+    return before_deadline(
+        receive, what=f"type={wanted} の WS イベント", deadline=_WS_DEADLINE
+    )
+
+
+def _wait_status(client: TestClient, status: str, *, timeout: float = 30.0) -> None:
+    """GET /api/jobs/current をポーリングして指定ステータスを待つ（締切はテスト側）."""
+    deadline = time.monotonic() + timeout
+    job: dict[str, Any] | None = None
+    while time.monotonic() < deadline:
+        job = client.get("/api/jobs/current").json()["job"]
+        if job is not None and job["status"] == status:
+            return
+        time.sleep(0.02)
+    pytest.fail(f"{timeout}s 以内に status={status} になりませんでした: {job}")
+
+
+def _register_prompting(app: FastAPI, name: str = "control_prompt") -> None:
+    """Confirm prompt を 1 回出して終わる合成ジョブを登録する（装置は触らない）."""
+
+    def run(ctx: JobContext) -> None:
+        ctx.prompt(PromptSpec(kind="confirm", message="続行しますか"))
+
+    register_synthetic(app.state.backend.catalog, run, name=name)
+
+
+def _register_commanded(app: FastAPI, name: str) -> None:
+    """WS command を 1 件受け取るまで待つ合成ジョブを登録する（装置は触らない）."""
+
+    def run(ctx: JobContext) -> None:
+        ctx.next_command(timeout=None)
+
+    register_synthetic(app.state.backend.catalog, run, name=name, accepts_commands=True)
+
+
+class TestControlEndpoints:
+    """POST /api/session/control/{acquire,release,takeover,name} のワイヤ契約."""
+
+    def test_acquire_returns_control_held_by_the_caller(self, client: TestClient):
+        response = client.post("/api/session/control/acquire", headers=ALICE)
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "control": {"state": "held", "display_name": "田中", "connections": 0}
+        }
+
+    def test_release_frees_the_lease(self, client: TestClient):
+        assert (
+            client.post("/api/session/control/acquire", headers=ALICE).status_code
+            == 200
+        )
+
+        response = client.post("/api/session/control/release", headers=ALICE)
+
+        assert response.status_code == 200
+        assert response.json()["control"] == FREE_CONTROL
+        assert _control(client, BOB) == FREE_CONTROL
+
+    def test_release_by_viewer_does_not_free_the_lease(self, client: TestClient):
+        assert (
+            client.post("/api/session/control/acquire", headers=ALICE).status_code
+            == 200
+        )
+
+        response = client.post("/api/session/control/release", headers=BOB)
+
+        assert response.status_code == 200
+        assert response.json()["control"]["state"] == "viewer"
+        assert _control(client, ALICE)["state"] == "held"
+
+    def test_acquire_by_second_client_returns_423_with_holder(self, client: TestClient):
+        assert (
+            client.post("/api/session/control/acquire", headers=ALICE).status_code
+            == 200
+        )
+
+        response = client.post("/api/session/control/acquire", headers=BOB)
+
+        assert response.status_code == 423
+        assert response.json() == {
+            "detail": "操作権は〈田中〉が保持しています",
+            "holder": {"state": "viewer", "display_name": "田中", "connections": 0},
+        }
+
+    def test_takeover_wins_against_the_holder(self, client: TestClient):
+        assert (
+            client.post("/api/session/control/acquire", headers=ALICE).status_code
+            == 200
+        )
+
+        response = client.post("/api/session/control/takeover", headers=BOB)
+
+        assert response.status_code == 200
+        assert response.json()["control"]["state"] == "held"
+        assert response.json()["control"]["display_name"] == "鈴木"
+        assert _control(client, ALICE)["state"] == "viewer"
+        # 奪われた側は変更系を実行できなくなる
+        assert (
+            client.post("/api/machine/firmware-restart", headers=ALICE).status_code
+            == 423
+        )
+
+    def test_name_updates_the_display_name_of_the_holder(self, client: TestClient):
+        assert (
+            client.post("/api/session/control/acquire", headers=ALICE).status_code
+            == 200
+        )
+        renamed = dict(ALICE) | {"X-Pcbasm-Client-Name": quote("田中太郎")}
+
+        response = client.post("/api/session/control/name", headers=renamed)
+
+        assert response.status_code == 200
+        assert response.json()["control"]["display_name"] == "田中太郎"
+        assert _control(client, BOB)["display_name"] == "田中太郎"
+
+    def test_name_by_viewer_does_not_steal_the_lease(self, client: TestClient):
+        assert (
+            client.post("/api/session/control/acquire", headers=ALICE).status_code
+            == 200
+        )
+
+        response = client.post("/api/session/control/name", headers=BOB)
+
+        assert response.status_code == 200
+        assert response.json()["control"]["state"] == "viewer"
+        assert response.json()["control"]["display_name"] == "田中"
+
+
+class TestStateControlFields:
+    """GET /api/session/state の control（backend がリクエスト元ごとに状態を判定する）."""
+
+    def test_free_lease_is_reported_as_free(self, client: TestClient):
+        data = client.get("/api/session/state", headers=ALICE).json()
+
+        assert data["control"] == FREE_CONTROL
+
+    def test_holder_and_viewer_each_see_their_own_state(self, client: TestClient):
+        assert (
+            client.post("/api/session/control/acquire", headers=ALICE).status_code
+            == 200
+        )
+
+        assert _control(client, ALICE) == {
+            "state": "held",
+            "display_name": "田中",
+            "connections": 0,
+        }
+        assert _control(client, BOB) == {
+            "state": "viewer",
+            "display_name": "田中",
+            "connections": 0,
+        }
+
+    def test_pcb_selection_response_reports_the_caller_as_holder(
+        self, client: TestClient
+    ):
+        response = client.put(
+            "/api/selection/pcb-file",
+            json={"path": "boards/sample.kicad_pcb"},
+            headers=ALICE,
+        )
+
+        assert response.status_code == 200
+        assert response.json()["control"]["state"] == "held"
+
+
+class TestIdentityResolution:
+    """セッション / 表示名の解決順とフォールバック."""
+
+    def test_request_without_headers_claims_as_anonymous(self, client: TestClient):
+        response = client.post("/api/session/control/acquire")
+
+        assert response.status_code == 200
+        anonymous = ClientIdentity("anonymous", "").key
+        assert response.json()["control"]["state"] == "held"
+        assert response.json()["control"]["display_name"] == f"名前未設定 ({anonymous})"
+
+    def test_cookies_are_used_when_headers_are_absent(self, client: TestClient):
+        cookie = f"pcbasm_session=cookie-session; pcbasm_name={quote('佐藤')}"
+
+        response = client.post(
+            "/api/session/control/acquire", headers={"Cookie": cookie}
+        )
+
+        assert response.json()["control"] == {
+            "state": "held",
+            "display_name": "佐藤",
+            "connections": 0,
+        }
+        assert _control(client, {"Cookie": cookie})["state"] == "held"
+
+    def test_header_wins_over_cookie(self, client: TestClient):
+        response = client.post(
+            "/api/session/control/acquire",
+            headers={
+                "X-Pcbasm-Session": "header-session",
+                "X-Pcbasm-Client-Name": quote("ヘッダ名"),
+                "Cookie": "pcbasm_session=cookie-session; pcbasm_name=cookie-name",
+            },
+        )
+
+        assert response.json()["control"]["display_name"] == "ヘッダ名"
+        assert (
+            _control(client, {"X-Pcbasm-Session": "header-session"})["state"] == "held"
+        )
+        assert _control(client, {"X-Pcbasm-Session": "cookie-session"})["state"] == (
+            "viewer"
+        )
+
+    @pytest.mark.parametrize(
+        "raw_name",
+        [
+            pytest.param("田中".encode(), id="raw-utf8-bytes"),
+            pytest.param(b"%E7%94", id="truncated-percent-encoding"),
+            pytest.param(b"   ", id="blank"),
+        ],
+    )
+    def test_undecodable_name_falls_back_to_placeholder(
+        self, client: TestClient, raw_name: bytes
+    ):
+        """壊れた表示名は 500 にせず既定名へ落とす（文字化けを全員に配らない）."""
+        response = client.post(
+            "/api/session/control/acquire",
+            headers={"X-Pcbasm-Session": "s2", "X-Pcbasm-Client-Name": raw_name},
+        )
+
+        assert response.status_code == 200
+        expected = ClientIdentity("s2", "").key
+        assert response.json()["control"]["display_name"] == f"名前未設定 ({expected})"
+
+
+@pytest.mark.usefixtures("unreachable_klipper")
+class TestGateCoverage:
+    """変更系のゲートと、絶対にゲートしないものの掃引."""
+
+    @pytest.mark.parametrize(("method", "path", "body"), GATED_REQUESTS)
+    def test_viewer_is_denied_with_423(
+        self, client: TestClient, method: str, path: str, body: dict[str, Any] | None
+    ):
+        assert (
+            client.post("/api/session/control/acquire", headers=ALICE).status_code
+            == 200
+        )
+
+        status = _request(client, method, path, body, BOB)
+
+        assert status == 423
+
+    @pytest.mark.parametrize(("method", "path", "body"), UNGATED_REQUESTS)
+    def test_viewer_is_never_locked_out(
+        self, client: TestClient, method: str, path: str, body: dict[str, Any] | None
+    ):
+        assert (
+            client.post("/api/session/control/acquire", headers=ALICE).status_code
+            == 200
+        )
+
+        status = _request(client, method, path, body, BOB)
+
+        assert status != 423
+
+    def test_holder_passes_the_gate(self, client: TestClient):
+        assert (
+            client.post("/api/session/control/acquire", headers=ALICE).status_code
+            == 200
+        )
+
+        # ゲートを通ると Klipper 不達（テスト config の port 7126）まで到達する
+        assert (
+            client.post("/api/machine/firmware-restart", headers=ALICE).status_code
+            == 502
+        )
+
+    def test_free_lease_is_claimed_by_the_first_writer(self, client: TestClient):
+        """誰も保持していなければ変更系の呼び出し自体が操作権を取る."""
+        assert (
+            client.post("/api/machine/command", json={"type": "relax"}).status_code
+            == 502
+        )
+
+        anonymous = ClientIdentity("anonymous", "").key
+        assert _control(client, {})["state"] == "held"
+        assert _control(client, ALICE)["display_name"] == f"名前未設定 ({anonymous})"
+
+    def test_denied_machine_control_is_423_not_502(self, client: TestClient):
+        """リース拒否は 502 でなく 423 で返り、frontend が保持者を表示できる."""
+        assert (
+            client.post("/api/session/control/acquire", headers=ALICE).status_code
+            == 200
+        )
+
+        response = client.post(
+            "/api/machine/command", json={"type": "relax"}, headers=BOB
+        )
+
+        assert response.status_code == 423
+        assert response.json()["holder"]["display_name"] == "田中"
+
+    def test_viewer_can_abort_a_job_started_by_the_holder(
+        self, client: TestClient, app: FastAPI
+    ):
+        _register_prompting(app, "control_abortable")
+        assert (
+            client.post(
+                "/api/jobs/control_abortable", json={}, headers=ALICE
+            ).status_code
+            == 201
+        )
+        _wait_status(client, "waiting_input")
+
+        response = client.post("/api/jobs/current/abort", headers=BOB)
+
+        assert response.status_code == 200
+        _wait_status(client, "aborted")
+
+
+class TestWebSocketControl:
+    """WS の在線・認可・control_changed 通知."""
+
+    def test_connection_counts_as_presence(self, client: TestClient):
+        assert (
+            client.post("/api/session/control/acquire", headers=ALICE).status_code
+            == 200
+        )
+
+        with client.websocket_connect("/api/jobs/ws", headers=ALICE):
+            assert _control(client, ALICE)["connections"] == 1
+
+        # 切断は finally で必ず登録解除される（自動解放はしないのでリースは保持のまま）
+        control = _control(client, ALICE)
+        assert control["connections"] == 0
+        assert control["state"] == "held"
+
+    def test_control_changed_carries_each_subscribers_own_state(
+        self, client: TestClient
+    ):
+        """全員へ届き、``control.state`` は受け手ごとに backend が判定して詰める."""
+        with (
+            client.websocket_connect("/api/jobs/ws", headers=ALICE) as alice_ws,
+            client.websocket_connect("/api/jobs/ws", headers=BOB) as bob_ws,
+        ):
+            assert (
+                client.post("/api/session/control/acquire", headers=ALICE).status_code
+                == 200
+            )
+
+            for ws, state in ((alice_ws, "held"), (bob_ws, "viewer")):
+                message = _receive_type(ws, "control_changed")
+                assert message["control"]["state"] == state
+                assert message["control"]["display_name"] == "田中"
+
+    def test_viewer_respond_prompt_yields_error_without_closing(
+        self, client: TestClient, app: FastAPI
+    ):
+        _register_prompting(app, "control_ws_prompt")
+        with client.websocket_connect("/api/jobs/ws", headers=BOB) as bob_ws:
+            assert (
+                client.post(
+                    "/api/jobs/control_ws_prompt", json={}, headers=ALICE
+                ).status_code
+                == 201
+            )
+            prompt = _receive_type(bob_ws, "prompt")["prompt"]
+
+            bob_ws.send_json(
+                {"type": "respond_prompt", "prompt_id": prompt["id"], "answer": True}
+            )
+
+            error = _receive_type(bob_ws, "error")
+            assert "田中" in error["detail"]
+            # 接続は維持される（切れていれば次の送受信で例外になる）
+            bob_ws.send_json({"type": "no_such_type"})
+            assert "no_such_type" in _receive_type(bob_ws, "error")["detail"]
+            # 権限が無い間はジョブも進まない
+            assert client.get("/api/jobs/current").json()["job"]["status"] == (
+                "waiting_input"
+            )
+
+    def test_viewer_command_yields_error_without_closing(
+        self, client: TestClient, app: FastAPI
+    ):
+        """`command` も `respond_prompt` と同じくゲートする.
+
+        `command` は実行中ジョブへの Record / Quit や任意 G-code の入口なので、
+        ここが開くと閲覧者が保持者のジョブへ割り込める（frontend の `inert` は
+        UI だけの防御で、WS へ直接送れば迂回できる）。
+        """
+        _register_commanded(app, "control_ws_command")
+        with client.websocket_connect("/api/jobs/ws", headers=BOB) as bob_ws:
+            response = client.post(
+                "/api/jobs/control_ws_command", json={}, headers=ALICE
+            )
+            assert response.status_code == 201
+            _wait_status(client, "running")
+
+            bob_ws.send_json(
+                {
+                    "type": "command",
+                    "expected_job_id": response.json()["job"]["id"],
+                    "command": {"type": "record"},
+                }
+            )
+
+            error = _receive_type(bob_ws, "error")
+            assert "田中" in error["detail"]
+            # 接続は維持される（切れていれば次の送受信で例外になる）
+            bob_ws.send_json({"type": "no_such_type"})
+            assert "no_such_type" in _receive_type(bob_ws, "error")["detail"]
+            # コマンドはジョブへ届いていない（届けば next_command が返って終わる）
+            assert client.get("/api/jobs/current").json()["job"]["status"] == "running"
+
+    def test_holder_command_reaches_the_running_job(
+        self, client: TestClient, app: FastAPI
+    ):
+        """ゲートは保持者を止めない（コマンドがジョブへ届いて完了する）."""
+        _register_commanded(app, "control_ws_command_holder")
+        with client.websocket_connect("/api/jobs/ws", headers=ALICE) as alice_ws:
+            response = client.post(
+                "/api/jobs/control_ws_command_holder", json={}, headers=ALICE
+            )
+            assert response.status_code == 201
+            _wait_status(client, "running")
+
+            alice_ws.send_json(
+                {
+                    "type": "command",
+                    "expected_job_id": response.json()["job"]["id"],
+                    "command": {"type": "record"},
+                }
+            )
+
+            _wait_status(client, "succeeded")
+
+    def test_viewer_abort_over_ws_is_allowed(self, client: TestClient, app: FastAPI):
+        _register_prompting(app, "control_ws_abort")
+        with client.websocket_connect("/api/jobs/ws", headers=BOB) as bob_ws:
+            assert (
+                client.post(
+                    "/api/jobs/control_ws_abort", json={}, headers=ALICE
+                ).status_code
+                == 201
+            )
+            _receive_type(bob_ws, "prompt")
+
+            bob_ws.send_json({"type": "abort"})
+
+            _wait_status(client, "aborted")
+
+    def test_release_lets_the_next_client_answer_the_pending_prompt(
+        self, client: TestClient, app: FastAPI
+    ):
+        """詰み回避の直接検証（保持者が帰っても他人が引き継いで進められる）."""
+        _register_prompting(app, "control_ws_handover")
+        with client.websocket_connect("/api/jobs/ws", headers=BOB) as bob_ws:
+            assert (
+                client.post(
+                    "/api/jobs/control_ws_handover", json={}, headers=ALICE
+                ).status_code
+                == 201
+            )
+            prompt = _receive_type(bob_ws, "prompt")["prompt"]
+            assert (
+                client.post("/api/session/control/release", headers=ALICE).status_code
+                == 200
+            )
+            assert (
+                client.post("/api/session/control/acquire", headers=BOB).status_code
+                == 200
+            )
+
+            bob_ws.send_json(
+                {"type": "respond_prompt", "prompt_id": prompt["id"], "answer": True}
+            )
+
+            _wait_status(client, "succeeded")
+
+
+class TestNoAutoRelease:
+    """操作権は自動解放しない（解放は明示の解放・奪取とプロセス再起動だけ）."""
+
+    def test_disconnected_holder_still_blocks_other_clients(self, client: TestClient):
+        assert (
+            client.post("/api/session/control/acquire", headers=ALICE).status_code
+            == 200
+        )
+        with client.websocket_connect("/api/jobs/ws", headers=ALICE):
+            pass
+
+        assert _control(client, BOB)["state"] == "viewer"
+        assert (
+            client.post("/api/session/control/acquire", headers=BOB).status_code == 423
+        )
+
+    def test_restart_frees_the_lease(self, webui_settings: Env):
+        with TestClient(create_app(webui_settings)) as client:
+            assert (
+                client.post("/api/session/control/acquire", headers=ALICE).status_code
+                == 200
+            )
+
+        with TestClient(create_app(webui_settings)) as restarted:
+            assert _control(restarted, BOB)["state"] == "free"
+
+
+class TestControlDoesNotBlockJobs:
+    """操作権を取り合っても、実行中のジョブは止まらない."""
+
+    def test_takeover_does_not_touch_the_running_job(
+        self, client: TestClient, app: FastAPI
+    ):
+        _register_prompting(app, "control_takeover_job")
+        assert (
+            client.post(
+                "/api/jobs/control_takeover_job", json={}, headers=ALICE
+            ).status_code
+            == 201
+        )
+        _wait_status(client, "waiting_input")
+
+        assert (
+            client.post("/api/session/control/takeover", headers=BOB).status_code == 200
+        )
+
+        assert client.get("/api/jobs/current").json()["job"]["status"] == (
+            "waiting_input"
+        )

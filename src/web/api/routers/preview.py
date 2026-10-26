@@ -13,11 +13,11 @@ from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.types import Receive, Scope, Send
 
-from web.api.dependencies import PreviewDep, StateDep
-from web.api.preview import MJPEG_MEDIA_TYPE, OverlayKind
-from web.api.state import AppState
+from pcbasm.machine.devices import Devices
+from web.api.camera import MJPEG_MEDIA_TYPE, OverlayKind
+from web.api.deps import CameraDep, DevicesDep
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api/preview")
 
 # ジェネレータ close の再試行上限。FrameSource.capture の timeout（5s）より
 # 長く取り、worker thread が next() 実行中でも close を完遂できるようにする
@@ -74,10 +74,10 @@ class _ClosingStreamingResponse(StreamingResponse):
                 await run_in_threadpool(_close_when_suspended, self._sync_content)
 
 
-@router.get("/preview/stream")
+@router.get("/stream")
 def preview_stream(
-    state: StateDep,
-    preview: PreviewDep,
+    devices: DevicesDep,
+    camera: CameraDep,
     overlay: OverlayKind = "none",
     canny_low: float | None = None,
     canny_high: float | None = None,
@@ -86,17 +86,17 @@ def preview_stream(
     # ジェネレータ方式では最初のフレーム取得前にエラーを検出できないため、
     # カメラ構築エラーはここで 503 に変換する（配信開始後のエラーは
     # ストリーム切断として扱い、クライアントのリトライに任せる）
-    _build_hub_or_503(state)
+    _build_hub_or_503(devices)
     return _ClosingStreamingResponse(
-        preview.mjpeg_stream(overlay, canny_low, canny_high),
+        camera.mjpeg_stream(overlay, canny_low, canny_high),
         media_type=MJPEG_MEDIA_TYPE,
     )
 
 
-def _build_hub_or_503(state: AppState) -> None:
+def _build_hub_or_503(devices: Devices) -> None:
     """FrameHub を（必要なら）構築し、カメラ構築失敗を 503 へ変換する."""
     try:
-        state.frame_hub()
+        devices.frame_hub()
     except (OSError, RuntimeError) as exc:
         raise HTTPException(
             status_code=503, detail=f"カメラを構築できません: {exc}"

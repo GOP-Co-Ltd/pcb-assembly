@@ -62,5 +62,3 @@ pre-release 依存（`hydra-optuna-sweeper==1.4.0.dev9`）が実測で正常に�
 
 - 安価な目的関数で数万 trial を回す用途が出てきたとき（代理モデル探索など）
 - rustuna が安定版に達し、RDB storage が optuna と同等になったとき
-
-参照: `memory/agents/orchestrator/ml-core-5-config-tuning.md`（MR5 の決定 1）

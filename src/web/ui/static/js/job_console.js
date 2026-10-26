@@ -1,11 +1,14 @@
 "use strict";
 
-// グローバル WS クライアント（/api/ws）+ ジョブコンソール UI。
-// tab.html（全タブ）と settings.html から読み込まれ、window.webui.jobs を公開する。
+// ジョブの状態（WS /api/jobs/ws）+ ジョブコンソール UI + ジョブの開始フォーム。
+// feature.html（機能のページ）と machine/machine_config.html から読み込まれ、window.webui.jobs を公開する。
 // ページに #job-console（data-job-names）があればコンソールを描画する。
+//
+// ジョブを始める前に、ページの保存待ち（pendingSaves）をすべて送り終える。
+// 保存に失敗したら開始しない（古い設定のまま走らせない）。
 
 (() => {
-  const { toast, api, createBackoff, withBase } = window.webui;
+  const { toast, api, connectEvents, pendingSaves, withBase } = window.webui;
 
   const TERMINAL = new Set(["succeeded", "failed", "aborted"]);
   const STATUS_LABELS = {
@@ -24,10 +27,15 @@
   const originalTitle = document.title;
   const completionNotice = document.getElementById("job-completion-notice");
   const completionMessage = document.getElementById("job-completion-message");
-  let socket = null;
-  const reconnectBackoff = createBackoff(1000, 15000);
+  // 入力を次回のフォーム既定値として保存するまでの間（打つたびには送らない）
+  const PARAM_SAVE_DELAY_MS = 400;
+  let events = null;
   let currentJob = null;
   let jobStatusVersion = 0;
+  // 経過秒はサーバーの値を受け取った時刻からローカルで進める（ブラウザとの時計のずれを持ち込まない）
+  let elapsedBase = 0;
+  let elapsedAt = 0;
+  let elapsedTimer = null;
   let abortRequestedJobId = null;
   let completionJobId = null;
 
@@ -47,9 +55,7 @@
   }
 
   function send(message) {
-    if (socket === null || socket.readyState !== WebSocket.OPEN) return false;
-    socket.send(JSON.stringify(message));
-    return true;
+    return events.send(message);
   }
 
   function sendCommand(command) {
@@ -138,36 +144,19 @@
     },
   };
 
-  // ---- WS 接続（指数バックオフ再接続 + 再同期）----
+  // ---- WS 接続（張り直したら再同期）----
 
-  function connect() {
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    const connection = new WebSocket(`${proto}://${location.host}${withBase("/api/ws")}`);
-    socket = connection;
-    connection.addEventListener("open", async () => {
-      reconnectBackoff.reset();
-      // 切断中の control_changed は届いていないので操作権も取り直す
-      window.webui.control?.refresh();
-      const version = jobStatusVersion;
-      try {
-        const data = await api("GET", "/api/jobs/current");
-        // 同期中に届いた WS の全量通知や次の接続の状態を、古い HTTP 応答で上書きしない。
-        if (socket === connection && connection.readyState === WebSocket.OPEN
-            && jobStatusVersion === version) {
-          applyJob(data.job);
-        }
-      } catch {
-        /* 再接続時に再試行される */
-      }
-    });
-    connection.addEventListener("message", (event) => {
-      if (socket === connection) handleEvent(JSON.parse(event.data));
-    });
-    connection.addEventListener("close", () => {
-      if (socket !== connection) return;
-      socket = null;
-      setTimeout(connect, reconnectBackoff.next());
-    });
+  async function resync(isCurrent) {
+    // 切断中の control_changed は届いていないので操作権も取り直す
+    window.webui.control?.refresh();
+    const version = jobStatusVersion;
+    try {
+      const data = await api("GET", "/api/jobs/current");
+      // 同期中に届いた WS の全量通知や次の接続の状態を、古い HTTP 応答で上書きしない。
+      if (isCurrent() && jobStatusVersion === version) applyJob(data.job);
+    } catch {
+      /* 再接続時に再試行される */
+    }
   }
 
   function handleEvent(event) {
@@ -198,8 +187,7 @@
         refreshHeader();
         break;
       case "control_changed":
-        // 保持者が変わったことは全 subscriber へ同一 payload で届く。「自分か」の
-        // 判定は control.js が you.key と比べて行う
+        // control.state はこの接続から見た操作権の状態（backend が接続ごとに詰める）
         window.webui.control?.applyControl(event.control);
         break;
       case "error":
@@ -210,7 +198,7 @@
 
   async function refreshHeader() {
     try {
-      const state = await api("GET", "/api/state");
+      const state = await api("GET", "/api/session/state");
       const chip = document.getElementById("pcb-chip");
       if (chip) chip.textContent = state.pcb_file || "PCB未選択";
     } catch {
@@ -222,6 +210,8 @@
 
   function applyJob(job) {
     currentJob = job ?? null;
+    elapsedBase = currentJob?.elapsed_seconds ?? 0;
+    elapsedAt = performance.now();
     if (!isActive(currentJob) || currentJob.id !== abortRequestedJobId) {
       abortRequestedJobId = null;
     }
@@ -299,6 +289,28 @@
       : stage || "";
   }
 
+  // 秒を「h時間m分s秒」にする（毎秒進めるのでブラウザで組む。予測所要時間の文言はサーバーが組む）
+  function formatDuration(seconds) {
+    const total = Math.floor(seconds);
+    return `${Math.floor(total / 3600)}時間${Math.floor((total % 3600) / 60)}分${total % 60}秒`;
+  }
+
+  function renderElapsed(job) {
+    const elapsed = el("jc-elapsed");
+    const running = ownsJob(job) && isActive(job);
+    elapsed.hidden = !ownsJob(job);
+    if (ownsJob(job)) {
+      const seconds = elapsedBase + (running ? (performance.now() - elapsedAt) / 1000 : 0);
+      elapsed.textContent = `経過 ${formatDuration(seconds)}`;
+    }
+    if (running && elapsedTimer === null) {
+      elapsedTimer = setInterval(() => renderElapsed(currentJob), 1000);
+    } else if (!running && elapsedTimer !== null) {
+      clearInterval(elapsedTimer);
+      elapsedTimer = null;
+    }
+  }
+
   function renderStartButtons() {
     // 保存・開始要求の待機中も、重ねて開始要求を送らない。
     for (const jobForm of forms) {
@@ -311,6 +323,7 @@
     if (!consoleEl) return;
     const job = currentJob;
     renderStartButtons();
+    renderElapsed(job);
 
     if (!ownsJob(job)) {
       el("jc-status").textContent = STATUS_LABELS.idle;
@@ -425,12 +438,14 @@
         input.required = true;
       }
       input.id = "jc-prompt-input";
+      input.dataset.testid = "jc-prompt-input";
       input.setAttribute("aria-labelledby", "jc-prompt-message");
       if (prompt.default !== null && prompt.default !== undefined) input.value = prompt.default;
       field.appendChild(input);
     } else if (prompt.kind === "choice") {
       const select = document.createElement("select");
       select.id = "jc-prompt-input";
+      select.dataset.testid = "jc-prompt-input";
       select.setAttribute("aria-labelledby", "jc-prompt-message");
       for (const choice of prompt.choices) {
         const option = document.createElement("option");
@@ -532,7 +547,50 @@
 
   // ---- ジョブ開始フォーム ----
 
+  // フォームの入力をパラメータの値にする。skipBlank では空欄を含めない（入力途中の空欄を既定値として保存しない）
+  function formParams(jobForm, { skipBlank = false } = {}) {
+    const params = {};
+    for (const input of jobForm.querySelectorAll("[data-param-type]")) {
+      const type = input.dataset.paramType;
+      const blank = type !== "bool" && input.value === "";
+      if (blank && (skipBlank || input.dataset.paramOptional === "true")) continue;
+      if (type === "bool") {
+        params[input.name] = input.checked;
+      } else if (type === "float") {
+        params[input.name] = Number(input.value);
+      } else if (type === "int") {
+        params[input.name] = parseInt(input.value, 10);
+      } else {
+        params[input.name] = input.value;
+      }
+    }
+    return params;
+  }
+
+  // 入力を「実行」を待たずに次回のフォーム既定値として保存する（保存するキーは backend が persisted_params で選ぶ）
+  function persistParams(jobForm) {
+    const name = jobForm.dataset.jobName;
+    pendingSaves.schedule(
+      `param-defaults:${name}`,
+      () =>
+        pendingSaves.run("保存失敗", () =>
+          api("POST", `/api/jobs/${name}/param-defaults`, {
+            values: formParams(jobForm, { skipBlank: true }),
+          })
+        ),
+      PARAM_SAVE_DELAY_MS
+    );
+  }
+
+  window.webui.jobs.formParams = formParams;
+  window.webui.jobs.persistParams = persistParams;
+
   for (const jobForm of forms) {
+    if (jobForm.hasAttribute("data-persist-params")) {
+      for (const type of ["input", "change"]) {
+        jobForm.addEventListener(type, () => persistParams(jobForm));
+      }
+    }
     jobForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       if (startPending || isActive(currentJob)) return;
@@ -540,24 +598,11 @@
       renderStartButtons();
       completionJobId = null;
       dismissCompletionNotice();
-      const params = {};
-      for (const input of jobForm.querySelectorAll("[data-param-type]")) {
-        const type = input.dataset.paramType;
-        if (input.dataset.paramOptional === "true" && input.value === "") {
-          continue;
-        }
-        if (type === "bool") {
-          params[input.name] = input.checked;
-        } else if (type === "float") {
-          params[input.name] = Number(input.value);
-        } else if (type === "int") {
-          params[input.name] = parseInt(input.value, 10);
-        } else {
-          params[input.name] = input.value;
-        }
-      }
+      const params = formParams(jobForm);
       try {
         for (const prepare of beforeStart) await prepare();
+        const failure = await pendingSaves.flush();
+        if (failure) throw new Error(`保存できなかったため開始しませんでした。${failure.message}`);
         el("jc-log").textContent = "";
         el("jc-result").hidden = true;
         renderProgress("", null);
@@ -577,5 +622,5 @@
     });
   }
 
-  connect();
+  events = connectEvents({ onOpen: resync, onEvent: handleEvent });
 })();

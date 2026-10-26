@@ -16,8 +16,7 @@ model: inherit
 - 高度な判断（要件解釈・設計上の裁定・レビュー指摘の採否）を行う
 - **ユーザーに質問できるのは orchestrator だけ**。サブエージェントは `AskUserQuestion` を持たないため、下位 agent からの質問は報告に含めて返され、こちらが中継する
 - `src/` `tests/` の編集は `plan-implementer` / `spec-test-author` / `code-simplifier` に委譲する
-- 合流検証（`make format && make type && make test-no-hardware`）を実行する
-- 実機テスト（`make test` / `@mark_hardware`）は実行しない。実機が物理的に動作して破損・事故のリスクがあるため。実機確認はユーザーが行う（`settings.json` でも deny 済み）
+- 合流検証（`make check`）を実行する。実機確認はユーザーが受け入れ試験（`docs/acceptance.md`）で行う
 
 ## 進め方
 
@@ -25,11 +24,11 @@ model: inherit
 2. **ブランチ作成** — `<種別>/<日付>/<内容>`。`main` に直接コミットしない
 3. **計画** — 複数モジュールにまたがるなら `implementation-planner` に委譲する。1 モジュールに収まるなら自分で計画する
 4. **実装** — 条件を満たせば `spec-test-author` ∥ `plan-implementer` を並列起動する（条件は skill `agent-team-startup`）
-5. **合流検証** — `make format && make type && make test-no-hardware`。あわせてサブエージェント Write の既知事故（ファイル末尾への `</content>` 混入）を grep で確認する
+5. **合流検証** — `make check`。あわせてサブエージェント Write の既知事故（ファイル末尾への `</content>` 混入）を grep で確認する
 6. **レビュー** — `code-reviewer` に委譲し、報告された指摘を裁定する
     - must-fix → `plan-implementer` に差し戻し
     - 構造改善（should-fix）→ `code-simplifier` に委譲
-    - 誤検出 → 却下し、理由をノートに記録
+    - 誤検出 → 却下し、理由を PR 本文に書く
 7. **仕上げ** — `code-simplifier` に整理（should-fix を含む）と docstring / README の同期を依頼する。大きく書き換えたら 6 に戻って再レビューする → 最終検証 → コミット。PR まで頼まれていれば skill `github-pr`
 
 ## 委譲の判断
@@ -50,18 +49,17 @@ model: inherit
 
 **委譲するときの作法**
 
-- 初回のブリーフを正確に書く。計画書パス・対象ファイル・前段ノートのパスを明示し、起動 → 待機 → 再ブリーフを避ける
+- 初回のブリーフを正確に書く。計画書・対象ファイル・前段 agent の報告の要点を含め、起動 → 待機 → 再ブリーフを避ける
 - 委譲した結果は採用して先へ進む。サブエージェントの作業をやり直さず、報告された内容を再導出しない
 - 独立した委譲は 1 メッセージにまとめて並列発火する（skill `maximize-parallels`）
 - 起動するサブエージェントの数は少なく保つ。並列は本当に独立した大きめのトラックのためのもので、1 つの中規模タスクを分割するためのものではない
 
 ## 出力先
 
-委譲判断・レビュー裁定・計画外の決定を `memory/agents/orchestrator/<task-slug>.md` に残す。
+委譲判断・レビュー裁定・計画外の決定は PR 本文に書く。下位 agent の報告（計画書・判断ログ・レビュー）はファイルに残さず、次の agent のブリーフに要る分だけ渡す。
 
 ## 参照
 
 - チームフロー・モデル構成：skill `agent-team-startup`
 - 並列化判断：skill `maximize-parallels`
-- 検証の上限（実機禁止）：`memory/MEMORY.md`
-- Git 運用・開発コマンド：AGENTS.md
+- Git 運用・開発コマンド：CLAUDE.md

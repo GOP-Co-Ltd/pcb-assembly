@@ -1,7 +1,6 @@
 """2 端末（別 browser context = 別セッション）から同じマシンを触ったときの操作権 E2E.
 
-MR6 実装契約 §5 / §6 / §10 の交差検証。backend 単体テストではヘッダを注入しない
-クライアントが全員 `anonymous` を共有してしまうため「別セッション」が作れず、
+backend 単体テストではヘッダを注入しないクライアントが全員 `anonymous` を共有してしまうため「別セッション」が作れない。
 frontend 単体テストでは `inert` を実 DOM で確かめられない。ここだけが両方を見る。
 
 アサートは 3 点に絞る:
@@ -32,17 +31,17 @@ import pytest
 from playwright.sync_api import expect
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from tests.e2e.conftest import (
+from tests.support.browser import (
     E2E_MACHINE_ID,
     LiveServer,
     LiveUi,
     acquire_control as _acquire_control,
-    make_ui_settings,
     select_led_blinker as _select_led_blinker,
     session_headers as _session_headers,
     start_app,
 )
-from tests.helpers import wait_until
+from tests.support.polling import wait_until
+from tests.support.web import make_ui_settings
 from web.ui.app import create_app
 from web.ui.machines import MachineEndpoint
 
@@ -74,7 +73,7 @@ class _HttpOnlyTransport:
             # accept 前に拒否するので、ブラウザの open は発火しない。
             await send({"type": "websocket.close", "code": 1008})
             return
-        if scope["type"] == "http" and scope["path"].endswith("/api/state"):
+        if scope["type"] == "http" and scope["path"].endswith("/api/session/state"):
             self._state_received.set()
             await asyncio.to_thread(self._state_release.wait, 10)
         await self._app(scope, receive, send)
@@ -108,7 +107,9 @@ def http_only_ui(
 def _open(page: Any, live_ui: LiveUi) -> None:
     """ジョブコンソールのあるページを開き、操作権の状態がサーバ由来になるまで待つ."""
     page.goto(f"{live_ui.base_url}/{_PROMPT_PAGE}", wait_until="domcontentloaded")
-    page.locator("#job-console").wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+    page.get_by_test_id("job-console").wait_for(
+        state="visible", timeout=_BROWSER_TIMEOUT_MS
+    )
     page.wait_for_function(
         "() => window.webui?.control !== undefined", timeout=_BROWSER_TIMEOUT_MS
     )
@@ -126,10 +127,10 @@ def _open_http_only(page: Any, live_ui: LiveUi) -> None:
 def _release_control(live_server: LiveServer) -> None:
     """下準備の backend 直叩き（セッションヘッダ無し = anonymous）が握った操作権を返す."""
     response = httpx.post(
-        f"{live_server.base_url}/api/control/release", timeout=_HTTP_TIMEOUT
+        f"{live_server.base_url}/api/session/control/release", timeout=_HTTP_TIMEOUT
     )
     assert response.status_code == 200, response.text
-    assert response.json()["control"]["held"] is False
+    assert response.json()["control"]["state"] == "free"
 
 
 def _wait_control(page: Any, expected: str) -> None:
@@ -140,9 +141,9 @@ def _wait_control(page: Any, expected: str) -> None:
     )
 
 
-def _is_inert(page: Any, selector: str) -> bool:
+def _is_inert(page: Any, testid: str) -> bool:
     """`inert` 属性が付いているか（`is_enabled()` は inert を見ないので属性を読む）."""
-    return page.locator(selector).evaluate("(el) => el.hasAttribute('inert')")
+    return page.get_by_test_id(testid).evaluate("(el) => el.hasAttribute('inert')")
 
 
 def _job_status(live_server: LiveServer) -> str | None:
@@ -190,13 +191,13 @@ class TestTwoBrowsersOnOneMachine:
         _select_led_blinker(live_server)
         operator, viewer = _operator_and_viewer(live_ui, browser_pages)
 
-        assert not _is_inert(operator, "#firmware-restart")
-        assert not _is_inert(operator, "#machine-control")
+        assert not _is_inert(operator, "firmware-restart")
+        assert not _is_inert(operator, "machine-control")
 
-        assert _is_inert(viewer, "#firmware-restart")
-        assert _is_inert(viewer, "#machine-control")
-        assert _is_inert(viewer, ".jc-prompt-actions")
-        assert _is_inert(viewer, "#jc-prompt-field")
+        assert _is_inert(viewer, "firmware-restart")
+        assert _is_inert(viewer, "machine-control")
+        assert _is_inert(viewer, "jc-prompt-actions")
+        assert _is_inert(viewer, "jc-prompt-field")
 
     def test_gated_controls_are_inert_before_the_server_answers(
         self, live_server: LiveServer, http_only_ui, browser_pages
@@ -205,7 +206,7 @@ class TestTwoBrowsersOnOneMachine:
 
         SSR の `data-control="viewer"` だけでは `inert` は付かない（付けるのは
         control.js の初期描画）。初期値が `held` だと応答が届くまでの間は操作できて
-        しまい、既に他の端末が持っている操作へ割り込める。`GET /api/state` を
+        しまい、既に他の端末が持っている操作へ割り込める。`GET /api/session/state` を
         実 frontend の手前で保留し、その窓を固定して観測する。再開後は実 backend の
         空き状態が届くことも確認し、未完了リクエストを残さない。
         """
@@ -217,9 +218,9 @@ class TestTwoBrowsersOnOneMachine:
         assert transport.wait_state_request()
 
         assert page.evaluate("() => document.body.dataset.control") == "viewer"
-        assert _is_inert(page, "#firmware-restart")
-        assert _is_inert(page, "#machine-control")
-        assert not _is_inert(page, "#estop")
+        assert _is_inert(page, "firmware-restart")
+        assert _is_inert(page, "machine-control")
+        assert not _is_inert(page, "estop")
 
         transport.resume_state()
         _wait_control(page, "free")
@@ -234,23 +235,23 @@ class TestTwoBrowsersOnOneMachine:
         viewer.on("request", lambda request: urls.append(request.url))
 
         # 実マウスで押す（inert はポインタイベントを通さないので何も起きない）
-        button = viewer.locator("#firmware-restart")
+        button = viewer.get_by_test_id("firmware-restart")
         box = button.bounding_box(timeout=_BROWSER_TIMEOUT_MS)
         assert box is not None
         viewer.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
         # 「必ず飛ぶ」リクエストを 1 本入れて順序で「飛んでいない」を確かめる
         # （ハンドラが動いていれば fetch はこれより前に並ぶ）
         viewer.evaluate("() => window.webui.control.refresh()")
-        assert [url for url in urls if "/api/firmware-restart" in url] == []
+        assert [url for url in urls if "/api/machine/firmware-restart" in url] == []
 
         # UI を迂回されても backend が拒む（fail-closed の二重化）
         denied = httpx.post(
-            f"{live_server.base_url}/api/firmware-restart",
+            f"{live_server.base_url}/api/machine/firmware-restart",
             headers=_session_headers(viewer),
             timeout=_HTTP_TIMEOUT,
         )
         assert denied.status_code == 423, denied.text
-        assert denied.json()["holder"]["held"] is True
+        assert denied.json()["holder"]["state"] == "viewer"
 
     @pytest.mark.parametrize("width", [1280, 390])
     def test_viewer_can_stop_a_running_job(
@@ -268,9 +269,11 @@ class TestTwoBrowsersOnOneMachine:
         viewer.evaluate("window.scrollTo(0, document.body.scrollHeight)")
 
         # 中止も緊急停止も閲覧者の画面で押せる（inert が付かない）
-        assert not _is_inert(viewer, "#jc-abort")
-        expect(viewer.locator("#jc-abort")).to_be_enabled(timeout=_BROWSER_TIMEOUT_MS)
-        assert not _is_inert(viewer, "#estop")
+        assert not _is_inert(viewer, "jc-abort")
+        expect(viewer.get_by_test_id("jc-abort")).to_be_enabled(
+            timeout=_BROWSER_TIMEOUT_MS
+        )
+        assert not _is_inert(viewer, "estop")
         # 自動スクロールで救済される前に、画面内で指が届き、他の要素に覆われないこと。
         stop = viewer.get_by_test_id("estop")
         expect(stop).to_have_count(1)
@@ -283,7 +286,7 @@ class TestTwoBrowsersOnOneMachine:
         with viewer.expect_response(
             lambda response: response.url.endswith("/api/emergency-stop")
         ) as info:
-            viewer.locator("#estop").click(timeout=_BROWSER_TIMEOUT_MS)
+            viewer.get_by_test_id("estop").click(timeout=_BROWSER_TIMEOUT_MS)
         # Klipper 不通なので 502 になるが、操作権では塞がれない（423 にならない）
         assert info.value.status != 423
         wait_until(
@@ -293,7 +296,7 @@ class TestTwoBrowsersOnOneMachine:
     def test_load_fetches_the_lease_state_without_the_websocket(
         self, live_server: LiveServer, http_only_ui, browser_pages
     ):
-        """更新源 (a): ロード時の `GET /api/state` だけで状態がサーバ由来になる.
+        """更新源 (a): ロード時の `GET /api/session/state` だけで状態がサーバ由来になる.
 
         SSR の初期値は `viewer` なので、空きリースが `free` として届いたことが
         「ロード後にサーバへ問い合わせた」証跡になる（この 1 往復が無いと、空いて
@@ -330,18 +333,18 @@ class TestTwoBrowsersOnOneMachine:
         # WS が黙っているので control_changed が届かない = ページは held のまま残る
         assert (
             httpx.post(
-                f"{live_server.base_url}/api/control/takeover",
+                f"{live_server.base_url}/api/session/control/takeover",
                 headers={"X-Pcbasm-Session": "another-terminal"},
                 timeout=_HTTP_TIMEOUT,
             ).status_code
             == 200
         )
-        assert not _is_inert(page, "#firmware-restart")
+        assert not _is_inert(page, "firmware-restart")
 
         status = page.evaluate(
             """async () => {
                 try {
-                    await window.webui.api("POST", "/api/firmware-restart");
+                    await window.webui.api("POST", "/api/machine/firmware-restart");
                     return 200;
                 } catch (err) {
                     return err.status;
@@ -351,7 +354,7 @@ class TestTwoBrowsersOnOneMachine:
 
         assert status == 423
         _wait_control(page, "viewer")
-        assert _is_inert(page, "#firmware-restart")
+        assert _is_inert(page, "firmware-restart")
 
     def test_viewer_can_take_over_the_lease(
         self, live_server: LiveServer, live_ui: LiveUi, browser_pages
@@ -359,11 +362,11 @@ class TestTwoBrowsersOnOneMachine:
         _select_led_blinker(live_server)
         operator, viewer = _operator_and_viewer(live_ui, browser_pages)
 
-        viewer.locator("#control-takeover").click(timeout=_BROWSER_TIMEOUT_MS)
+        viewer.get_by_test_id("control-takeover").click(timeout=_BROWSER_TIMEOUT_MS)
 
         _wait_control(viewer, "held")
-        # 元の保持者は再読込なしで閲覧者へ落ちる（control_changed の同一 payload を
-        # 各クライアントが you.key と比べて判定する）
+        # 元の保持者は再読込なしで閲覧者へ落ちる（control_changed の control.state は
+        # backend が接続ごとに詰める）
         _wait_control(operator, "viewer")
-        assert not _is_inert(viewer, "#firmware-restart")
-        assert _is_inert(operator, "#firmware-restart")
+        assert not _is_inert(viewer, "firmware-restart")
+        assert _is_inert(operator, "firmware-restart")

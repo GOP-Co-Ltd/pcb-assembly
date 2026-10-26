@@ -15,18 +15,15 @@ from pcbasm.pasting.toolhead_offset import (
     ToolheadOffsetSample,
     plan_toolhead_offset_points,
 )
-from pcbasm.pcb import PcbFile
 from pcbasm.vision import validate_paste_diameters
-from web.api.jobs.board_ops import setup_board
-from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
-from web.api.jobs.context import (
-    ApplyPayload,
-    JobContext,
-    JobResult,
-)
-from web.api.jobs.pasting.common import (
+from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition, ParamSpec
+from web.api.jobs.runtime.context import JobContext
+from web.api.jobs.runtime.record import ApplyPayload, JobResult
+from web.api.jobs.steps import (
     LOADING_DEFAULT_AMOUNT,
-    run_loading_loop,
+    LoadingPanel,
+    loading_loop,
+    setup_paste_session,
 )
 
 _DIAGNOSTICS_FILENAME = "toolhead_offset_diagnostics.json"
@@ -37,10 +34,8 @@ def register(catalog: JobCatalog) -> None:
         JobDefinition(
             name="toolhead_offset",
             label="ツールヘッドオフセット計測",
-            tab="pasting",
             run=_run_toolhead_offset,
             params=(
-                ParamSpec("tolerance", "位置合わせ許容誤差", "float", 0.1, unit="mm"),
                 ParamSpec(
                     "dispense_amount",
                     "吐出量",
@@ -104,7 +99,6 @@ def register(catalog: JobCatalog) -> None:
             uses_machine=True,
             accepts_commands=True,
             persisted_params=(
-                "tolerance",
                 "dispense_amount",
                 "loading_amount",
                 "lift_height",
@@ -115,14 +109,13 @@ def register(catalog: JobCatalog) -> None:
                 "edge_margin",
             ),
             provides_preview=True,
-            loading_param="loading_amount",
+            loading=LoadingPanel(amount="loading_amount"),
         )
     )
 
 
 def _run_toolhead_offset(ctx: JobContext) -> JobResult:
     """複数点のペースト吐出と円検出からツールヘッド XY オフセットを計測する."""
-    tolerance = float(ctx.params["tolerance"])
     lift_height = float(ctx.params["lift_height"])
     diameter_min = float(ctx.params["paste_diameter_min"])
     diameter_max = float(ctx.params["paste_diameter_max"])
@@ -134,9 +127,8 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
         raise ValueError(diameter_error)
 
     # 配置不能ならカメラや Klipper を開始する前に中止する。
-    assert ctx.pcb_path is not None  # requires_pcb=True
     planned_points, plan_error = plan_toolhead_offset_points(
-        PcbFile(ctx.pcb_path).outline.polygon,
+        ctx.board().outline.polygon,
         point_count=point_count,
         point_spacing=point_spacing,
         edge_margin=edge_margin,
@@ -151,13 +143,9 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
     )
 
     with ctx.open_camera() as camera:
-        result = setup_board(ctx, camera, tolerance=tolerance)
-        klipper = result.klipper
-        stage = result.stage
-        calibration = result.calibration
+        session = setup_paste_session(ctx, camera)
         procedure = ToolheadOffsetProcedure(
-            result,
-            tolerance=tolerance,
+            session,
             lift_height=lift_height,
             diameter_min=diameter_min,
             diameter_max=diameter_max,
@@ -185,10 +173,10 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
 
         with procedure.applicator() as applicator:
             # ペーストフェーズの直前に一度だけロードする。
-            klipper.send_gcode(stage.move(z=0.0) + GCode.wait_for_done())
-            run_loading_loop(
-                ctx, klipper, stage, applicator, focus_z=calibration.z_position
+            session.klipper.send_gcode(
+                session.stage.move(z=0.0) + GCode.wait_for_done()
             )
+            loading_loop(ctx, session.klipper, session.stage, applicator)
             applicator.retract()
 
             dispense_amount = float(ctx.params["dispense_amount"])
@@ -261,6 +249,7 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
         )
 
     # オフセット算出 & 保存
+    tolerance = ctx.machine.alignment.tolerance
     offset_result = ToolheadOffsetResult.measure(
         samples,
         tolerance=tolerance,
@@ -288,7 +277,7 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
             f"上限={tolerance:.4f} mm）"
         )
 
-    current_toolhead = result.machine.paste_dispenser.toolhead
+    current_toolhead = ctx.solder.nozzle.offset
     diff_x = measured_offset.x - current_toolhead.x
     diff_y = measured_offset.y - current_toolhead.y
     ctx.progress("完了", 100.0)
@@ -313,12 +302,12 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
         artifacts=tuple(artifacts),
         apply=ApplyPayload(
             label=(
-                f"[paste_dispenser.toolhead] x={measured_offset.x:.4f}, "
+                f"[solder.nozzle.offset] x={measured_offset.x:.4f}, "
                 f"y={measured_offset.y:.4f} を設定に反映"
             ),
             values={
-                "paste_dispenser.toolhead.x": round(measured_offset.x, 4),
-                "paste_dispenser.toolhead.y": round(measured_offset.y, 4),
+                "solder.nozzle.offset.x": round(measured_offset.x, 4),
+                "solder.nozzle.offset.y": round(measured_offset.y, 4),
             },
         ),
     )

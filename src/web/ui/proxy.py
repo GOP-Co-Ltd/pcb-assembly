@@ -25,6 +25,12 @@ from starlette.responses import JSONResponse, StreamingResponse
 from starlette.types import Receive, Scope, Send
 from starlette.websockets import WebSocket, WebSocketState
 
+from web.contract.identity import (
+    NAME_COOKIE,
+    NAME_HEADER,
+    SESSION_COOKIE,
+    SESSION_HEADER,
+)
 from web.ui.machines import MachineEndpoint, MachineRegistry, UnknownMachine
 
 if TYPE_CHECKING:
@@ -50,14 +56,10 @@ _HOP_BY_HOP = frozenset(
     }
 )
 
-# 操作権リースのセッション同定に使う cookie（発行は `web.ui.pages` の HTML 応答だけ）。
-# `pcbasm_name` は JS が読み書きする表示名（httpOnly にしない）
-SESSION_COOKIE = "pcbasm_session"
-NAME_COOKIE = "pcbasm_name"
-
-# cookie から翻訳して backend へ渡すヘッダ（`web.api` の `get_identity` が読む）
-_SESSION_HEADER = b"x-pcbasm-session"
-_NAME_HEADER = b"x-pcbasm-client-name"
+# cookie から翻訳して backend へ渡すヘッダ（`web.api` の `get_identity` が読む）。
+# cookie の発行は `web.ui.pages` の HTML 応答だけで、表示名の cookie は JS が読み書きする
+_SESSION_HEADER = SESSION_HEADER.lower().encode("ascii")
+_NAME_HEADER = NAME_HEADER.lower().encode("ascii")
 
 # host は上流の URL から httpx / websockets が付け直す。
 # cookie は frontend のセッション cookie を backend に漏らさないために取り除く
@@ -86,6 +88,17 @@ _DROP_RESPONSE_HEADERS = _HOP_BY_HOP | {"date", "server"}
 # 終端しない MJPEG。この経路だけ read timeout を外す（他は read_timeout で打ち切る）
 _UNBOUNDED_STREAM_PATHS = frozenset({"/preview/stream"})
 
+# 更新専用の機体へ中継する上流パス。更新と緊急停止の URL と応答形は版をまたいで変えない
+# （tests/repo/test_update_contract.py）ので、版のずれた backend にも中継できる
+_UPDATE_ONLY_PATHS = frozenset(
+    {
+        "/api/update/status",
+        "/api/update/check",
+        "/api/update/run",
+        "/api/emergency-stop",
+    }
+)
+
 # 中継の失敗と、送信できない close code（1005 = 未受信 / 1006 = 異常終了）の丸め先
 _RELAY_FAILURE_CLOSE_CODE = 1011
 _UNSENDABLE_CLOSE_CODES = frozenset({1005, 1006})
@@ -110,7 +123,7 @@ class ProxyApp:
             target_prefix: 上流のパス prefix（``"/api"`` / ``"/artifacts"``）
             read_timeout: 上流の応答を待つ上限 [s]（``Settings.proxy_read_timeout``）。
                 gateway の既定は SSR 用の短い値なので中継では使えない
-                （`POST /api/machine-control` は M400 待ちで最大 60s かかる）
+                （`POST /api/machine/command` は M400 待ちで最大 60s かかる）
         """
         self._registry = registry
         self._gateway = gateway
@@ -133,6 +146,13 @@ class ProxyApp:
 
         request = Request(scope, receive)
         route_path = _route_path(scope)
+        if not self._relayable(endpoint, route_path):
+            await _error_response(
+                409,
+                f"{endpoint.label} は UI サーバーと版が違うため、"
+                "更新と緊急停止だけを中継します",
+            )(scope, receive, send)
+            return
         url = self._target_url(endpoint, route_path, scope["query_string"])
         client = self._gateway.client_for(endpoint)
         upstream_request = client.build_request(
@@ -183,6 +203,9 @@ class ProxyApp:
             return
 
         route_path = _route_path(scope)
+        if not self._relayable(endpoint, route_path):
+            await websocket.close(code=_RELAY_FAILURE_CLOSE_CODE)
+            return
         url = _websocket_target_url(
             endpoint, f"{self._target_prefix}{route_path}", scope["query_string"]
         )
@@ -212,6 +235,13 @@ class ProxyApp:
             # 上流を閉じずに残すと backend 側の購読が残る。キャンセル中でも必ず閉じる
             with anyio.CancelScope(shield=True):
                 await upstream.close()
+
+    def _relayable(self, endpoint: MachineEndpoint, route_path: str) -> bool:
+        """更新専用の機体へは更新と緊急停止だけを中継する（他は契約が違いうる）."""
+        return (
+            not endpoint.update_only
+            or f"{self._target_prefix}{route_path}" in _UPDATE_ONLY_PATHS
+        )
 
     def _relay_timeout(self, base: httpx.Timeout, route_path: str) -> httpx.Timeout:
         """Gateway の既定（SSR 用の短い read）を中継用に差し替えた Timeout.
@@ -461,5 +491,5 @@ def _has_body(headers: Headers) -> bool:
 
 
 def _error_response(status_code: int, detail: str) -> JSONResponse:
-    # app.js の既存トーストが読む {"detail": …} 形に合わせる
+    # api.js の api() がエラー文に使う {"detail": …} 形に合わせる
     return JSONResponse(status_code=status_code, content={"detail": detail})

@@ -1,101 +1,136 @@
+from operator import attrgetter
 from pathlib import Path
 
+import attrs
 import pytest
 
 from pcbasm.config import (
-    Audio,
-    Camera,
-    CameraCrop,
-    Corner,
-    CornerOffsets,
-    Detection,
-    FlowCalibration,
-    Klipper,
-    Machine,
-    NozzleCap,
-    NozzleClean,
-    PadAlign,
-    PasteDispenser,
-    Probe,
-    ReferencePoint,
-    Settle,
-    Toolhead,
-    get_config_dir,
-    get_machine_config,
-    resolve_paste_height,
+    ConfigError,
+    MachineConfig,
+    load_capabilities,
+    load_klipper,
+    load_machine,
 )
-from pcbasm.geometry import Point2d
-from tests.helpers import PROJECT_ROOT, TESTING_DATA_DIR
+from pcbasm.config.alignment import AlignmentConfig
+from pcbasm.config.audio import AudioConfig
+from pcbasm.config.camera import CameraConfig, CameraCropConfig
+from pcbasm.config.detection import DetectionConfig
+from pcbasm.config.klipper import KlipperConfig
+from pcbasm.config.pnp import PnpConfig
+from pcbasm.config.probe import ProbeConfig
+from pcbasm.config.reference_point import CornerOffsetsConfig, ReferencePointConfig
+from pcbasm.config.settle import SettleConfig
+from pcbasm.config.solder import (
+    AutoModeConfig,
+    DispenserConfig,
+    NozzleCleanConfig,
+    NozzleConfig,
+    NozzleOffsetConfig,
+    SolderConfig,
+    SolderMotionConfig,
+    TactConfig,
+    VolumeCorrectionConfig,
+)
+from pcbasm.geometry import Point3d
+from pcbasm.migrate.machine_toml import migrate_text
+from pcbasm.pasting.params import DispenseMotion, PasteParams
+from pcbasm.paths import PROJECT_ROOT
+from tests.support.machine_toml import pnp_only
+from tests.support.paths import MINIMAL_MACHINE_TOML, TEST_DATA_DIR
 
 
-def _machine_with(tmp_path: Path, extra: str) -> Machine:
-    """検証用 machine.toml の末尾に ``extra`` を足した Machine を作る."""
+def _write_with(tmp_path: Path, extra: str = "", **replace: str) -> Path:
+    """検証用 machine.toml の文字列を置き換え、末尾に ``extra`` を足して書く."""
     path = tmp_path / "machine.toml"
-    source = (TESTING_DATA_DIR / "machine.toml").read_text()
+    source = (MINIMAL_MACHINE_TOML).read_text()
+    for old, new in replace.items():
+        assert old in source
+        source = source.replace(old, new, 1)
     path.write_text(f"{source}\n{extra}", encoding="utf-8")
-    return Machine(path)
+    return path
 
 
-def _paste_dispenser(**overrides):
-    values = {
-        "rotations_per_ul": 1.0,
-        "nozzle_diameter": 0.21,
-        "max_fill_speed": 2.0,
-        "max_dispense_rate": 5.0,
-        "dispense_accel": 10.0,
-        "retract_amount": 10.0,
-        "retract_rate": 50.0,
-        "retract_accel_factor": 2.0,
-        "toolhead": Toolhead(x=13.2, y=54.7),
-        "paste_height": "auto",
-        "ul_per_mm2": 0.2,
-        "solder_paste_density": 3.78,
-        "dispense_mode": "auto",
-        "auto_line_aspect_ratio": 1.618,
+def _with_marker_tolerance(tmp_path: Path, tolerance: float) -> Path:
+    """検証用 machine.toml の [reference_point] に diameter_tolerance_mm を足して書く."""
+    target = "target_diameter = 3.0\n"
+    return _write_with(
+        tmp_path, **{target: f"{target}diameter_tolerance_mm = {tolerance}\n"}
+    )
+
+
+def _machine_with(tmp_path: Path, extra: str) -> MachineConfig:
+    """検証用 machine.toml の末尾に ``extra`` を足した MachineConfig を作る."""
+    return load_machine(_write_with(tmp_path, extra))
+
+
+def _solder(**overrides) -> SolderConfig:
+    """検証用 machine.toml の [solder] の項目を ``overrides`` で置き換える.
+
+    項目は下位表の項目名で渡す（どの表の項目かは名前で決まる）。
+    """
+    solder = load_machine(MINIMAL_MACHINE_TOML).require_solder()
+    tables: dict[str, dict] = {
+        name: {} for name in ("dispenser", "nozzle", "motion", "defaults", "auto")
     }
-    values.update(overrides)
-    return PasteDispenser(**values)
+    root = {}
+    for key, value in overrides.items():
+        owner = next(
+            (
+                name
+                for name in tables
+                if key in attrs.fields_dict(type(getattr(solder, name)))
+            ),
+            None,
+        )
+        (root if owner is None else tables[owner])[key] = value
+    evolved = {
+        name: attrs.evolve(getattr(solder, name), **values)
+        for name, values in tables.items()
+    }
+    return attrs.evolve(solder, **root, **evolved)
 
 
 class TestMachine:
     """Machineクラスのテスト."""
 
     def test_load_config(self):
-        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+        machine = load_machine(MINIMAL_MACHINE_TOML)
 
-        assert machine.klipper == Klipper(host="192.168.1.100", port=7125)
-        assert machine.paste_dispenser == PasteDispenser(
-            rotations_per_ul=1.0,
-            nozzle_diameter=0.21,
-            max_fill_speed=2.0,
-            max_dispense_rate=5.0,
-            dispense_accel=10.0,
-            retract_amount=10.0,
-            retract_rate=50.0,
-            retract_accel_factor=2.0,
-            toolhead=Toolhead(x=13.2, y=54.7),
-            paste_height="auto",
-            lift_height=3.0,
-            ul_per_mm2=0.2,
-            solder_paste_density=3.78,
-            dispense_mode="auto",
-            auto_line_aspect_ratio=1.618,
+        assert machine.klipper == KlipperConfig(host="127.0.0.1", port=7126)
+        assert machine.solder == SolderConfig(
+            paste_density=3.78,
+            dispenser=DispenserConfig(
+                rotations_per_ul=1.0,
+                max_dispense_rate=5.0,
+                dispense_accel=10.0,
+                retract_amount=10.0,
+                retract_rate=50.0,
+                retract_accel_factor=2.0,
+            ),
+            nozzle=NozzleConfig(
+                diameter=0.21, offset=NozzleOffsetConfig(x=13.2, y=54.7)
+            ),
+            motion=SolderMotionConfig(max_fill_speed=2.0, lift_height=3.0),
+            defaults=PasteParams(
+                dispense_mode="auto", ul_per_mm2=0.2, paste_height="auto"
+            ),
+            auto=AutoModeConfig(line_aspect_ratio=1.618),
         )
-        assert machine.paste_dispenser.line_direction == "unconstrained"
-        assert machine.camera == Camera(
+        assert machine.require_solder().defaults.line_direction == "unconstrained"
+        assert machine.camera == CameraConfig(
             device_id=0,
             width=640,
             height=480,
             fps=30.0,
             format="YUYV",
-            crop=CameraCrop(width=400, height=400),
-            calibration_file=TESTING_DATA_DIR / "calibration.json",
+            crop=CameraCropConfig(width=400, height=400),
+            calibration_file=TEST_DATA_DIR / "calibration.json",
         )
-        assert machine.reference_point == ReferencePoint(
+        assert machine.reference_point == ReferencePointConfig(
             x=23.1,
             y=8.3,
             target_diameter=3.0,
-            offsets=CornerOffsets(
+            offsets=CornerOffsetsConfig(
                 top_left=(0.0, -5.0),
                 top_right=(0.0, -5.0),
                 bottom_left=(5.0, 5.0),
@@ -103,104 +138,109 @@ class TestMachine:
             ),
         )
 
-    def test_default_values(self):
-        machine = Machine(TESTING_DATA_DIR / "machine_minimal.toml")
+    def test_default_values(self, tmp_path):
+        path = _write_with(tmp_path, **{"device_id = 0\n": "", 'format = "YUYV"\n': ""})
 
-        assert machine.klipper == Klipper(host="localhost", port=7125)
+        machine = load_machine(path)
+
         assert machine.camera.device_id == 0
         assert machine.camera.format == "YUYV"
 
     def test_rejects_legacy_three_corner_offsets(self, tmp_path):
-        source = (TESTING_DATA_DIR / "machine.toml").read_text()
-        path = tmp_path / "machine.toml"
-        path.write_text(
-            source.replace("bottom_right = [5.0, 5.0]\n", ""),
-            encoding="utf-8",
-        )
-        machine = Machine(path)
+        path = _write_with(tmp_path, **{"bottom_right = [5.0, 5.0]\n": ""})
 
-        with pytest.raises(ExceptionGroup):
-            machine.reference_point
+        with pytest.raises(ConfigError, match="reference_point.offsets"):
+            load_machine(path)
 
-    def test_pad_align_defaults_when_section_absent(self):
-        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+    def test_reference_marker_tolerance_defaults_to_half_a_millimetre(self):
+        machine = load_machine(MINIMAL_MACHINE_TOML)
 
-        assert machine.paste_dispenser.pad_align == PadAlign()
-        assert machine.paste_dispenser.pad_align.region_size_px == 100
-        assert machine.paste_dispenser.pad_align.refine_max_short_side == pytest.approx(
-            0.4
-        )
+        assert machine.reference_point.diameter_tolerance_mm == pytest.approx(0.5)
+
+    def test_reads_reference_marker_tolerance(self, tmp_path):
+        path = _with_marker_tolerance(tmp_path, 0.8)
+
+        assert load_machine(path).reference_point.diameter_tolerance_mm == 0.8
+
+    @pytest.mark.parametrize("tolerance", [0.0, -0.5])
+    def test_rejects_non_positive_reference_marker_tolerance(self, tmp_path, tolerance):
+        path = _with_marker_tolerance(tmp_path, tolerance)
+
+        with pytest.raises(ConfigError, match="diameter_tolerance_mm"):
+            load_machine(path)
+
+    def test_alignment_defaults_when_section_absent(self):
+        machine = load_machine(MINIMAL_MACHINE_TOML)
+
+        assert machine.alignment == AlignmentConfig()
+        assert machine.alignment.tolerance == pytest.approx(0.1)
+        assert machine.alignment.region_size_px == 100
+        assert machine.alignment.refine_max_short_side == pytest.approx(0.4)
 
     @pytest.mark.parametrize(
         ("removed_line", "attribute", "expected"),
         [
-            ("solder_paste_density = 3.78\n", "solder_paste_density", 3.78),
-            ("lift_height = 3.0\n", "lift_height", 2.0),
+            ("paste_density = 3.78\n", "paste_density", 3.78),
+            ("lift_height = 3.0\n", "motion.lift_height", 2.0),
+            ("retract_rate = 50.0\n", "dispenser.retract_rate", 5.0),
             ("", "initial_purge_ul", 0.1),
-            ("", "auto_area_short_side_factor", 3.0),
+            ("", "auto.area_short_side_factor", 3.0),
+            ("", "defaults.bead_width_factor", 1.0),
         ],
     )
     def test_optional_keys_fall_back_to_defaults(
         self, tmp_path, removed_line: str, attribute: str, expected: float
     ):
-        source = (TESTING_DATA_DIR / "machine.toml").read_text()
+        source = (MINIMAL_MACHINE_TOML).read_text()
         if removed_line:
             source = source.replace(removed_line, "")
         path = tmp_path / "machine.toml"
         path.write_text(source, encoding="utf-8")
 
-        dispenser = Machine(path).paste_dispenser
+        solder = load_machine(path).require_solder()
 
-        assert getattr(dispenser, attribute) == pytest.approx(expected)
+        assert attrgetter(attribute)(solder) == pytest.approx(expected)
 
-    def test_pad_align_section_overrides_defaults(self, tmp_path):
-        source = (TESTING_DATA_DIR / "machine.toml").read_text()
+    def test_alignment_section_overrides_defaults(self, tmp_path):
+        source = (MINIMAL_MACHINE_TOML).read_text()
         path = tmp_path / "machine.toml"
         path.write_text(
-            source + "\n[paste_dispenser.pad_align]\nregion_size_px = 160\n"
+            source + "\n[alignment]\ntolerance = 0.05\n"
+            "region_size_px = 160\n"
             "region_overlap = 0.25\n"
             "refine_max_short_side = 0.25\n"
             "blur_ksize = 3\n"
         )
 
-        pad_align = Machine(path).paste_dispenser.pad_align
+        alignment = load_machine(path).alignment
 
-        assert pad_align.region_size_px == 160
-        assert pad_align.region_overlap == pytest.approx(0.25)
-        assert pad_align.refine_max_short_side == pytest.approx(0.25)
-        assert pad_align.canny_low == pytest.approx(100.0)  # 未指定はデフォルト
-        assert pad_align.blur_ksize == 3
+        assert alignment.tolerance == pytest.approx(0.05)
+        assert alignment.region_size_px == 160
+        assert alignment.region_overlap == pytest.approx(0.25)
+        assert alignment.refine_max_short_side == pytest.approx(0.25)
+        assert alignment.canny_low == pytest.approx(100.0)  # 未指定はデフォルト
+        assert alignment.blur_ksize == 3
 
     @pytest.mark.parametrize("amount", [0.25, 0.0], ids=["explicit", "zero-disables"])
     def test_initial_purge_ul_reads_explicit_value(self, tmp_path, amount: float):
-        source = (TESTING_DATA_DIR / "machine.toml").read_text()
+        source = (MINIMAL_MACHINE_TOML).read_text()
         path = tmp_path / "machine.toml"
         path.write_text(
             source.replace(
-                "[paste_dispenser]\n",
-                f"[paste_dispenser]\ninitial_purge_ul = {amount}\n",
+                "[solder]\n",
+                f"[solder]\ninitial_purge_ul = {amount}\n",
                 1,
             ),
             encoding="utf-8",
         )
 
-        machine = Machine(path)
+        machine = load_machine(path)
 
-        assert machine.paste_dispenser.initial_purge_ul == pytest.approx(amount)
-
-    @pytest.mark.parametrize(
-        ("retract_rate", "expected"),
-        [(None, 5.0), (50.0, 50.0)],
-        ids=["absent-falls-back-to-max-dispense-rate", "explicit"],
-    )
-    def test_effective_retract_rate(self, retract_rate: float | None, expected: float):
-        dispenser = _paste_dispenser(retract_rate=retract_rate)
-
-        assert dispenser.effective_retract_rate == pytest.approx(expected)
+        assert machine.require_solder().initial_purge_ul == pytest.approx(amount)
 
     def test_unknown_line_direction_is_rejected(self):
         with pytest.raises(ValueError) as raised:
-            _paste_dispenser(line_direction="sideways")
+            _solder(line_direction="sideways")
 
         assert "線走行方向" in str(raised.value)
 
@@ -210,11 +250,12 @@ class TestMachine:
             ("initial_purge_ul", -0.01),
             ("lift_height", 0.0),
             ("lift_height", -1.0),
-            ("auto_area_short_side_factor", 0.0),
-            ("auto_area_short_side_factor", -1.0),
-            ("nozzle_diameter", 0.0),
+            ("area_short_side_factor", 0.0),
+            ("area_short_side_factor", -1.0),
+            ("diameter", 0.0),
             ("max_fill_speed", 0.0),
             ("max_dispense_rate", -1.0),
+            ("dispense_accel", 0.0),
             ("retract_amount", 0.0),
             ("retract_accel_factor", 1.0),
             ("bead_width_factor", 0.0),
@@ -224,9 +265,9 @@ class TestMachine:
             ("ul_per_mm2", 0.0),
             ("prime_extra_delay", -0.1),
             ("paste_height", float("nan")),
-            ("nozzle_diameter", float("inf")),
+            ("diameter", float("inf")),
             ("max_fill_speed", True),
-            ("nozzle_outer_diameter", 0.0),
+            ("outer_diameter", 0.0),
             ("micro_line_z_start", 0.0),
             ("micro_line_z_end", -0.01),
             ("micro_line_z_end", "fast"),
@@ -237,67 +278,206 @@ class TestMachine:
     def test_paste_settings_out_of_range_are_rejected(self, key, value):
         # FillSequence / PasteApplicator は検証済み値を前提にするため入口で弾く。
         with pytest.raises(ValueError, match=key):
-            _paste_dispenser(**{key: value})
+            _solder(**{key: value})
 
     def test_dispense_dynamics_boundary_values_are_accepted(self):
-        dispenser = _paste_dispenser(overlap=0.0, boundary_margin=0.0)
+        dispenser = _solder(overlap=0.0, boundary_margin=0.0)
 
-        assert dispenser.overlap == 0.0
-        assert dispenser.boundary_margin == 0.0
+        assert dispenser.defaults.overlap == 0.0
+        assert dispenser.defaults.boundary_margin == 0.0
 
     def test_negative_boundary_margin_is_accepted(self):
         # 負の外周余白は pad 外形をはみ出して塗る指定
-        dispenser = _paste_dispenser(boundary_margin=-0.2)
+        dispenser = _solder(boundary_margin=-0.2)
 
-        assert dispenser.boundary_margin == -0.2
+        assert dispenser.defaults.boundary_margin == -0.2
 
     def test_nozzle_outer_diameter_defaults_to_inner_diameter(self):
-        dispenser = _paste_dispenser(nozzle_diameter=0.3)
+        nozzle = _solder(diameter=0.3).nozzle
 
-        assert dispenser.nozzle_outer_diameter is None
-        assert dispenser.effective_nozzle_outer_diameter == pytest.approx(0.3)
+        assert nozzle.outer_diameter is None
+        assert nozzle.effective_outer_diameter == pytest.approx(0.3)
 
     def test_nozzle_outer_diameter_smaller_than_inner_is_rejected(self):
-        with pytest.raises(ValueError, match="nozzle_outer_diameter"):
-            _paste_dispenser(nozzle_diameter=0.3, nozzle_outer_diameter=0.29)
+        with pytest.raises(ValueError, match="outer_diameter"):
+            _solder(diameter=0.3, outer_diameter=0.29)
 
     def test_post_dispense_settle_defaults_to_a_tenth_of_a_second(self):
-        assert _paste_dispenser().post_dispense_settle_seconds == pytest.approx(0.1)
+        assert _solder().motion.post_dispense_settle_seconds == pytest.approx(0.1)
+
+    def test_dispense_motion_joins_the_dispenser_and_the_motion(self):
+        """Fill sequence の吐出の動きは [solder.dispenser] と [solder.motion] の値."""
+        solder = load_machine(MINIMAL_MACHINE_TOML).require_solder()
+
+        assert solder.dispense_motion == DispenseMotion(
+            max_fill_speed=2.0,
+            max_dispense_rate=5.0,
+            dispense_accel=10.0,
+            retract_amount=10.0,
+            retract_rate=50.0,
+            retract_accel_factor=2.0,
+            lift_height=3.0,
+            micro_line_settle_seconds=0.1,
+            post_dispense_settle_seconds=0.1,
+        )
 
     def test_micro_line_heights_default_to_auto(self):
-        dispenser = _paste_dispenser()
+        dispenser = _solder()
 
-        assert dispenser.micro_line_z_start == "auto"
-        assert dispenser.micro_line_z_end == "auto"
+        assert dispenser.defaults.micro_line_z_start == "auto"
+        assert dispenser.defaults.micro_line_z_end == "auto"
 
     def test_micro_line_mode_is_accepted(self):
-        dispenser = _paste_dispenser(dispense_mode="micro_line")
+        dispenser = _solder(dispense_mode="micro_line")
 
-        assert dispenser.dispense_mode == "micro_line"
+        assert dispenser.defaults.dispense_mode == "micro_line"
 
-    def test_raises_key_error_when_config_not_defined(self):
-        machine = Machine(TESTING_DATA_DIR / "machine_minimal.toml")
+    def test_missing_required_section_is_a_config_error(self, tmp_path):
+        source = (MINIMAL_MACHINE_TOML).read_text()
+        path = tmp_path / "machine.toml"
+        path.write_text(source.split("[probe]")[0], encoding="utf-8")
 
         with pytest.raises(
-            KeyError, match="'paste_dispenser' は設定ファイルに定義されていません"
+            ConfigError, match="必須の項目がありません @ machine.toml.probe"
         ):
-            machine.paste_dispenser
+            load_machine(path)
+
+
+class TestCapabilities:
+    """機体の機能は machine.toml の節の有無で表す（[solder] ははんだ塗布、[pnp] は部品実装）."""
+
+    def test_solder_section_makes_a_solder_machine(self):
+        machine = load_machine(MINIMAL_MACHINE_TOML)
+
+        assert machine.solder is not None
+        assert machine.pnp is None
+        assert load_capabilities(MINIMAL_MACHINE_TOML) == ("solder",)
+
+    def test_pnp_section_alone_makes_a_pnp_machine(self, tmp_path: Path):
+        path = tmp_path / "machine.toml"
+        path.write_text(pnp_only(MINIMAL_MACHINE_TOML.read_text()))
+
+        machine = load_machine(path)
+
+        assert machine.solder is None
+        assert machine.pnp == PnpConfig()
+        assert load_capabilities(path) == ("pnp",)
+
+    def test_both_sections_make_a_machine_with_both(self, tmp_path: Path):
+        machine = _machine_with(tmp_path, "[pnp]\n")
+
+        assert machine.solder is not None
+        assert machine.pnp == PnpConfig()
+        assert load_capabilities(tmp_path / "machine.toml") == ("solder", "pnp")
+
+    def test_a_machine_without_either_is_a_config_error(self, tmp_path: Path):
+        path = tmp_path / "machine.toml"
+        path.write_text(pnp_only(MINIMAL_MACHINE_TOML.read_text()).replace("[pnp]", ""))
+
+        with pytest.raises(ConfigError, match=r"\[solder\]（はんだ塗布）か \[pnp\]"):
+            load_machine(path)
+
+    def test_pnp_has_no_keys_yet(self, tmp_path: Path):
+        with pytest.raises(ConfigError, match="未知のキーです: nozzle"):
+            load_machine(_write_with(tmp_path, "[pnp]\nnozzle = 1\n"))
+
+    def test_capabilities_are_known_while_the_config_is_invalid(self, tmp_path: Path):
+        """設定エラーの間も、機能ごとのジョブと画面を出せる."""
+        path = _write_with(tmp_path, **{"paste_density = 3.78": "paste_density = -1.0"})
+
+        with pytest.raises(ConfigError):
+            load_machine(path)
+        assert load_capabilities(path) == ("solder",)
+
+    def test_solder_is_required_only_by_the_solder_jobs(self, tmp_path: Path):
+        path = tmp_path / "machine.toml"
+        path.write_text(pnp_only(MINIMAL_MACHINE_TOML.read_text()))
+        machine = load_machine(path)
+
+        with pytest.raises(ConfigError, match=r"\[solder\] がありません"):
+            machine.require_solder()
+        assert load_machine(MINIMAL_MACHINE_TOML).require_solder().paste_density == 3.78
+
+    def test_parks_at_the_nozzle_cap_of_a_solder_machine(self, tmp_path: Path):
+        cap = "[solder.nozzle.cap]\nx = 1.0\ny = 2.0\nz = 3.0\n"
+        pnp = tmp_path / "pnp.toml"
+        pnp.write_text(pnp_only(MINIMAL_MACHINE_TOML.read_text()))
+
+        assert _machine_with(tmp_path, cap).cap_position == Point3d(1.0, 2.0, 3.0)
+        assert load_machine(MINIMAL_MACHINE_TOML).cap_position is None
+        assert load_machine(pnp).cap_position is None
+
+
+class TestLoadMachine:
+    """machine.toml 全体の一括検証（設定エラーは ConfigError にまとめる）."""
+
+    def test_reports_every_invalid_section_at_once(self, tmp_path):
+        """1 つ直すたびに次の誤りが出てくる、を繰り返させない."""
+        path = _write_with(
+            tmp_path,
+            "[settle]\nmove_sec = -1.0\n",
+            **{"lift_height = 3.0": "lift_height = 0.0"},
+        )
+
+        with pytest.raises(ConfigError) as raised:
+            load_machine(path)
+
+        assert "move_sec" in str(raised.value)
+        assert "lift_height" in str(raised.value)
+        assert raised.value.sections == {"settle", "solder"}
+
+    def test_unparsable_toml_is_a_config_error(self, tmp_path):
+        path = _write_with(tmp_path, 'broken = "unterminated\n')
+
+        with pytest.raises(ConfigError, match="TOML として読めません"):
+            load_machine(path)
+
+    def test_calibration_file_resolves_against_the_config_dir(self, tmp_path):
+        machine = load_machine(_write_with(tmp_path))
+
+        assert machine.camera.calibration_file == tmp_path / "calibration.json"
+
+
+class TestLoadKlipper:
+    """設定エラーの間も緊急停止を送れるよう、[klipper] 節だけを読む."""
+
+    def test_reads_klipper_even_when_the_rest_is_invalid(self, tmp_path):
+        path = _write_with(tmp_path, **{"lift_height = 3.0": "lift_height = 0.0"})
+
+        assert load_klipper(path) == KlipperConfig(host="127.0.0.1", port=7126)
+
+    def test_missing_section_is_a_config_error(self, tmp_path):
+        path = tmp_path / "machine.toml"
+        path.write_text("[probe]\n", encoding="utf-8")
+
+        with pytest.raises(ConfigError, match="klipper"):
+            load_klipper(path)
+
+    def test_connection_has_no_default(self, tmp_path):
+        """書き忘れたまま本番の Moonraker（localhost:7125）へつながないように."""
+        path = tmp_path / "machine.toml"
+        path.write_text('[klipper]\nhost = "localhost"\n', encoding="utf-8")
+
+        with pytest.raises(ConfigError, match="klipper.port"):
+            load_klipper(path)
 
 
 class TestAudio:
     """Raspberry Pi 本体から再生する通知音の出力設定."""
 
     def test_defaults_to_system_default_device_and_75_percent(self):
-        assert Audio() == Audio("default", 0.75)
+        assert AudioConfig() == AudioConfig("default", 0.75)
 
     def test_strips_device(self):
-        assert Audio(device="  plughw:CARD=Audio,DEV=0  ") == Audio(
+        assert AudioConfig(device="  plughw:CARD=Audio,DEV=0  ") == AudioConfig(
             device="plughw:CARD=Audio,DEV=0"
         )
 
     @pytest.mark.parametrize("volume", [0.0, 0.25, 1.0])
     def test_accepts_volume_in_closed_unit_interval(self, volume: float):
-        assert Audio(device="default", volume=volume).volume == pytest.approx(volume)
+        assert AudioConfig(device="default", volume=volume).volume == pytest.approx(
+            volume
+        )
 
     @pytest.mark.parametrize(
         "volume",
@@ -306,44 +486,41 @@ class TestAudio:
     )
     def test_rejects_invalid_volume(self, volume: object):
         with pytest.raises(ValueError, match="volume"):
-            Audio(device="default", volume=volume)  # type: ignore[arg-type]
+            AudioConfig(device="default", volume=volume)  # type: ignore[arg-type]
 
     @pytest.mark.parametrize("device", ["", " ", "\t\n"])
     def test_rejects_blank_device(self, device: str):
         with pytest.raises(ValueError, match="device"):
-            Audio(device=device)
+            AudioConfig(device=device)
 
 
 class TestMachineAudio:
-    """Machine.audio の任意 [audio] section 読み込み（欠落は既定値）."""
+    """MachineConfig.audio の任意 [audio] section 読み込み（欠落は既定値）."""
 
     def test_reads_audio_section(self, tmp_path: Path):
-        path = tmp_path / "machine.toml"
-        path.write_text(
-            '[audio]\ndevice = "  hw:0,0  "\nvolume = 0.35\n',
-            encoding="utf-8",
+        machine = _machine_with(
+            tmp_path, '[audio]\ndevice = "  hw:0,0  "\nvolume = 0.35\n'
         )
 
-        assert Machine(path).audio == Audio(device="hw:0,0", volume=0.35)
+        assert machine.audio == AudioConfig(device="hw:0,0", volume=0.35)
 
     def test_defaults_volume_when_omitted(self, tmp_path: Path):
-        path = tmp_path / "machine.toml"
-        path.write_text('[audio]\ndevice = "plughw:CARD=X,DEV=0"\n', encoding="utf-8")
+        machine = _machine_with(tmp_path, '[audio]\ndevice = "plughw:CARD=X,DEV=0"\n')
 
-        assert Machine(path).audio == Audio(device="plughw:CARD=X,DEV=0", volume=0.75)
+        assert machine.audio == AudioConfig(device="plughw:CARD=X,DEV=0", volume=0.75)
 
     def test_defaults_whole_config_when_section_is_absent(self):
-        assert Machine(TESTING_DATA_DIR / "machine_minimal.toml").audio == Audio()
+        assert load_machine(MINIMAL_MACHINE_TOML).audio == AudioConfig()
 
 
-class TestPadAlignRegionSettings:
+class TestAlignmentRegionSettings:
     """重複領域による銅箔位置合わせ設定の公開契約."""
 
     @pytest.mark.parametrize("threshold", [0.0, 0.25])
     def test_accepts_nonnegative_refinement_threshold(self, threshold: float):
-        pad_align = PadAlign(refine_max_short_side=threshold)
+        alignment = AlignmentConfig(refine_max_short_side=threshold)
 
-        assert pad_align.refine_max_short_side == pytest.approx(threshold)
+        assert alignment.refine_max_short_side == pytest.approx(threshold)
 
     @pytest.mark.parametrize(
         "threshold",
@@ -352,7 +529,7 @@ class TestPadAlignRegionSettings:
     )
     def test_rejects_invalid_refinement_threshold(self, threshold):
         with pytest.raises(ValueError, match="refine_max_short_side"):
-            PadAlign(refine_max_short_side=threshold)
+            AlignmentConfig(refine_max_short_side=threshold)
 
     @pytest.mark.parametrize(
         ("key", "value"),
@@ -369,20 +546,24 @@ class TestPadAlignRegionSettings:
     )
     def test_rejects_non_positive_dimensions_and_counts(self, key, value):
         with pytest.raises(ValueError, match=key):
-            PadAlign(**{key: value})
+            AlignmentConfig(**{key: value})
 
     @pytest.mark.parametrize("overlap", [-0.01, 1.0, 1.01])
     def test_rejects_overlap_outside_half_open_unit_interval(self, overlap):
         with pytest.raises(ValueError, match="region_overlap"):
-            PadAlign(region_overlap=overlap)
+            AlignmentConfig(region_overlap=overlap)
 
     @pytest.mark.parametrize("overlap", [0.0, 0.5, 0.999])
     def test_accepts_overlap_inside_half_open_unit_interval(self, overlap):
-        assert PadAlign(region_overlap=overlap).region_overlap == pytest.approx(overlap)
+        assert AlignmentConfig(region_overlap=overlap).region_overlap == pytest.approx(
+            overlap
+        )
 
     @pytest.mark.parametrize(
         ("key", "value"),
         [
+            ("tolerance", 0.0),
+            ("tolerance", -0.01),
             ("converge_tolerance", 0.0),
             ("converge_tolerance", -0.01),
             ("board_edge_margin", 0.0),
@@ -391,7 +572,7 @@ class TestPadAlignRegionSettings:
     )
     def test_rejects_invalid_distance_settings(self, key, value):
         with pytest.raises(ValueError, match=key):
-            PadAlign(**{key: value})
+            AlignmentConfig(**{key: value})
 
     @pytest.mark.parametrize(
         "blur_ksize",
@@ -400,13 +581,13 @@ class TestPadAlignRegionSettings:
     )
     def test_rejects_blur_kernel_that_is_not_a_positive_odd_integer(self, blur_ksize):
         with pytest.raises(ValueError, match="blur_ksize"):
-            PadAlign(blur_ksize=blur_ksize)
+            AlignmentConfig(blur_ksize=blur_ksize)
 
     @pytest.mark.parametrize("blur_ksize", [1, 3, 7])
     def test_accepts_valid_blur_kernel(self, blur_ksize: int):
-        pad_align = PadAlign(blur_ksize=blur_ksize)
+        alignment = AlignmentConfig(blur_ksize=blur_ksize)
 
-        assert pad_align.blur_ksize == blur_ksize
+        assert alignment.blur_ksize == blur_ksize
 
 
 class TestFlowCalibration:
@@ -414,8 +595,8 @@ class TestFlowCalibration:
 
     def test_is_enabled_by_the_calibration_file_alone(self):
         """測定位置は基板ごとの設定なので、machine 側は校正ファイルだけで決まる."""
-        assert FlowCalibration(calibration_file="c.json").enabled is True
-        assert FlowCalibration().enabled is False
+        assert VolumeCorrectionConfig(calibration_file="c.json").enabled is True
+        assert VolumeCorrectionConfig().enabled is False
 
     @pytest.mark.parametrize(
         ("key", "value"),
@@ -431,30 +612,30 @@ class TestFlowCalibration:
     )
     def test_rejects_invalid_values(self, key, value):
         with pytest.raises(ValueError, match=key):
-            FlowCalibration(**{key: value})
+            VolumeCorrectionConfig(**{key: value})
 
     def test_accepts_zero_settle_seconds_to_skip_the_wait(self):
-        assert FlowCalibration(settle_seconds=0.0).settle_seconds == 0.0
+        assert VolumeCorrectionConfig(settle_seconds=0.0).settle_seconds == 0.0
 
 
-class TestMachinePasteDispenserFlowCalibration:
-    """machine.toml の ``[paste_dispenser.flow_calibration]`` の読み込み."""
+class TestMachineSolderVolumeCorrection:
+    """machine.toml の ``[solder.volume_correction]`` の読み込み."""
 
     def test_defaults_when_the_section_is_absent(self, tmp_path):
         machine = _machine_with(tmp_path, "")
 
-        assert machine.paste_dispenser.flow_calibration == FlowCalibration()
+        assert machine.require_solder().volume_correction == VolumeCorrectionConfig()
 
     def test_reads_the_section_when_present(self, tmp_path):
         machine = _machine_with(
             tmp_path,
-            "[paste_dispenser.flow_calibration]\n"
+            "[solder.volume_correction]\n"
             'calibration_file = "cal.paste-volume.json"\n'
             "amount_ul = 0.15\n"
             "crop_size_mm = 2.4\n"
             "settle_seconds = 4.0\n",
         )
-        flow = machine.paste_dispenser.flow_calibration
+        flow = machine.require_solder().volume_correction
 
         assert flow.calibration_file == "cal.paste-volume.json"
         assert flow.amount_ul == pytest.approx(0.15)
@@ -463,128 +644,87 @@ class TestMachinePasteDispenserFlowCalibration:
         assert flow.enabled is True
 
 
-class TestMachineType:
-    """Machine.machine_type のテスト（nozzle-cap-parking 計画書「公開インターフェース」節）.
+class TestUnknownKeys:
+    """書き間違えたキーが黙って既定値で動かないよう、未知のキーは設定エラーにする."""
 
-    machine_type は必須キー: 欠落はアクセス時 KeyError、paste / pnp 以外は ValueError。
-    """
-
-    def test_reads_paste_from_config(self):
-        machine = Machine(TESTING_DATA_DIR / "machine.toml")
-
-        assert machine.machine_type == "paste"
-
-    def test_reads_pnp_from_config(self, tmp_path):
-        source = (TESTING_DATA_DIR / "machine.toml").read_text()
-        path = tmp_path / "machine.toml"
-        path.write_text(
-            source.replace('machine_type = "paste"', 'machine_type = "pnp"', 1),
-            encoding="utf-8",
+    def test_unknown_top_level_key_is_a_config_error(self, tmp_path):
+        path = _write_with(
+            tmp_path, **{"[klipper]": 'machine_type = "paste"\n\n[klipper]'}
         )
 
-        machine = Machine(path)
+        with pytest.raises(ConfigError, match="未知のキーです: machine_type") as raised:
+            load_machine(path)
 
-        assert machine.machine_type == "pnp"
+        assert raised.value.sections == {"machine_type"}
 
-    def test_missing_machine_type_raises_key_error(self):
-        machine = Machine(TESTING_DATA_DIR / "machine_minimal.toml")
-
-        with pytest.raises(KeyError, match="machine_type"):
-            machine.machine_type
-
-    def test_unknown_machine_type_raises_value_error(self, tmp_path):
-        source = (TESTING_DATA_DIR / "machine.toml").read_text()
-        path = tmp_path / "machine.toml"
-        path.write_text(
-            source.replace('machine_type = "paste"', 'machine_type = "sander"', 1),
-            encoding="utf-8",
+    def test_unknown_key_in_a_section_is_a_config_error(self, tmp_path):
+        path = _write_with(
+            tmp_path,
+            **{"[solder]\n": "[solder]\nair_pump_enabled = true\n"},
         )
 
-        machine = Machine(path)
+        with pytest.raises(ConfigError, match="air_pump_enabled") as raised:
+            load_machine(path)
 
-        with pytest.raises(ValueError, match="machine_type"):
-            machine.machine_type
+        assert raised.value.sections == {"solder"}
 
 
-class TestNozzleCap:
-    """Machine.nozzle_cap のテスト（nozzle-cap-parking 計画書「公開インターフェース」節）.
+@pytest.mark.parametrize("section", ["cap", "clean"])
+class TestNozzlePosition:
+    """ノズル位置の座標は「3 つそろうか、すべて無いか」の 1 組.
 
-    未記録（[paste_dispenser.nozzle_cap] セクションなし）が正常状態なので None を返す。
+    座標が無いのは立ち上げ途中の正常な状態（未教示）。一部だけなら設定エラーにする。
     """
 
-    def test_missing_section_returns_none(self):
-        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+    def test_missing_section_is_untaught(self, section: str):
+        nozzle = load_machine(MINIMAL_MACHINE_TOML).require_solder().nozzle
 
-        assert machine.nozzle_cap is None
+        assert getattr(nozzle, section).position is None
 
-    def test_reads_recorded_position(self, tmp_path: Path):
+    def test_reads_recorded_position(self, tmp_path: Path, section: str):
         machine = _machine_with(
-            tmp_path, "[paste_dispenser.nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n"
+            tmp_path, f"[solder.nozzle.{section}]\nx = 10.0\ny = 20.0\nz = 3.5\n"
         )
 
-        assert machine.nozzle_cap == NozzleCap(x=10.0, y=20.0, z=3.5)
+        position = getattr(machine.require_solder().nozzle, section).position
+        assert position == Point3d(10.0, 20.0, 3.5)
+
+    def test_partial_coordinates_are_a_config_error(self, tmp_path: Path, section: str):
+        """原点や未記録で埋めて動かさず、設定エラーとして運転者に見せる."""
+        path = _write_with(tmp_path, f"[solder.nozzle.{section}]\nx = 12.5\n")
+
+        with pytest.raises(ConfigError, match="x / y / z の 3 つ"):
+            load_machine(path)
 
 
 class TestNozzleClean:
-    """Machine.nozzle_clean と NozzleClean のテスト.
+    """NozzleClean の動作値（座標が未教示でも読み、検証する）."""
 
-    未記録（[paste_dispenser.nozzle_clean] セクションなし）が正常状態なので None を返す。
-    座標は既定値を持たず、欠けたテーブルは未記録として扱う（原点へ行く事故を防ぐ）。
-    """
+    def test_motion_only_section_is_untaught_but_keeps_its_values(self, tmp_path: Path):
+        """設定ページから押し込み量だけ保存した状態（座標はまだ教示していない）."""
+        machine = _machine_with(tmp_path, "[solder.nozzle.clean]\npress_depth = 0.4\n")
 
-    def test_missing_section_returns_none(self):
-        machine = Machine(TESTING_DATA_DIR / "machine.toml")
-
-        assert machine.nozzle_clean is None
-
-    def test_reads_position_with_defaults(self, tmp_path: Path):
-        machine = _machine_with(
-            tmp_path, "[paste_dispenser.nozzle_clean]\nx = 10.0\ny = 20.0\nz = -30.0\n"
+        assert machine.require_solder().nozzle.clean == NozzleCleanConfig(
+            press_depth=0.4
         )
-
-        assert machine.nozzle_clean == NozzleClean(x=10.0, y=20.0, z=-30.0)
 
     def test_reads_recorded_values(self, tmp_path: Path):
         machine = _machine_with(
             tmp_path,
-            "[paste_dispenser.nozzle_clean]\n"
+            "[solder.nozzle.clean]\n"
             "x = 10.0\ny = 20.0\nz = -30.0\n"
             "press_depth = 0.4\npurge_ul = 0.3\n"
             "stroke = 1.5\npasses = 3\nwipe_speed = 8.0\n",
         )
 
-        assert machine.nozzle_clean == NozzleClean(
-            x=10.0,
-            y=20.0,
-            z=-30.0,
+        assert machine.require_solder().nozzle.clean == NozzleCleanConfig(
+            position=Point3d(10.0, 20.0, -30.0),
             press_depth=0.4,
             purge_ul=0.3,
             stroke=1.5,
             passes=3,
             wipe_speed=8.0,
         )
-
-    def test_press_z_subtracts_press_depth_from_surface(self):
-        """こすり Z は面 Z から押し込み量だけ下がる（Z は 0 が上・負が下）."""
-        clean = NozzleClean(x=1.0, y=2.0, z=-30.0, press_depth=0.4)
-
-        assert clean.press_z == pytest.approx(-30.4)
-
-    def test_missing_coordinate_keeps_the_rest_of_paste_dispenser_readable(
-        self, tmp_path: Path
-    ):
-        """不完全なサブテーブルで塗布パラメータ全体を巻き添えにしない.
-
-        設定ページから押し込み量だけ保存すればこの状態になる。巻き添えにすると /settings
-        の塗布パラメータが全て「未設定」になり、装置ページが 503 する。
-        """
-        machine = _machine_with(
-            tmp_path, "[paste_dispenser.nozzle_clean]\npress_depth = 0.4\n"
-        )
-
-        assert machine.paste_dispenser.nozzle_diameter > 0
-        assert machine.paste_dispenser.nozzle_clean is None
-        assert machine.nozzle_clean is None
 
     @pytest.mark.parametrize(
         ("key", "value"),
@@ -597,206 +737,32 @@ class TestNozzleClean:
             ("passes", True),
             ("wipe_speed", 0.0),
             ("wipe_speed", -1.0),
-            ("x", float("inf")),
-            ("y", float("nan")),
-            ("z", "auto"),
         ],
     )
     def test_rejects_invalid_values(self, key, value):
         with pytest.raises(ValueError, match=key):
-            NozzleClean(**{"x": 10.0, "y": 20.0, "z": -30.0, key: value})
+            NozzleCleanConfig(**{key: value})
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [("x", float("inf")), ("y", float("nan")), ("z", float("-inf"))],
+    )
+    def test_rejects_non_finite_position(self, key, value):
+        coordinates = {"x": 10.0, "y": 20.0, "z": -30.0, key: value}
+
+        with pytest.raises(ValueError, match=key):
+            NozzleCleanConfig(position=Point3d(**coordinates))
 
     @pytest.mark.parametrize("passes", [0, 1])
     def test_accepts_zero_and_one_pass(self, passes):
         """こすり回数 0 はこすり無効として受理する."""
-        assert NozzleClean(x=1.0, y=2.0, z=-3.0, passes=passes).passes == passes
+        assert NozzleCleanConfig(passes=passes).passes == passes
 
     def test_accepts_zero_for_optional_steps(self):
         """0 は「その工程を行わない」を意味するので受理する."""
-        assert NozzleClean(x=1.0, y=2.0, z=-3.0, press_depth=0.0).press_depth == 0.0
-        assert NozzleClean(x=1.0, y=2.0, z=-3.0, purge_ul=0.0).purge_ul == 0.0
-        assert NozzleClean(x=1.0, y=2.0, z=-3.0, stroke=0.0).stroke == 0.0
-
-
-@pytest.mark.parametrize(
-    ("section", "expected"),
-    [
-        pytest.param("nozzle_cap", NozzleCap(x=10.0, y=20.0, z=3.5), id="cap"),
-        pytest.param("nozzle_clean", NozzleClean(x=10.0, y=20.0, z=-30.0), id="clean"),
-    ],
-)
-class TestLegacyNozzleSections:
-    """旧トップレベル [nozzle_cap] / [nozzle_clean] の読み替え.
-
-    設定ファイルを書き換えなくても動き続けるよう、読み込み時に [paste_dispenser]
-    配下へ写す。ファイル自体の移行は設定を書き込むときに ConfigStore が行う
-    （契約は tests/web/api/test_config_store.py::TestLegacyNozzleSectionMigration）。
-    """
-
-    def test_legacy_section_is_visible_through_both_accessors(
-        self, tmp_path: Path, section: str, expected: NozzleCap | NozzleClean
-    ):
-        """ノズル専用のアクセサと paste_dispenser 経由で同じ値が見える.
-
-        ここが食い違うと、/settings が「未設定」でノズル位置ページが「記録済み」と 並ぶような表示になる。
-        """
-        machine = _machine_with(
-            tmp_path,
-            f"[{section}]\nx = {expected.x}\ny = {expected.y}\nz = {expected.z}\n",
-        )
-
-        assert getattr(machine, section) == expected
-        assert getattr(machine.paste_dispenser, section) == expected
-
-    def test_new_section_wins_over_the_legacy_one(
-        self, tmp_path: Path, section: str, expected: NozzleCap | NozzleClean
-    ):
-        machine = _machine_with(
-            tmp_path,
-            f"[{section}]\nx = 1.0\ny = 2.0\nz = 3.0\n"
-            f"[paste_dispenser.{section}]\n"
-            f"x = {expected.x}\ny = {expected.y}\nz = {expected.z}\n",
-        )
-
-        assert getattr(machine, section) == expected
-        assert getattr(machine.paste_dispenser, section) == expected
-
-
-class TestCornerOffsets:
-    """CornerOffsetsクラスのテスト."""
-
-    @pytest.mark.parametrize(
-        ("corner", "expected"),
-        [
-            (Corner.TOP_LEFT, Point2d(1.0, -2.0)),
-            (Corner.TOP_RIGHT, Point2d(3.0, -4.0)),
-            (Corner.BOTTOM_LEFT, Point2d(5.0, 5.0)),
-            (Corner.BOTTOM_RIGHT, Point2d(-5.0, 5.0)),
-        ],
-    )
-    def test_get_returns_each_corner_as_point2d(
-        self, corner: Corner, expected: Point2d
-    ):
-        offsets = CornerOffsets(
-            top_left=(1.0, -2.0),
-            top_right=(3.0, -4.0),
-            bottom_left=(5.0, 5.0),
-            bottom_right=(-5.0, 5.0),
-        )
-
-        assert offsets.get(corner) == expected
-
-
-class TestReferencePoint:
-    """ReferencePointクラスのテスト."""
-
-    def test_get_reference_position_default_is_top_left(self):
-        ref = ReferencePoint(
-            x=10.0,
-            y=20.0,
-            target_diameter=3.0,
-            offsets=CornerOffsets(
-                top_left=(1.0, -2.0),
-                top_right=(1.0, -2.0),
-                bottom_left=(5.0, 5.0),
-                bottom_right=(-5.0, 5.0),
-            ),
-        )
-
-        assert ref.get_reference_position() == Point2d(10.0, 20.0)
-
-    def test_get_reference_position_top_right(self):
-        # ref = (10, 20), offset_top_left = (1, -2)
-        # board_origin = (10, 20) - (1, -2) = (9, 22)
-        # board_top_right = (9 + 100, 22) = (109, 22)
-        # ref_top_right = (109, 22) + (3, -4) = (112, 18)
-        ref = ReferencePoint(
-            x=10.0,
-            y=20.0,
-            target_diameter=3.0,
-            offsets=CornerOffsets(
-                top_left=(1.0, -2.0),
-                top_right=(3.0, -4.0),
-                bottom_left=(5.0, 5.0),
-                bottom_right=(-5.0, 5.0),
-            ),
-        )
-
-        assert ref.get_reference_position(
-            Corner.TOP_RIGHT, board_width=100.0
-        ) == Point2d(112.0, 18.0)
-
-    def test_get_reference_position_top_right_requires_board_width(self):
-        ref = ReferencePoint(
-            x=10.0,
-            y=20.0,
-            target_diameter=3.0,
-            offsets=CornerOffsets(
-                top_left=(1.0, -2.0),
-                top_right=(1.0, -2.0),
-                bottom_left=(5.0, 5.0),
-                bottom_right=(-5.0, 5.0),
-            ),
-        )
-
-        with pytest.raises(ValueError, match="board_widthが必要"):
-            ref.get_reference_position(Corner.TOP_RIGHT)
-
-    def test_get_reference_position_bottom_left(self):
-        # board_origin = (10, 20) - (1, -2) = (9, 22)
-        # board_bottom_left = (9, 22 + 50) = (9, 72)
-        # ref_bottom_left = (9, 72) + (5, 5) = (14, 77)
-        ref = ReferencePoint(
-            x=10.0,
-            y=20.0,
-            target_diameter=3.0,
-            offsets=CornerOffsets(
-                top_left=(1.0, -2.0),
-                top_right=(1.0, -2.0),
-                bottom_left=(5.0, 5.0),
-                bottom_right=(-5.0, 5.0),
-            ),
-        )
-
-        assert ref.get_reference_position(
-            Corner.BOTTOM_LEFT, board_height=50.0
-        ) == Point2d(14.0, 77.0)
-
-    def test_get_reference_position_bottom_left_requires_board_height(self):
-        ref = ReferencePoint(
-            x=10.0,
-            y=20.0,
-            target_diameter=3.0,
-            offsets=CornerOffsets(
-                top_left=(1.0, -2.0),
-                top_right=(1.0, -2.0),
-                bottom_left=(5.0, 5.0),
-                bottom_right=(-5.0, 5.0),
-            ),
-        )
-
-        with pytest.raises(ValueError, match="board_heightが必要"):
-            ref.get_reference_position(Corner.BOTTOM_LEFT)
-
-    def test_get_reference_position_bottom_right(self):
-        # board_origin = (10, 20) - (1, -2) = (9, 22)
-        # board_bottom_right = (9 + 100, 22 + 50) = (109, 72)
-        # ref_bottom_right = (109, 72) + (-5, 5) = (104, 77)
-        ref = ReferencePoint(
-            x=10.0,
-            y=20.0,
-            target_diameter=3.0,
-            offsets=CornerOffsets(
-                top_left=(1.0, -2.0),
-                top_right=(1.0, -2.0),
-                bottom_left=(5.0, 5.0),
-                bottom_right=(-5.0, 5.0),
-            ),
-        )
-
-        assert ref.get_reference_position(
-            Corner.BOTTOM_RIGHT, board_width=100.0, board_height=50.0
-        ) == Point2d(104.0, 77.0)
+        assert NozzleCleanConfig(press_depth=0.0).press_depth == 0.0
+        assert NozzleCleanConfig(purge_ul=0.0).purge_ul == 0.0
+        assert NozzleCleanConfig(stroke=0.0).stroke == 0.0
 
 
 class TestProbe:
@@ -805,129 +771,92 @@ class TestProbe:
     def test_min_samples_less_than_6_raises(self):
         # 2次曲面フィットには6点以上が必要なため min_samples < 6 は弾かれる。
         with pytest.raises(ValueError, match="min_samplesは6以上"):
-            Probe(min_radius=1.5, min_samples=5)
+            ProbeConfig(min_radius=1.5, min_samples=5)
 
     def test_min_samples_greater_than_max_samples_raises(self):
         # min/max とも6以上にして順序ガードのみを検証する。
         with pytest.raises(ValueError, match="min_samplesはmax_samples以下"):
-            Probe(min_radius=1.5, min_samples=8, max_samples=6)
+            ProbeConfig(min_radius=1.5, min_samples=8, max_samples=6)
 
     @pytest.mark.parametrize("min_radius", [0.0, -1.0])
     def test_min_radius_not_positive_raises(self, min_radius):
         with pytest.raises(ValueError, match="min_radiusは正の値"):
-            Probe(min_radius=min_radius)
+            ProbeConfig(min_radius=min_radius)
 
     @pytest.mark.parametrize("board_edge_margin", [0.0, -1.0])
     def test_board_edge_margin_not_positive_raises(self, board_edge_margin):
         with pytest.raises(ValueError, match="board_edge_marginは正の値"):
-            Probe(min_radius=1.5, board_edge_margin=board_edge_margin)
-
-
-class TestGetMachineConfig:
-    """get_config_dir / get_machine_config のテスト.
-
-    PCBASM_CONFIG_DIR env が唯一の注入口（コア層には Settings が無い）。
-    """
-
-    _MINIMAL_TOML = """\
-[klipper]
-
-[camera]
-width = 640
-height = 480
-fps = 30.0
-calibration_file = "calibration.json"
-
-[camera.crop]
-width = 400
-height = 400
-
-[reference_point]
-x = 20.0
-y = 10.0
-target_diameter = 3.0
-
-[reference_point.offsets]
-top_left = [0.0, 0.0]
-top_right = [0.0, 0.0]
-bottom_left = [0.0, 0.0]
-bottom_right = [0.0, 0.0]
-"""
-
-    def test_defaults_to_project_root_config(self, monkeypatch):
-        monkeypatch.delenv("PCBASM_CONFIG_DIR", raising=False)
-
-        assert get_config_dir() == PROJECT_ROOT / "config"
-
-    def test_loads_machine_config_from_env_dir(self, tmp_path, monkeypatch):
-        config_dir = tmp_path / "config"
-        config_dir.mkdir()
-        (config_dir / "machine.toml").write_text(self._MINIMAL_TOML)
-        monkeypatch.setenv("PCBASM_CONFIG_DIR", str(config_dir))
-
-        machine = get_machine_config()
-
-        assert get_config_dir() == config_dir
-        assert isinstance(machine, Machine)
-        assert machine.klipper == Klipper(host="localhost", port=7125)
-
-    def test_raises_file_not_found_when_machine_toml_missing(
-        self, tmp_path, monkeypatch
-    ):
-        monkeypatch.setenv("PCBASM_CONFIG_DIR", str(tmp_path / "empty"))
-
-        with pytest.raises(FileNotFoundError):
-            get_machine_config()
-
-
-class TestResolvePasteHeight:
-    """resolve_paste_height: auto は ul_per_mm2（膜厚 [mm]）を、数値はその値を返す。"""
-
-    def test_auto_returns_ul_per_mm2(self):
-        assert resolve_paste_height("auto", 0.08) == pytest.approx(0.08)
-
-    def test_numeric_returns_value(self):
-        assert resolve_paste_height(0.2, 0.08) == pytest.approx(0.2)
+            ProbeConfig(min_radius=1.5, board_edge_margin=board_edge_margin)
 
 
 class TestMachineSettle:
     """`[settle]`: 装置の静定待ち（セクションごと省略可）."""
 
     def test_defaults_whole_section_when_absent(self):
-        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+        machine = load_machine(MINIMAL_MACHINE_TOML)
 
-        assert machine.settle == Settle()
+        assert machine.settle == SettleConfig()
 
     def test_reads_section(self, tmp_path):
         machine = _machine_with(tmp_path, "[settle]\nmove_sec = 0.8\nprobe_sec = 0.2\n")
 
-        assert machine.settle == Settle(move_sec=0.8, probe_sec=0.2)
+        assert machine.settle == SettleConfig(move_sec=0.8, probe_sec=0.2)
 
     def test_accepts_zero(self):
-        assert Settle(move_sec=0.0, probe_sec=0.0).move_sec == 0.0
+        assert SettleConfig(move_sec=0.0, probe_sec=0.0).move_sec == 0.0
 
     @pytest.mark.parametrize(
         ("key", "value"), [("move_sec", -0.1), ("probe_sec", -1.0)]
     )
     def test_rejects_negative(self, key, value):
         with pytest.raises(ValueError, match=key):
-            Settle(**{key: value})
+            SettleConfig(**{key: value})
+
+
+class TestMachineTact:
+    """`[solder.tact]`: 塗布の所要時間の予測（セクションごと省略可。速度は printer.cfg から読む）."""
+
+    def test_defaults_whole_section_when_absent(self):
+        solder = load_machine(MINIMAL_MACHINE_TOML).require_solder()
+
+        assert solder.tact == TactConfig(setup_sec=300.0)
+
+    def test_reads_setup_sec(self, tmp_path):
+        machine = _machine_with(tmp_path, "[solder.tact]\nsetup_sec = 120.0\n")
+
+        assert machine.require_solder().tact == TactConfig(setup_sec=120.0)
+
+    def test_speed_keys_are_unknown(self, tmp_path):
+        """速度と加速度は printer.cfg の値を使うので、machine.toml には書けない（移行が消す）."""
+        path = tmp_path / "machine.toml"
+        path.write_text(
+            MINIMAL_MACHINE_TOML.read_text() + "\n[solder.tact]\ntravel_speed = 10.0\n"
+        )
+
+        with pytest.raises(ConfigError, match="travel_speed"):
+            load_machine(path)
+
+    def test_rejects_negative_setup_sec(self):
+        with pytest.raises(ValueError, match="setup_sec"):
+            TactConfig(setup_sec=-1.0)
 
 
 class TestMachineDetection:
     """`[detection]`: 統計検出のサンプリング（セクションごと省略可）."""
 
     def test_defaults_whole_section_when_absent(self):
-        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+        machine = load_machine(MINIMAL_MACHINE_TOML)
 
-        assert machine.detection == Detection()
+        assert machine.detection == DetectionConfig()
 
     def test_reads_section(self, tmp_path):
         machine = _machine_with(
             tmp_path, "[detection]\nsample_count = 20\nminimum_sample_count = 8\n"
         )
 
-        assert machine.detection == Detection(sample_count=20, minimum_sample_count=8)
+        assert machine.detection == DetectionConfig(
+            sample_count=20, minimum_sample_count=8
+        )
 
     @pytest.mark.parametrize(
         ("key", "value"),
@@ -939,9 +868,24 @@ class TestMachineDetection:
     )
     def test_rejects_invalid_counts(self, key, value):
         with pytest.raises(ValueError, match=key):
-            Detection(**{key: value})
+            DetectionConfig(**{key: value})
 
     def test_rejects_minimum_above_sample_count(self):
         # 有効検出の下限が撮る枚数を超えたら、その観測は決して成立しない
         with pytest.raises(ValueError, match="minimum_sample_count"):
-            Detection(sample_count=4, minimum_sample_count=5)
+            DetectionConfig(sample_count=4, minimum_sample_count=5)
+
+
+@pytest.mark.parametrize(
+    "path",
+    sorted((PROJECT_ROOT / "deploy" / "templates").glob("*/machine.toml")),
+    ids=lambda path: path.parent.name,
+)
+class TestTemplates:
+    """新しい機体の machine.toml の雛形は、そのまま読めて移行も要らない."""
+
+    def test_loads(self, path: Path):
+        load_machine(path)
+
+    def test_needs_no_migration(self, path: Path):
+        assert migrate_text(path.read_text())[1] == {}

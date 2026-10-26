@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import cv2
 
+from pcbasm.board import Layer
 from pcbasm.geometry import sampling_diagnostics
-from pcbasm.pasting.height import plan_probe_points
-from pcbasm.pasting.session import PasteSession
-from pcbasm.pcb import Layer, PcbFile
+from pcbasm.pasting.height import (
+    plan_probe_points,
+    render_height_plane,
+    render_planned_points,
+)
 from pcbasm.vision import Image
-from pcbasm.visualization import render_height_plane, render_planned_points
-from web.api.jobs.board_ops import setup_board
-from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
-from web.api.jobs.context import JobAborted, JobContext, JobResult, PromptSpec
+from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition
+from web.api.jobs.runtime.context import JobContext
+from web.api.jobs.runtime.record import JobResult
+from web.api.jobs.steps import setup_paste_session
 
 
 def register(catalog: JobCatalog) -> None:
@@ -20,11 +23,7 @@ def register(catalog: JobCatalog) -> None:
         JobDefinition(
             name="height_plane",
             label="高さ平面計測",
-            tab="pasting",
             run=_run_height_plane,
-            params=(
-                ParamSpec("tolerance", "位置合わせ許容誤差", "float", 0.1, unit="mm"),
-            ),
             requires_pcb=True,
             uses_machine=True,
             provides_preview=True,
@@ -35,7 +34,7 @@ def register(catalog: JobCatalog) -> None:
 def _run_height_plane(ctx: JobContext) -> JobResult:
     """計画点プレビュー → confirm → 高さ計測 → ヒートマップ生成を実行する."""
     assert ctx.pcb_path is not None  # requires_pcb=True
-    pcb = PcbFile(ctx.pcb_path)
+    pcb = ctx.board()
     top_coppers = [c for c in pcb.copper if c.layer == Layer.TOP]
     # 装置を触らずに計画点だけ出す（計測時と同じ規則）
     planned_points = plan_probe_points(
@@ -58,32 +57,20 @@ def _run_height_plane(ctx: JobContext) -> JobResult:
     diagnostics = sampling_diagnostics(
         planned_points, [c.polygon for c in top_coppers], pcb.outline.polygon
     )
-    if diagnostics is not None:
-        ctx.log(
-            f"計画点 {diagnostics.point_count} 点 / "
-            f"min_clearance {diagnostics.min_clearance:.3f} mm / "
-            f"凸包/外形面積比 {diagnostics.hull_area_ratio:.3f}"
-        )
+    ctx.log(
+        f"計画点 {diagnostics.point_count} 点 / "
+        f"min_clearance {diagnostics.min_clearance:.3f} mm / "
+        f"凸包/外形面積比 {diagnostics.hull_area_ratio:.3f}"
+    )
 
     try:
-        proceed = ctx.prompt(
-            PromptSpec(
-                kind="confirm",
-                message=f"{len(planned_points)} 点を計測します。続行しますか?",
-                default=True,
-                true_label="続行",
-                false_label="中止",
-            )
-        )
+        ctx.require(f"{len(planned_points)} 点を計測します。続行しますか?")
     finally:
         if preview is not None:
             ctx.clear_frame()
-    if not proceed:
-        raise JobAborted()
 
     with ctx.open_camera() as camera:
-        result = setup_board(ctx, camera)
-        session = PasteSession.from_calibration(result)
+        session = setup_paste_session(ctx, camera)
         ctx.progress("高さ計測")
         height_plane = session.measure_height_plane(top_coppers)
 

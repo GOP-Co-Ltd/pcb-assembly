@@ -73,10 +73,10 @@
   if (saveButton && cannyLow && cannyHigh) {
     saveButton.addEventListener("click", async () => {
       try {
-        await api("PUT", "/api/settings/machine", {
+        await api("PUT", "/api/machine_config", {
           values: {
-            "paste_dispenser.pad_align.canny_low": Number(cannyLow.value),
-            "paste_dispenser.pad_align.canny_high": Number(cannyHigh.value),
+            "alignment.canny_low": Number(cannyLow.value),
+            "alignment.canny_high": Number(cannyHigh.value),
           },
         });
         toast("エッジ検出パラメータを設定に保存しました");

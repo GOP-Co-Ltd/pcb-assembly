@@ -252,7 +252,9 @@ h2 {
 
 /* 更新通知バッジ。`hidden` を有効にするため、display を明示的に上書きする
    （`.icon-link` 相当の inline-flex は UA の `[hidden] { display: none }` より優先される） */
-.update-badge {
+/* 立ち上げチップも同じ見た目にする（未完了の段がある間だけ SSR が描く） */
+.update-badge,
+.readiness-chip {
   display: inline-flex;
   align-items: center;
   min-height: 2rem;
@@ -264,7 +266,8 @@ h2 {
   white-space: nowrap;
 }
 
-.update-badge:hover {
+.update-badge:hover,
+.readiness-chip:hover {
   background: var(--surface-2);
 }
 
@@ -363,63 +366,6 @@ h2 {
   color: var(--accent);
   background: var(--accent-weak);
   font-weight: 600;
-}
-
-.feature-overview-heading p {
-  margin: 0 0 1.25rem;
-  color: var(--muted);
-}
-
-.feature-overview {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
-  gap: 1rem;
-  max-width: 72rem;
-}
-
-.feature-card {
-  min-width: 0;
-  padding: 1rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
-}
-
-.feature-card h3 {
-  margin: 0 0 0.35rem;
-  font-size: 1rem;
-}
-
-.feature-card p {
-  margin: 0 0 0.75rem;
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
-.feature-card ul {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.feature-card li + li {
-  border-top: 1px solid var(--line);
-}
-
-.feature-card a {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  min-height: 2.75rem;
-  padding: 0.6rem 0.25rem;
-  color: var(--accent);
-  text-decoration: none;
-  overflow-wrap: anywhere;
-}
-
-.feature-card a:hover {
-  background: var(--accent-weak);
 }
 
 .main-pane {
@@ -736,6 +682,11 @@ h2 {
   width: 100%;
 }
 
+.settings-triple {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: min(100%, 18rem);
+}
+
 .unit {
   margin-left: 0.3rem;
   color: var(--quiet);
@@ -882,6 +833,26 @@ h2 {
   background: #15528d;
 }
 
+/* ---- config error (degraded) ---- */
+.config-error {
+  margin: 0.6rem 1rem 0;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  color: var(--danger);
+  background: var(--danger-weak);
+  overflow-wrap: anywhere;
+}
+
+.config-notice {
+  margin: 0.6rem 1rem 0;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-weak);
+  overflow-wrap: anywhere;
+}
+
 /* ---- toasts ---- */
 .job-completion-notice {
   position: fixed;
@@ -1002,6 +973,23 @@ h2 {
   font-size: 0.9rem;
 }
 
+/* 普段は触らない項目のまとまり（既定で畳む） */
+.job-param-advanced {
+  max-width: 42rem;
+  margin: 0 0 0.9rem;
+}
+
+.job-param-advanced > summary {
+  cursor: pointer;
+  color: var(--accent, var(--muted));
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.job-param-advanced > .job-param-group {
+  margin: 0.4rem 0 0;
+}
+
 #job-run {
   width: fit-content;
   min-width: 6rem;
@@ -1028,6 +1016,11 @@ h2 {
 
 .jc-status {
   font-weight: 700;
+}
+
+.jc-elapsed {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .jc-status[data-status="running"],
@@ -1249,7 +1242,7 @@ h2 {
 }
 
 /* 失敗した手順の出力。長い 1 行で親を押し広げないよう折り返す。 */
-#update-detail {
+.update-detail {
   max-height: 18rem;
   margin: 0.4rem 0 0;
   padding: 0.5rem;
@@ -1322,6 +1315,16 @@ h2 {
 
 .pasting-preview-panel {
   min-width: 0;
+}
+
+.tact-estimate {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.tact-estimate-detail {
+  color: var(--muted);
+  font-size: 0.85rem;
 }
 
 .pasting-job-panel .job-form,
@@ -2528,7 +2531,8 @@ h2 {
   .topbar-menu-content .control-lease,
   .topbar-menu-content .chip,
   .topbar-menu-content .firmware-restart,
-  .topbar-menu-content .update-badge {
+  .topbar-menu-content .update-badge,
+  .topbar-menu-content .readiness-chip {
     grid-column: 1 / -1;
   }
 
@@ -2758,6 +2762,10 @@ h2 {
   max-width: none;
 }
 
+.paste-volume-calibration-form .job-param-advanced {
+  max-width: none;
+}
+
 .paste-volume-calibration-form .job-param-group > legend {
   grid-column: 1 / -1;
 }
@@ -2876,31 +2884,80 @@ h2 {
   stroke-dasharray: 0.4 0.4;
 }
 
-/* ---- 一括管理 ---- */
-.bulk-section {
-  margin-bottom: 1.5rem;
-}
-
-.bulk-table {
+/* ---- 機体一覧 ---- */
+.machines-table {
   width: 100%;
   border-collapse: collapse;
 }
 
-.bulk-table th,
-.bulk-table td {
+.machines-table th,
+.machines-table td {
   padding: 0.4rem 0.7rem;
   border-top: 1px solid var(--line);
   text-align: left;
   vertical-align: middle;
 }
 
-.bulk-table thead th {
+.machines-table thead th {
   color: var(--muted);
   font-weight: 400;
 }
 
-.bulk-status {
+.machines-status {
   display: inline-block;
   min-width: 8rem;
   margin-right: 0.5rem;
+}
+
+.machines-capability {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 400;
+}
+
+/* ---- 設定履歴 ---- */
+.config-history-list > li {
+  margin-bottom: 0.75rem;
+}
+
+.config-history-changes {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+/* ---- 立ち上げチェックリスト ---- */
+.commissioning-steps > li {
+  margin-bottom: 0.75rem;
+}
+
+.commissioning-steps p {
+  margin: 0.2rem 0;
+}
+
+.commissioning-state {
+  margin-left: 0.5rem;
+  padding: 0 0.4rem;
+  border-radius: var(--radius);
+  color: var(--warn);
+  background: var(--warn-weak);
+}
+
+[data-state="done"] > .commissioning-state {
+  color: var(--ok);
+  background: var(--ok-weak);
+}
+
+[data-state="blocked"] > .commissioning-state {
+  color: var(--muted);
+  background: var(--surface-2);
+}
+
+.commissioning-redo {
+  color: var(--muted);
 }

@@ -1,6 +1,6 @@
 """操作権リースのセッション同定（frontend 側）の仕様テスト.
 
-契約書 /tmp/pcbasm-plan/mr6-brief.md §2 と §10 が契約:
+frontend は次のとおりセッションを同定する:
 
 - frontend は **HTML ページ応答でのみ** `pcbasm_session`（httpOnly,
   `secrets.token_urlsafe(16)`）を発行し、**`Path=/` の既定を上書きしない**
@@ -10,7 +10,7 @@
   `X-Pcbasm-Session` / `X-Pcbasm-Client-Name`（`quote` 済み）へ翻訳して backend に渡す
 - cookie 自体は従来どおり backend へ渡さない
 
-**上流はエコー ASGI アプリ**（実 backend ではない）。ワイヤ契約（§10）だけを前提に
+**上流はエコー ASGI アプリ**（実 backend ではない）。backend との間のヘッダ契約だけを前提に
 frontend を検証するため、backend 側の実装状況に依存しない。backend が受け取った
 ヘッダは実 backend では観測できない（識別子を応答に出さない契約）ので、エコー上流から
 確かめる必要もある。
@@ -28,7 +28,7 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.types import Receive, Scope, Send
 
-from web.ui.proxy import NAME_COOKIE, SESSION_COOKIE
+from web.contract.identity import NAME_COOKIE, SESSION_COOKIE
 from web.ui.settings import Settings
 
 # tests/web/ui/conftest.py の静的登録 1 台と同じ id
@@ -99,7 +99,7 @@ class TestSessionCookie:
     def test_html_page_issues_an_httponly_session_cookie(
         self, frontend_client: TestClient
     ):
-        response = frontend_client.get(f"/m/{MACHINE_ID}/posctrl")
+        response = frontend_client.get(f"/m/{MACHINE_ID}/klipper_status")
 
         assert response.status_code == 200, response.text
         (issued,) = _session_cookie_headers(response)
@@ -110,7 +110,9 @@ class TestSessionCookie:
         self, frontend_client: TestClient
     ):
         """`Path` を狭めると MJPEG（`img.src`）と WS に cookie が乗らなくなる."""
-        (issued,) = _session_cookie_headers(frontend_client.get(f"/m/{MACHINE_ID}/dev"))
+        (issued,) = _session_cookie_headers(
+            frontend_client.get(f"/m/{MACHINE_ID}/audio")
+        )
 
         assert "Path=/;" in f"{issued};"
 
@@ -118,10 +120,10 @@ class TestSessionCookie:
         self, frontend_client: TestClient
     ):
         """ページ遷移ごとに発行し直すと、遷移するたび別人になり操作権が離れる."""
-        frontend_client.get(f"/m/{MACHINE_ID}/posctrl")
+        frontend_client.get(f"/m/{MACHINE_ID}/klipper_status")
         first = frontend_client.cookies[SESSION_COOKIE]
 
-        response = frontend_client.get(f"/m/{MACHINE_ID}/pasting")
+        response = frontend_client.get(f"/m/{MACHINE_ID}/paste_test_board")
 
         assert _session_cookie_headers(response) == []
         assert frontend_client.cookies[SESSION_COOKIE] == first
@@ -129,7 +131,9 @@ class TestSessionCookie:
     @pytest.mark.parametrize(
         "path",
         (
-            pytest.param(f"/m/{MACHINE_ID}/api/state", id="プロキシ配下の JSON"),
+            pytest.param(
+                f"/m/{MACHINE_ID}/api/session/state", id="プロキシ配下の JSON"
+            ),
             pytest.param("/static/js/control.js", id="静的アセット"),
         ),
     )
@@ -149,11 +153,13 @@ class TestSessionCookie:
         ブラウザ（= cookie jar を持つ TestClient）の視点で、発行・スコープ・ヘッダ翻訳が
         繋がっていることを 1 本で確かめる。`Path` を機体 prefix に狭めるとここで切れる。
         """
-        page = echo_frontend.get(f"/m/{MACHINE_ID}/posctrl")
+        page = echo_frontend.get(f"/m/{MACHINE_ID}/klipper_status")
         assert _session_cookie_headers(page) != []
         session = echo_frontend.cookies[SESSION_COOKIE]
 
-        headers = _echoed_headers(echo_frontend.get(f"/m/{MACHINE_ID}/api/state"))
+        headers = _echoed_headers(
+            echo_frontend.get(f"/m/{MACHINE_ID}/api/session/state")
+        )
 
         assert headers["x-pcbasm-session"] == session
 
@@ -164,7 +170,7 @@ class TestSessionHeaderInjection:
     def test_session_cookie_becomes_the_session_header(self, echo_frontend: TestClient):
         headers = _echoed_headers(
             echo_frontend.get(
-                f"/m/{MACHINE_ID}/api/state",
+                f"/m/{MACHINE_ID}/api/session/state",
                 headers={"cookie": f"{SESSION_COOKIE}=abc123"},
             )
         )
@@ -177,7 +183,7 @@ class TestSessionHeaderInjection:
         """翻訳しても cookie 自体は渡さない（frontend の cookie を漏らさない）."""
         headers = _echoed_headers(
             echo_frontend.get(
-                f"/m/{MACHINE_ID}/api/state",
+                f"/m/{MACHINE_ID}/api/session/state",
                 headers={"cookie": f"{SESSION_COOKIE}=abc123; other=secret"},
             )
         )
@@ -197,7 +203,7 @@ class TestSessionHeaderInjection:
         """日本語名を生で載せると uvicorn / httpx が壊れる（ヘッダは latin-1）."""
         headers = _echoed_headers(
             echo_frontend.get(
-                f"/m/{MACHINE_ID}/api/state",
+                f"/m/{MACHINE_ID}/api/session/state",
                 headers={"cookie": f"{NAME_COOKIE}={cookie_value}"},
             )
         )
@@ -219,7 +225,7 @@ class TestSessionHeaderInjection:
         """
         headers = _echoed_headers(
             echo_frontend.get(
-                f"/m/{MACHINE_ID}/api/state",
+                f"/m/{MACHINE_ID}/api/session/state",
                 # encodeURIComponent("田") の途中で切れた cookie（3 バイト中 2 バイト）
                 headers={"cookie": f"{NAME_COOKIE}=%E3%81"},
             )
@@ -229,7 +235,9 @@ class TestSessionHeaderInjection:
 
     def test_no_cookie_injects_no_session_headers(self, echo_frontend: TestClient):
         """ヘッダ無し = backend 側で anonymous として扱われる（送らないことを確かめる）."""
-        headers = _echoed_headers(echo_frontend.get(f"/m/{MACHINE_ID}/api/state"))
+        headers = _echoed_headers(
+            echo_frontend.get(f"/m/{MACHINE_ID}/api/session/state")
+        )
 
         assert "x-pcbasm-session" not in headers
         assert "x-pcbasm-client-name" not in headers
@@ -238,7 +246,7 @@ class TestSessionHeaderInjection:
         """組み立て点を 1 箇所に保つ（クライアントの自称ヘッダは素通ししない）."""
         headers = _echoed_headers(
             echo_frontend.get(
-                f"/m/{MACHINE_ID}/api/state",
+                f"/m/{MACHINE_ID}/api/session/state",
                 headers={"x-pcbasm-session": "spoofed"},
             )
         )
@@ -248,7 +256,7 @@ class TestSessionHeaderInjection:
     def test_cookie_wins_over_a_client_supplied_header(self, echo_frontend: TestClient):
         headers = _echoed_headers(
             echo_frontend.get(
-                f"/m/{MACHINE_ID}/api/state",
+                f"/m/{MACHINE_ID}/api/session/state",
                 headers={
                     "cookie": f"{SESSION_COOKIE}=from-cookie",
                     "x-pcbasm-session": "spoofed",
@@ -262,7 +270,7 @@ class TestSessionHeaderInjection:
         """セッション注入で `x-forwarded-for` などの既存加工を壊さない."""
         headers = _echoed_headers(
             echo_frontend.get(
-                f"/m/{MACHINE_ID}/api/state",
+                f"/m/{MACHINE_ID}/api/session/state",
                 headers={"accept": "application/json"},
             )
         )

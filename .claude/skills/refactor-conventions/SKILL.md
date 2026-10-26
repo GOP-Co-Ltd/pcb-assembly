@@ -6,7 +6,7 @@ description: PCB アセンブリのリファクタリング規約集。テスト
 # リファクタリング規約
 
 コードを書き換える・テストを追加するときに参照する規約集。
-AGENTS.md の要点を補完し、詳細な判断基準と具体例を提供する。
+CLAUDE.md の要点を補完し、詳細な判断基準と具体例を提供する。
 
 ## テスト方針詳細
 
@@ -31,14 +31,9 @@ AGENTS.md の要点を補完し、詳細な判断基準と具体例を提供す�
 
 skill `testing-strategy` が単一の正典。ここでは要点だけを挙げる。
 
-- fake してよいのは自前 HAL ABC（`src/pcbasm/hal/`）だけ
+- fake してよいのは自前 HAL の fake（`pcbasm.hal.fake`）だけ
 - 3rd-party 表面（`picamera2`、`libgpiod`、Klipper RPC、`cv2.*`、`time.sleep` 等）と内部 private 関数のモックは禁止。モックはテスト作成者の仮定を写すだけで、upstream の挙動変更を検出できないため
-- 実オブジェクト＋実データを優先する。ABC に具象が無ければ `tests/helpers.py` に実 Impl を置く（`mocker.Mock` より先に検討）
-
-### ハードウェアテスト分離
-
-- `@mark_hardware` でハードウェアテストとモックテストを同一クラス内で分離
-- 詳細は skill `hardware-test`
+- 実オブジェクト＋実データを優先する。装置は `pcbasm.hal.fake` の fake を使う（`mocker.Mock` より先に検討）
 
 ## カプセル化詳細
 
@@ -117,12 +112,10 @@ def parse_position(s: str) -> Position:
 リファクタ・実装の完了条件は次のとおり。
 
 ```bash
-make format && make type && make test-no-hardware
+make check
 ```
 
 すべてパスして初めて完了。型チェックエラーや lint warning を放置しない。
-
-`make test`（実機テストを含む）は実行しない。`settings.json` で deny 済みであり、実行すると実機が動く。実機確認はユーザーが行う。
 
 ## Git 運用との接続
 

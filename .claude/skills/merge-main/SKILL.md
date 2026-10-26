@@ -7,7 +7,7 @@ description: 作業の最後に PR を出す直前で、最新の main を作業
 
 作業の最後に PR を出す **直前** で実行する手順。`main` をリモート最新に更新し、自分の作業ブランチに取り込んで（merge）、conflict を解消してから PR を立てる。こうすると、PR の diff は最新の base に対して conflict のない状態になる。
 
-AGENTS.md「Git 運用」に従い、**`main` への直接 commit / push はしない**。取り込みは作業ブランチ側で行う。PR 作成自体は skill [github-pr](../github-pr/SKILL.md) を参照。
+CLAUDE.md「Git 運用」に従い、**`main` への直接 commit / push はしない**。取り込みは作業ブランチ側で行う。PR 作成自体は skill [github-pr](../github-pr/SKILL.md) を参照。
 
 取り込みには rebase ではなく **merge** を使う（理由は末尾「rebase を使いたくなったら」）。
 
@@ -63,7 +63,7 @@ git diff --name-only --diff-filter=U    # conflict した file 一覧
 conflict file ごとに次を行う。
 
 1. `<<<<<<<` / `=======` / `>>>>>>>` マーカーの両側を読み、**両者の意図を保持して**解消する。main 側の変更も自分の変更も捨てない。`--ours` / `--theirs` で機械的に片方を採用しない
-2. 判断が割れる conflict（両方が同じ関数を別意図で書き換えた等）は解消せずに止め、**何が衝突しているか名指しでユーザーに確認する**（AGENTS.md 開発原則 1）
+2. 判断が割れる conflict（両方が同じ関数を別意図で書き換えた等）は解消せずに止め、**何が衝突しているか名指しでユーザーに確認する**（CLAUDE.md 開発原則 1）
 3. 解消した file を stage する: `git add <file>`
 
 全 file を解消したら `git merge --continue`（または `git commit`）。
@@ -72,14 +72,13 @@ conflict file ごとに次を行う。
 
 ### 5. 取り込み後の検証
 
-main を取り込んだ後もコードが正しく動くか確認する。**全 green** であることが PR の前提（AGENTS.md「Git 運用」の標準フロー）。
+main を取り込んだ後もコードが正しく動くか確認する。**全 green** であることが PR の前提（CLAUDE.md「Git 運用」の標準フロー）。
 
 ```bash
-make format && make type && make test-no-hardware
+make check
 ```
 
 - test が落ちたら、main 側の変更と自分の変更の **意味的な衝突**（テキスト上の conflict は無いが、両方の変更を組み合わせると動作が変わる）を疑う。修正して再度 green にする
-- 実機テスト（`make test` / `@mark_hardware`）は実行しない。実機確認はユーザーが行う
 
 ### 6. push して PR 作成
 
@@ -99,10 +98,10 @@ git push                       # 既に upstream があれば引数不要
 
 ## rebase を使いたくなったら
 
-このスキルは **merge を既定** とする。`git pull --rebase` は自ブランチの commit hash を書き換え、push 済みブランチでは `--force-with-lease` が必要になる（AGENTS.md / skill github-pr の「`--force` 系は使わない」と衝突する）。共有・レビュー中のブランチでは履歴の安定性を優先して **merge** を使う。rebase が必要な特殊事情があるなら、その理由をユーザーに確認してから行う。
+このスキルは **merge を既定** とする。`git pull --rebase` は自ブランチの commit hash を書き換え、push 済みブランチでは `--force-with-lease` が必要になる（CLAUDE.md / skill github-pr の「`--force` 系は使わない」と衝突する）。共有・レビュー中のブランチでは履歴の安定性を優先して **merge** を使う。rebase が必要な特殊事情があるなら、その理由をユーザーに確認してから行う。
 
 ## 関連参照
 
 - skill [github-pr](../github-pr/SKILL.md)：push / `gh pr create` / push reject 系トラブルシュート
 - skill [do-on-worktree](../do-on-worktree/SKILL.md)：worktree で裏作業を進める手順
-- [AGENTS.md](../../../AGENTS.md)：「Git 運用」節
+- [CLAUDE.md](../../../CLAUDE.md)：「Git 運用」節

@@ -8,7 +8,7 @@
 API は `live_server`（backend 直）へ、SSR ページは `live_ui`（frontend 経由）へ投げる。
 プロキシ経路そのものの検証は tests/e2e/test_proxy_e2e.py が担当する。
 
-ジョブ通しの題材には hidden の ``job_demo``（uses_machine=False・実機不要）を使う。
+ジョブ通しの題材には検証用の ``job_demo``（uses_machine=False・実機不要）を使う。
 log / progress / prompt / prompt_resolved / apply を一通り通すための検証用ジョブで、
 prompt 2 回（confirm → number）に応答すると SUCCEEDED + apply ペイロードを返す。
 """
@@ -21,7 +21,7 @@ from typing import Any, override
 import httpx
 from websockets.sync.client import connect
 
-from tests.e2e.conftest import (
+from tests.support.browser import (
     TERMINAL as _TERMINAL,
     LiveServer,
     LiveUi,
@@ -31,9 +31,9 @@ from tests.e2e.conftest import (
     wait_first_prompt as _wait_first_prompt,
     wait_machine_field as _wait_machine_field,
 )
-from tests.helpers import wait_until
-from tests.web.api.conftest import decode_jpeg, jpeg_payload
-from web.api.routers.pasting_view import ResolvedSettings
+from tests.support.polling import wait_until
+from tests.support.web import decode_jpeg, jpeg_payload
+from web.api.routers.pasting.board import ResolvedSettings
 
 _HTTP_TIMEOUT = 10.0
 
@@ -94,25 +94,25 @@ class TestPreviewOverRealHttp:
 
     def test_state_reports_streaming_client_count(self, live_server: LiveServer):
         with httpx.Client(base_url=live_server.base_url, timeout=10.0) as client:
-            assert client.get("/api/state").json()["preview_clients"] == 0
+            assert client.get("/api/session/state").json()["preview_clients"] == 0
 
             with client.stream("GET", "/api/preview/stream") as response:
                 next(response.iter_bytes())  # 配信開始を確実にする
-                assert client.get("/api/state").json()["preview_clients"] == 1
+                assert client.get("/api/session/state").json()["preview_clients"] == 1
 
             # 切断後のサーバー側クリーンアップは非同期に走るため短時間ポーリングする
             wait_until(
-                lambda: client.get("/api/state").json()["preview_clients"] == 0,
+                lambda: client.get("/api/session/state").json()["preview_clients"] == 0,
                 timeout=5.0,
                 interval=0.05,
             )
 
 
 class TestJobLifecycleOverWebSocket:
-    """WS /api/ws のイベント往復とジョブ → 設定反映の通し検証."""
+    """WS /api/jobs/ws のイベント往復とジョブ → 設定反映の通し検証."""
 
     def test_job_demo_completes_and_applies(self, live_server: LiveServer):
-        with connect(f"{live_server.ws_url}/api/ws") as ws:
+        with connect(f"{live_server.ws_url}/api/jobs/ws") as ws:
             response = httpx.post(
                 f"{live_server.base_url}/api/jobs/job_demo",
                 json={"params": {"steps": 2, "interval": 0.0}},
@@ -132,10 +132,12 @@ class TestJobLifecycleOverWebSocket:
 
         # 直近 SUCCEEDED ジョブの計測値を設定へ反映する（apply 往復）
         apply = httpx.post(
-            f"{live_server.base_url}/api/jobs/last/apply", timeout=_HTTP_TIMEOUT
+            f"{live_server.base_url}/api/jobs/last/apply",
+            json={"expected_job_id": job["id"]},
+            timeout=_HTTP_TIMEOUT,
         )
         assert apply.status_code == 200
-        assert apply.json()["applied"] == {"paste_dispenser.pad_align.canny_low": 77.0}
+        assert apply.json()["applied"] == {"alignment.canny_low": 77.0}
 
         # 隔離した tmp の machine.toml に書かれている（実機設定は汚していない）
         machine_toml = (live_server.settings.config_dir / "machine.toml").read_text()
@@ -150,7 +152,7 @@ class TestRuntimeParamUpdateOverWebSocket:
     """
 
     def test_live_update_applies_while_waiting_prompt(self, live_server: LiveServer):
-        with connect(f"{live_server.ws_url}/api/ws") as ws:
+        with connect(f"{live_server.ws_url}/api/jobs/ws") as ws:
             response = httpx.post(
                 f"{live_server.base_url}/api/jobs/job_demo",
                 json={"params": {"steps": 1, "interval": 0.0}},
@@ -164,7 +166,11 @@ class TestRuntimeParamUpdateOverWebSocket:
 
             put = httpx.put(
                 f"{live_server.base_url}/api/jobs/current/params",
-                json={"values": {"live_value": 42.0}, "persist": False},
+                json={
+                    "values": {"live_value": 42.0},
+                    "persist": False,
+                    "expected_job_id": response.json()["job"]["id"],
+                },
                 timeout=_HTTP_TIMEOUT,
             )
             assert put.status_code == 200, put.text
@@ -188,10 +194,9 @@ class TestRuntimeParamUpdateOverWebSocket:
 
 
 class TestCameraCropSettingsOverRealHttp:
-    """Camera.crop.* の実 HTTP 経路（webui-camera-calib 計画書「テスト観点」e2e 項）.
+    """Camera.crop.* の実 HTTP 経路.
 
-    クロップ編集 UI は settings ページの汎用フォームへ統一されたが、
-    API 契約（rebuild しない・crosshair オーバーレイのフレーム毎反映）は不変。
+    クロップは settings ページの汎用フォームで編集し、保存してもカメラを rebuild せず、crosshair オーバーレイにフレーム毎に反映する。
     どの経路から PUT されても crop 変更が MJPEG ストリームを切断せず
     次フレームへ反映されることが本質のため、通し確認は API 直叩きで行う。
 
@@ -215,7 +220,7 @@ class TestCameraCropSettingsOverRealHttp:
                     data += next(chunks)
 
                 put = httpx.put(
-                    f"{live_server.base_url}/api/settings/machine",
+                    f"{live_server.base_url}/api/machine_config",
                     json={
                         "values": {
                             "camera.crop.width": 300,
@@ -232,7 +237,7 @@ class TestCameraCropSettingsOverRealHttp:
                     more += next(chunks)
 
         after = httpx.get(
-            f"{live_server.base_url}/api/settings/machine", timeout=_HTTP_TIMEOUT
+            f"{live_server.base_url}/api/machine_config", timeout=_HTTP_TIMEOUT
         ).json()
         fields = {field["key"]: field for field in after["fields"]}
         assert fields["camera.crop.width"]["value"] == 300
@@ -292,9 +297,7 @@ class TestPadTableHeaderOverRealHttp:
     """
 
     def test_static_header_has_only_node_and_enabled_columns(self, live_ui: LiveUi):
-        page = httpx.get(
-            f"{live_ui.base_url}/pasting/paste_solder", timeout=_HTTP_TIMEOUT
-        )
+        page = httpx.get(f"{live_ui.base_url}/paste_solder", timeout=_HTTP_TIMEOUT)
         assert page.status_code == 200
 
         # 設定フィールドの見出しはサーバ定義（fields）から描くため静的 HTML には 2 列だけ
@@ -305,7 +308,7 @@ class TestPadTableHeaderOverRealHttp:
     ):
         _select_led_blinker(live_server)
         config = httpx.get(
-            f"{live_ui.base_url}/api/pasting/pad-config", timeout=_HTTP_TIMEOUT
+            f"{live_ui.base_url}/api/pasting/board", timeout=_HTTP_TIMEOUT
         )
         assert config.status_code == 200, config.text
 

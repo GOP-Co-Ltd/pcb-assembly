@@ -13,11 +13,11 @@ from pathlib import Path
 import attrs
 import pytest
 
-from pcbasm.pasting.dataset.reader import DatasetSession
 from pcbasm.pasting.paste_volume.calibration import (
     PasteVolumeCalibration,
     write_calibration,
 )
+from pcbasm.pasting.paste_volume.dataset.reader import DatasetSession
 from pcbasm.pasting.paste_volume.evaluate import (
     condition_mismatch,
     evaluate_collected_session,
@@ -26,7 +26,7 @@ from pcbasm.pasting.paste_volume.evaluate import (
     evaluation_lines,
 )
 from pcbasm.pasting.paste_volume.fit import fit_session
-from tests.helpers import build_paste_volume_session
+from tests.support.paste_volume import build_paste_volume_session
 
 STEM = "plate-47.5x20-20260909T145923.452+0900"
 
@@ -75,7 +75,7 @@ class TestEvaluateSession:
     ):
         """どちらも no_deposit_detected なので、件数で切り分けられる必要がある.
 
-        blank は真値 0 で正常、検出失敗は回帰条件（計画書の達成条件）。
+        blank は真値 0 で正常、検出失敗は回帰を意味する。
         """
         evaluation, _ = evaluate_session(session, calibration)
         assert evaluation is not None
@@ -150,6 +150,7 @@ class TestConditionMismatch:
             ("nozzle_diameter_mm", 0.5, "ノズル径"),
             ("paste_height_mm", 0.4, "塗布高さ"),
             ("pixel_per_mm", 10.0, "撮影スケール"),
+            ("crop_size_mm", 5.0, "撮影crop寸法"),
         ],
     )
     def test_names_each_condition_that_differs(

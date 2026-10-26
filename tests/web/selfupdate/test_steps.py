@@ -1,8 +1,7 @@
 """`web.selfupdate.steps` と `git_env()` の argv 契約.
 
-計画書「1. 共通モジュール」の `steps.py`（argv を組み立てるだけの純関数）、
-「設計上の要 4.」（`uv sync` の落とし穴 2 つ）、「6.」（git のハング対策）、
-そして「4. sudoers」（許可する固定 argv と **順序も契約**）が根拠。
+`steps.py` は argv を組み立てるだけの純関数。
+`uv sync` の落とし穴 2 つ、git のハング対策、sudoers が許す固定 argv（**順序も契約**）を固定する。
 
 `restart_command` の出力は `/etc/sudoers.d/pcbasm-update` が許す argv と 1 文字でも
 違えば実機で `sudo: a password is required` になって再起動できない。ここだけは
@@ -32,8 +31,7 @@ class TestSyncCommand:
     def test_matches_the_expected_invocation(self, settings: UpdateSettings):
         """`--locked` が無いと `uv.lock` が書き換わって tree が dirty になり以後の更新が止まる.
 
-        `--inexact` が無いと指定しなかった group を削除し、機体ごとに足した group が
-        更新のたびに消える（計画書「設計上の要 4.(a)(b)」）。
+        `--inexact` が無いと、機体ごとに足した group が更新のたびに消える。
         """
         assert sync_command(settings) == (
             settings.uv_bin,
@@ -49,7 +47,7 @@ class TestSyncCommand:
         assert forbidden not in sync_command(settings)
 
     def test_reflects_the_per_machine_override(self, tmp_path: Path):
-        """機体ごとに env で上書きできる（確定要件の `uv sync` フラグ）."""
+        """機体ごとに env で上書きできる（`uv sync` のフラグ）."""
         settings = UpdateSettings(
             repo_root=tmp_path,
             state_dir=tmp_path / "state",
@@ -64,15 +62,17 @@ class TestSmokeCommand:
 
     def test_runs_python_without_resyncing(self, settings: UpdateSettings):
         """`--no-sync` が無いと smoke 自体が依存を書き換えてしまう."""
-        command = smoke_command(settings)
+        command = smoke_command(settings, ("web.ui.app",))
 
         assert command[0] == settings.uv_bin
         assert command[1:4] == ("run", "--no-sync", "python")
         assert command[4] == "-c"
 
-    def test_imports_both_web_applications(self, settings: UpdateSettings):
-        """同居機・専用機のどちらでも壊れていないことを 1 回で確かめる."""
-        assert "import web.api.app, web.ui.app" in smoke_command(settings)[5]
+    def test_imports_the_given_modules_in_one_process(self, settings: UpdateSettings):
+        """同居機は両アプリを 1 回の起動で確かめる."""
+        modules = ("web.api.app", "web.ui.app")
+
+        assert smoke_command(settings, modules)[5] == "import web.api.app, web.ui.app"
 
 
 class TestRestartCommand:
@@ -100,7 +100,7 @@ class TestRestartCommand:
 
 
 class TestGitEnv:
-    """Git がハングしないための環境変数（計画書「設計上の要 6.」）."""
+    """Git がハングしないための環境変数."""
 
     def test_terminal_prompt_is_disabled(self):
         assert git_env()["GIT_TERMINAL_PROMPT"] == "0"

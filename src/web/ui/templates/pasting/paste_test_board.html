@@ -1,5 +1,4 @@
-{% extends "tab.html" %}
-{% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
+{% extends "feature.html" %}
 {% block main %}
 <div id="paste-test-board" class="ptb-board"
      data-testid="paste-test-board">
@@ -20,12 +19,12 @@
   </p>
 
   <div class="ptb-workspace">
-    <section class="ptb-config-card" aria-labelledby="ptb-board-settings-heading">
+    <section class="ptb-config-card" data-testid="ptb-config-card" aria-labelledby="ptb-board-settings-heading">
       <h3 id="ptb-board-settings-heading">基板設定</h3>
-      <fieldset class="ptb-interactive" data-ptb-interactive disabled>
+      <fieldset class="ptb-interactive" data-testid="ptb-interactive" data-ptb-interactive disabled>
         <div class="ptb-field-grid">
           <label>幅 <span class="unit">[mm]</span>
-            <input id="ptb-board-width" data-config-field type="number" step="0.1">
+            <input id="ptb-board-width" data-testid="ptb-board-width" data-config-field type="number" step="0.1">
           </label>
           <label>高さ <span class="unit">[mm]</span>
             <input id="ptb-board-height" data-config-field type="number" step="0.1">
@@ -41,12 +40,6 @@
           </label>
           <label>purge pad高さ <span class="unit">[mm]</span>
             <input id="ptb-purge-height" data-config-field type="number" step="0.1">
-          </label>
-          <label>流量計測パッド寸法 <span class="unit">[mm]</span>
-            <input id="ptb-flow-size" data-config-field type="number" step="0.1">
-          </label>
-          <label>流量計測パッド個数
-            <input id="ptb-flow-count" data-config-field type="number" step="1" min="0">
           </label>
         </div>
 
@@ -72,13 +65,13 @@
                    placeholder="空欄時は形状と寸法から自動設定">
           </label>
           <label>形状
-            <select id="ptb-custom-pad-shape"></select>
+            <select id="ptb-custom-pad-shape" data-testid="ptb-custom-pad-shape"></select>
           </label>
           <label>幅／直径 <span class="unit">[mm]</span>
-            <input id="ptb-custom-pad-width" type="number" step="0.01" value="1">
+            <input id="ptb-custom-pad-width" data-testid="ptb-custom-pad-width" type="number" step="0.01" value="1">
           </label>
           <label id="ptb-custom-pad-height-field">高さ <span class="unit">[mm]</span>
-            <input id="ptb-custom-pad-height" type="number" step="0.01" value="0.5">
+            <input id="ptb-custom-pad-height" data-testid="ptb-custom-pad-height" type="number" step="0.01" value="0.5">
           </label>
           <label id="ptb-custom-pad-radius-field">角丸半径 <span class="unit">[mm]</span>
             <input id="ptb-custom-pad-radius" type="number" step="0.01" value="0.1">
@@ -91,10 +84,10 @@
             <thead>
               <tr>
                 <th aria-sort="none">
-                  <button class="ptb-sort-button" type="button" data-sort-field="name">名称</button>
+                  <button class="ptb-sort-button" type="button" data-sort-field="name" data-testid="ptb-sort-name">名称</button>
                 </th>
                 <th aria-sort="none">
-                  <button class="ptb-sort-button" type="button" data-sort-field="pad">パッド種</button>
+                  <button class="ptb-sort-button" type="button" data-sort-field="pad" data-testid="ptb-sort-pad">パッド種</button>
                 </th>
                 <th>回転範囲 θ <span class="unit">[deg]</span></th>
                 <th>回転分割数</th>
@@ -103,16 +96,16 @@
                 <th></th>
               </tr>
             </thead>
-            <tbody id="ptb-pattern-rows"></tbody>
+            <tbody id="ptb-pattern-rows" data-testid="ptb-pattern-rows"></tbody>
           </table>
         </div>
       </fieldset>
     </section>
 
-    <section class="ptb-preview-card" aria-labelledby="ptb-preview-heading">
+    <section class="ptb-preview-card" data-testid="ptb-preview-card" aria-labelledby="ptb-preview-heading">
       <div class="ptb-preview-head">
         <h3 id="ptb-preview-heading">配置プレビュー</h3>
-        <span id="ptb-preview-summary" class="ptb-preview-summary"></span>
+        <span id="ptb-preview-summary" data-testid="ptb-preview-summary" class="ptb-preview-summary"></span>
       </div>
       <svg id="ptb-preview" class="ptb-preview" role="img"
            aria-label="テスト塗布基板の配置"
@@ -122,12 +115,12 @@
         <span class="ptb-legend-paste">F.Paste</span>
         <span class="ptb-legend-overflow">配置範囲外</span>
       </div>
-      <p id="ptb-preview-status" class="ptb-preview-status" aria-live="polite"></p>
+      <p id="ptb-preview-status" data-testid="ptb-preview-status" class="ptb-preview-status" aria-live="polite"></p>
     </section>
   </div>
 
-  <fieldset class="ptb-actions" data-ptb-interactive disabled>
-    <input id="ptb-import-file" type="file" accept="application/json,.json" hidden>
+  <fieldset class="ptb-actions" data-testid="ptb-actions" data-ptb-interactive disabled>
+    <input id="ptb-import-file" data-testid="ptb-import-file" type="file" accept="application/json,.json" hidden>
     <button id="ptb-import" type="button" data-testid="ptb-import">設定をImport</button>
     <button id="ptb-export" type="button" data-testid="ptb-export">設定をExport</button>
     <button id="ptb-generate" class="ptb-primary" type="button" disabled
@@ -137,5 +130,5 @@
 {% endblock %}
 {% block scripts %}
 {{ super() }}
-<script src="{{ static_asset('js/paste_test_board.js') }}"></script>
+<script src="{{ static_asset('js/pasting/paste_test_board.js') }}"></script>
 {% endblock %}

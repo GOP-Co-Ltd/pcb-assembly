@@ -25,7 +25,8 @@
       placeholder,
       ...machines.map((machine) => {
         const option = document.createElement("option");
-        option.value = `/m/${machine.machine_id}/${suffix}`;
+        // 空の suffix は機体の着地点（/m/<machine_id>）
+        option.value = `/m/${machine.machine_id}${suffix ? `/${suffix}` : ""}`;
         option.textContent = machine.label;
         option.selected = machine.current;
         return option;

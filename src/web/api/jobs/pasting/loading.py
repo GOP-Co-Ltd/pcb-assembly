@@ -4,17 +4,20 @@ from __future__ import annotations
 
 from pcbasm.gcode import GCode
 from pcbasm.hal import XYZStage
+from pcbasm.machine.commands import COMMAND_TIMEOUT
 from pcbasm.pasting.applicator import build_applicator
-from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
-from web.api.jobs.context import JobContext, JobResult
-from web.api.jobs.machine_commands import create_command_klipper
-from web.api.jobs.pasting.common import (
+from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition, ParamSpec
+from web.api.jobs.runtime.context import JobContext
+from web.api.jobs.runtime.record import JobResult
+from web.api.jobs.steps import (
     LOADING_DEFAULT_AMOUNT,
     LOADING_DEFAULT_RETRACT_ROTATIONS,
     LOADING_DEFAULT_ROTATION_ACCEL,
     LOADING_DEFAULT_ROTATION_RATE,
     LOADING_DEFAULT_ROTATIONS,
-    run_loading_loop,
+    LoadingPanel,
+    LoadingRotation,
+    loading_loop,
 )
 
 _POSITION_PARAMS = (
@@ -29,7 +32,6 @@ def register(catalog: JobCatalog) -> None:
         JobDefinition(
             name="loading",
             label="ペーストローディング",
-            tab="pasting",
             run=_run_loading,
             params=(
                 ParamSpec(
@@ -80,15 +82,23 @@ def register(catalog: JobCatalog) -> None:
                 "accel",
                 "retract_rotations",
             ),
-            loading_param="amount",
+            loading=LoadingPanel(
+                amount="amount",
+                rotation=LoadingRotation(
+                    rotations="rotations",
+                    rate="rate",
+                    accel="accel",
+                    retract_rotations="retract_rotations",
+                ),
+            ),
         )
     )
 
 
 def _run_loading(ctx: JobContext) -> JobResult:
     """全軸 homing と任意位置への移動後、command 駆動ローディングを実行する."""
-    klipper = create_command_klipper(ctx.machine)
-    stage = XYZStage(klipper.readonly)
+    klipper = ctx.klipper(COMMAND_TIMEOUT)
+    stage = XYZStage(klipper)
 
     target = {
         axis: float(value)
@@ -111,8 +121,8 @@ def _run_loading(ctx: JobContext) -> JobResult:
             + GCode.wait_for_done()
         )
 
-    with build_applicator(klipper, stage, ctx.machine.paste_dispenser) as applicator:
-        total = run_loading_loop(ctx, klipper, stage, applicator)
+    with build_applicator(klipper, stage, ctx.solder) as applicator:
+        total = loading_loop(ctx, klipper, stage, applicator)
     return JobResult(
         summary=(
             f"押出合計 {total.amount_ul:+.3f} uL / 回転合計 {total.rotations:+.3f} rev"

@@ -1,9 +1,6 @@
 """sample_points_in_polygons / sampling_diagnostics のテスト.
 
-sampling_diagnostics は Phase 5 で scripts/pasting/height_plane.py の
-`_print_sampling_diagnostics` / `_clearance_to_copper` の計算部を昇格したもの
-（計画書 webui-phase5.md §1）。昇格完了前でも既存テストの収集を妨げないよう、
-新 API の import はテスト内で行う。
+sampling_diagnostics は probe 計画点の安全余裕と基板カバレッジを計算する。
 """
 
 import math
@@ -308,9 +305,9 @@ class TestSpreadAcrossIslands:
 class TestSamplingDiagnostics:
     """sampling_diagnostics（probe 計画点の安全余裕と基板カバレッジ）.
 
-    計画書 webui-phase5.md §1 が契約: point_count = 計画点数 / min_clearance =
-    点が乗る銅箔境界までの最小距離 [mm] / hull_area_ratio = 計画点凸包の面積 ÷ outline
-    面積。points が空なら None。
+    - point_count: 計画点数
+    - min_clearance: 点が乗る銅箔境界までの最小距離 [mm]
+    - hull_area_ratio: 計画点凸包の面積 ÷ outline 面積
     """
 
     def test_known_square_yields_pinned_values(self):
@@ -332,7 +329,6 @@ class TestSamplingDiagnostics:
 
         diagnostics = sampling_diagnostics(points, [polygon], outline)
 
-        assert diagnostics is not None
         assert diagnostics.point_count == 4
         assert diagnostics.min_clearance == pytest.approx(2.0)
         assert diagnostics.hull_area_ratio == pytest.approx(18.0 / 100.0)
@@ -348,15 +344,7 @@ class TestSamplingDiagnostics:
 
         diagnostics = sampling_diagnostics(points, polygons, outline)
 
-        assert diagnostics is not None
         assert diagnostics.min_clearance == pytest.approx(1.0)
-
-    def test_empty_points_returns_none(self):
-        from pcbasm.geometry import sampling_diagnostics
-
-        polygon = _rectangle(0, 0, 10, 10)
-
-        assert sampling_diagnostics([], [polygon], polygon) is None
 
     def test_two_points_yield_zero_hull_area_ratio(self):
         """点 2 個の凸包は線分（面積 0）→ hull_area_ratio = 0.0."""
@@ -367,20 +355,6 @@ class TestSamplingDiagnostics:
 
         diagnostics = sampling_diagnostics(points, [polygon], polygon)
 
-        assert diagnostics is not None
         assert diagnostics.point_count == 2
         assert diagnostics.min_clearance == pytest.approx(2.0)
-        assert diagnostics.hull_area_ratio == 0.0
-
-    def test_zero_area_outline_is_defended(self):
-        """Outline 面積 0 でもゼロ除算せず hull_area_ratio = 0.0."""
-        from pcbasm.geometry import sampling_diagnostics
-
-        polygon = _rectangle(0, 0, 10, 10)
-        degenerate_outline = Polygon([(0, 0), (5, 0), (10, 0)])  # 面積 0
-        points = [Point2d(2.0, 2.0), Point2d(8.0, 2.0), Point2d(5.0, 8.0)]
-
-        diagnostics = sampling_diagnostics(points, [polygon], degenerate_outline)
-
-        assert diagnostics is not None
         assert diagnostics.hull_area_ratio == 0.0

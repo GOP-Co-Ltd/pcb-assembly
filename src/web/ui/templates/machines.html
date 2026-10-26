@@ -1,0 +1,83 @@
+{# 機体一覧（マシン非依存）。登録済みの全マシンを登録順に 1 行ずつ並べる。
+   行の状態（機能・操作権・更新・立ち上げ・PCB）は machines.js が各機体の
+   /m/<machine_id>/api/** から取って入れる（SSR は backend へ問い合わせない）。
+   SSR が入れる「確認中…」は最初の応答までの仮表示。取得に失敗した行は machines.js が
+   不通の表示（操作権は「接続できません」）に替える。
+   操作権は機体ごとに別なので、トップバーの操作権バーではなく行のボタンで取得/解放する。
+   塗布実行はその行の操作権を保持しているときだけ machines.js が押せるようにする。
+   塗布の欄は、はんだ塗布の機能が無い機体で machines.js が隠す。
+   更新の操作は更新ページ（/update）にまとめ、行には状態とリンクだけを置く。 #}
+{% extends "base.html" %}
+{% block title %}{{ title }} — PCB Assembly WebUI{% endblock %}
+{% block layout_class %}single-pane{% endblock %}
+{% block content %}
+<section class="main-pane" data-testid="main-pane">
+  <h1>{{ title }}</h1>
+  {% if machines %}
+  <table class="machines-table">
+    <thead>
+      <tr>
+        <th scope="col">マシン</th>
+        <th scope="col">操作権</th>
+        <th scope="col">ソフトウェア</th>
+        <th scope="col">立ち上げ</th>
+        <th scope="col">塗布</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for machine in machines %}
+      {% if machine.update_only %}
+      {# 版のずれた機体は更新と緊急停止しか中継されないので、行の操作を持たせない
+         （data-row-base が無いので machines.js も触らない）。機体のページは更新専用ページになる #}
+      <tr data-testid="machines-row-{{ machine.machine_id }}">
+        <th scope="row"><a href="/m/{{ machine.machine_id }}">{{ machine.label }}</a></th>
+        <td colspan="4">
+          <span class="machines-status" data-testid="machines-update-only">UI サーバーと版が違います。</span>
+          <a href="/update">更新ページ</a>
+        </td>
+      </tr>
+      {% else %}
+      <tr data-testid="machines-row-{{ machine.machine_id }}"
+          data-row-base="/m/{{ machine.machine_id }}"
+          data-label="{{ machine.label }}">
+        <th scope="row">
+          <a href="/m/{{ machine.machine_id }}">{{ machine.label }}</a>
+          <span data-testid="machines-capabilities"></span>
+        </th>
+        <td>
+          <span class="machines-status" data-testid="machines-holder">確認中…</span>
+          <button type="button" data-testid="machines-acquire" hidden>取得</button>
+          <button type="button" data-testid="machines-release" hidden>解放</button>
+        </td>
+        <td>
+          <span class="machines-status" data-testid="machines-update-summary">確認中…</span>
+          <a href="/update">更新ページ</a>
+        </td>
+        <td>
+          <a href="/m/{{ machine.machine_id }}/commissioning" class="machines-status"
+             data-testid="machines-readiness">確認中…</a>
+        </td>
+        <td>
+          <span data-testid="machines-solder">
+            <span class="machines-status" data-testid="machines-pcb">確認中…</span>
+            <button type="button" data-testid="machines-paste-run" disabled
+                    title="選択中の PCB と保存済みの塗布設定でこの機体の塗布を実行する">塗布実行</button>
+            <a href="/m/{{ machine.machine_id }}/paste_solder">塗布ページ</a>
+          </span>
+        </td>
+      </tr>
+      {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="placeholder" data-testid="machines-empty">
+    登録されている機体はありません。config/machines.toml に [[machine]] を書いて frontend を再起動してください
+    （machine_id / host は必須、port の既定は 8081）。
+  </p>
+  {% endif %}
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ static_asset('js/machines.js') }}"></script>
+{% endblock %}

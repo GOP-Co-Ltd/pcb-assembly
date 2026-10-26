@@ -11,7 +11,7 @@ import cv2
 import cv2.typing
 import picamera2
 
-from pcbasm.vision import Image
+from pcbasm.vision.image import Image
 
 
 def _device_id_to_path(device_id: int) -> str:

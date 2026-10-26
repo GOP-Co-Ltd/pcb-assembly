@@ -1,11 +1,14 @@
-"""Frontend 自身のソフトウェア更新（`/update` ページとその API）.
+"""ソフトウェア更新（`/update` ページと、frontend 自身の更新 API）.
+
+`/update` は唯一の更新操作の画面で、UI サーバー自身と登録済みの全機体を並べる。
+機体の更新は proxy 経由で各 backend の `/api/update/**` を呼ぶ。
 
 frontend 専用機（`pcbasm-ui.service` だけが動き、backend が無いホスト）には
 backend のジョブ基盤も操作権も無いので、frontend が自前の更新 API を持つ。
 `machines_api.py` が先例。
 
 パスは backend と意図的に変える（`/m/{id}/api/update/**` は proxy で backend へ中継
-されるので、frontend 自身のパスは `/api/self-update/**`）。`pages.router` の `/{tab}`
+されるので、frontend 自身のパスは `/api/self-update/**`）。`pages.router` の `/{suffix:path}`
 キャッチオールに先にマッチしないよう、アプリでは pages より先に登録する。
 
 全ページのトップバーが読む `GET /api/update-notice` もここに置く。frontend 自身と
@@ -31,7 +34,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-from web.api.models import UpdateRunResponse, UpdateStatusResponse
+from web.contract.update import UpdateRunResponse, UpdateStatusResponse
 from web.selfupdate.report import UpdatePlan, run_payload, status_payload
 from web.selfupdate.runner import UpdateRunner
 from web.ui import pages
@@ -98,15 +101,13 @@ class NoticeSource:
 
     hostname: str
     summary: str
-    href: str
     available: bool
 
 
 def compose_notice(sources: Sequence[NoticeSource]) -> UpdateNoticeResponse:
     """待っている更新をバッジ 1 個分の表示値にまとめる（純関数）.
 
-    遷移先は「1 ホストだけならそのホストの更新ページ、複数なら UI サーバーの更新
-    ページ」。後者は各機体のページへのリンクを持つので、そこから辿れる。
+    遷移先はどのホストでも更新ページ（`/update`）で、そこに全ホストが並ぶ。
 
     同居機では frontend と backend が同じホスト名・同じ作業リポジトリを見るので、
     ホスト名で重複をまとめる（まとめないと 1 件の更新が「2 件」と出る）。
@@ -132,13 +133,11 @@ def compose_notice(sources: Sequence[NoticeSource]) -> UpdateNoticeResponse:
             available=True,
             label=f"ソフトウェア更新あり（{pending[0].hostname}）",
             detail=detail,
-            href=pending[0].href,
         )
     return UpdateNoticeResponse(
         available=True,
         label=f"ソフトウェア更新あり（{len(pending)} 件）",
         detail=detail,
-        href=UPDATE_INDEX_PATH,
     )
 
 
@@ -148,7 +147,6 @@ def _self_source(runner: UpdateRunner) -> NoticeSource:
     return NoticeSource(
         hostname=status.hostname,
         summary=status.summary,
-        href=UPDATE_INDEX_PATH,
         available=status.update_available,
     )
 
@@ -169,7 +167,6 @@ async def _machine_source(request: Request, machine_id: str) -> NoticeSource | N
     return NoticeSource(
         hostname=status.hostname,
         summary=status.summary,
-        href=f"/m/{endpoint.machine_id}/dev/update",
         available=status.update_available,
     )
 
@@ -194,18 +191,17 @@ async def get_update_notice(
     return compose_notice(sources)
 
 
-@router.get("/update", response_class=HTMLResponse)
+@router.get(UPDATE_INDEX_PATH, response_class=HTMLResponse)
 def update_page(request: Request) -> HTMLResponse:
-    """Frontend 自身の更新ページ（マシン非依存）.
+    """更新ページ（マシン非依存。UI サーバー自身と、登録済みの全機体のパネルを並べる）.
 
-    中身は `GET /api/self-update` を読んだ `update.js` が描く（backend 側のページと
-    同じ 1 本の JS を共有するため、SSR で値を焼き込まない）。
+    中身は各パネルの status API を読んだ `update.js` が描く（UI サーバーと機体で
+    同じ 1 本の JS を共有するため、SSR で値を焼き込まない）。backend へは問い合わせないので、
+    落ちている機体があってもページは開ける。
     """
     return pages.render_standalone(
         request,
         "update.html",
-        {"title": "UI サーバーの更新"},
-        # マシン切替の遷移先。`update` はタブではないので `/m/<id>/update` は 404 になる。
-        # 機体側の同等ページは `dev/update`
-        current_suffix="dev/update",
+        {"title": "ソフトウェア更新", "own_machine": pages.own_machine(request)},
+        current_suffix="",
     )

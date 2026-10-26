@@ -15,17 +15,24 @@ from __future__ import annotations
 
 import math
 import re
+from typing import Any
 
 import attrs
 import pytest
 from shapely import Polygon, box
 
-from pcbasm.config import PasteDispenser as PasteDispenserConfig, Toolhead
+from pcbasm.config.solder import SolderConfig
 from pcbasm.geometry import Compose, HeightPlane, Identity, Point2d, Point3d, Shift
 from pcbasm.hal import XYZStage
+from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeKlipper
 from pcbasm.pasting.applicator import PasteApplicator, build_applicator
-from pcbasm.pasting.params import PasteParamsPatch
-from tests.helpers import FAKE_PRINTER_CONFIG, FakeKlipper
+from pcbasm.pasting.params import (
+    PASTE_PARAM_NAMES,
+    DispenseMotion,
+    PasteParams,
+    PasteParamsPatch,
+)
+from tests.support.solder import solder_config
 
 ROTATIONS_PER_UL = 45.0
 ROTATION_DISTANCE = float(
@@ -73,29 +80,34 @@ def _machine_height_plane():
     )
 
 
-def _config(**overrides: object) -> PasteDispenserConfig:
-    """テスト既定の PasteDispenser 設定（実 ``Machine.paste_dispenser`` と同型）."""
-    config = PasteDispenserConfig(
-        rotations_per_ul=ROTATIONS_PER_UL,
-        nozzle_diameter=0.34,
-        max_fill_speed=2.0,
-        max_dispense_rate=5.0,
-        dispense_accel=10.0,
-        retract_amount=RETRACT_AMOUNT,
-        retract_rate=10.0,
-        retract_accel_factor=2.0,
-        toolhead=Toolhead(x=0.0, y=0.0),
-        paste_height=0.5,
-        lift_height=5.0,
-        ul_per_mm2=0.05,
-        dispense_mode="area",
-        prime_extra_delay=0.0,
+def _config(**overrides: object) -> SolderConfig:
+    """テスト既定の SolderConfig.
+
+    ``overrides`` には defaults / motion の項目名も渡せる。
+    """
+    defaults = {k: overrides.pop(k) for k in list(overrides) if k in PASTE_PARAM_NAMES}
+    values: dict[str, Any] = {
+        "rotations_per_ul": ROTATIONS_PER_UL,
+        "retract_amount": RETRACT_AMOUNT,
+        "lift_height": 5.0,
+        **overrides,
+    }
+    return solder_config(
+        defaults=PasteParams(
+            **{
+                "dispense_mode": "area",
+                "ul_per_mm2": 0.05,
+                "paste_height": 0.5,
+                "prime_extra_delay": 0.0,
+                **defaults,
+            }
+        ),
+        **values,
     )
-    return attrs.evolve(config, **overrides)
 
 
 def _applicator(klipper: FakeKlipper, **overrides: object) -> PasteApplicator:
-    stage = XYZStage(klipper.readonly)
+    stage = XYZStage(klipper)
     return build_applicator(klipper, stage, _config(**overrides))
 
 
@@ -330,21 +342,11 @@ class TestAutoPasteHeight:
         assert _down_z(klipper) == pytest.approx(0.08)
 
 
-class TestBuildApplicator:
-    """build_applicator は machine 設定から HAL ごと組み立てる."""
-
-    def test_rotations_per_ul_override_changes_dispensed_distance(self, klipper):
-        applicator = build_applicator(
-            klipper, XYZStage(klipper.readonly), _config(), rotations_per_ul=90.0
-        )
-
-        applicator.load(1.0)
-
-        ((distance, _),) = _stepper_moves(klipper)
-        assert distance == pytest.approx(90.0 * ROTATION_DISTANCE)
+class TestAdoptRotationsPerUl:
+    """adopt_rotations_per_ul は applicator を作り直さずに吐出係数を差し替える."""
 
     def test_adopt_rotations_per_ul_changes_the_dispensed_distance(self, klipper):
-        """運転時流量キャリブレーションが残りの pad へ新係数を効かせる入口."""
+        """運転時補正と吐出量キャリブレーション ① が以降の吐出へ新係数を効かせる入口."""
         applicator = _applicator(klipper)
 
         applicator.adopt_rotations_per_ul(90.0)
@@ -363,9 +365,13 @@ class TestBuildApplicator:
 
         assert klipper.sent == ()
 
+
+class TestBuildApplicator:
+    """build_applicator は machine 設定から HAL ごと組み立てる."""
+
     def test_lift_height_override_changes_approach_and_retreat_z(self, klipper):
         applicator = build_applicator(
-            klipper, XYZStage(klipper.readonly), _config(), lift_height=4.0
+            klipper, XYZStage(klipper), _config(), lift_height=4.0
         )
 
         applicator.deposit_at(Point2d(1.0, 2.0), amount_ul=0.1, transform=Identity())

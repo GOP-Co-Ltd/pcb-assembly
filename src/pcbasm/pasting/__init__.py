@@ -6,21 +6,27 @@
 
 通常塗布ジョブ（``web.api.jobs.pasting.paste_solder``）の流れと担当モジュール:
 
-1. 装置を動かす前に、対象 pad・順路・初回パージ・運転時流量キャリブを決める: :mod:`.workflow`（設定解決は :mod:`.settings`、順路は :mod:`.route`）
-2. Board 計測の結果から :class:`~.session.PasteSession` を組み、高さ面計測と位置合わせで :class:`~.alignment.PasteCorrection` を作る
+1. 装置を動かす前に、対象 pad・順路・初回パージ・運転時補正を決める: :mod:`.plan`（設定解決は :mod:`.overrides`、順路は :mod:`.route`。pad 編集画面の preview も同じ計画を使う）
+2. Board 計測の結果から :class:`~.session.PasteSession` を組み、:func:`~.prepare.prepare_paste` が高さ面計測と位置合わせで :class:`~.prepare.PasteCorrection` を作る
 3. ``with session.make_applicator()`` でディスペンサーを有効化し、``retract()`` する
-4. 初回パージを点塗布する（写らなければ :mod:`.nozzle_clean` で掃除してやり直す）
-5. 運転時流量キャリブ（:mod:`.paste_volume.runtime`）の結果で ``rotations_per_ul`` を差し替える
+4. 初回パージを点塗布する（:mod:`.purge_check`。写らなければ :mod:`.nozzle_clean` で掃除してやり直す）
+5. 運転時補正（:mod:`.paste_volume.runtime_correction`。撮影は :mod:`.dot_capture`）の結果で ``rotations_per_ul`` を差し替える
 6. pad ごとに :meth:`~.applicator.PasteApplicator.apply` で塗る（経路は :mod:`.fill_path`、G-code は :mod:`.fill_sequence`）
 
-判断・ログ・進捗・中断は web ジョブが持ち、このパッケージは持たない。
+運転者への問い合わせ（prompt）と成果物は web ジョブが持ち、このパッケージは持たない。
+手順のログ・進捗・中断は :class:`~.hooks.ProcedureHooks` を通してジョブへ渡す。
 
 2 つの「流量キャリブレーション」を混同しない:
 
-- :mod:`.flowcalib`: 銅板に線を引いて計量し、``machine.toml`` の ``rotations_per_ul`` などを決める事前校正
-- :mod:`.paste_volume.runtime`: 塗布ジョブ中に基板上のドットを撮影して ``rotations_per_ul`` をその場で補正する（``machine.toml`` は書き換えない）
+- :mod:`.dispense_calibration`: 銅板に線を引いて計量し、``machine.toml`` の ``rotations_per_ul`` などを決める事前校正
+- :mod:`.paste_volume.runtime_correction`: 塗布ジョブ中に基板上のドットを撮影して ``rotations_per_ul`` をその場で補正する（``machine.toml`` は書き換えない）
 
-その他: :mod:`.paste_volume` は点の直径 → 体積の校正、:mod:`.dataset` はその校正用の画像収集、:mod:`.testboard` はテスト塗布基板の生成。
+``machine.toml`` の ``rotations_per_ul`` を決める正典の入口は :mod:`.dispense_calibration` の ① である。
+ローディングページの質量キャリブレーション（:class:`~.dispense_calibration.mass.MassFlowEstimate`）は、初期値をゼロから作るときに使う。
+設定ページは表示と手直しに使う。
+ジョブ中の差し替えは、① の採用も運転時補正も :meth:`~.applicator.PasteApplicator.adopt_rotations_per_ul` だけを通す（applicator を作り直さない）。
+
+その他: :mod:`.paste_volume` は点の直径 → 体積の校正（その校正用の画像収集は :mod:`.paste_volume.dataset`）、:mod:`.test_board` はテスト塗布基板の生成。
 
 単位: 長さ・座標は mm、量は μL、``rotations_per_ul`` は rev/μL。
 """

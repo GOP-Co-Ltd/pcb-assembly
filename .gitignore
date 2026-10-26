@@ -23,6 +23,6 @@ uploads/
 
 # 実機の稼働設定（machine.toml / カメラキャリブ JSON / printer.cfg のシンボリックリンク）。
 # WebUI が実測値を書き換えるため、中身ごと追跡対象から外す。
-# 初期値のテンプレートは data/config-templates/、テスト fixture は data/testing/config/。
-# 先頭の / はリポジトリルートへの固定。これが無いと data/testing/config/ も無視されてしまう
+# 機種のテンプレートは deploy/templates/、テストの設定は tests/data/config/。
+# 先頭の / はリポジトリルートへの固定。これが無いと tests/data/config/ も無視されてしまう
 /config/

@@ -1,18 +1,18 @@
 """`web.api.routers.update` の HTTP 契約テスト.
 
-計画書「2. backend」の表が契約:
+契約:
 
 | メソッド | パス | 認可 | 成功 | 失敗 |
 | --- | --- | --- | --- | --- |
 | GET | /api/update/status | なし | 200 | 常に 200（git 失敗は `error` で返す） |
-| POST | /api/update/check | ControlDep | 200 | 423 |
+| POST | /api/update/check | なし | 200 | 常に 200（fetch の失敗は `fetch_error` で返す） |
 | POST | /api/update/run | ControlDep | 202 | 423 / 409 / 403 |
 
 加えて「**参照先を絶対にリクエストパラメータにしない**」（ブランチ・remote・ref・
 `uv` 引数はサーバ側固定）を契約テストで固定する。ここが開くと「LAN から任意コード実行」
 に悪化するため、`extra` を拒否する形ではなく「渡しても効かない」ことまで見る。
 
-モックは使わない（`tests/web/update_support.py` の実 git + スタブ実行ファイル）。
+モックは使わない（`tests/support/selfupdate.py` の実 git + スタブ実行ファイル）。
 """
 
 from __future__ import annotations
@@ -27,11 +27,13 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tests.helpers import FakeAudioPlayer, before_deadline
-from tests.web.update_support import UpdateSandbox, make_update_sandbox
+from pcbasm.hal.fake import FakeAudioPlayer
+from tests.support.polling import before_deadline, wait_until
+from tests.support.selfupdate import UpdateSandbox, make_update_sandbox
+from tests.support.web import devices_with_audio, register_gated
 from web.api.app import create_app
-from web.api.settings import Settings
-from web.api.state import AppState
+from web.api.backend import Backend
+from web.api.env import Env
 from web.selfupdate.runner import UpdateRunner
 
 ALICE = {"X-Pcbasm-Session": "alice-session", "X-Pcbasm-Client-Name": quote("田中")}
@@ -48,14 +50,14 @@ def sandbox(tmp_path: Path) -> UpdateSandbox:
 
 @contextmanager
 def closing_client(
-    settings: Settings,
+    settings: Env,
     footprint_root: Path,
     runner: UpdateRunner,
 ) -> Iterator[TestClient]:
     """使い捨ての backend TestClient（lifespan の終了処理まで走らせる）."""
     app: FastAPI = create_app(
         settings,
-        audio_player=FakeAudioPlayer(),
+        devices=devices_with_audio(settings, FakeAudioPlayer()),
         paste_test_board_footprint_root=footprint_root,
         update_runner=runner,
     )
@@ -71,14 +73,14 @@ def runner(sandbox: UpdateSandbox) -> UpdateRunner:
 
 @pytest.fixture
 def update_app(
-    webui_settings: Settings,
+    webui_settings: Env,
     paste_test_board_footprint_root: Path,
     runner: UpdateRunner,
 ) -> FastAPI:
     """更新ランナーを差し替えた backend app."""
     return create_app(
         webui_settings,
-        audio_player=FakeAudioPlayer(),
+        devices=devices_with_audio(webui_settings, FakeAudioPlayer()),
         paste_test_board_footprint_root=paste_test_board_footprint_root,
         update_runner=runner,
     )
@@ -124,7 +126,7 @@ class TestStatus:
 
     def test_stays_200_outside_a_git_repository(
         self,
-        webui_settings: Settings,
+        webui_settings: Env,
         paste_test_board_footprint_root: Path,
         tmp_path: Path,
     ):
@@ -152,24 +154,29 @@ class TestStatus:
 
 
 class TestControlGate:
-    """変更系は操作権が要る（`ControlDep` は必ず `Depends` として使う）."""
+    """更新の実行は操作権が要り、確認は要らない（確認しただけの端末に操作権を残さない）."""
 
-    @pytest.mark.parametrize(
-        ("path", "payload"),
-        [
-            ("/api/update/check", None),
-            ("/api/update/run", {"expected_head": "0000000"}),
-        ],
-    )
-    def test_non_holder_gets_423(
-        self, path: str, payload: dict[str, str] | None, update_client: TestClient
-    ):
-        update_client.post("/api/update/check", headers=ALICE)
+    def test_non_holder_cannot_run(self, update_client: TestClient):
+        update_client.post("/api/session/control/acquire", headers=ALICE)
 
-        response = update_client.post(path, headers=BOB, json=payload)
+        response = update_client.post(
+            "/api/update/run", headers=BOB, json={"expected_head": "0000000"}
+        )
 
         assert response.status_code == 423
         assert response.json()["holder"]
+
+    def test_non_holder_can_check(self, update_client: TestClient):
+        update_client.post("/api/session/control/acquire", headers=ALICE)
+
+        assert update_client.post("/api/update/check", headers=BOB).status_code == 200
+
+    def test_check_leaves_the_control_free(self, update_client: TestClient):
+        update_client.post("/api/update/check", headers=ALICE)
+
+        state = update_client.get("/api/session/state", headers=BOB).json()
+
+        assert state["control"]["state"] == "free"
 
 
 class TestRun:
@@ -210,10 +217,10 @@ class TestRun:
         self, update_client: TestClient, update_app: FastAPI, sandbox: UpdateSandbox
     ):
         """塗布中・ジョブ中は更新しない（全ジョブが装置ロックを取る）."""
-        state: AppState = update_app.state.appstate
+        backend: Backend = update_app.state.backend
         before = sandbox.head()
 
-        with state.machine_lock("pytest-job"):
+        with backend.lock.hold("pytest-job"):
             response = update_client.post(
                 "/api/update/run", headers=ALICE, json={"expected_head": before}
             )
@@ -222,9 +229,31 @@ class TestRun:
         assert sandbox.head() == before
         assert sandbox.restarts() == []
 
+    def test_refused_while_a_job_without_the_machine_runs(
+        self, update_client: TestClient, update_app: FastAPI, sandbox: UpdateSandbox
+    ):
+        """装置を使わないジョブ（PCB 生成など）も装置ロックを取るので、実行中は更新しない."""
+        backend: Backend = update_app.state.backend
+        gate = register_gated(backend.catalog, name="generating", uses_machine=False)
+        record = backend.jobs.start("generating", {})
+        before = sandbox.head()
+
+        try:
+            response = update_client.post(
+                "/api/update/run", headers=ALICE, json={"expected_head": before}
+            )
+        finally:
+            gate.set()
+        wait_until(lambda: record.status.terminal)
+
+        assert response.status_code == 409
+        assert "generating" in response.json()["detail"]
+        assert sandbox.head() == before
+        assert sandbox.restarts() == []
+
     def test_disabled_installation_returns_403(
         self,
-        webui_settings: Settings,
+        webui_settings: Env,
         paste_test_board_footprint_root: Path,
         tmp_path: Path,
     ):

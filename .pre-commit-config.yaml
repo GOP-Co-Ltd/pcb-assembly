@@ -1,5 +1,5 @@
 # 外部から vendoring した skill は upstream と同一に保つため整形対象外にする。
-exclude: ^\.(claude|agents)/skills/yomiyasu/
+exclude: ^\.claude/skills/yomiyasu/
 
 default_language_version:
   python: python3
@@ -77,9 +77,6 @@ repos:
     hooks:
       - id: mdformat
         args: ["--number"]
-        # エージェント中間メモは自由形式 Markdown で mdformat-mkdocs が
-        # round-trip バグを起こすため除外（git 管理は継続）。
-        exclude: ^memory/agents/
         additional_dependencies:
           - mdformat-gfm
           - mdformat-tables
@@ -105,3 +102,13 @@ repos:
       - id: rst-backticks
       - id: rst-directive-colons
       - id: rst-inline-touching-normal
+
+  # src と tests は振る舞いで説明する。計画書・エージェントの中間メモ・旧パスへの参照を持ち込まない
+  - repo: local
+    hooks:
+      - id: no-plan-references
+        name: no references to plans or agent notes
+        language: pygrep
+        entry: '計画書|契約書|契約メモ|§|pcbasm-plan|memory/agents|docs/plans|src/webui|blueprint|pr-stack|[Mm][Rr][0-9]|PR ?#?[0-9]|Phase [0-9]|[A-Z][0-9]+ の回帰'
+        files: ^(src|tests)/
+        types: [text]

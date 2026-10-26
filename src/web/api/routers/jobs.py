@@ -1,26 +1,40 @@
-"""ジョブの REST API と WebSocket（/api/ws）."""
+"""ジョブの REST API と WebSocket（/api/jobs/ws）."""
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+from collections.abc import Mapping
 from typing import Any, cast
 
+import attrs
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
-from web.api.control import ClientIdentity, ControlDeniedError, ControlLease
-from web.api.dependencies import (
+from pcbasm.validators import is_finite_number
+from web.api.control import (
+    ClientIdentity,
+    ControlDeniedError,
+    ControlLease,
+    control_payload,
+)
+from web.api.deps import (
     CatalogDep,
     ControlDep,
     JobsDep,
-    StateDep,
-    StoreDep,
+    LockDep,
+    MachineConfigDep,
+    SelectionDep,
+    get_backend,
 )
 from web.api.identity import get_identity
-from web.api.jobs.catalog import JobCatalog, JobDefinition
-from web.api.jobs.manager import JobManager, JobRecord, prompt_payload
-from web.api.models import (
+from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition, ParamSpec
+from web.api.jobs.runtime.context import prompt_payload
+from web.api.jobs.runtime.manager import JobManager
+from web.api.jobs.runtime.record import JobRecord
+from web.api.jobs.steps import LoadingPanel
+from web.api.selection import Selection
+from web.contract.models import (
     ApplyInfo,
     ArtifactInfo,
     JobCatalogResponse,
@@ -28,13 +42,13 @@ from web.api.models import (
     JobSpecInfo,
     JobStatusName,
     JobSummary,
+    LoadingPanelInfo,
+    LoadingRotationInfo,
     ParamSpecInfo,
     PromptInfo,
 )
-from web.api.routers.common import param_specs_with_saved_defaults
-from web.api.state import AppState
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api/jobs")
 
 
 class JobStartRequest(BaseModel):
@@ -72,6 +86,7 @@ def job_summary(record: JobRecord, definition: JobDefinition) -> JobSummary:
         error=record.error,
         progress_stage=record.progress_stage,
         progress_percent=record.progress_percent,
+        elapsed_seconds=record.elapsed_seconds,
         log_tail=list(record.log_lines),
         pending_prompt=(
             PromptInfo.model_validate(prompt_payload(pending[0], pending[1]))
@@ -85,28 +100,61 @@ def job_summary(record: JobRecord, definition: JobDefinition) -> JobSummary:
     )
 
 
+def _param_specs_with_saved_defaults(
+    definition: JobDefinition, selection: Selection, catalog: JobCatalog
+) -> tuple[ParamSpec, ...]:
+    """保存済み既定値を ParamSpec の default に反映する.
+
+    型判定・coerce は :meth:`JobCatalog.filter_persisted_defaults` に一本化する
+    （persisted_params 外・型不一致はエラーにせず除外 = spec 既定値のまま）。
+    """
+    saved = selection.job_param_defaults(definition.name)
+    if not saved or not definition.persisted_params:
+        return definition.params
+    valid = catalog.filter_persisted_defaults(definition, saved)
+    return tuple(
+        attrs.evolve(spec, default=valid[spec.name]) if spec.name in valid else spec
+        for spec in definition.params
+    )
+
+
+def _loading_panel_info(
+    panel: LoadingPanel, specs: Mapping[str, ParamSpec]
+) -> LoadingPanelInfo:
+    """ローディング欄の宣言を、入力欄の既定値を引いた公開表現にする."""
+
+    def default(name: str) -> float:
+        value = specs[name].default
+        assert is_finite_number(value)  # ローディング欄の既定値は数値の ParamSpec
+        return float(value)
+
+    rotation = panel.rotation
+    return LoadingPanelInfo(
+        amount=default(panel.amount),
+        rotation=(
+            None
+            if rotation is None
+            else LoadingRotationInfo(
+                rotations=default(rotation.rotations),
+                rate=default(rotation.rate),
+                accel=default(rotation.accel),
+                retract_rotations=default(rotation.retract_rotations),
+            )
+        ),
+        stages=list(panel.stages),
+    )
+
+
 def job_spec_info(
-    definition: JobDefinition, state: AppState, catalog: JobCatalog
+    definition: JobDefinition, selection: Selection, catalog: JobCatalog
 ) -> JobSpecInfo:
-    """JobDefinition を公開表現へ変換する（params は保存済み既定値を反映）."""
+    """JobDefinition を公開表現へ変換する（params とローディング欄は保存済み既定値を反映）."""
+    specs = _param_specs_with_saved_defaults(definition, selection, catalog)
     return JobSpecInfo(
         name=definition.name,
         label=definition.label,
-        tab=definition.tab,
         params=[
-            ParamSpecInfo(
-                name=spec.name,
-                label=spec.label,
-                value_type=spec.value_type,
-                default=spec.default,
-                choices=list(spec.choices),
-                unit=spec.unit,
-                help=spec.help,
-                runtime_editable=spec.runtime_editable,
-                minimum=spec.minimum,
-                optional=spec.optional,
-            )
-            for spec in param_specs_with_saved_defaults(definition, state, catalog)
+            ParamSpecInfo.model_validate(spec, from_attributes=True) for spec in specs
         ],
         requires_pcb=definition.requires_pcb,
         uses_machine=definition.uses_machine,
@@ -114,27 +162,29 @@ def job_spec_info(
         accepts_commands=definition.accepts_commands,
         persisted_params=list(definition.persisted_params),
         runtime_params=list(definition.runtime_params),
-        hidden=definition.hidden,
         provides_preview=definition.provides_preview,
-        loading_param=definition.loading_param,
-        loading_stages=definition.loading_stages,
+        loading=(
+            None
+            if definition.loading is None
+            else _loading_panel_info(
+                definition.loading, {spec.name: spec for spec in specs}
+            )
+        ),
     )
 
 
-@router.get("/jobs")
-def get_jobs(state: StateDep, catalog: CatalogDep) -> JobCatalogResponse:
-    """登録済みジョブ定義を登録順で全件返す（hidden も含む）.
-
-    hidden ジョブも実行時登録され POST できるため、frontend が扱えるよう filter しない。
-    """
+@router.get("")
+def get_jobs(selection: SelectionDep, catalog: CatalogDep) -> JobCatalogResponse:
+    """登録済みジョブ定義を登録順で全件返す."""
     return JobCatalogResponse(
         jobs=[
-            job_spec_info(definition, state, catalog) for definition in catalog.list()
+            job_spec_info(definition, selection, catalog)
+            for definition in catalog.list()
         ]
     )
 
 
-@router.post("/jobs/{name}", status_code=201)
+@router.post("/{name}", status_code=201)
 def post_job(
     name: str,
     jobs: JobsDep,
@@ -150,7 +200,7 @@ def post_job(
         raise HTTPException(status_code=404, detail=str(exc.args[0])) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    # BusyError は app.py の例外ハンドラが 409 化する
+    # BusyError は web.api.errors が 409 化する
     return {"job": job_summary(record, catalog.get(name))}
 
 
@@ -160,11 +210,11 @@ class JobParamDefaultsRequest(BaseModel):
     values: dict[str, Any] = {}
 
 
-@router.post("/jobs/{name}/param-defaults")
+@router.post("/{name}/param-defaults")
 def post_job_param_defaults(
     name: str,
     catalog: CatalogDep,
-    state: StateDep,
+    selection: SelectionDep,
     _control: ControlDep,
     body: JobParamDefaultsRequest | None = None,
 ) -> dict[str, dict[str, bool | float | int | str]]:
@@ -179,13 +229,13 @@ def post_job_param_defaults(
         definition = catalog.get(name)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc.args[0])) from exc
-    merged = state.merge_job_param_defaults(
+    merged = selection.merge_job_param_defaults(
         name, catalog.filter_persisted_defaults(definition, values)
     )
     return {"defaults": merged}
 
 
-@router.get("/jobs/current")
+@router.get("/current")
 def get_current_job(jobs: JobsDep, catalog: CatalogDep) -> dict[str, JobSummary | None]:
     """直近ジョブの全量サマリ（WS 再接続時の同期用。無ければ null）."""
     record = jobs.current()
@@ -194,7 +244,7 @@ def get_current_job(jobs: JobsDep, catalog: CatalogDep) -> dict[str, JobSummary 
     return {"job": job_summary(record, catalog.get(record.name))}
 
 
-@router.post("/jobs/current/abort")
+@router.post("/current/abort")
 def post_abort(jobs: JobsDep) -> dict[str, bool]:
     """実行中ジョブへ協調的中止を要求する（409: アクティブジョブ無し）.
 
@@ -210,10 +260,10 @@ class JobParamsUpdateRequest(BaseModel):
 
     values: dict[str, Any] = {}
     persist: bool = False
-    expected_job_id: str | None = None
+    expected_job_id: str
 
 
-@router.put("/jobs/current/params")
+@router.put("/current/params")
 def put_current_params(
     jobs: JobsDep, body: JobParamsUpdateRequest, _control: ControlDep
 ) -> dict[str, Any]:
@@ -230,48 +280,46 @@ def put_current_params(
 
 
 class JobResultRequest(BaseModel):
-    """画面で確認したジョブの結果だけを反映・破棄する。省略時は従来どおり直近。"""
+    """画面で確認したジョブの結果だけを反映・破棄する."""
 
-    expected_job_id: str | None = None
+    expected_job_id: str
 
 
-@router.post("/jobs/last/apply")
+@router.post("/last/apply")
 def post_apply(
     jobs: JobsDep,
-    state: StateDep,
-    store: StoreDep,
+    lock: LockDep,
+    machine_config: MachineConfigDep,
     _control: ControlDep,
-    body: JobResultRequest | None = None,
+    body: JobResultRequest,
 ) -> dict[str, dict[str, bool | float | int | str]]:
     """直近 SUCCEEDED ジョブの計測結果を設定へ反映する.
 
     409: 対象ジョブ不一致・反映可能なジョブ無し（LookupError）/ 実行中（BusyError）。
-    400: ホワイトリスト外キー（UnknownFieldError）。
+    400: 未知のキー・不正な値（InvalidSettingError）。
     """
-    expected_job_id = body.expected_job_id if body is not None else None
-    with state.machine_lock("apply-settings"):
+    with lock.hold("apply-settings"):
         try:
-            payload = jobs.apply_payload(expected_job_id=expected_job_id)
+            payload = jobs.apply_payload(expected_job_id=body.expected_job_id)
         except LookupError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        store.write_machine_settings(
+        machine_config.write(
             payload.values,
             files={file.filename: file.content for file in payload.files},
         )
-        jobs.mark_applied(expected_job_id=expected_job_id)
-    jobs.publish_state_changed()
+        jobs.mark_applied(expected_job_id=body.expected_job_id)
     return {"applied": dict(payload.values)}
 
 
-@router.post("/jobs/last/discard")
+@router.post("/last/discard")
 def post_discard(
     jobs: JobsDep,
     _control: ControlDep,
-    body: JobResultRequest | None = None,
+    body: JobResultRequest,
 ) -> dict[str, bool]:
     """直近ジョブの設定反映ペイロードを破棄する（冪等。409: 対象ジョブ不一致）."""
     try:
-        jobs.discard(expected_job_id=body.expected_job_id if body is not None else None)
+        jobs.discard(expected_job_id=body.expected_job_id)
     except LookupError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"ok": True}
@@ -298,17 +346,20 @@ async def jobs_websocket(websocket: WebSocket) -> None:
 
     subscribe と同じく、登録は finally で必ず解除する。
     """
-    jobs: JobManager = websocket.app.state.jobs
-    catalog: JobCatalog = websocket.app.state.catalog
-    lease: ControlLease = websocket.app.state.control
+    backend = get_backend(websocket)
+    jobs = backend.jobs
+    catalog = backend.catalog
+    lease = backend.control
     identity = get_identity(websocket)
     # accept 前に subscribe し「接続完了 ↔ 購読開始」の取りこぼし窓を無くす
-    # （control_changed も同じキューへ届く = JobManager.publish が唯一の配布点）
-    events = jobs.subscribe()
+    # （control_changed も同じキューへ届く = EventBus.publish が唯一の配布点）
+    events = backend.events.subscribe()
     lease.connect(identity)
     try:
         await websocket.accept()
-        sender = asyncio.create_task(_send_loop(websocket, jobs, catalog, events))
+        sender = asyncio.create_task(
+            _send_loop(websocket, jobs, catalog, events, lease, identity)
+        )
         receiver = asyncio.create_task(
             _receive_loop(websocket, jobs, events, lease, identity)
         )
@@ -325,7 +376,7 @@ async def jobs_websocket(websocket: WebSocket) -> None:
                 raise exc
     finally:
         lease.disconnect(identity)
-        jobs.unsubscribe(events)
+        backend.events.unsubscribe(events)
 
 
 async def _send_loop(
@@ -333,20 +384,33 @@ async def _send_loop(
     jobs: JobManager,
     catalog: JobCatalog,
     events: asyncio.Queue[dict[str, Any]],
+    lease: ControlLease,
+    identity: ClientIdentity,
 ) -> None:
-    """購読キューのイベントを送信する（job_status は送信時に最新化）."""
+    """購読キューのイベントを送信する.
+
+    job_status は送信時に最新化し、control_changed にはこの接続から見た操作権の状態を詰める。
+    """
     while True:
         event = await events.get()
-        if event.get("type") == "job_status":
-            record = jobs.current()
-            if record is None or record.id != event.get("job_id"):
-                continue  # 新ジョブに置き換わった後の旧イベントは捨てる
-            event = {
-                "type": "job_status",
-                "job": job_summary(record, catalog.get(record.name)).model_dump(
-                    mode="json"
-                ),
-            }
+        match event.get("type"):
+            case "job_status":
+                record = jobs.current()
+                if record is None or record.id != event.get("job_id"):
+                    continue  # 新ジョブに置き換わった後の旧イベントは捨てる
+                event = {
+                    "type": "job_status",
+                    "job": job_summary(record, catalog.get(record.name)).model_dump(
+                        mode="json"
+                    ),
+                }
+            case "control_changed":
+                event = {
+                    "type": "control_changed",
+                    "control": control_payload(lease.snapshot(), identity).model_dump(
+                        mode="json"
+                    ),
+                }
         await websocket.send_json(event)
 
 
@@ -402,8 +466,8 @@ def _dispatch(
             if not isinstance(command, dict):
                 raise ValueError("command オブジェクトが必要です")
             expected_job_id = message.get("expected_job_id")
-            if expected_job_id is not None and not isinstance(expected_job_id, str):
-                raise ValueError("expected_job_id は文字列で指定してください")
+            if not isinstance(expected_job_id, str):
+                raise ValueError("expected_job_id（文字列）が必要です")
             lease.claim(identity)
             jobs.submit_command(
                 cast(dict[str, Any], command), expected_job_id=expected_job_id

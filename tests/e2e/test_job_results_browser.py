@@ -7,26 +7,21 @@ import attrs
 import pytest
 from playwright.sync_api import expect
 
-from tests.e2e.conftest import (
-    E2E_MACHINE_ID,
-    LiveServer,
-    LiveUi,
-    acquire_control,
-    make_api_settings,
-)
 from tests.e2e.network import DelayedHttp, delayed_ui
-from tests.web.api.conftest import CHECKERBOARD_CAMERA_IMAGE
-from web.api.config_store import ConfigStore
-from web.api.settings import Settings
+from tests.support.browser import E2E_MACHINE_ID, LiveServer, LiveUi, acquire_control
+from tests.support.paths import CHECKERBOARD_IMAGE
+from tests.support.web import make_api_settings
+from web.api.env import Env
+from web.api.machine_config import MachineConfigFile
 
 
 @pytest.fixture
-def e2e_settings(tmp_path: Path) -> Settings:
+def e2e_settings(tmp_path: Path) -> Env:
     settings = make_api_settings(tmp_path / "api", hostname=E2E_MACHINE_ID)
-    ConfigStore(settings.config_dir).write_machine_settings(
+    MachineConfigFile(settings.config_dir).write(
         {"camera.crop.width": 400, "camera.crop.height": 400}
     )
-    return attrs.evolve(settings, fake_camera_image=CHECKERBOARD_CAMERA_IMAGE)
+    return attrs.evolve(settings, fake_camera_image=CHECKERBOARD_IMAGE)
 
 
 @pytest.fixture
@@ -43,11 +38,13 @@ def delayed_result_ui(
 
 
 def _calibrate(page, square_size: str) -> None:
-    page.locator("#param-square_size").fill(square_size)
-    page.locator("#job-run").click()
-    page.locator("#jc-prompt-ok").click()
-    expect(page.locator("#jc-status")).to_have_attribute("data-status", "succeeded")
-    expect(page.locator("#jc-apply")).to_be_visible()
+    page.get_by_test_id("param-square_size").fill(square_size)
+    page.get_by_test_id("job-run").click()
+    page.get_by_test_id("jc-prompt-ok").click()
+    expect(page.get_by_test_id("jc-status")).to_have_attribute(
+        "data-status", "succeeded"
+    )
+    expect(page.get_by_test_id("jc-apply")).to_be_visible()
 
 
 class TestJobResultActions:
@@ -55,7 +52,7 @@ class TestJobResultActions:
         self, live_ui: LiveUi, browser_page
     ):
         page = browser_page
-        page.goto(f"{live_ui.base_url}/posctrl/camera_calibration")
+        page.goto(f"{live_ui.base_url}/camera_calibration")
         acquire_control(page)
         _calibrate(page, "10")
 
@@ -64,10 +61,12 @@ class TestJobResultActions:
             data={"params": {"steps": 1, "interval": 0}},
         )
         assert response.status == 201
-        expect(page.locator("#jc-status")).to_have_attribute("data-status", "idle")
-        expect(page.locator("#jc-result")).to_be_hidden()
-        expect(page.locator("#jc-apply-btn")).to_be_hidden()
-        expect(page.locator("#jc-prompt")).to_be_hidden()
+        expect(page.get_by_test_id("jc-status")).to_have_attribute(
+            "data-status", "idle"
+        )
+        expect(page.get_by_test_id("jc-result")).to_be_hidden()
+        expect(page.get_by_test_id("jc-apply-btn")).to_be_hidden()
+        expect(page.get_by_test_id("jc-prompt")).to_be_hidden()
         assert (
             page.request.post(f"{live_ui.base_url}/api/jobs/current/abort").status
             == 200
@@ -85,12 +84,12 @@ class TestJobResultActions:
     ):
         ui, transport = delayed_result_ui
         page = browser_page
-        page.goto(f"{ui.base_url}/posctrl/camera_calibration")
+        page.goto(f"{ui.base_url}/camera_calibration")
         acquire_control(page)
         _calibrate(page, "10")
         if delay_response:
             transport.delay_response()
-        page.locator(f"#jc-{action}-btn").click()
+        page.get_by_test_id(f"jc-{action}-btn").click()
         assert transport.wait_received()
         config_dir = live_server.settings.config_dir
         saved_files = {
@@ -104,12 +103,14 @@ class TestJobResultActions:
             transport.resume()
         assert pending.value.status == (200 if delay_response else 409)
         if delay_response:
-            expect(page.locator("#toasts")).to_contain_text(
+            expect(page.get_by_test_id("toasts")).to_contain_text(
                 "設定に反映しました" if action == "apply" else "計測結果を破棄しました"
             )
         else:
-            expect(page.locator("#toasts")).to_contain_text("ジョブが切り替わりました")
-        expect(page.locator("#jc-apply")).to_be_visible()
+            expect(page.get_by_test_id("toasts")).to_contain_text(
+                "ジョブが切り替わりました"
+            )
+        expect(page.get_by_test_id("jc-apply")).to_be_visible()
         assert {
             p.name: p.read_bytes() for p in config_dir.iterdir() if p.is_file()
         } == saved_files
@@ -118,6 +119,6 @@ class TestJobResultActions:
         with page.expect_response(
             lambda response: response.url.endswith(f"/api/jobs/last/{action}")
         ) as retried:
-            page.locator(f"#jc-{action}-btn").click()
+            page.get_by_test_id(f"jc-{action}-btn").click()
         assert retried.value.status == 200
-        expect(page.locator("#jc-apply")).to_be_hidden()
+        expect(page.get_by_test_id("jc-apply")).to_be_hidden()

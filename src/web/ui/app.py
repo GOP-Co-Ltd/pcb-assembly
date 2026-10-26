@@ -126,7 +126,6 @@ def create_app(
         else UpdateRunner(
             UpdateSettings(
                 state_dir=settings.update_state_dir,
-                uv_sync_args=settings.update_uv_sync_args,
                 enabled=settings.update_enabled,
             )
         )
@@ -158,6 +157,12 @@ def create_app(
             machine_id=exc.endpoint.machine_id,
         )
 
+    @app.exception_handler(pages.UpdateOnlyMachine)
+    async def update_only_machine_handler(
+        request: Request, exc: pages.UpdateOnlyMachine
+    ) -> HTMLResponse:
+        return pages.render_update_only(request, exc.endpoint)
+
     @app.exception_handler(UnknownMachine)
     async def unknown_machine_handler(
         request: Request, exc: UnknownMachine
@@ -170,8 +175,8 @@ def create_app(
             status_code=404,
         )
 
-    # プロキシは pages ルータより先に登録する。逆にすると /m/x/api/state が
-    # /m/{machine_id}/{tab}/{feature} に先にマッチして 404 になる
+    # プロキシは pages ルータより先に登録する。逆にすると /m/x/api/session/state が
+    # pages ルータの /m/{machine_id}/{tab}/{slug} やキャッチオールに先にマッチする
     app.mount(
         "/m/{machine_id}/api",
         ProxyApp(
@@ -192,11 +197,11 @@ def create_app(
     )
     # prefix なし（全マシンでブラウザキャッシュを共有する）
     app.mount("/static", _NoCacheStaticFiles(directory=_STATIC_DIR), name="static")
-    # pages ルータより先に登録する（後だと /{tab} のキャッチオールに先にマッチし、
+    # pages ルータより先に登録する（後だと /{suffix:path} のキャッチオールに先にマッチし、
     # ドロップダウン更新が HTML を受け取る）
     app.include_router(machines_api.router)
-    # 同上。/update が /{tab} にマッチすると、更新ページの代わりにマシンピッカーが出る
+    # 同上。/update がキャッチオールにマッチすると、更新ページの代わりに自機か機体一覧へ飛ぶ
     app.include_router(update_api.router)
-    # /{tab} のキャッチオールを持つため最後に登録する
+    # キャッチオールを持つため最後に登録する
     app.include_router(pages.router)
     return app

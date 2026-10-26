@@ -1,0 +1,12 @@
+{# 部品実装（PnP）タブの入口。PnP を実装するまでの準備中の案内だけを出す #}
+{% extends "feature.html" %}
+{% block main %}
+<h2>{{ feature_label }}</h2>
+<section class="status-card" data-testid="pnp-placeholder">
+  <h3>準備中</h3>
+  <p>
+    この機体は machine.toml に <code>[pnp]</code> があるので、部品実装（Pick and Place）機として登録されている。
+    部品実装の機能はまだ無い。位置合わせ・カメラ・装置診断は「校正」「機体」タブから使える。
+  </p>
+</section>
+{% endblock %}

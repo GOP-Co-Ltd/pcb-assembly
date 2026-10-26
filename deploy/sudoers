@@ -1,0 +1,8 @@
+# WebUI からのソフトウェア更新が使う唯一の特権操作。
+# install.sh services が deploy/sudoers から生成する（手で編集しない）。
+# 引数まで固定した argv だけを許可し、ワイルドカードは 1 文字も置かない。
+Cmnd_Alias PCBASM_UPDATE_RESTART = \
+    /usr/bin/systemctl restart --no-block pcbasm-api.service, \
+    /usr/bin/systemctl restart --no-block pcbasm-ui.service, \
+    /usr/bin/systemctl restart --no-block pcbasm-api.service pcbasm-ui.service
+@USER@ ALL=(root:root) NOPASSWD: PCBASM_UPDATE_RESTART

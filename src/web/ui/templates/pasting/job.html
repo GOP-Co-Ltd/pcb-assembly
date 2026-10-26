@@ -1,5 +1,4 @@
-{% extends "tab.html" %}
-{% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
+{% extends "feature.html" %}
 {% block main %}
 <h2>{{ feature_label }}</h2>
 {% if show_preview %}
@@ -7,7 +6,7 @@
 {% include "partials/preview_pane.html" %}
 {% endif %}
 {% include "partials/job_form.html" %}
-{% if show_loading_controls %}
+{% if loading %}
 {% include "partials/loading_controls.html" %}
 {% endif %}
 {% include "partials/job_console.html" %}
@@ -17,7 +16,7 @@
 {% if show_preview %}
 <script src="{{ static_asset('js/preview.js') }}"></script>
 {% endif %}
-{% if show_loading_controls %}
-<script src="{{ static_asset('js/loading_controls.js') }}"></script>
+{% if loading %}
+<script src="{{ static_asset('js/pasting/loading_controls.js') }}"></script>
 {% endif %}
 {% endblock %}

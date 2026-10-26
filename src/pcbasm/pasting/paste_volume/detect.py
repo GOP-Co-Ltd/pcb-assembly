@@ -22,7 +22,7 @@ import math
 import attrs
 import numpy as np
 
-from pcbasm.utils import is_finite_number
+from pcbasm.validators import is_finite_number
 from pcbasm.vision.dot import (
     DotDetectionSpec,
     dark_spots,
@@ -32,15 +32,11 @@ from pcbasm.vision.dot import (
 from pcbasm.vision.image import ImageArray
 
 __all__ = [
-    "DETECTION_KIND",
     "DotDetectionSpec",
     "DotMeasurement",
     "detection_mask",
     "measure_dot",
 ]
-
-# 校正ファイルへ記録する検出方式の識別子（将来別方式を足したときに区別する）
-DETECTION_KIND = "diameter_otsu_v1"
 
 
 @attrs.frozen

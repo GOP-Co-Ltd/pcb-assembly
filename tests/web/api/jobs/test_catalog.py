@@ -1,373 +1,149 @@
-"""`web.api.jobs.catalog` の仕様テスト.
+"""ジョブのカタログ（`web.api.jobs.catalog.default_catalog`）の登録内容.
 
-計画書 webui-phase3.md「src/webui/jobs/catalog.py」節が契約:
+塗布のジョブは solder 機能の機体にだけ登録し、ほかのジョブはどの機体にも登録する。
 
-- register は名前重複で ValueError、get は未知ジョブで KeyError
-- list は hidden を含む全件（tab で絞り込み可）
-- validate_params は default 充填済み dict を返す。未知キー・型不一致・
-  必須欠落・choice 範囲外は ValueError。optional は省略時にキーを含めない。
-  型変換は config_store._coerce と同様
-  （bool は value_type="bool" のみ受理、int→float 許容、float→int は整数値のみ）
-- default_catalog() は dev 3 ジョブ（2 ジョブ + job_demo）を登録済みで返す
-  （generate_grid_pcb は他タブへ移設済み）
+ジョブ名・ファイル名・画面の feature slug は同じ語で、ジョブのディレクトリは呼ぶ pcbasm のドメインをミラーする。
 """
 
-from typing import Literal
+from __future__ import annotations
+
+import ast
+from pathlib import Path
 
 import pytest
 
-from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec, default_catalog
-from web.api.jobs.context import JobContext
+from tests.support.web import standalone_catalog
+from web.api.jobs.runtime.catalog import JobCatalog
+from web.api.jobs.steps import LOADING_STAGE
 
-
-def _noop(ctx: JobContext) -> None:
-    return None
-
-
-def _definition(
-    name: str = "demo",
-    *,
-    tab: Literal["dev", "pasting", "posctrl"] = "dev",
-    params: tuple[ParamSpec, ...] = (),
-    hidden: bool = False,
-) -> JobDefinition:
-    return JobDefinition(
-        name=name,
-        label="デモジョブ",
-        tab=tab,
-        run=_noop,
-        params=params,
-        uses_machine=False,
-        hidden=hidden,
-    )
-
-
-class TestRegistry:
-    """Register / get / list."""
-
-    def test_register_duplicate_name_raises_value_error(self):
-        catalog = JobCatalog()
-        catalog.register(_definition("alpha"))
-
-        with pytest.raises(ValueError) as exc:
-            catalog.register(_definition("alpha"))
-
-        assert "alpha" in str(exc.value)
-
-    def test_get_unknown_name_raises_key_error(self):
-        with pytest.raises(KeyError):
-            JobCatalog().get("no-such-job")
-
-    def test_list_returns_all_definitions_including_hidden(self):
-        catalog = JobCatalog()
-        catalog.register(_definition("visible"))
-        catalog.register(_definition("invisible", hidden=True))
-
-        names = {definition.name for definition in catalog.list()}
-
-        assert names == {"visible", "invisible"}
-
-    def test_list_filters_by_tab(self):
-        catalog = JobCatalog()
-        catalog.register(_definition("dev_job", tab="dev"))
-        catalog.register(_definition("pasting_job", tab="pasting"))
-
-        names = {definition.name for definition in catalog.list(tab="pasting")}
-
-        assert names == {"pasting_job"}
-
-
-_PARAMS = (
-    ParamSpec(name="ratio", label="比率", value_type="float", default=1.0),
-    ParamSpec(name="count", label="回数", value_type="int", default=3),
-    ParamSpec(
-        name="mode",
-        label="モード",
-        value_type="choice",
-        default="fast",
-        choices=("fast", "slow"),
+JOBS_BY_DOMAIN = {
+    "align": (
+        "reference_point_setup",
+        "camera_calibration",
+        "board_tour",
+        "orthogonality_test",
     ),
-    ParamSpec(name="flag", label="フラグ", value_type="bool", default=False),
-    ParamSpec(name="title", label="表題", value_type="str"),  # default=None → 必須
-    ParamSpec(
-        name="position_x",
-        label="X",
-        value_type="float",
-        optional=True,
+    "pasting": (
+        "paste_solder",
+        "loading",
+        "height_plane",
+        "toolhead_offset",
+        "nozzle_clean_test",
+        "dispense_calibration",
+        "paste_volume_calibration",
+        "paste_volume_refit",
+        "paste_dataset_finalize",
     ),
-)
-
-
-class TestValidateParams:
-    """validate_params の型変換・default 充填・検証."""
-
-    @pytest.fixture
-    def catalog(self) -> JobCatalog:
-        return JobCatalog()
-
-    @pytest.fixture
-    def definition(self) -> JobDefinition:
-        return _definition("parametrized", params=_PARAMS)
-
-    def test_defaults_are_filled_for_omitted_keys(
-        self, catalog: JobCatalog, definition: JobDefinition
-    ):
-        values = catalog.validate_params(definition, {"title": "x"})
-
-        assert values == {
-            "ratio": 1.0,
-            "count": 3,
-            "mode": "fast",
-            "flag": False,
-            "title": "x",
-        }
-
-    def test_optional_value_is_coerced_when_supplied(
-        self, catalog: JobCatalog, definition: JobDefinition
-    ):
-        values = catalog.validate_params(definition, {"title": "x", "position_x": 12})
-
-        assert values["position_x"] == 12.0
-        assert isinstance(values["position_x"], float)
-
-    def test_int_is_coerced_to_float_for_float_param(
-        self, catalog: JobCatalog, definition: JobDefinition
-    ):
-        values = catalog.validate_params(definition, {"title": "x", "ratio": 2})
-
-        assert values["ratio"] == 2.0
-        assert isinstance(values["ratio"], float)
-
-    def test_integral_float_is_coerced_to_int_for_int_param(
-        self, catalog: JobCatalog, definition: JobDefinition
-    ):
-        values = catalog.validate_params(definition, {"title": "x", "count": 4.0})
-
-        assert values["count"] == 4
-        assert isinstance(values["count"], int)
-
-    def test_fractional_float_for_int_param_raises_value_error(
-        self, catalog: JobCatalog, definition: JobDefinition
-    ):
-        with pytest.raises(ValueError):
-            catalog.validate_params(definition, {"title": "x", "count": 4.5})
-
-    def test_choice_value_within_choices_is_accepted(
-        self, catalog: JobCatalog, definition: JobDefinition
-    ):
-        values = catalog.validate_params(definition, {"title": "x", "mode": "slow"})
-
-        assert values["mode"] == "slow"
-
-    def test_choice_value_outside_choices_raises_value_error(
-        self, catalog: JobCatalog, definition: JobDefinition
-    ):
-        with pytest.raises(ValueError):
-            catalog.validate_params(definition, {"title": "x", "mode": "middle"})
-
-    def test_bool_value_for_numeric_param_raises_value_error(
-        self, catalog: JobCatalog, definition: JobDefinition
-    ):
-        # bool は value_type="bool" のみ受理（int のサブクラスでも float 化しない）
-        with pytest.raises(ValueError):
-            catalog.validate_params(definition, {"title": "x", "ratio": True})
-
-    def test_numeric_value_for_bool_param_raises_value_error(
-        self, catalog: JobCatalog, definition: JobDefinition
-    ):
-        with pytest.raises(ValueError):
-            catalog.validate_params(definition, {"title": "x", "flag": 1})
-
-    def test_unknown_key_raises_value_error(
-        self, catalog: JobCatalog, definition: JobDefinition
-    ):
-        with pytest.raises(ValueError) as exc:
-            catalog.validate_params(definition, {"title": "x", "nope": 1.0})
-
-        assert "nope" in str(exc.value)
-
-    def test_missing_required_key_raises_value_error(
-        self, catalog: JobCatalog, definition: JobDefinition
-    ):
-        with pytest.raises(ValueError) as exc:
-            catalog.validate_params(definition, {})
-
-        assert "title" in str(exc.value)
-
-    def test_wrong_type_raises_value_error(
-        self, catalog: JobCatalog, definition: JobDefinition
-    ):
-        with pytest.raises(ValueError):
-            catalog.validate_params(definition, {"title": "x", "count": "many"})
-
-
-_RUNTIME_PARAMS = (
-    # 固定パラメータ（runtime_editable=False）
-    ParamSpec(name="board_width", label="基板幅", value_type="float", default=40.0),
-    # 実行中変更可（runtime_editable=True）
-    ParamSpec(
-        name="line_length",
-        label="線長",
-        value_type="float",
-        default=10.0,
-        runtime_editable=True,
+    "kicad": (
+        "extract_pcb",
+        "generate_grid_pcb",
+        "generate_rect_pcb",
+        "make_fill_coverage_pcb",
     ),
-    ParamSpec(
-        name="line_count",
-        label="本数",
-        value_type="int",
-        default=3,
-        runtime_editable=True,
-    ),
-    ParamSpec(
-        name="removal_z_offset",
-        label="退避Zオフセット",
-        value_type="float",
-        default=0.0,
-        unit="mm",
-        runtime_editable=True,
-        minimum=0.0,
-    ),
-)
+    "machine": ("machine_check",),
+}
+
+JOBS_DIR = Path(__file__).parents[4] / "src" / "web" / "api" / "jobs"
 
 
-class TestValidateRuntimeParams:
-    """validate_runtime_params の patch 検証（計画書「能力 1」catalog 節が契約）.
-
-    runtime_editable=True のキーだけを coerce して返す patch セマンティクス:
-    - default 充填はしない（与えたキーだけ返る）
-    - runtime_editable=False の固定キー / 未知キーは ValueError
-    - removal_z_offset の負値は ValueError
-
-    型変換そのものは validate_params と同じ `_coerce_param` を共有するため、
-    型不一致・int/float 相互変換は `TestValidateParams` 側で固定する。
-    """
-
-    @pytest.fixture
-    def catalog(self) -> JobCatalog:
-        return JobCatalog()
-
-    @pytest.fixture
-    def definition(self) -> JobDefinition:
-        return _definition("runtime", params=_RUNTIME_PARAMS)
-
-    def test_returns_only_supplied_runtime_keys_without_default_filling(
-        self, catalog: JobCatalog, definition: JobDefinition
-    ):
-        # patch なので line_count / removal_z_offset の default は充填されない
-        values = catalog.validate_runtime_params(definition, {"line_length": 12.0})
-
-        assert values == {"line_length": 12.0}
-
-    def test_empty_patch_returns_empty_dict(
-        self, catalog: JobCatalog, definition: JobDefinition
-    ):
-        assert catalog.validate_runtime_params(definition, {}) == {}
-
-    def test_fixed_param_is_rejected(
-        self, catalog: JobCatalog, definition: JobDefinition
-    ):
-        # board_width は runtime_editable=False（キャリブ後固定）
-        with pytest.raises(ValueError) as exc:
-            catalog.validate_runtime_params(definition, {"board_width": 50.0})
-
-        assert "board_width" in str(exc.value)
-
-    def test_unknown_key_is_rejected(
-        self, catalog: JobCatalog, definition: JobDefinition
-    ):
-        with pytest.raises(ValueError) as exc:
-            catalog.validate_runtime_params(definition, {"no_such_param": 1.0})
-
-        assert "no_such_param" in str(exc.value)
-
-    def test_negative_removal_z_offset_is_rejected(
-        self, catalog: JobCatalog, definition: JobDefinition
-    ):
-        # 退避 Z = max(z_min, z_max − offset)。負 offset はパラメータ検証で拒否
-        with pytest.raises(ValueError):
-            catalog.validate_runtime_params(definition, {"removal_z_offset": -1.0})
-
-    def test_zero_removal_z_offset_is_accepted(
-        self, catalog: JobCatalog, definition: JobDefinition
-    ):
-        # 既定 0.0（= 現状の全退避）は有効
-        values = catalog.validate_runtime_params(definition, {"removal_z_offset": 0.0})
-
-        assert values == {"removal_z_offset": 0.0}
+@pytest.fixture
+def catalog(tmp_path: Path) -> JobCatalog:
+    return standalone_catalog(tmp_path)
 
 
-class TestRuntimeParamsProperty:
-    """JobDefinition.runtime_params（フォーム / router 補助用の name 集合）."""
+class TestJobList:
+    def test_registers_exactly_the_jobs(self, catalog: JobCatalog):
+        names = [definition.name for definition in catalog.list()]
 
-    def test_lists_only_runtime_editable_names(self):
-        definition = _definition("runtime", params=_RUNTIME_PARAMS)
-
-        assert set(definition.runtime_params) == {
-            "line_length",
-            "line_count",
-            "removal_z_offset",
-        }
-
-
-class TestFiniteFloatParams:
-    @pytest.mark.parametrize(
-        "value",
-        [float("inf"), float("-inf"), float("nan"), 10**400],
-        ids=["inf", "-inf", "nan", "overflow-int"],
-    )
-    def test_invalid_numbers_are_rejected_before_running_or_saving(self, value: object):
-        catalog = JobCatalog()
-        definition = JobDefinition(
-            name="finite",
-            label="有限数",
-            tab="dev",
-            run=_noop,
-            uses_machine=False,
-            params=(
-                ParamSpec("amount", "量", "float", runtime_editable=True, minimum=0.0),
-            ),
-            persisted_params=("amount",),
+        assert sorted(names) == sorted(
+            name for jobs in JOBS_BY_DOMAIN.values() for name in jobs
         )
-        for validate in (catalog.validate_params, catalog.validate_runtime_params):
-            with pytest.raises(ValueError, match="amount"):
-                validate(definition, {"amount": value})
-        assert catalog.filter_persisted_defaults(definition, {"amount": value}) == {}
 
+    def test_solder_machine_lists_every_job_in_the_same_order_as_before(
+        self, tmp_path: Path
+    ):
+        """はんだ塗布機のジョブ一覧は、機能で分ける前と同じ（塗布のジョブが先）."""
+        names = [d.name for d in standalone_catalog(tmp_path, ("solder",)).list()]
 
-class TestDefaultCatalog:
-    """default_catalog の登録内容（計画書「src/webui/jobs/dev.py」節のピン）."""
+        assert names == [
+            *JOBS_BY_DOMAIN["pasting"],
+            *JOBS_BY_DOMAIN["align"],
+            *JOBS_BY_DOMAIN["kicad"],
+            *JOBS_BY_DOMAIN["machine"],
+        ]
 
-    @pytest.fixture
-    def catalog(self) -> JobCatalog:
-        return default_catalog()
+    def test_pnp_machine_has_no_solder_job(self, tmp_path: Path):
+        """塗布のジョブは solder 機能の機体にだけ登録し、ほかのジョブはどの機体にもある."""
+        names = [d.name for d in standalone_catalog(tmp_path, ("pnp",)).list()]
 
-    def test_dev_tab_has_exactly_phase3_jobs(self, catalog: JobCatalog):
-        names = {definition.name for definition in catalog.list(tab="dev")}
-
-        assert names == {
-            "extract_pcb",
-            "make_fill_coverage_pcb",
-            "job_demo",
-        }
+        assert names == [
+            *JOBS_BY_DOMAIN["align"],
+            *JOBS_BY_DOMAIN["kicad"],
+            *JOBS_BY_DOMAIN["machine"],
+        ]
 
     @pytest.mark.parametrize(
-        ("name", "requires_pcb"),
+        ("domain", "name"),
+        [(domain, name) for domain, jobs in JOBS_BY_DOMAIN.items() for name in jobs],
+    )
+    def test_job_lives_in_a_file_named_after_it(self, domain: str, name: str):
+        """ジョブ名で grep すれば、ジョブの定義と台本に 1 回で着く."""
+        assert (JOBS_DIR / domain / f"{name}.py").is_file()
+
+    @pytest.mark.parametrize(
+        ("domain", "name"),
+        [(domain, name) for domain, jobs in JOBS_BY_DOMAIN.items() for name in jobs],
+    )
+    def test_job_does_not_import_another_job(self, domain: str, name: str):
+        """共有の部品は steps.py にあり、別のジョブのファイルを辿らずに済む."""
+        jobs = {
+            f"web.api.jobs.{other_domain}.{other}"
+            for other_domain, others in JOBS_BY_DOMAIN.items()
+            for other in others
+        }
+        tree = ast.parse((JOBS_DIR / domain / f"{name}.py").read_text())
+        imported = {
+            node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
+        }
+
+        assert imported & jobs == set()
+
+    @pytest.mark.parametrize(
+        ("name", "requires_pcb", "uses_machine", "accepts_commands"),
         [
-            ("extract_pcb", True),
-            ("make_fill_coverage_pcb", False),
-            ("job_demo", False),
+            ("reference_point_setup", False, True, True),
+            ("camera_calibration", False, True, False),
+            ("board_tour", True, True, False),
+            ("orthogonality_test", True, True, False),
+            ("paste_solder", True, True, True),
+            ("loading", False, True, True),
+            ("height_plane", True, True, False),
+            ("toolhead_offset", True, True, True),
+            ("nozzle_clean_test", False, True, False),
+            ("dispense_calibration", False, True, True),
+            ("paste_volume_calibration", False, True, True),
+            ("paste_volume_refit", False, False, False),
+            ("paste_dataset_finalize", False, False, False),
+            ("extract_pcb", True, False, False),
+            ("generate_grid_pcb", False, False, False),
+            ("generate_rect_pcb", False, False, False),
+            ("make_fill_coverage_pcb", False, False, False),
+            ("machine_check", False, False, False),
         ],
     )
-    def test_requires_pcb_flags(
-        self, catalog: JobCatalog, name: str, requires_pcb: bool
+    def test_job_flags(
+        self,
+        catalog: JobCatalog,
+        name: str,
+        requires_pcb: bool,
+        uses_machine: bool,
+        accepts_commands: bool,
     ):
-        assert catalog.get(name).requires_pcb is requires_pcb
+        definition = catalog.get(name)
 
-    def test_only_job_demo_is_hidden(self, catalog: JobCatalog):
-        hidden = {d.name for d in catalog.list(tab="dev") if d.hidden}
-
-        assert hidden == {"job_demo"}
+        assert definition.requires_pcb is requires_pcb
+        assert definition.uses_machine is uses_machine
+        assert definition.accepts_commands is accepts_commands
 
     def test_long_running_paste_jobs_notify_on_completion(self, catalog: JobCatalog):
         """ブラウザの完了通知バナーの対象（機体スピーカーは uses_machine で決まる）."""
@@ -379,25 +155,89 @@ class TestDefaultCatalog:
 
         assert notifying == {"paste_solder", "paste_volume_calibration"}
 
-    def test_machine_jobs_define_the_completion_sound_scope(self, catalog: JobCatalog):
-        """機体スピーカーの完了音（成功 / 失敗）が鳴るジョブの全量.
 
-        `uses_machine` は終了時の駐機だけでなく完了音の対象も決めるため、集合を
-        仕様として固定する（新ジョブの追加で意図せず鳴る / 鳴らないを検知する）。
-        """
-        machine_jobs = {
-            definition.name for definition in catalog.list() if definition.uses_machine
+class TestLoadingPanel:
+    """ローディング欄を出すジョブと、その欄の宣言."""
+
+    def test_jobs_with_a_loading_panel(self, catalog: JobCatalog):
+        """ローディング欄のあるジョブは command を受ける（欄のボタンが command を送る）."""
+        with_panel = {
+            definition.name
+            for definition in catalog.list()
+            if definition.loading is not None
         }
 
-        assert machine_jobs == {
-            "board_tour",
-            "camera_calibration",
-            "dispense_calibration",
-            "height_plane",
-            "loading",
-            "orthogonality_test",
+        assert with_panel == {
             "paste_solder",
-            "paste_volume_calibration",
-            "reference_point_setup",
+            "loading",
             "toolhead_offset",
+            "dispense_calibration",
+            "paste_volume_calibration",
+        }
+        assert all(catalog.get(name).accepts_commands for name in with_panel)
+
+    def test_panel_defaults_come_from_the_jobs_own_params(self, catalog: JobCatalog):
+        """欄の既定値に使う ParamSpec がジョブにある（名前を変えると欄が既定値を失う）."""
+        for definition in catalog.list():
+            panel = definition.loading
+            if panel is None:
+                continue
+            names = {spec.name for spec in definition.params}
+            assert panel.amount in names, definition.name
+            if panel.rotation is not None:
+                assert {
+                    panel.rotation.rotations,
+                    panel.rotation.rate,
+                    panel.rotation.accel,
+                    panel.rotation.retract_rotations,
+                } <= names, definition.name
+
+    def test_rotation_section_is_shown_where_the_form_has_rotation_params(
+        self, catalog: JobCatalog
+    ):
+        rotating = {
+            definition.name
+            for definition in catalog.list()
+            if definition.loading is not None and definition.loading.rotation
+        }
+
+        assert rotating == {"loading", "paste_volume_calibration"}
+
+    def test_dispense_calibration_primes_from_the_menu_too(self, catalog: JobCatalog):
+        """吐出量キャリブはメニュー段階のプライムと ① 専用ローディング段階の両方でボタンを押せる."""
+        panel = catalog.get("dispense_calibration").loading
+
+        assert panel is not None
+        assert panel.stages == ("キャリブレーションメニュー", LOADING_STAGE)
+
+
+class TestParamGroups:
+    """フォーム内のまとまり（ParamSpec.group）."""
+
+    @pytest.mark.parametrize(
+        "name", ["dispense_calibration", "paste_volume_calibration"]
+    )
+    def test_calibration_forms_group_every_param(self, catalog: JobCatalog, name: str):
+        """項目の多い校正ジョブのフォームは、すべての項目がどこかのまとまりに入る."""
+        ungrouped = [
+            spec.name for spec in catalog.get(name).params if spec.group is None
+        ]
+
+        assert ungrouped == []
+
+    def test_detection_hyperparameters_are_advanced(self, catalog: JobCatalog):
+        """円検出のハイパラは普段は触らないので、収集ジョブのフォームでは畳む."""
+        advanced = {
+            spec.name
+            for spec in catalog.get("paste_volume_calibration").params
+            if spec.group is not None and spec.group.advanced
+        }
+
+        assert advanced == {
+            "min_contrast",
+            "contrast_percentile",
+            "threshold_floor_ratio",
+            "open_kernel_px",
+            "min_area_px",
+            "require_blank_zero",
         }

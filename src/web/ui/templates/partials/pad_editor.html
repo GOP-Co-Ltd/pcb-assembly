@@ -1,8 +1,12 @@
+{% import "partials/forms.html" as forms %}
 <section id="pad-editor" class="pad-editor" data-testid="pad-editor">
   {# PCB 未選択時のメッセージ（JS が GET 409 を受けたら表示し、編集 UI を隠す） #}
   <p id="pad-editor-empty" class="pad-editor-empty" data-testid="pad-editor-empty" hidden>
     PCB を選択してください。
   </p>
+  {# 保存済みの pad 設定が読めないとき（GET 409 の board_settings_unreadable）だけ JS が出す #}
+  <button type="button" id="pad-reset-config" data-testid="pad-reset-config"
+          data-requires-control hidden>pad 設定を初期化</button>
 
   {# PCB 選択済みの編集 UI。初期は隠し、GET 成功で JS が表示する #}
   <div id="pad-editor-body" class="pad-editor-body" data-testid="pad-editor-body" hidden>
@@ -44,7 +48,7 @@
         <button type="button" id="pad-export-config" data-testid="pad-export-config">設定を書き出し</button>
         <button type="button" id="pad-import-config-button" data-testid="pad-import-config-button"
                 data-requires-control>設定を読み込み</button>
-        <input id="pad-import-config" type="file" accept="application/json,.json" hidden
+        <input id="pad-import-config" data-testid="pad-import-config" type="file" accept="application/json,.json" hidden
                data-requires-control>
       </div>
       {# 流量キャリブレーションは machine 設定（校正ファイル等）と基板設定（測定位置）に
@@ -54,27 +58,13 @@
         {% if flow_calibration_fields %}
         {# machine 全体設定。入力後は即保存する #}
         <form class="pad-flow-calibration-settings" data-testid="paste-flow-calibration"
-              data-requires-control data-machine-settings data-endpoint="/api/settings/machine">
+              data-requires-control data-machine-settings data-endpoint="/api/machine_config">
           {% for field in flow_calibration_fields %}
+          {# 文字列の項目は校正ファイル名だけで、保存済みの校正の一覧から選ぶ #}
           <label for="pfc-{{ field.key }}"
-                 {% if field.key == flow_calibration_file_key %}class="pad-flow-calibration-file"{% endif %}>{{ field.label }}{% if field.unit %} <span class="unit">[{{ field.unit }}]</span>{% endif %}
-            {% if field.key == flow_calibration_file_key %}
-            <input id="pfc-{{ field.key }}" name="{{ field.key }}"
-                   data-type="{{ field.value_type }}" type="text"
-                   aria-label="{{ field.label }}"
-                   value="{{ field.value if field.value is not none else '' }}"
-                   placeholder="未設定（補正しません）"
-                   data-calibration-picker data-calibration-empty="補正しない"
-                   data-allow-empty="true"
-                   data-testid="flow-calibration-{{ field.key }}">
-            {% else %}
-            <input id="pfc-{{ field.key }}" name="{{ field.key }}"
-                   data-type="{{ field.value_type }}" type="number" step="any" min="0"
-                   aria-label="{{ field.label }}"
-                   value="{{ field.value if field.value is not none else field.resolved if field.resolved is not none else '' }}"
-                   placeholder="未設定"
-                   data-testid="flow-calibration-{{ field.key }}">
-            {% endif %}
+                 {% if field.value_type == 'str' %}class="pad-flow-calibration-file"{% endif %}>{{ field.label }}
+            {{ forms.setting_input(field, "pfc", testid="flow-calibration",
+                                   picker="補正しない" if field.value_type == 'str' else none) }}
           </label>
           {% endfor %}
         </form>

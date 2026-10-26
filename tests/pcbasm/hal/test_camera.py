@@ -1,14 +1,6 @@
-import numpy as np
 import pytest
-from pytest_mock import MockerFixture
 
-from pcbasm.hal.camera import (
-    CameraInfo,
-    Resolution,
-    create_camera,
-    get_camera_info,
-)
-from tests.helpers import mark_hardware, skip_if_no_csi_camera, skip_if_no_usb_camera
+from pcbasm.hal.camera import CameraInfo, Resolution, create_camera
 
 
 class TestCameraInfo:
@@ -32,121 +24,9 @@ class TestCameraInfo:
         assert info.has_format(format_name, query_resolution) is expected
 
 
-class TestGetCameraInfo:
-    """get_camera_info関数のテスト."""
-
-    @mark_hardware
-    @skip_if_no_usb_camera
-    def test_returns_camera_info(self):
-        info = get_camera_info(device_id=0)
-
-        assert isinstance(info, CameraInfo)
-        assert info.name != ""
-        assert len(info.formats) > 0
-
-
-class TestUsbCamera:
-    """create_camera（USBバックエンド）のテスト."""
-
-    def test_init_raises_when_camera_not_opened(self, mock_camera_backend):
-        mock_camera_backend.isOpened.return_value = False
-
-        with pytest.raises(RuntimeError, match="カメラ 0 を開けません"):
-            create_camera(device_id=0, backend="usb")
-
-    def test_init_raises_when_no_formats_available(
-        self, mock_camera_backend, mocker: MockerFixture
-    ):
-        mocker.patch(
-            "pcbasm.hal.camera.get_camera_info",
-            return_value=CameraInfo(name="Empty Camera", formats={}),
-        )
-
-        with pytest.raises(RuntimeError, match="フォーマットがありません"):
-            create_camera(backend="usb")
-
-    def test_init_raises_when_format_length_invalid(self, mock_camera_backend):
-        with pytest.raises(ValueError, match="4文字である必要があります"):
-            create_camera(format="MJ", backend="usb")
-
-    def test_init_raises_when_resolution_not_supported(self, mock_camera_backend):
-        with pytest.raises(RuntimeError, match="サポートしていません"):
-            create_camera(width=1920, height=1080, backend="usb")
-
-    def test_init_warns_when_property_set_fails(self, mock_camera_backend):
-        mock_camera_backend.set.return_value = False
-
-        with pytest.warns(RuntimeWarning):
-            create_camera(backend="usb")
-
-    def test_capture_raises_on_failure(self, mock_camera_backend):
-        mock_camera_backend.read.return_value = (False, None)
-
-        camera = create_camera(backend="usb")
-
-        with pytest.raises(RuntimeError, match="フレームの取得に失敗しました"):
-            camera.capture()
-
-    def test_capture_resizes_image_when_size_differs(self, mock_camera_backend):
-        wrong_size_image = np.zeros((720, 1280, 3), dtype=np.uint8)
-        mock_camera_backend.read.return_value = (True, wrong_size_image)
-
-        camera = create_camera(width=640, height=480, backend="usb")
-
-        with pytest.warns(RuntimeWarning, match="リサイズします"):
-            image = camera.capture()
-
-        assert image.width == 640
-        assert image.height == 480
-
-    @mark_hardware
-    @skip_if_no_usb_camera
-    @pytest.mark.parametrize(
-        ("width", "height"),
-        [
-            (640, 480),
-            (1280, 720),
-        ],
-    )
-    def test_capture_returns_valid_image_from_hardware(self, width, height):
-        camera = create_camera(device_id=0, width=width, height=height)
-        image = camera.capture()
-
-        assert image.width == width
-        assert image.height == height
-        assert image.numpy().dtype == np.uint8
-
-
-class TestCsiCamera:
-    """create_camera（CSIバックエンド）のテスト."""
-
-    def test_init_raises_when_camera_not_found(self, mock_csi_camera_backend):
-        mock_csi_camera_backend.Picamera2.global_camera_info.return_value = []
-
-        with pytest.raises(OSError, match="CSIカメラ 0 が見つかりません"):
-            create_camera(backend="csi")
-
-    @mark_hardware
-    @skip_if_no_csi_camera
-    @pytest.mark.parametrize(
-        ("width", "height"),
-        [
-            (640, 480),
-            (1280, 720),
-        ],
-    )
-    def test_capture_returns_valid_image_from_hardware(self, width, height):
-        camera = create_camera(backend="csi", width=width, height=height)
-        image = camera.capture()
-
-        assert image.width == width
-        assert image.height == height
-        assert image.numpy().dtype == np.uint8
-
-
 class TestCreateCamera:
     """create_camera ファクトリ関数のテスト."""
 
-    def test_raises_when_backend_unknown(self, mock_camera_backend):
+    def test_raises_when_backend_unknown(self):
         with pytest.raises(ValueError, match="未知のバックエンド"):
             create_camera(backend="unknown")

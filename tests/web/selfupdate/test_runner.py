@@ -1,6 +1,6 @@
 """`web.selfupdate.runner.UpdateRunner` の契約テスト.
 
-計画書「1. 共通モジュール」の実行順序表
+実行順序
 
 ```
 0 単一実行ロック（flock: state_dir/update.lock）
@@ -13,13 +13,12 @@
 7 schedule_restart(active_units(), delay=1.0)
 ```
 
-と、確定要件「`uv sync` 失敗 → **再起動しない**」「ff 不可 → **何もせず中断**」、
-安全弁「`expected_head` 必須の 2 段階（楽観ロック）」「単一実行ロック」「`enabled` 設定」
-が契約。
+と、「`uv sync` 失敗 → **再起動しない**」「ff 不可 → **何もせず中断**」、
+安全弁「`expected_head` 必須の 2 段階（楽観ロック）」「単一実行ロック」「`enabled` 設定」が契約。
 
 モックは 1 つも使わない。git は実物、`uv` / `sudo` / `systemctl` は `UpdateSettings` の
 絶対パス seam に差し込んだ **実スタブ実行ファイル**で、呼び出しの有無と順序は
-スタブが追記する共有ログで観測する。ハングし得る待ちは `tests.helpers.before_deadline`
+スタブが追記する共有ログで観測する。ハングし得る待ちは `tests.support.polling.before_deadline`
 で包む。
 """
 
@@ -34,8 +33,8 @@ from pathlib import Path
 import attrs
 import pytest
 
-from tests.helpers import before_deadline, wait_until
-from tests.web.selfupdate.conftest import (
+from tests.support.polling import before_deadline, wait_until
+from tests.support.selfupdate import (
     call_log,
     git,
     head,
@@ -233,7 +232,7 @@ class TestSuccessfulRun:
 
 
 class TestRestartIsWithheldOnFailure:
-    """「失敗したら再起動しない」（確定要件）の直接検証."""
+    """「失敗したら再起動しない」の直接検証."""
 
     def test_failing_uv_sync_skips_both_the_smoke_and_the_restart(
         self, clone: Path, tmp_path: Path, publisher: Path
@@ -277,7 +276,7 @@ class TestStartIsRefused:
     def test_uncommitted_change_blocks_before_anything_runs(
         self, clone: Path, tmp_path: Path, publisher: Path
     ):
-        """Fast-forward できないなら git も uv も動かさない（確定要件「何もせず中断」）."""
+        """Fast-forward できないなら git も uv も動かさない（何もせず中断）."""
         push_commit(publisher, body="second\n")
         (clone / "tracked.txt").write_text("edited\n", encoding="utf-8")
         settings = build_settings(clone, tmp_path)

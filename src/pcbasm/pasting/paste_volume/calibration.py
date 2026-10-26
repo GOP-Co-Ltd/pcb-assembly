@@ -11,8 +11,7 @@
 達成条件を session 総体積の誤差で見る根拠がここに残る。
 
 永続化の判断:
-    strict converter は :mod:`pcbasm.pasting.dataset.metadata` のものを共有する
-    （未知 key と暗黙の型変換を拒否する挙動が dataset schema と同じでよい）。
+    strict な変換は :mod:`pcbasm.document` を使う（未知 key・欠落 key・暗黙の型変換を拒否する）。
     ``schema_version`` が現版と異なる document は移行せず ``(None, 理由)`` で拒否する。
 """
 
@@ -28,12 +27,13 @@ from typing import Any, Literal
 import attrs
 
 from pcbasm.atomic import write_text_atomic
-from pcbasm.pasting.dataset.metadata import structure_document
+from pcbasm.document import check_header, structure_document
 from pcbasm.pasting.paste_volume.detect import DotDetectionSpec
 from pcbasm.pasting.paste_volume.model import CubicVolumeModel
 
 CALIBRATION_KIND = "pcbasm-paste-volume-diameter-calibration"
 CALIBRATION_SCHEMA_VERSION = 1
+_LABEL = "塗布量の校正ファイル"
 
 # 校正ファイルの拡張子（dataset の JSON と取り違えないための識別子を兼ねる）
 CALIBRATION_SUFFIX = ".paste-volume.json"
@@ -51,6 +51,16 @@ SCALE_TOLERANCE = 0.05
 
 
 @attrs.frozen
+class CaptureConditions:
+    """点を塗って撮った条件（校正を作ったときと、校正を当てるときで同じ項目を比べる）."""
+
+    nozzle_diameter_mm: float
+    paste_height_mm: float
+    pixel_per_mm: float
+    crop_size_mm: float
+
+
+@attrs.frozen
 class CalibrationConditions:
     """校正が成り立つ条件（ペースト・ノズル・塗布高さ・撮影スケール）."""
 
@@ -64,43 +74,49 @@ class CalibrationConditions:
     crop_size_px: int
     crop_size_mm: float
 
+    @property
+    def capture(self) -> CaptureConditions:
+        """校正を作ったときの撮影条件."""
+        return CaptureConditions(
+            nozzle_diameter_mm=self.nozzle_diameter_mm,
+            paste_height_mm=self.paste_height_mm,
+            pixel_per_mm=self.pixel_per_mm,
+            crop_size_mm=self.crop_size_mm,
+        )
+
     def mismatches(
-        self,
-        *,
-        nozzle_diameter_mm: float,
-        paste_height_mm: float,
-        pixel_per_mm: float,
-        paste_id: str | None = None,
-        crop_size_mm: float | None = None,
+        self, current: CaptureConditions, *, paste_id: str | None = None
     ) -> tuple[str, ...]:
-        """いま置かれている条件との食い違いを表示用の文で並べる.
+        """いまの撮影条件との食い違いを表示用の文で並べる.
 
         推定を拒否するためではなく運転者へ知らせるための情報なので、呼び出し側は
         これが空でなくても処理を止めなくてよい。
-        ``paste_id`` / ``crop_size_mm`` は分かるときだけ渡す。
+        ``paste_id`` は分かるときだけ渡す（塗布ジョブはペーストを知らない）。
         """
+        calibrated = self.capture
         mismatches: list[str] = []
         if paste_id is not None and self.paste_id != paste_id:
             mismatches.append(f"ペースト: 校正 {self.paste_id} / 現在 {paste_id}")
-        if self.nozzle_diameter_mm != nozzle_diameter_mm:
+        if calibrated.nozzle_diameter_mm != current.nozzle_diameter_mm:
             mismatches.append(
-                f"ノズル径: 校正 {self.nozzle_diameter_mm} mm / "
-                f"現在 {nozzle_diameter_mm} mm"
+                f"ノズル径: 校正 {calibrated.nozzle_diameter_mm} mm / "
+                f"現在 {current.nozzle_diameter_mm} mm"
             )
-        if self.paste_height_mm != paste_height_mm:
+        if calibrated.paste_height_mm != current.paste_height_mm:
             mismatches.append(
-                f"塗布高さ: 校正 {self.paste_height_mm} mm / "
-                f"現在 {paste_height_mm} mm"
+                f"塗布高さ: 校正 {calibrated.paste_height_mm} mm / "
+                f"現在 {current.paste_height_mm} mm"
             )
-        if _scale_differs(self.pixel_per_mm, pixel_per_mm):
+        if _scale_differs(calibrated.pixel_per_mm, current.pixel_per_mm):
             mismatches.append(
-                f"撮影スケール: 校正 {self.pixel_per_mm:.3f} px/mm / "
-                f"現在 {pixel_per_mm:.3f} px/mm"
+                f"撮影スケール: 校正 {calibrated.pixel_per_mm:.3f} px/mm / "
+                f"現在 {current.pixel_per_mm:.3f} px/mm"
             )
         # 2 値化は crop 内の Otsu なので、crop に対する背景の割合が閾値を動かす
-        if crop_size_mm is not None and self.crop_size_mm != crop_size_mm:
+        if calibrated.crop_size_mm != current.crop_size_mm:
             mismatches.append(
-                f"撮影crop寸法: 校正 {self.crop_size_mm} mm / 現在 {crop_size_mm} mm"
+                f"撮影crop寸法: 校正 {calibrated.crop_size_mm} mm / "
+                f"現在 {current.crop_size_mm} mm"
             )
         return tuple(mismatches)
 
@@ -132,7 +148,7 @@ class CalibrationDiagnostics:
         blank_false_positive_count: blank セルで直径が 0 にならなかった数（0 が要件）
         detection_failure_count: 全 view で検出できなかった塗布セル数
         monotonic_in_range: 被覆域内でモデルが単調非減少か（中央値集約の前提）
-        residual_relative_std: 点ごと相対残差の標準偏差（推定の std の根拠）
+        residual_relative_std: 点ごと相対残差の標準偏差
         point_relative_mae: 点ごと相対誤差の平均絶対値（参考値）
         point_relative_max: 同じく最大（参考値）
         total_relative_error: session 総体積の相対誤差（主基準）
@@ -179,33 +195,29 @@ class PasteVolumeCalibration:
 def parse_calibration(
     data: Mapping[str, object],
 ) -> tuple[PasteVolumeCalibration | None, str | None]:
-    """校正 document を復元する（暗黙の型変換と未知 key は受理しない）.
+    """校正 document を復元する（暗黙の型変換と未知 key・欠落 key は受理しない）.
 
     ``detection`` / ``model`` の ``kind`` は方式の識別子で、DTO には持たせない。
-    現版が扱える方式かをここで確かめてから取り除く。
+    版と document の ``kind`` を確かめたあと、現版が扱える方式かを確かめてから取り除く。
 
-    ``detection`` だけは key の欠落も拒否する。
-
-    :class:`DotDetectionSpec` は既定値を持つので欠落が警告なく既定値で埋まり、既定値を
-    将来変えるとキーを欠いた既存ファイルの意味が気づかれないまま変わる。
-
+    :class:`DotDetectionSpec` は既定値を持つが、欠落を既定値で埋めない。
     検出ハイパラは校正と不可分なので、書かれていないことを既定値の指定として扱わない。
     """
-    version = data.get("schema_version")
-    if version != CALIBRATION_SCHEMA_VERSION:
-        return None, f"未対応の校正schema_versionです: {version!r}"
-    if data.get("kind") != CALIBRATION_KIND:
-        return None, f"校正ファイルではありません: kind={data.get('kind')!r}"
+    error = check_header(
+        data, kind=CALIBRATION_KIND, version=CALIBRATION_SCHEMA_VERSION, label=_LABEL
+    )
+    if error is not None:
+        return None, error
     document, error = _without_method_kinds(data)
     if document is None:
-        return None, error
-    error = _missing_detection_keys(document["detection"])
-    if error is not None:
         return None, error
     try:
         calibration = structure_document(document, PasteVolumeCalibration)
     except Exception as error_detail:
-        return None, f"校正schema v1が不正です: {error_detail}"
+        return (
+            None,
+            f"{_LABEL} schema v{CALIBRATION_SCHEMA_VERSION} が不正です: {error_detail}",
+        )
     invalid = calibration.validate()
     if invalid is not None:
         return None, invalid
@@ -321,17 +333,6 @@ def _safe_stem(stem: str) -> str:
 # strict converter が Literal の一致まで見るので、方式追加のたびに DTO が増える。
 _DETECTION_KIND = "diameter_otsu_v1"
 _MODEL_KIND = "cubic_through_origin"
-
-
-def _missing_detection_keys(detection: object) -> str | None:
-    """``detection`` が検出ハイパラを 1 つ残らず書いているかを確かめる."""
-    if not isinstance(detection, dict):
-        return "detectionセクションがobjectではありません"
-    required = {field.name for field in attrs.fields(DotDetectionSpec)}
-    missing = sorted(required - set(detection))
-    if missing:
-        return f"detectionに検出ハイパラがありません: {', '.join(missing)}"
-    return None
 
 
 def _without_method_kinds(
