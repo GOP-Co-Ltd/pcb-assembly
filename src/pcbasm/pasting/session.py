@@ -80,7 +80,7 @@ class PasteSession:
             max_samples=probe_config.max_samples,
             settle_sec=settle.move_sec,
         )
-        toolhead = machine.paste_dispenser.toolhead
+        toolhead = machine.solder.nozzle.offset
         return cls(
             machine=machine,
             klipper=klipper,
@@ -194,6 +194,6 @@ class PasteSession:
         return build_applicator(
             self.klipper,
             self.stage,
-            self.machine.paste_dispenser,
+            self.machine.solder,
             lift_height=lift_height,
         )

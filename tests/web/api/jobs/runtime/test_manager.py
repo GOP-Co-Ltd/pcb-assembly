@@ -836,7 +836,7 @@ class TestApplyMachineSettingsFromWorker:
         gate = threading.Event()
 
         def run(ctx: JobContext) -> None:
-            ctx.apply_machine_settings({"paste_dispenser.rotations_per_ul": 42.424242})
+            ctx.apply_machine_settings({"solder.dispenser.rotations_per_ul": 42.424242})
             gate.wait(timeout=10.0)
 
         _register(catalog, run)

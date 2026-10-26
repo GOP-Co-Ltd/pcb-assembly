@@ -418,7 +418,7 @@ def _plan_collection(
 
     crop のピクセル寸法はここで 1 回だけ決め、capturer / store / metadata の 3 箇所へ同じ値を渡す。
     """
-    dispenser = ctx.machine.paste_dispenser
+    solder = ctx.machine.solder
     run_error = validate_dataset_run(
         paste_id=str(ctx.params["paste_id"]).strip(),
         paste_height_mm=float(ctx.params["paste_height"]),
@@ -444,7 +444,7 @@ def _plan_collection(
     if views is None:
         raise ValueError(view_error)
     rotation_error = validate_min_rotations(
-        plan.spec, rotations_per_ul=dispenser.rotations_per_ul
+        plan.spec, rotations_per_ul=solder.dispenser.rotations_per_ul
     )
     if rotation_error is not None:
         raise ValueError(rotation_error)
@@ -543,7 +543,7 @@ def _run_paste_volume_calibration(ctx: JobContext, *, stores: PasteStores) -> Jo
     入力だけが装置の外から来るため、そこで WebUI が停止すると撮影済み画像の教師値が残らない。
     残した doc は ``paste_dataset_finalize`` ジョブが計量値と突き合わせて確定する。
     """
-    dispenser_config = ctx.machine.paste_dispenser
+    solder = ctx.machine.solder
     paste_id = str(ctx.params["paste_id"]).strip()
     paste_lot = str(ctx.params.get("paste_lot", "")).strip() or None
     paste_height_mm = float(ctx.params["paste_height"])
@@ -577,9 +577,7 @@ def _run_paste_volume_calibration(ctx: JobContext, *, stores: PasteStores) -> Jo
             session,
             ctx,
             crop_size_px=crop_size_px,
-            params=attrs.evolve(
-                dispenser_config.defaults, paste_height=paste_height_mm
-            ),
+            params=attrs.evolve(solder.defaults, paste_height=paste_height_mm),
             views=views,
         )
         loading_totals = LoadingTotals()
@@ -642,7 +640,7 @@ def _run_paste_volume_calibration(ctx: JobContext, *, stores: PasteStores) -> Jo
                     total_rotations=loading_totals.rotations,
                 ),
                 started_at=started_at,
-                dispenser=dispenser_config,
+                solder=solder,
                 camera_model=session.board_frame.camera_model,
             )
             # 計量質量は装置の外から来る唯一の値なので、それ以外を先に永続化する。

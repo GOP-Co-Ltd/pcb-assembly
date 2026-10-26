@@ -131,8 +131,8 @@ class TestNozzleMaintenance:
     @pytest.mark.parametrize(
         ("path", "table"),
         [
-            ("/api/pasting/nozzle/cap/record", "nozzle_cap"),
-            ("/api/pasting/nozzle/clean/record", "nozzle_clean"),
+            ("/api/pasting/nozzle/cap/record", "cap"),
+            ("/api/pasting/nozzle/clean/record", "clean"),
         ],
     )
     def test_record_sends_nothing(
@@ -148,7 +148,7 @@ class TestNozzleMaintenance:
 
         assert response.status_code == 200, response.text
         position = getattr(
-            job_backend.machine_config.machine().paste_dispenser, table
+            job_backend.machine_config.machine().solder.nozzle, table
         ).position
         assert (position.x, position.y, position.z) == tuple(START_POSITION[:3])
         assert homed_klipper.sent == ()

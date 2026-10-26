@@ -20,7 +20,7 @@ from pathlib import Path
 import attrs
 from shapely import Point, Polygon
 
-from pcbasm.config.dispenser import VolumeCorrectionConfig
+from pcbasm.config.solder import VolumeCorrectionConfig
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.applicator import PasteApplicationResult, PasteApplicator
 from pcbasm.pasting.dot_capture import DotCaptureRun, DotSpot
@@ -335,7 +335,7 @@ def run_flow_calibration(
         stage_prefix="流量キャリブレーション: ",
     )
     current = CaptureConditions(
-        nozzle_diameter_mm=session.machine.paste_dispenser.nozzle_diameter,
+        nozzle_diameter_mm=session.machine.solder.nozzle.diameter,
         paste_height_mm=paste_height_mm(run.params),
         pixel_per_mm=pixel_per_mm,
         crop_size_mm=plan.crop_size_mm,

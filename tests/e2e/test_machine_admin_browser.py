@@ -83,7 +83,7 @@ class TestSettingsOverBrowser:
         )
         # 先頭セクションに居座る非マッチ項目は消える（絞り込みが効いている証拠。
         # 初期状態で既に hidden な他セクションの項目を見ても空振りになる）
-        browser_page.get_by_test_id("ms-paste_dispenser.nozzle_diameter").wait_for(
+        browser_page.get_by_test_id("ms-solder.nozzle.diameter").wait_for(
             state="hidden", timeout=10_000
         )
 
@@ -133,9 +133,9 @@ class TestSettingsOverBrowser:
         self, live_server: LiveServer, live_ui: LiveUi, browser_page
     ):
         """座標は X/Y/Z の 3 つがそろって初めて 1 回で送る（一部だけの座標は書かない）."""
-        _open_settings_section(browser_page, live_ui, "paste_dispenser")
+        _open_settings_section(browser_page, live_ui, "solder")
         _acquire_control(browser_page)
-        triple = browser_page.get_by_test_id("ms-paste_dispenser.nozzle_cap.position")
+        triple = browser_page.get_by_test_id("ms-solder.nozzle.cap.position")
         inputs = [triple.locator(f'[data-pair-index="{index}"]') for index in range(3)]
         inputs[0].wait_for(state="visible", timeout=10_000)
 
@@ -144,7 +144,7 @@ class TestSettingsOverBrowser:
 
         _wait_machine_field(
             live_server.base_url,
-            "paste_dispenser.nozzle_cap.position",
+            "solder.nozzle.cap.position",
             [10.5, 20.5, -3.5],
         )
 
@@ -190,7 +190,7 @@ class TestConfigHistoryOverBrowser:
         original = path.read_bytes()
         response = httpx.put(
             f"{live_server.base_url}/api/machine_config",
-            json={"values": {"paste_dispenser.motion.max_fill_speed": 0.9}},
+            json={"values": {"solder.motion.max_fill_speed": 0.9}},
             timeout=_HTTP_TIMEOUT,
         )
         assert response.status_code == 200, response.text
@@ -202,18 +202,14 @@ class TestConfigHistoryOverBrowser:
             ":scope > li"
         )
         expect(entries).to_have_count(1)
-        expect(entries.first).to_contain_text(
-            "paste_dispenser.motion.max_fill_speed: 0.8 → 0.9"
-        )
+        expect(entries.first).to_contain_text("solder.motion.max_fill_speed: 0.8 → 0.9")
 
         browser_page.once("dialog", lambda dialog: dialog.accept())
         entries.first.get_by_role("button").click()
 
         # 復元する前の内容が新しい世代として先頭に増える
         expect(entries).to_have_count(2)
-        expect(entries.first).to_contain_text(
-            "paste_dispenser.motion.max_fill_speed: 0.9 → 0.8"
-        )
+        expect(entries.first).to_contain_text("solder.motion.max_fill_speed: 0.9 → 0.8")
         assert path.read_bytes() == original
 
     def test_backup_link_downloads_a_zip(self, live_ui: LiveUi, browser_page):

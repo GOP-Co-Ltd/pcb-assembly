@@ -150,7 +150,7 @@ def _stage(klipper: KlipperClient) -> str:
 
 
 def _dispenser(klipper: KlipperClient, machine: MachineConfig) -> str:
-    PasteDispenser(klipper, machine.paste_dispenser.rotations_per_ul)
+    PasteDispenser(klipper, machine.solder.dispenser.rotations_per_ul)
     return "必要な section があります"
 
 

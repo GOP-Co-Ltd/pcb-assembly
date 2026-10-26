@@ -733,7 +733,7 @@ class TestExclusionPropagation:
             assert (
                 client.put(
                     "/api/machine_config",
-                    json={"values": {"paste_dispenser.motion.max_fill_speed": 0.9}},
+                    json={"values": {"solder.motion.max_fill_speed": 0.9}},
                 ).status_code
                 == 409
             )

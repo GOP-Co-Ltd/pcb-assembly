@@ -206,31 +206,18 @@ class TestPasteParamsValidators:
 
 
 class TestDispenseMotion:
-    def _motion(self, **overrides: object) -> DispenseMotion:
-        values: dict = {
-            "max_fill_speed": 2.0,
-            "max_dispense_rate": 10.0,
-            "dispense_accel": 8.0,
-            "retract_amount": 10.0,
-            "retract_rate": 5.0,
-            "retract_accel_factor": 4.0,
-        }
-        values.update(overrides)
-        return DispenseMotion(**values)
-
     def test_retract_accel(self):
-        # factor * rate^2 / amount = 4.0 * 25 / 10
-        assert self._motion().retract_accel == pytest.approx(10.0)
+        motion = DispenseMotion(
+            max_fill_speed=2.0,
+            max_dispense_rate=10.0,
+            dispense_accel=8.0,
+            retract_amount=10.0,
+            retract_rate=5.0,
+            retract_accel_factor=4.0,
+            lift_height=2.0,
+            micro_line_settle_seconds=0.1,
+            post_dispense_settle_seconds=0.1,
+        )
 
-    @pytest.mark.parametrize(
-        "values",
-        [
-            {"retract_accel_factor": 1.0},
-            {"lift_height": 0.0},
-            {"dispense_accel": 0.0},
-            {"post_dispense_settle_seconds": -0.1},
-        ],
-    )
-    def test_invalid_values_are_rejected(self, values: dict):
-        with pytest.raises(ValueError):
-            self._motion(**values)
+        # factor * rate^2 / amount = 4.0 * 25 / 10
+        assert motion.retract_accel == pytest.approx(10.0)

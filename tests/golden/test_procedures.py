@@ -170,7 +170,7 @@ def _session(klipper: FakeKlipper, machine: MachineConfig, pcb: Path) -> PasteSe
 
 def _plan(session: PasteSession) -> PastePlan:
     """塗布ジョブと同じく、基板設定の無い基板の対象 pad・順路・初回パージを解決する."""
-    dispenser = session.machine.paste_dispenser
+    dispenser = session.machine.solder
     board = session.board_frame.board
     hierarchy = PadHierarchy.build(board.components, board.pads)
     plan = plan_paste(
@@ -269,9 +269,9 @@ class TestFillSequence:
         stage = XYZStage(klipper)
         dispenser = hal.PasteDispenser(
             klipper=klipper,
-            rotations_per_ul=machine.paste_dispenser.rotations_per_ul,
+            rotations_per_ul=machine.solder.dispenser.rotations_per_ul,
         )
-        motion = machine.paste_dispenser.motion
+        motion = machine.solder.dispense_motion
         line = geometry.Path([Point3d(50.0, 90.0, 0.3), Point3d(53.0, 90.5, 0.32)])
         point = geometry.Path([Point3d(51.0, 92.0, 0.3)])
         sequences = [
@@ -321,7 +321,7 @@ class TestNozzleClean:
         plan = resolve_nozzle_clean(machine, stage)
         assert plan is not None
 
-        with build_applicator(klipper, stage, machine.paste_dispenser) as applicator:
+        with build_applicator(klipper, stage, machine.solder) as applicator:
             applicator.prime()
             clean_nozzle(klipper, applicator, plan)
             applicator.retract()
@@ -345,7 +345,7 @@ class TestNozzleClean:
 def _park(klipper: FakeKlipper, machine: MachineConfig) -> None:
     """ジョブの終了時と同じく、駐機の timeout の接続で脱力まで駐機する."""
     connection = klipper.connection(timeout=PRESENT_TIMEOUT)
-    cap = machine.paste_dispenser.nozzle_cap.position
+    cap = machine.solder.nozzle.cap.position
     park(connection, XYZStage(connection), cap, warn=lambda message: None)
 
 
@@ -368,7 +368,7 @@ class TestParking:
         """キャップ未記録なら PRESENT マクロ、無ければ M84 に退避する."""
         path = tmp_path / "machine.toml"
         text = MACHINE_TOML.read_text(encoding="utf-8")
-        cap = "[paste_dispenser.nozzle_cap]\nx = 150.0\ny = 10.0\nz = -2.0\n"
+        cap = "[solder.nozzle.cap]\nx = 150.0\ny = 10.0\nz = -2.0\n"
         path.write_text(text.replace(cap, ""), encoding="utf-8")
         klipper = FakeKlipper(printer_config)
 
@@ -384,7 +384,7 @@ class TestLoading:
         """ローディング画面の押出・吸引・回転（引き戻し付き）."""
         stage = XYZStage(klipper)
 
-        with build_applicator(klipper, stage, machine.paste_dispenser) as applicator:
+        with build_applicator(klipper, stage, machine.solder) as applicator:
             applicator.load(LOADING_DEFAULT_AMOUNT)
             applicator.load(-LOADING_DEFAULT_AMOUNT)
             applicator.load_rotations(
@@ -458,7 +458,7 @@ class TestFlowCalibration:
         session: PasteSession,
     ):
         """① 線を引いて計量し、算出値を採用する（ディスペンサーは有効のまま）."""
-        density = machine.paste_dispenser.density_mg_per_ul
+        density = machine.solder.paste_density
         with FlowCalibrationProcedure(CopperPlate.measure(session)) as procedure:
             procedure.move_to_loading_z()
             procedure.draw_lines(
@@ -485,7 +485,7 @@ class TestFlowCalibration:
         session: PasteSession,
     ):
         """② レートごとに 1 本引いては退避する."""
-        fill_speed = machine.paste_dispenser.motion.max_fill_speed
+        fill_speed = machine.solder.motion.max_fill_speed
         points, error = plan_rate_sweep(params, fill_speed=fill_speed)
         assert points is not None, error
 
@@ -513,11 +513,11 @@ class TestFlowCalibration:
         session: PasteSession,
     ):
         """③ 速度ごとに同じ量の線を、吐出レートの頭打ち無しで引く."""
-        dispenser = machine.paste_dispenser
+        solder = machine.solder
         sweep, error = plan_speed_sweep(
             params,
-            ul_per_mm2=dispenser.defaults.ul_per_mm2,
-            bead_width=dispenser.nozzle_diameter * dispenser.defaults.bead_width_factor,
+            ul_per_mm2=solder.defaults.ul_per_mm2,
+            bead_width=solder.nozzle.diameter * solder.defaults.bead_width_factor,
         )
         assert sweep is not None, error
 
@@ -544,7 +544,7 @@ class TestPasteDataset:
         session = _session(klipper, machine, plate)
         transform = CopperPlate.measure(session).transform
         params = attrs.evolve(
-            machine.paste_dispenser.defaults,
+            machine.solder.defaults,
             paste_height=DEFAULT_PASTE_HEIGHT_MM,
             prime_extra_delay=PRIME_EXTRA_DELAY,
         )

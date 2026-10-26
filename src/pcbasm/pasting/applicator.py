@@ -23,7 +23,7 @@ from typing import Literal, Self
 import attrs
 from shapely import Polygon
 
-from pcbasm.config.dispenser import PasteDispenserConfig
+from pcbasm.config.solder import SolderConfig
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Path, Point2d, Point3d, Transform
 from pcbasm.hal import KlipperClient, PasteDispenser, Speed, XYZStage
@@ -98,7 +98,7 @@ class PasteApplicationResult:
 def build_applicator(
     klipper: KlipperClient,
     stage: XYZStage,
-    config: PasteDispenserConfig,
+    config: SolderConfig,
     *,
     lift_height: float | None = None,
 ) -> PasteApplicator:
@@ -110,11 +110,11 @@ def build_applicator(
     Args:
         klipper: Klipper クライアント
         stage: XYZ ステージ
-        config: ``MachineConfig.paste_dispenser``
+        config: ``MachineConfig.solder``
         lift_height: 塗布後の上昇高さ [mm] の上書き。``None`` で config の値
     """
     dispenser = PasteDispenser(
-        klipper=klipper, rotations_per_ul=config.rotations_per_ul
+        klipper=klipper, rotations_per_ul=config.dispenser.rotations_per_ul
     )
     return PasteApplicator(klipper, dispenser, stage, config, lift_height=lift_height)
 
@@ -137,7 +137,7 @@ class PasteApplicator:
     2 を省くと最初の 1 回だけ prime の分が余計に出る。
 
     Example:
-        with build_applicator(klipper, stage, machine.paste_dispenser) as applicator:
+        with build_applicator(klipper, stage, machine.solder) as applicator:
             applicator.retract()
             applicator.apply(pad.polygon, params=params, transform=pad_transform)
     """
@@ -147,19 +147,20 @@ class PasteApplicator:
         klipper: KlipperClient,
         dispenser: PasteDispenser,
         stage: XYZStage,
-        config: PasteDispenserConfig,
+        config: SolderConfig,
         *,
         lift_height: float | None = None,
     ) -> None:
-        """設定は検証済みの ``MachineConfig.paste_dispenser`` を使う（ここでは再検証しない）."""
+        """設定は検証済みの ``MachineConfig.solder`` を使う（ここでは再検証しない）."""
         self._klipper = klipper
         self._dispenser = dispenser
         self._stage = stage
         self._config = config
+        motion = config.dispense_motion
         self._motion = (
-            config.motion
+            motion
             if lift_height is None
-            else attrs.evolve(config.motion, lift_height=lift_height)
+            else attrs.evolve(motion, lift_height=lift_height)
         )
 
     @property

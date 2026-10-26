@@ -16,7 +16,7 @@ import pytest
 from shapely import Polygon
 
 from pcbasm.config import load_machine
-from pcbasm.config.dispenser import VolumeCorrectionConfig
+from pcbasm.config.solder import VolumeCorrectionConfig
 from pcbasm.geometry import Point2d
 from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeCamera, FakeKlipper
 from pcbasm.pasting.paste_volume.calibration import (
@@ -434,10 +434,10 @@ class TestRunFlowCalibration:
         machine = load_machine(TEST_CONFIG_DIR / "machine.toml")
         machine = attrs.evolve(
             machine,
-            paste_dispenser=attrs.evolve(
-                machine.paste_dispenser,
+            solder=attrs.evolve(
+                machine.solder,
                 defaults=attrs.evolve(
-                    machine.paste_dispenser.defaults,
+                    machine.solder.defaults,
                     prime_extra_delay=prime_extra_delay,
                 ),
             ),
@@ -474,7 +474,7 @@ class TestRunFlowCalibration:
                 ],
                 move_count=len(moves),
                 dispensed=_dispense_amounts_ul(
-                    klipper, machine.paste_dispenser.rotations_per_ul
+                    klipper, machine.solder.dispenser.rotations_per_ul
                 ),
                 elapsed=elapsed,
             )
@@ -520,6 +520,6 @@ class TestRunFlowCalibration:
 
         retract_ul = load_machine(
             TEST_CONFIG_DIR / "machine.toml"
-        ).paste_dispenser.motion.retract_amount
+        ).solder.dispenser.retract_amount
         expected = retract_ul + VolumeCorrectionConfig().amount_ul
         assert ran.dispensed == pytest.approx([expected] * len(POINTS))

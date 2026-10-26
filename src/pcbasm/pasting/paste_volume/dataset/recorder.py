@@ -8,7 +8,7 @@ from pathlib import Path
 
 import attrs
 
-from pcbasm.config.dispenser import PasteDispenserConfig
+from pcbasm.config.solder import SolderConfig
 from pcbasm.pasting.applicator import PasteApplicationResult
 from pcbasm.pasting.fill_path import paste_height_mm
 from pcbasm.pasting.params import PasteParams
@@ -60,7 +60,7 @@ class DatasetRunInfo:
         crop_size_px: 全 crop 共通のピクセル寸法
         loading: 塗布パス先頭のインタラクティブローディング実績
         started_at: 収集開始時刻（timezone 付き）
-        dispenser: 収集時の ``[paste_dispenser]`` 設定
+        solder: 収集時の ``[solder]`` 設定
         camera_model: 収集時のカメラの写像（校正の値）
     """
 
@@ -74,7 +74,7 @@ class DatasetRunInfo:
     crop_size_px: int
     loading: PasteDatasetLoading
     started_at: datetime
-    dispenser: PasteDispenserConfig
+    solder: SolderConfig
     camera_model: CameraModel
 
 
@@ -145,7 +145,7 @@ class PasteDatasetRecorder:
         """蓄積した撮影・塗布実績から、計量質量だけが未確定の doc を組む."""
         plan = self._plan
         spec = plan.spec
-        dispenser = run.dispenser
+        solder = run.solder
         camera_model = run.camera_model
         return PasteDatasetPending(
             kind=PENDING_KIND,
@@ -162,7 +162,7 @@ class PasteDatasetRecorder:
             paste=PasteDatasetPaste(
                 paste_id=run.paste_id,
                 lot=run.paste_lot,
-                density_mg_per_ul=dispenser.solder_paste_density,
+                density_mg_per_ul=solder.paste_density,
             ),
             camera=PasteDatasetCamera(
                 pixel_per_mm=camera_model.pixel_per_mm,
@@ -170,13 +170,13 @@ class PasteDatasetRecorder:
                 calibrated_at=camera_model.calibrated_at.isoformat(),
                 z_position_mm=camera_model.focus_z,
             ),
-            nozzle=PasteDatasetNozzle(diameter_mm=dispenser.nozzle_diameter),
+            nozzle=PasteDatasetNozzle(diameter_mm=solder.nozzle.diameter),
             config=PasteDatasetConfig(
-                rotations_per_ul=dispenser.rotations_per_ul,
-                max_dispense_rate_ul_s=dispenser.motion.max_dispense_rate,
-                dispense_accel_ul_s2=dispenser.motion.dispense_accel,
-                retract_amount_ul=dispenser.motion.retract_amount,
-                retract_rate_ul_s=dispenser.motion.retract_rate,
+                rotations_per_ul=solder.dispenser.rotations_per_ul,
+                max_dispense_rate_ul_s=solder.dispenser.max_dispense_rate,
+                dispense_accel_ul_s2=solder.dispenser.dispense_accel,
+                retract_amount_ul=solder.dispenser.retract_amount,
+                retract_rate_ul_s=solder.dispenser.retract_rate,
                 paste_height_mm=paste_height_mm(run.params),
                 prime_extra_delay_s=run.params.prime_extra_delay,
                 cell_size_mm=spec.cell_size_mm,

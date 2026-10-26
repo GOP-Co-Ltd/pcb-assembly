@@ -125,14 +125,14 @@ class TestNozzlePositionsOverBrowser:
         )
         _acquire_control(browser_page)
         field = browser_page.get_by_test_id(
-            "nozzle-clean-paste_dispenser.nozzle_clean.press_depth"
+            "nozzle-clean-solder.nozzle.clean.press_depth"
         )
         field.wait_for(state="visible", timeout=10_000)
 
         field.fill("0.4")
 
         _wait_machine_field(
-            live_server.base_url, "paste_dispenser.nozzle_clean.press_depth", 0.4
+            live_server.base_url, "solder.nozzle.clean.press_depth", 0.4
         )
 
 

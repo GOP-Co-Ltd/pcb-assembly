@@ -30,7 +30,7 @@ import attrs
 from shapely import Polygon
 from shapely.geometry import LineString
 
-from pcbasm.config.dispenser import PasteDispenserConfig
+from pcbasm.config.solder import SolderConfig
 from pcbasm.geometry import (
     Point2d,
     Point3d,
@@ -83,7 +83,7 @@ class FillPlan[P: (Point2d, Point3d)]:
         （``nozzle_diameter > 0``、``0 <= overlap < 1``、``boundary_margin`` は有限値、
         ``bead_width_factor > 0``、``auto_line_aspect_ratio > 1``、
         ``auto_area_short_side_factor > 0``、``nozzle_outer_diameter >= nozzle_diameter``。
-        検証は ``PasteDispenserConfig`` と ``PasteParams`` の読込、
+        検証は ``SolderConfig`` と ``PasteParams`` の読込、
         :func:`pcbasm.pasting.params.validate_param_values` が担う）。
 
         数式::
@@ -155,7 +155,7 @@ class FillPlan[P: (Point2d, Point3d)]:
         cls,
         polygon: Polygon,
         *,
-        config: PasteDispenserConfig,
+        config: SolderConfig,
         params: PasteParams,
         line_reference: Point2d | None = None,
     ) -> FillPlan[Point3d]:
@@ -176,20 +176,20 @@ class FillPlan[P: (Point2d, Point3d)]:
 
         Args:
             polygon: pad のポリゴン（board 座標 [mm]）
-            config: ``MachineConfig.paste_dispenser``（ノズル内径・外径と auto 判定の閾値を使う）
+            config: ``MachineConfig.solder``（ノズル内径・外径と auto 判定の閾値を使う）
             params: この pad の解決済み塗布パラメータ
             line_reference: 部品位置（board 座標）。outward は部品位置から遠ざかる向き、inward は近づく向きに線を引く
         """
         plan = cls.build(
             polygon,
-            config.nozzle_diameter,
+            config.nozzle.diameter,
             dispense_mode=params.dispense_mode,
-            auto_line_aspect_ratio=config.auto_line_aspect_ratio,
-            auto_area_short_side_factor=config.auto_area_short_side_factor,
+            auto_line_aspect_ratio=config.auto.line_aspect_ratio,
+            auto_area_short_side_factor=config.auto.area_short_side_factor,
             bead_width_factor=params.bead_width_factor,
             overlap=params.overlap,
             boundary_margin=params.boundary_margin,
-            nozzle_outer_diameter=config.effective_nozzle_outer_diameter,
+            nozzle_outer_diameter=config.nozzle.effective_outer_diameter,
         )
         if (
             plan.dispense_mode in ("line", "micro_line")
@@ -218,7 +218,7 @@ class FillPlan[P: (Point2d, Point3d)]:
             polygon,
             (start, end),
             amount_ul=amount_per_path_ul(polygon, params, len(plan.paths)),
-            nozzle_outer_diameter=config.effective_nozzle_outer_diameter,
+            nozzle_outer_diameter=config.nozzle.effective_outer_diameter,
         )
         return FillPlan(
             "micro_line",
@@ -232,7 +232,7 @@ class FillPlan[P: (Point2d, Point3d)]:
 
     @staticmethod
     def mode_for_pad(
-        polygon: Polygon, *, config: PasteDispenserConfig, params: PasteParams
+        polygon: Polygon, *, config: SolderConfig, params: PasteParams
     ) -> AppliedDispenseMode:
         """:meth:`for_pad` と同じ判定で、経路を作らずに実際の方式だけを返す.
 
@@ -247,15 +247,15 @@ class FillPlan[P: (Point2d, Point3d)]:
             _resolve_auto_mode(
                 polygon,
                 params.dispense_mode,
-                config.nozzle_diameter,
-                auto_line_aspect_ratio=config.auto_line_aspect_ratio,
-                auto_area_short_side_factor=config.auto_area_short_side_factor,
+                config.nozzle.diameter,
+                auto_line_aspect_ratio=config.auto.line_aspect_ratio,
+                auto_area_short_side_factor=config.auto.area_short_side_factor,
             ),
             _inset(
-                config.nozzle_diameter, params.bead_width_factor, params.boundary_margin
+                config.nozzle.diameter, params.bead_width_factor, params.boundary_margin
             ),
             _micro_inset(
-                config.effective_nozzle_outer_diameter, params.boundary_margin
+                config.nozzle.effective_outer_diameter, params.boundary_margin
             ),
         )
 

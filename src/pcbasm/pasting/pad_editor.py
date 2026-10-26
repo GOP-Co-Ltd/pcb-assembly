@@ -15,7 +15,7 @@ from collections.abc import Mapping
 import attrs
 from shapely import Polygon
 
-from pcbasm.config.dispenser import PasteDispenserConfig
+from pcbasm.config.solder import SolderConfig
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.fill_path import FillPlan
 from pcbasm.pasting.hierarchy import HierKey, PadHierarchy
@@ -161,7 +161,7 @@ def applied_mode_summaries(
     hierarchy: PadHierarchy,
     pad_settings: Mapping[str, ResolvedSetting],
     node_settings: Mapping[HierKey, ResolvedSetting],
-    config: PasteDispenserConfig,
+    config: SolderConfig,
 ) -> dict[HierKey, AppliedModeSummary]:
     """選択値から実際の方式が読み取れないノードについて、配下の有効 pad の方式を集計する.
 
@@ -176,7 +176,7 @@ def applied_mode_summaries(
         hierarchy: 基板の pad 階層
         pad_settings: :func:`~pcbasm.pasting.overrides.resolve_pad_settings` の結果
         node_settings: :func:`~pcbasm.pasting.overrides.resolve_node_settings` の結果
-        config: ``MachineConfig.paste_dispenser``（ノズル径と auto 判定の閾値）
+        config: ``MachineConfig.solder``（ノズル径と auto 判定の閾値）
     """
     counts: dict[HierKey, Counter[str]] = {}
     for pad in hierarchy.iter_pads():

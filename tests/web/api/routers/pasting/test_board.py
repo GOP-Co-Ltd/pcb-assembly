@@ -369,7 +369,7 @@ class TestInitialPurgePadConfig:
         """量は machine 設定、位置は基板設定に書き、解決では両方を使う."""
         amount = selected_client.put(
             "/api/machine_config",
-            json={"values": {"paste_dispenser.initial_purge_ul": 0.22}},
+            json={"values": {"solder.initial_purge_ul": 0.22}},
         )
         assert amount.status_code == 200, amount.text
 
@@ -577,11 +577,7 @@ class TestFlowCalibrationPoints:
     ):
         enabled = selected_client.put(
             "/api/machine_config",
-            json={
-                "values": {
-                    "paste_dispenser.volume_correction.calibration_file": "cal.json"
-                }
-            },
+            json={"values": {"solder.volume_correction.calibration_file": "cal.json"}},
         )
         assert enabled.status_code == 200, enabled.text
         saved = selected_client.patch(
@@ -627,7 +623,7 @@ class TestFlowCalibrationPoints:
         """
         configured = selected_client.put(
             "/api/machine_config",
-            json={"values": {"paste_dispenser.volume_correction.crop_size_mm": 2.5}},
+            json={"values": {"solder.volume_correction.crop_size_mm": 2.5}},
         )
         assert configured.status_code == 200, configured.text
 
@@ -646,8 +642,8 @@ class TestFlowCalibrationPoints:
             "/api/machine_config",
             json={
                 "values": {
-                    "paste_dispenser.volume_correction.calibration_file": "cal.json",
-                    "paste_dispenser.volume_correction.crop_size_mm": 4.0,
+                    "solder.volume_correction.calibration_file": "cal.json",
+                    "solder.volume_correction.crop_size_mm": 4.0,
                 }
             },
         )
@@ -1262,7 +1258,7 @@ class TestTactEstimate:
     ):
         before = self._estimate(selected_client)["total_seconds"]
         response = selected_client.put(
-            "/api/machine_config", json={"values": {"tact.setup_sec": 60.0}}
+            "/api/machine_config", json={"values": {"solder.tact.setup_sec": 60.0}}
         )
         assert response.status_code == 200, response.text
 

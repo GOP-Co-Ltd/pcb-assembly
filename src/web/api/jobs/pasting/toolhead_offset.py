@@ -277,7 +277,7 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
             f"上限={tolerance:.4f} mm）"
         )
 
-    current_toolhead = ctx.machine.paste_dispenser.toolhead
+    current_toolhead = ctx.machine.solder.nozzle.offset
     diff_x = measured_offset.x - current_toolhead.x
     diff_y = measured_offset.y - current_toolhead.y
     ctx.progress("完了", 100.0)
@@ -302,12 +302,12 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
         artifacts=tuple(artifacts),
         apply=ApplyPayload(
             label=(
-                f"[paste_dispenser.toolhead] x={measured_offset.x:.4f}, "
+                f"[solder.nozzle.offset] x={measured_offset.x:.4f}, "
                 f"y={measured_offset.y:.4f} を設定に反映"
             ),
             values={
-                "paste_dispenser.toolhead.x": round(measured_offset.x, 4),
-                "paste_dispenser.toolhead.y": round(measured_offset.y, 4),
+                "solder.nozzle.offset.x": round(measured_offset.x, 4),
+                "solder.nozzle.offset.y": round(measured_offset.y, 4),
             },
         ),
     )

@@ -12,7 +12,7 @@
 
 - type="move_to_cap" はキャップ位置が未記録なら 400 で断る
 
-設定エラー（degraded）の契約: x/y/z が揃っていない `[paste_dispenser.nozzle_cap]` は
+設定エラー（degraded）の契約: x/y/z が揃っていない `[solder.nozzle.cap]` は
 未記録ではなく設定エラーとして 503 で断り、理由を返す（原点や PRESENT へ動かさない）。
 設定を読まない命令（ホーミング・ジョグ・脱力・任意 G-code）は設定エラーでも送れる
 
@@ -154,7 +154,7 @@ class TestMoveToCap:
     def test_partially_recorded_cap_is_refused_as_a_config_error(
         self, partial_nozzle_cap: Path, client: TestClient
     ):
-        """X だけ書かれた `[paste_dispenser.nozzle_cap]` は設定エラーとして 503 で断る.
+        """X だけ書かれた `[solder.nozzle.cap]` は設定エラーとして 503 で断る.
 
         未記録として扱って原点や PRESENT へ動かさない。理由は応答に載せる。
         """
@@ -177,7 +177,7 @@ class TestMoveToCap:
         path = config_dir / "machine.toml"
         path.write_text(
             path.read_text(encoding="utf-8")
-            + "\n[paste_dispenser.nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n",
+            + "\n[solder.nozzle.cap]\nx = 10.0\ny = 20.0\nz = 3.5\n",
             encoding="utf-8",
         )
 

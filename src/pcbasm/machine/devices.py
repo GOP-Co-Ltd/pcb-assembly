@@ -225,12 +225,12 @@ def _scene_camera(
     """校正ファイルと machine.toml のとおりに、klipper の位置から scene を描くカメラ."""
     machine = load_machine(config_path)
     camera_model = CameraModel.load(machine.camera.calibration_file)
-    dispenser = machine.paste_dispenser
+    solder = machine.solder
     return SceneCamera(
         klipper,
         pixel_per_mm=camera_model.pixel_per_mm,
-        toolhead=Point2d(dispenser.toolhead.x, dispenser.toolhead.y),
-        rotations_per_ul=dispenser.rotations_per_ul,
+        toolhead=Point2d(solder.nozzle.offset.x, solder.nozzle.offset.y),
+        rotations_per_ul=solder.dispenser.rotations_per_ul,
         size=camera_model.image_size,
         shapes=scene(),
     )

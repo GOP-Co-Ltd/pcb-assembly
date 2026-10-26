@@ -144,7 +144,7 @@ class TestDegraded:
 
         response = client.put(
             "/api/machine_config",
-            json={"values": {"paste_dispenser.motion.lift_height": 2.0}},
+            json={"values": {"solder.motion.lift_height": 2.0}},
         )
 
         assert response.status_code == 200, response.text
@@ -195,7 +195,8 @@ class TestMigrationAtStartup:
         assert state["config_error"] is None
         assert "machine-pre-M.toml" in state["config_notice"]
         assert (config_dir / "history" / "machine-pre-M.toml").is_file()
-        assert "[paste_dispenser.motion]" in path.read_text()
+        assert (config_dir / "history" / "machine-pre-N.toml").is_file()
+        assert "[solder.motion]" in path.read_text()
 
     def test_current_layout_starts_without_notice(self, client: TestClient):
         assert client.get("/api/session/state").json()["config_notice"] is None
@@ -210,7 +211,8 @@ class TestMigrationAtStartup:
                 "途中まで移行済み",
             ),
             (
-                "[alignment]",
+                "[camera]",
+                "[paste_dispenser]\noverlap = 0.2\n\n[unknown]\n\n"
                 "[paste_dispenser.pad_align]\ncanny_low = 1.0\n\n",
                 "ほかの節をはさんで",
             ),
@@ -260,9 +262,7 @@ class TestReadsFromDiskEveryTime:
             JobDefinition(
                 name="lift-height-probe",
                 label="lift_height の確認",
-                run=lambda ctx: seen.append(
-                    ctx.machine.paste_dispenser.motion.lift_height
-                ),
+                run=lambda ctx: seen.append(ctx.machine.solder.motion.lift_height),
                 uses_machine=False,
             )
         )

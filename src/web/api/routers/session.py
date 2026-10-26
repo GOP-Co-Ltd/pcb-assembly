@@ -50,9 +50,9 @@ def build_state_response(backend: Backend, identity: ClientIdentity) -> StateRes
     pcb = backend.selection.pcb
     record = backend.jobs.current()
     machine, config_error = backend.machine_config.machine_or_error()
-    dispenser = None if machine is None else machine.paste_dispenser
-    cap = None if dispenser is None else dispenser.nozzle_cap.position
-    clean = None if dispenser is None else dispenser.nozzle_clean.position
+    nozzle = None if machine is None else machine.solder.nozzle
+    cap = None if nozzle is None else nozzle.cap.position
+    clean = None if nozzle is None else nozzle.clean.position
     return StateResponse(
         control=control_payload(backend.control.snapshot(), identity),
         pcb_file=pcb.as_posix() if pcb else None,

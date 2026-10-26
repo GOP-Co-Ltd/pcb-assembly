@@ -27,7 +27,7 @@ def park_after_job(ctx: JobContext) -> None:
         park(
             klipper,
             XYZStage(klipper),
-            ctx.machine.paste_dispenser.nozzle_cap.position,
+            ctx.machine.solder.nozzle.cap.position,
             warn=ctx.log,
         )
     except Exception as exc:

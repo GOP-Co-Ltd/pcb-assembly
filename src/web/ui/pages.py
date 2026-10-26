@@ -454,14 +454,14 @@ def _loading_context(job: JobSpecInfo, settings: _MachineSettings) -> dict[str, 
             spec for spec in job.params if not spec.optional
         ),
         "loading_position_specs": tuple(spec for spec in job.params if spec.optional),
-        "solder_paste_density": settings.number("paste_dispenser.solder_paste_density"),
-        "current_rotations_per_ul": settings.number("paste_dispenser.rotations_per_ul"),
+        "solder_paste_density": settings.number("solder.paste_density"),
+        "current_rotations_per_ul": settings.number(
+            "solder.dispenser.rotations_per_ul"
+        ),
         "current_max_dispense_rate": settings.number(
-            "paste_dispenser.motion.max_dispense_rate"
+            "solder.dispenser.max_dispense_rate"
         ),
-        "current_dispense_accel": settings.number(
-            "paste_dispenser.motion.dispense_accel"
-        ),
+        "current_dispense_accel": settings.number("solder.dispenser.dispense_accel"),
     }
 
 
@@ -471,15 +471,15 @@ def _paste_workspace_context(
     """Pad editor 付き塗布ページのコンテキスト（machine 設定の即保存フォーム）."""
     return {
         "auto_threshold_fields": settings.select(
-            "paste_dispenser.auto_line_aspect_ratio",
-            "paste_dispenser.auto_area_short_side_factor",
+            "solder.auto.line_aspect_ratio",
+            "solder.auto.area_short_side_factor",
         ),
         "pad_refinement_fields": settings.select("alignment.refine_max_short_side"),
         "flow_calibration_fields": settings.select(
-            "paste_dispenser.volume_correction.calibration_file",
-            "paste_dispenser.volume_correction.amount_ul",
-            "paste_dispenser.volume_correction.crop_size_mm",
-            "paste_dispenser.volume_correction.settle_seconds",
+            "solder.volume_correction.calibration_file",
+            "solder.volume_correction.amount_ul",
+            "solder.volume_correction.crop_size_mm",
+            "solder.volume_correction.settle_seconds",
         ),
     }
 
@@ -515,11 +515,11 @@ def _nozzle_cap_context(
         "nozzle_cap": state.nozzle_cap,
         "nozzle_clean": state.nozzle_clean,
         "nozzle_clean_fields": settings.select(
-            "paste_dispenser.nozzle_clean.press_depth",
-            "paste_dispenser.nozzle_clean.purge_ul",
-            "paste_dispenser.nozzle_clean.stroke",
-            "paste_dispenser.nozzle_clean.passes",
-            "paste_dispenser.nozzle_clean.wipe_speed",
+            "solder.nozzle.clean.press_depth",
+            "solder.nozzle.clean.purge_ul",
+            "solder.nozzle.clean.stroke",
+            "solder.nozzle.clean.passes",
+            "solder.nozzle.clean.wipe_speed",
         ),
     }
 

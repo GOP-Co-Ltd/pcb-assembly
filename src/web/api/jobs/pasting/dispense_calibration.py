@@ -141,7 +141,7 @@ def register(catalog: JobCatalog) -> None:
                     minimum=0.0,
                     group=_LINES,
                 ),
-                # 比重は machine.toml の solder_paste_density を参照（フォーム入力なし）
+                # 比重は machine.toml の solder.paste_density を参照（フォーム入力なし）
                 # ② max_dispense_rate（吐出効率の低下を検出・実行中変更可）
                 ParamSpec(
                     "rate_min",
@@ -444,10 +444,10 @@ def _calibrate_rotations_per_ul(
     許容内）はヒントとして表示するのみで、ループ継続はユーザー判断。タール前の中止・
     質量入力の中止はいずれもメニューへ戻る。
     """
-    # 密度はマシン設定 (solder_paste_density [mg/uL]) の値を使う。② と同じ扱い。
-    density = ctx.machine.paste_dispenser.density_mg_per_ul
+    # 密度はマシン設定 (solder.paste_density [mg/uL]) の値を使う。② と同じ扱い。
+    density = ctx.machine.solder.paste_density
     ctx.log(
-        f"ペースト密度（machine.toml の solder_paste_density）= {density:.3f} mg/uL"
+        f"ペースト密度（machine.toml の solder.paste_density）= {density:.3f} mg/uL"
     )
 
     while True:
@@ -529,7 +529,7 @@ def _calibrate_rotations_per_ul(
         # 残る 3 つはいずれも算出値を採用する。採用時点で machine.toml へ反映し、
         # 以降の中止・失敗で計測結果を失わないようにする。
         _apply_to_machine_toml(
-            ctx, {"paste_dispenser.rotations_per_ul": round_.computed}
+            ctx, {"solder.dispenser.rotations_per_ul": round_.computed}
         )
         adopted = attrs.evolve(results, rotations_per_ul=round_.computed)
         if choice == "採用して吐出量キャリブレーションを終了する":
@@ -562,8 +562,8 @@ def _calibrate_max_dispense_rate(
     Raises:
         CalibrationCancelled: レート列が空、または線が銅板に収まらない場合
     """
-    fill_speed = ctx.machine.paste_dispenser.motion.max_fill_speed
-    density = ctx.machine.paste_dispenser.density_mg_per_ul
+    fill_speed = ctx.machine.solder.motion.max_fill_speed
+    density = ctx.machine.solder.paste_density
     params = _params(ctx)
 
     points, message = plan_rate_sweep(params, fill_speed=fill_speed)
@@ -634,7 +634,7 @@ def _calibrate_max_dispense_rate(
         ctx.log(f"自動判定 max_dispense_rate = {auto:.3f} uL/s")
 
     chosen = ctx.ask_positive("採用する max_dispense_rate (uL/s) を入力", default=auto)
-    _apply_to_machine_toml(ctx, {"paste_dispenser.motion.max_dispense_rate": chosen})
+    _apply_to_machine_toml(ctx, {"solder.dispenser.max_dispense_rate": chosen})
     return attrs.evolve(results, max_dispense_rate=chosen)
 
 
@@ -656,13 +656,13 @@ def _calibrate_max_fill_speed(
     Raises:
         CalibrationCancelled: 速度列が空、または線が銅板に収まらない場合
     """
-    dispenser = ctx.machine.paste_dispenser
+    solder = ctx.machine.solder
     params = _params(ctx)
 
     sweep, message = plan_speed_sweep(
         params,
-        ul_per_mm2=dispenser.defaults.ul_per_mm2,
-        bead_width=dispenser.nozzle_diameter * dispenser.defaults.bead_width_factor,
+        ul_per_mm2=solder.defaults.ul_per_mm2,
+        bead_width=solder.nozzle.diameter * solder.defaults.bead_width_factor,
     )
     if sweep is None:
         ctx.log(message or "")
@@ -696,7 +696,7 @@ def _calibrate_max_fill_speed(
         default=f"{points[0].index}: {points[0].fill_speed:.2f} mm/s",
     )
     chosen = points[int(selection.split(":", 1)[0])].fill_speed
-    _apply_to_machine_toml(ctx, {"paste_dispenser.motion.max_fill_speed": chosen})
+    _apply_to_machine_toml(ctx, {"solder.motion.max_fill_speed": chosen})
     return attrs.evolve(results, max_fill_speed=chosen)
 
 

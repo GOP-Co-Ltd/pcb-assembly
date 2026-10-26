@@ -24,8 +24,8 @@ from pcbasm.kicad.build import generate_rect_pcb, save_board
 from tests.golden.scenarios import Scenario, scenarios_of
 from tests.support.golden import (
     CAMERA_MODEL,
-    DISPENSER,
     JOBS,
+    SOLDER,
     assert_transcript,
     enable_flow_calibration,
     finish,
@@ -85,9 +85,9 @@ def _forget_nozzle_clean(settings: Env) -> None:
     """machine.toml のクリーニング節を座標の無い節にする（設定ページから動作値だけを保存した未教示の機体）."""
     path = MachineConfigFile(settings.config_dir).path
     document = tomlkit.parse(path.read_text(encoding="utf-8"))
-    dispenser = document["paste_dispenser"]
-    assert isinstance(dispenser, Table)
-    dispenser["nozzle_clean"] = {"passes": 3}
+    nozzle = document["solder"]["nozzle"]
+    assert isinstance(nozzle, Table)
+    nozzle["clean"] = {"passes": 3}
     path.write_text(tomlkit.dumps(document), encoding="utf-8")
 
 
@@ -261,14 +261,14 @@ class TestToolheadOffset:
         """基板計測 → 全点の高さ計測 → ローディング → 全点に塗布 → 全点を撮って測る."""
         measure(scenario.rotation)
 
-        # SceneCamera は machine.toml の toolhead だけずらして塗布痕を描くので、1 画素以内でそれを測り返す
+        # SceneCamera は machine.toml の nozzle.offset だけずらして塗布痕を描くので、1 画素以内でそれを測り返す
         values = manager.apply_payload().values
         pixel = 1.0 / CAMERA_MODEL.pixel_per_mm
-        assert values["paste_dispenser.toolhead.x"] == pytest.approx(
-            DISPENSER.toolhead.x, abs=pixel
+        assert values["solder.nozzle.offset.x"] == pytest.approx(
+            SOLDER.nozzle.offset.x, abs=pixel
         )
-        assert values["paste_dispenser.toolhead.y"] == pytest.approx(
-            DISPENSER.toolhead.y, abs=pixel
+        assert values["solder.nozzle.offset.y"] == pytest.approx(
+            SOLDER.nozzle.offset.y, abs=pixel
         )
         assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")
 

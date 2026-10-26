@@ -11,7 +11,7 @@ from collections.abc import Mapping
 import attrs
 
 from pcbasm.board import Layer, Pad
-from pcbasm.config.dispenser import PasteDispenserConfig
+from pcbasm.config.solder import SolderConfig
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.fill_path import FillPlan
 from pcbasm.pasting.initial_purge import (
@@ -40,7 +40,7 @@ class PastePlan:
     pad 編集画面は理由を見せて直させ、塗布ジョブは塗り始める前に止まる。
 
     Attributes:
-        config: ``machine.toml`` の ``[paste_dispenser]``
+        config: ``machine.toml`` の ``[solder]``
         model: 基板の塗布設定
         resolved: pad ごとの解決済み設定
         pads: 対象レイヤの全 pad（有効/無効問わず、基板の並び）
@@ -51,7 +51,7 @@ class PastePlan:
         flow_calibration_error: 運転時補正の設定が不正な理由
     """
 
-    config: PasteDispenserConfig
+    config: SolderConfig
     model: PasteSettingsModel
     resolved: Mapping[str, ResolvedSetting]
     pads: tuple[Pad, ...]

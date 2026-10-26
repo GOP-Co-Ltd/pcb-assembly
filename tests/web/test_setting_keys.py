@@ -42,7 +42,7 @@ class TestSettingKeys:
         """読み取りが壊れて検査が空回りしていないこと."""
         keys = _written_keys()
 
-        assert "paste_dispenser.motion.max_dispense_rate" in keys
+        assert "solder.dispenser.max_dispense_rate" in keys
         assert "alignment.canny_low" in keys
         assert "camera.calibration_file" in keys
 

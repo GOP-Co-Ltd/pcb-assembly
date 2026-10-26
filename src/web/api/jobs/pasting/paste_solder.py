@@ -74,7 +74,7 @@ def _run_paste_solder(ctx: JobContext, *, stores: PasteStores) -> JobResult:
                 stores.overrides,
                 ctx.source_pcb,
                 session.board_frame.board,
-                ctx.machine.paste_dispenser,
+                ctx.machine.solder,
             )
         )
         if plan.error is not None:

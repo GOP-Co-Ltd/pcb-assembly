@@ -14,7 +14,7 @@
 経路はどれも M400 で止まって終わるので、ステージとディスペンサーの移動は止まった状態から止まるまでの台形速度プロファイルで見積もる。
 XY と Z は上限を分ける。kinematics（``klipper/inversed_corexy.py``）が Z を含む移動を Z の上限へ落とすので、下降と上昇を XY の上限で見積もると大きく短く出る。
 
-位置合わせ・高さ計測・初回パージ・運転時補正、最初の経路への移動、終了後の退避など、pad 数に依らない前段は ``[tact] setup_sec`` で足す。
+位置合わせ・高さ計測・初回パージ・運転時補正、最初の経路への移動、終了後の退避など、pad 数に依らない前段は ``[solder.tact] setup_sec`` で足す。
 board 座標のまま計算する（board → machine の変換は回転と平行移動なので、経路長が変わらない）。
 """
 
@@ -26,7 +26,7 @@ from typing import Any, Self
 
 import attrs
 
-from pcbasm.config.tact import TactConfig
+from pcbasm.config.solder import TactConfig
 from pcbasm.geometry import Path, Point3d
 from pcbasm.pasting.fill_path import amount_per_path_ul
 from pcbasm.pasting.fill_sequence import FillSequence
@@ -88,7 +88,7 @@ def estimate_paste_tact(
     plan: PastePlan, tact: TactConfig, limits: MotionLimits
 ) -> TactEstimate:
     """塗布計画の有効 pad を塗る順に積み、塗布ジョブの所要時間を予測する."""
-    motion = plan.config.motion
+    motion = plan.config.dispense_motion
     seconds = 0.0
     previous: Point3d | None = None
     for pad in plan.routed_pads:

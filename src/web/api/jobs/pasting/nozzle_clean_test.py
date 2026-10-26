@@ -34,8 +34,8 @@ def _run_nozzle_clean_test(ctx: JobContext) -> JobResult:
     塗布ジョブはリトラクトして終わったパージの後に prime して掃除するので、同じ順序にしないと同じ設定で出る量が食い違う。
     キャップへは終了時の駐機で戻る。
     """
-    dispenser = ctx.machine.paste_dispenser
-    clean = dispenser.nozzle_clean
+    solder = ctx.machine.solder
+    clean = solder.nozzle.clean
     if clean.position is None:
         raise ValueError("ノズルクリーニング位置が未記録です")
     klipper = ctx.klipper(CLEAN_TIMEOUT)
@@ -51,7 +51,7 @@ def _run_nozzle_clean_test(ctx: JobContext) -> JobResult:
     ctx.checkpoint()
 
     ctx.progress("クリーニング")
-    with build_applicator(klipper, stage, dispenser) as applicator:
+    with build_applicator(klipper, stage, solder) as applicator:
         applicator.prime()
         clean_nozzle(klipper, applicator, plan, log=ctx.log)
         applicator.retract()

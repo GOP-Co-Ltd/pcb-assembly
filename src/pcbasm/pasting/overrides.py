@@ -9,7 +9,7 @@
 - 解決時は各 pad で L0→L4 を辿り、非 ``None`` 項目で上書きする（最も具体的な階層の値を採用する）。
   ``enabled`` も同じ規則で、明示の無い pad は有効
 
-設定値の基準は ``machine.toml`` の ``[paste_dispenser]`` 値で、基板 JSON には
+設定値の基準は ``machine.toml`` の ``[solder]`` 値で、基板 JSON には
 明示 override（L0 を含む ``levels``）と基板上の座標設定だけを保持する。
 ダウンロード時のファイル名は :func:`board_settings_export_filename` が決める
 （保存先の名前は board_id で、ダウンロード時のファイル名とは異なる）。
@@ -51,7 +51,7 @@ from shapely import Point, Polygon
 
 from pcbasm.atomic import write_text_atomic
 from pcbasm.board import Board, Pad
-from pcbasm.config.dispenser import PasteDispenserConfig
+from pcbasm.config.solder import SolderConfig
 from pcbasm.document import omittable, structure_document
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.hierarchy import HierKey, PadHierarchy, PadHierarchyNode
@@ -116,7 +116,7 @@ class PasteSettingsModel:
     levels: tuple[LevelSetting, ...] = ()
 
     @classmethod
-    def from_config(cls, config: PasteDispenserConfig) -> Self:
+    def from_config(cls, config: SolderConfig) -> Self:
         """Override の無い初期モデル（machine.toml デフォルトのみ）."""
         return cls(base=config.defaults)
 
@@ -352,7 +352,7 @@ class BoardOverrides:
     def load_or_init(
         self,
         source_pcb: str,
-        base_config: PasteDispenserConfig,
+        base_config: SolderConfig,
         *,
         board_signature: str | None = None,
     ) -> PasteSettingsModel:
@@ -394,7 +394,7 @@ class BoardOverrides:
     def model_from_doc(
         self,
         doc: dict,
-        base_config: PasteDispenserConfig,
+        base_config: SolderConfig,
         *,
         board_signature: str | None = None,
         expected_source_pcb: str | None = None,
@@ -440,7 +440,7 @@ class BoardOverrides:
     def update(
         self,
         source_pcb: str,
-        base_config: PasteDispenserConfig,
+        base_config: SolderConfig,
         *,
         board_signature: str | None = None,
         mutate: Callable[[PasteSettingsModel], PasteSettingsModel],
@@ -494,7 +494,7 @@ class BoardSession:
 
     Attributes:
         source_pcb: ``pcb_browse_root`` からの相対 posix パス（保存先の鍵）
-        base_config: ``machine.toml`` の ``[paste_dispenser]``
+        base_config: ``machine.toml`` の ``[solder]``
         board: 基板データ
         hierarchy: ``board`` から組んだ pad 階層
         board_signature: ``hierarchy`` の署名（保存時と違えば設定を初期値に戻す）
@@ -502,7 +502,7 @@ class BoardSession:
     """
 
     source_pcb: str
-    base_config: PasteDispenserConfig
+    base_config: SolderConfig
     board: Board
     hierarchy: PadHierarchy
     board_signature: str
@@ -514,7 +514,7 @@ class BoardSession:
         overrides: BoardOverrides,
         source_pcb: str,
         board: Board,
-        base_config: PasteDispenserConfig,
+        base_config: SolderConfig,
     ) -> Self:
         """基板から階層と署名を組み、保存済みの塗布設定を読む.
 
@@ -530,9 +530,7 @@ class BoardSession:
         )
 
     @classmethod
-    def initial(
-        cls, source_pcb: str, board: Board, base_config: PasteDispenserConfig
-    ) -> Self:
+    def initial(cls, source_pcb: str, board: Board, base_config: SolderConfig) -> Self:
         """保存済みの設定を読まずに、``base_config`` の初期値で組む（設定を丸ごと上書きするときに使う）."""
         hierarchy = PadHierarchy.build(board.components, board.pads)
         return cls(

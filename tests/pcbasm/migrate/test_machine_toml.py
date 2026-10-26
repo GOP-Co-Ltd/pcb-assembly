@@ -1,4 +1,8 @@
-"""移行 M（machine.toml の死にキーの除去と節の再編）の仕様."""
+"""machine.toml の移行の仕様.
+
+移行 M は死にキーを除いて節を再編し、移行 N は [paste_dispenser] と [tact] を [solder]
+の階層へ作り直す。 002 の旧形（M の前）も 001 の live（M の後）も、続けて当てて同じ形になる。
+"""
 
 import shutil
 import subprocess
@@ -17,7 +21,9 @@ from pcbasm.migrate.machine_toml import (
 )
 from tests.support.paths import TEST_CONFIG_DIR
 
-BEFORE = Path(__file__).with_name("machine-before-M.toml")
+# 002 の旧形（移行 M の前）と、001 の live（移行 M の後、N の前）
+BEFORE_M = Path(__file__).with_name("machine-before-M.toml")
+BEFORE_N = Path(__file__).with_name("machine-before-N.toml")
 
 # コードが読んでいなかったので引き継がないキー
 DEAD = {
@@ -60,8 +66,36 @@ MOTION = {
 }
 
 
-def _new_path(path: str) -> str:
-    """移行前のキーのパス → 移行後のパス."""
+# 移行 N: [paste_dispenser] と [tact] のキー → [solder] の下のキー
+SOLDER = {
+    "paste_dispenser.solder_paste_density": "solder.paste_density",
+    "paste_dispenser.initial_purge_ul": "solder.initial_purge_ul",
+    "paste_dispenser.rotations_per_ul": "solder.dispenser.rotations_per_ul",
+    "paste_dispenser.motion.max_dispense_rate": "solder.dispenser.max_dispense_rate",
+    "paste_dispenser.motion.dispense_accel": "solder.dispenser.dispense_accel",
+    "paste_dispenser.motion.retract_amount": "solder.dispenser.retract_amount",
+    "paste_dispenser.motion.retract_rate": "solder.dispenser.retract_rate",
+    "paste_dispenser.motion.retract_accel_factor": (
+        "solder.dispenser.retract_accel_factor"
+    ),
+    "paste_dispenser.nozzle_diameter": "solder.nozzle.diameter",
+    "paste_dispenser.nozzle_outer_diameter": "solder.nozzle.outer_diameter",
+    "paste_dispenser.toolhead.": "solder.nozzle.offset.",
+    "paste_dispenser.nozzle_cap.": "solder.nozzle.cap.",
+    "paste_dispenser.nozzle_clean.": "solder.nozzle.clean.",
+    "paste_dispenser.motion.": "solder.motion.",
+    "paste_dispenser.defaults.": "solder.defaults.",
+    "paste_dispenser.auto_line_aspect_ratio": "solder.auto.line_aspect_ratio",
+    "paste_dispenser.auto_area_short_side_factor": (
+        "solder.auto.area_short_side_factor"
+    ),
+    "paste_dispenser.volume_correction.": "solder.volume_correction.",
+    "tact.": "solder.tact.",
+}
+
+
+def _path_after_m(path: str) -> str:
+    """移行 M の前のキーのパス → M の後のパス."""
     section, _, rest = path.partition(".")
     if section != "paste_dispenser":
         return path
@@ -78,10 +112,25 @@ def _new_path(path: str) -> str:
     return path
 
 
+def _path_after_n(path: str) -> str:
+    """移行 N の前のキーのパス → N の後のパス（表ごと移すものは接頭辞で引く）."""
+    if path in SOLDER:
+        return SOLDER[path]
+    prefix = next((p for p in SOLDER if p.endswith(".") and path.startswith(p)), None)
+    return path if prefix is None else SOLDER[prefix] + path.removeprefix(prefix)
+
+
+def _new_path(path: str, source: Path) -> str:
+    """``source`` の形のキーのパス → 移行後のパス."""
+    if source == BEFORE_M:
+        path = _path_after_m(path)
+    return _path_after_n(path)
+
+
 def _attribute_path(path: str) -> str:
     """TOML のパス → MachineConfig の属性パス（ノズル位置の x / y / z は position の 1 組）."""
     table, _, key = path.rpartition(".")
-    if table.endswith(("nozzle_cap", "nozzle_clean")) and key in ("x", "y", "z"):
+    if table.endswith(("nozzle.cap", "nozzle.clean")) and key in ("x", "y", "z"):
         return f"{table}.position.{key}"
     return path
 
@@ -96,26 +145,37 @@ def _leaves(table: dict, prefix: str = "") -> dict[str, object]:
     return leaves
 
 
+@pytest.fixture(params=[BEFORE_M, BEFORE_N], ids=["002-before-M", "001-before-N"])
+def source(request: pytest.FixtureRequest) -> Path:
+    return request.param
+
+
 @pytest.fixture
-def machine_toml(tmp_path: Path) -> Path:
+def machine_toml(tmp_path: Path, source: Path) -> Path:
     path = tmp_path / "machine.toml"
-    shutil.copy(BEFORE, path)
+    shutil.copy(source, path)
     return path
 
 
 class TestMigrateMachineToml:
-    def test_keeps_every_live_value_at_its_new_path(self, machine_toml: Path):
+    def test_keeps_every_live_value_at_its_new_path(
+        self, machine_toml: Path, source: Path
+    ):
         before = _leaves(tomllib.loads(machine_toml.read_text()))
 
         migrate_machine_toml(machine_toml)
 
         after = _leaves(tomllib.loads(machine_toml.read_text()))
         expected = {
-            _new_path(path): value for path, value in before.items() if path not in DEAD
+            _new_path(path, source): value
+            for path, value in before.items()
+            if path not in DEAD
         }
         assert after == expected
 
-    def test_loaded_values_equal_the_values_before_migration(self, machine_toml: Path):
+    def test_loaded_values_equal_the_values_before_migration(
+        self, machine_toml: Path, source: Path
+    ):
         before = _leaves(tomllib.loads(machine_toml.read_text()))
 
         migrate_machine_toml(machine_toml)
@@ -125,49 +185,96 @@ class TestMigrateMachineToml:
             # 校正ファイルは設定ディレクトリからの絶対パスに解決される
             if path in DEAD or path == "camera.calibration_file":
                 continue
-            actual = attrgetter(_attribute_path(_new_path(path)))(machine)
+            actual = attrgetter(_attribute_path(_new_path(path, source)))(machine)
             assert (
                 list(actual) if isinstance(actual, tuple) else actual
             ) == value, path
+
+    def test_both_forms_end_in_the_same_solder_layout(self):
+        """002 の旧形と 001 の live は、同じ [solder] の階層になる."""
+        migrated = [
+            tomllib.loads(migrate_text(path.read_text())[0])
+            for path in (BEFORE_M, BEFORE_N)
+        ]
+
+        assert migrated[0] == migrated[1]
+        assert "paste_dispenser" not in migrated[0] and "tact" not in migrated[0]
+        assert list(migrated[0]["solder"]) == [
+            "paste_density",
+            "initial_purge_ul",
+            "dispenser",
+            "nozzle",
+            "motion",
+            "defaults",
+            "auto",
+            "volume_correction",
+            "tact",
+        ]
+        assert list(migrated[0]["solder"]["nozzle"]) == [
+            "diameter",
+            "outer_diameter",
+            "offset",
+            "cap",
+            "clean",
+        ]
 
     def test_is_idempotent(self, machine_toml: Path):
         migrate_machine_toml(machine_toml)
         migrated = machine_toml.read_text()
 
-        assert migrate_machine_toml(machine_toml) == []
+        assert migrate_machine_toml(machine_toml) == {}
         assert machine_toml.read_text() == migrated
 
     def test_keeps_comments(self, machine_toml: Path):
         migrate_machine_toml(machine_toml)
 
         text = machine_toml.read_text()
-        motion = text.split("[paste_dispenser.motion]")[1].split("\n[")[0]
+        motion = text.split("[solder.motion]")[1].split("\n[")[0]
         assert (
             "max_fill_speed = 2.0 # 連続塗布できる移動速度上限 [mm/sec]"
             "（実機で 1812 が連続になるまで調整）"
         ) in motion
-        assert (
-            "# rotations_per_ul = 31.491713 # キャリブレーション値 2026/06/05" in text
+        # 単独の行のコメントは直前のキー（最初のキーより前なら最初のキー）と一緒に動く
+        dispenser = text.split("[solder.dispenser]")[1].split("\n[")[0]
+        assert dispenser.startswith(
+            "\n# rotations_per_ul = 1.0 # 1μLあたりの回転数 [rev/μL]\n"
+            "rotations_per_ul = 15.0 # キャリブレーション値 2026/06/08 23G S3X70-E150DN\n"
+            "# rotations_per_ul = 31.491713 # キャリブレーション値 2026/06/05 S3X70-E150DN\n"
         )
         alignment = text.split("[alignment]")[1]
         assert alignment.startswith("\n# pad単位の銅箔照合による位置合わせ\n")
         # 次の表の見出しの前に書いたコメントは、その見出しの前に残る
         assert (
             "# タスク終了時の駐機先。WebUI の「ノズル位置の設定」で記録する。\n"
-            "[paste_dispenser.nozzle_cap]"
+            "[solder.nozzle.cap]"
         ) in text
 
-    def test_snapshots_the_original_before_rewriting(self, machine_toml: Path):
-        original = machine_toml.read_text()
+    def test_snapshots_the_original_before_each_step(self, tmp_path: Path):
+        """当てたステップごとに、その手前の内容を残す（002 は M と N、001 は N だけ）."""
+        path = tmp_path / "machine.toml"
+        shutil.copy(BEFORE_M, path)
+        original = path.read_text()
+        after_m = BEFORE_N.read_text().split("\n", 2)[2]
 
-        migrate_machine_toml(machine_toml)
+        migrate_machine_toml(path)
 
-        snapshot = machine_toml.parent / "history" / "machine-pre-M.toml"
-        assert snapshot.read_text() == original
+        history = tmp_path / "history"
+        assert (history / "machine-pre-M.toml").read_text() == original
+        assert (history / "machine-pre-N.toml").read_text().endswith(after_m)
+
+    def test_snapshots_only_the_steps_it_applies(self, tmp_path: Path):
+        path = tmp_path / "machine.toml"
+        shutil.copy(BEFORE_N, path)
+
+        migrate_machine_toml(path)
+
+        history = tmp_path / "history"
+        assert (history / "machine-pre-N.toml").read_text() == BEFORE_N.read_text()
+        assert not (history / "machine-pre-M.toml").exists()
 
     def test_keeps_the_first_snapshot(self, machine_toml: Path):
         """古い世代を復元して 2 回目の移行が当たっても、最初の移行の戻り先を残す."""
-        snapshot = machine_toml.parent / "history" / "machine-pre-M.toml"
+        snapshot = machine_toml.parent / "history" / "machine-pre-N.toml"
         snapshot.parent.mkdir()
         snapshot.write_text("# 最初の移行の前\n")
 
@@ -182,13 +289,13 @@ class TestMigrateMachineToml:
         assert text.endswith("\n") and not text.endswith("\n\n")
 
     def test_keeps_only_setup_sec_in_tact(self, machine_toml: Path):
-        """速度と加速度は printer.cfg から読むので消し、setup_sec はコメントごと残す."""
+        """速度と加速度は printer.cfg から読むので消し、setup_sec はコメントごと [solder.tact] へ移す."""
         migrate_machine_toml(machine_toml)
 
         text = machine_toml.read_text()
-        assert tomllib.loads(text)["tact"] == {"setup_sec": 300.0}
-        tact = text.split("[tact]")[1].split("\n[")[0]
-        assert tact.startswith(
+        assert tomllib.loads(text)["solder"]["tact"] == {"setup_sec": 300.0}
+        tact = text.split("[solder.tact]")[1]
+        assert tact == (
             "\n# タクトタイム見積り専用の値（装置の動作はこれを参照しない）\n"
             "setup_sec = 300.0 # 位置合わせ・高さ計測・パージ等の固定分 [sec]（実測に合わせる）\n"
         )
@@ -203,8 +310,8 @@ class TestMigrateMachineToml:
         migrated, changes = migrate_text(text)
 
         assert migrated == "[klipper]\nport = 7125\n\n[tact]\nsetup_sec = 200.0\n"
-        assert changes == ["tact.travel_speed を削除", "tact.z_accel を削除"]
-        assert migrate_text(migrated) == (migrated, [])
+        assert changes == {"M": ["tact.travel_speed を削除", "tact.z_accel を削除"]}
+        assert migrate_text(migrated) == (migrated, {})
 
     def test_writes_the_former_klipper_defaults(self):
         """接続先の既定値は撤去したので、移行するファイルに書かれていなければこれまでの既定値を明示する."""
@@ -215,7 +322,9 @@ class TestMigrateMachineToml:
         assert tomllib.loads(migrated) == {
             "klipper": {"host": "localhost", "port": 7125}
         }
-        assert changes == ["machine_type を削除", "klipper.host = 'localhost' を明示"]
+        assert changes == {
+            "M": ["machine_type を削除", "klipper.host = 'localhost' を明示"]
+        }
 
     @pytest.mark.parametrize(
         "text",
@@ -224,12 +333,12 @@ class TestMigrateMachineToml:
     )
     def test_does_not_fill_in_klipper_of_the_current_layout(self, text: str):
         """新しい形のファイルで書き忘れた接続先は、補わずに設定エラーのままにする."""
-        assert migrate_text(text) == (text, [])
+        assert migrate_text(text) == (text, {})
 
     def test_current_layout_needs_no_migration(self):
         text = (TEST_CONFIG_DIR / "machine.toml").read_text()
 
-        assert migrate_text(text) == (text, [])
+        assert migrate_text(text) == (text, {})
 
     @pytest.mark.parametrize(
         ("text", "message"),
@@ -249,12 +358,24 @@ class TestMigrateMachineToml:
                 "[paste_dispenser.pad_align]\ncanny_low = 1.0\n",
                 "ほかの節をはさんで",
             ),
+            (
+                "[paste_dispenser]\nrotations_per_ul = 1.0\n\n"
+                "[solder]\npaste_density = 3.78\n",
+                "途中まで移行済み",
+            ),
+            (
+                "[paste_dispenser]\nrotations_per_ul = 1.0\n\n[camera]\n\n"
+                "[paste_dispenser.toolhead]\nx = 1.0\n",
+                "ほかの節をはさんで",
+            ),
         ],
         ids=[
             "broken",
             "partially-migrated-defaults",
             "partially-migrated-alignment",
             "interleaved",
+            "partially-migrated-solder",
+            "interleaved-solder",
         ],
     )
     def test_unmigratable_file_is_left_untouched(
@@ -283,7 +404,7 @@ class TestCheckCommand:
             check=True,
         )
 
-        assert "+[paste_dispenser.motion]" in result.stdout
-        assert '-machine_type = "paste"' in result.stdout
+        assert "+[solder.motion]" in result.stdout
+        assert "-[paste_dispenser]" in result.stdout
         assert machine_toml.read_text() == original
         assert not (machine_toml.parent / "history").exists()

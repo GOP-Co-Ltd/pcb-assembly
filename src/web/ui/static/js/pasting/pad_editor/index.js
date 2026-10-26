@@ -506,7 +506,7 @@ import {
       "initial-purge",
       () =>
         saveInitialPurge("PUT", "/api/machine_config", {
-          values: { "paste_dispenser.initial_purge_ul": value },
+          values: { "solder.initial_purge_ul": value },
         }),
       DEBOUNCE_MS
     );

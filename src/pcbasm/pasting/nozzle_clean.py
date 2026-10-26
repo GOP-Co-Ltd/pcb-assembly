@@ -22,7 +22,7 @@ from collections.abc import Callable
 import attrs
 
 from pcbasm.config import MachineConfig
-from pcbasm.config.dispenser import NozzleCleanConfig
+from pcbasm.config.solder import NozzleCleanConfig
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Path, Point3d
 from pcbasm.hal import KlipperClient, Speed, XYZStage
@@ -146,7 +146,7 @@ def resolve_nozzle_clean(
     Raises:
         ValueError: クリーニングの経由点が可動域外の場合
     """
-    clean = machine.paste_dispenser.nozzle_clean
+    clean = machine.solder.nozzle.clean
     if clean.position is None:
         (log or logger.info)(_NOT_RECORDED)
         return None

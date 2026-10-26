@@ -562,7 +562,7 @@ def load_session(
     """
     source_pcb, board = _selected_board(selection)
     return BoardSession.load(
-        overrides, source_pcb, board, machine_config.machine().paste_dispenser
+        overrides, source_pcb, board, machine_config.machine().solder
     )
 
 
@@ -575,9 +575,7 @@ def _initial_session(
         HTTPException: PCB 未選択（409）の場合
     """
     source_pcb, board = _selected_board(selection)
-    return BoardSession.initial(
-        source_pcb, board, machine_config.machine().paste_dispenser
-    )
+    return BoardSession.initial(source_pcb, board, machine_config.machine().solder)
 
 
 def build_pad_config(loaded: BoardSession) -> PadConfigResponse:
@@ -670,7 +668,7 @@ def build_fill_path(plan: PastePlan, layer: Layer) -> PasteFillPathResponse:
         )
     return PasteFillPathResponse(
         layer=layer.value,
-        nozzle_diameter=plan.config.nozzle_diameter,
+        nozzle_diameter=plan.config.nozzle.diameter,
         pads=pads,
     )
 
@@ -769,7 +767,7 @@ def get_tact_estimate(
         )
     estimate = estimate_paste_tact(
         plan_paste(loaded),
-        machine_config.machine().tact,
+        machine_config.machine().solder.tact,
         MotionLimits.from_printer_config(printer_config),
     )
     return TactEstimateInfo(

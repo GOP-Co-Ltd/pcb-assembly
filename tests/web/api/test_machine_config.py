@@ -33,7 +33,7 @@ class TestSettingsWithFiles:
         original = machine_config.path.read_bytes()
         with pytest.raises(InvalidSettingError):
             machine_config.write(
-                {"paste_dispenser.nozzle_diameter": 0},
+                {"solder.nozzle.diameter": 0},
                 files={"unused-calibration.json": b"{}"},
             )
         assert machine_config.path.read_bytes() == original
@@ -82,14 +82,14 @@ class TestMachineSettings:
     ):
         values = machine_config.values()
 
-        assert values["paste_dispenser.defaults.dispense_mode"] == "auto"
-        assert values["paste_dispenser.defaults.line_direction"] is None
-        assert values["paste_dispenser.auto_line_aspect_ratio"] == 1.618
-        assert values["paste_dispenser.motion.max_fill_speed"] == 0.8
-        assert values["paste_dispenser.solder_paste_density"] == 3.78
-        assert values["paste_dispenser.defaults.paste_height"] == "auto"
-        assert values["paste_dispenser.motion.lift_height"] == 2.0
-        assert values["paste_dispenser.toolhead.x"] == -1.772
+        assert values["solder.defaults.dispense_mode"] == "auto"
+        assert values["solder.defaults.line_direction"] is None
+        assert values["solder.auto.line_aspect_ratio"] == 1.618
+        assert values["solder.motion.max_fill_speed"] == 0.8
+        assert values["solder.paste_density"] == 3.78
+        assert values["solder.defaults.paste_height"] == "auto"
+        assert values["solder.motion.lift_height"] == 2.0
+        assert values["solder.nozzle.offset.x"] == -1.772
         assert values["probe.min_radius"] == 0.7
         assert values["probe.board_edge_margin"] == 2.5
         assert values["camera.device_id"] == 0
@@ -105,39 +105,39 @@ class TestMachineSettings:
     def test_missing_keys_read_as_none(self, machine_config: MachineConfigFile):
         values = machine_config.values()
 
-        assert values["paste_dispenser.initial_purge_ul"] is None
-        assert values["paste_dispenser.defaults.bead_width_factor"] is None
-        assert values["paste_dispenser.defaults.boundary_margin"] is None
-        assert values["paste_dispenser.auto_area_short_side_factor"] is None
+        assert values["solder.initial_purge_ul"] is None
+        assert values["solder.defaults.bead_width_factor"] is None
+        assert values["solder.defaults.boundary_margin"] is None
+        assert values["solder.auto.area_short_side_factor"] is None
         assert values["alignment.refine_max_short_side"] is None
         assert values["probe.lift_height"] is None
 
     @pytest.mark.parametrize(
         ("key", "value"),
         [
-            ("paste_dispenser.motion.max_fill_speed", 0.9),
-            ("paste_dispenser.defaults.dispense_mode", "line"),
-            ("paste_dispenser.defaults.line_direction", "outward"),
-            ("paste_dispenser.solder_paste_density", 4.1),
-            ("paste_dispenser.initial_purge_ul", 0.2),
+            ("solder.motion.max_fill_speed", 0.9),
+            ("solder.defaults.dispense_mode", "line"),
+            ("solder.defaults.line_direction", "outward"),
+            ("solder.paste_density", 4.1),
+            ("solder.initial_purge_ul", 0.2),
             # 境界: 0 は「初回パージをしない」設定として受理する
-            ("paste_dispenser.initial_purge_ul", 0.0),
-            ("paste_dispenser.defaults.paste_height", 0.25),
-            ("paste_dispenser.defaults.paste_height", "auto"),
-            ("paste_dispenser.motion.lift_height", 3.25),
+            ("solder.initial_purge_ul", 0.0),
+            ("solder.defaults.paste_height", 0.25),
+            ("solder.defaults.paste_height", "auto"),
+            ("solder.motion.lift_height", 3.25),
             # machine.toml に無いキーは追記される
-            ("paste_dispenser.defaults.bead_width_factor", 1.5),
-            ("paste_dispenser.auto_area_short_side_factor", 4.0),
+            ("solder.defaults.bead_width_factor", 1.5),
+            ("solder.auto.area_short_side_factor", 4.0),
             ("probe.board_edge_margin", 3.0),
             ("reference_point.offsets.bottom_right", [-4.0, 4.0]),
-            ("paste_dispenser.nozzle_cap.position", [10.123, 20.0, -3.5]),
-            ("paste_dispenser.nozzle_clean.position", [10.123, 20.0, -3.5]),
-            ("paste_dispenser.nozzle_clean.wipe_speed", 8.0),
+            ("solder.nozzle.cap.position", [10.123, 20.0, -3.5]),
+            ("solder.nozzle.clean.position", [10.123, 20.0, -3.5]),
+            ("solder.nozzle.clean.wipe_speed", 8.0),
             # 境界: 0 は「その工程を行わない」設定として受理する
-            ("paste_dispenser.nozzle_clean.press_depth", 0.0),
-            ("paste_dispenser.nozzle_clean.purge_ul", 0.0),
-            ("paste_dispenser.nozzle_clean.stroke", 0.0),
-            ("paste_dispenser.nozzle_clean.passes", 0),
+            ("solder.nozzle.clean.press_depth", 0.0),
+            ("solder.nozzle.clean.purge_ul", 0.0),
+            ("solder.nozzle.clean.stroke", 0.0),
+            ("solder.nozzle.clean.passes", 0),
             ("alignment.region_size_px", 160),
             ("alignment.region_overlap", 0.25),
         ],
@@ -155,7 +155,7 @@ class TestMachineSettings:
         path = config_dir / "machine.toml"
         before = path.read_text(encoding="utf-8").splitlines()
 
-        machine_config.write({"paste_dispenser.motion.max_fill_speed": 0.9})
+        machine_config.write({"solder.motion.max_fill_speed": 0.9})
 
         after = path.read_text(encoding="utf-8").splitlines()
         assert len(after) == len(before)
@@ -215,28 +215,28 @@ class TestMachineSettings:
     @pytest.mark.parametrize(
         ("key", "value"),
         [
-            ("paste_dispenser.no_such_key", 1.0),
-            ("paste_dispenser.motion.max_fill_speed", "fast"),
+            ("solder.no_such_key", 1.0),
+            ("solder.motion.max_fill_speed", "fast"),
             # bool は int のサブクラスなので数値フィールドへの投入は拒否する
-            ("paste_dispenser.motion.max_fill_speed", True),
+            ("solder.motion.max_fill_speed", True),
             ("camera.calibration_file", 1.0),
-            ("paste_dispenser.defaults.dispense_mode", "spray"),
-            ("paste_dispenser.defaults.line_direction", "sideways"),
-            ("paste_dispenser.auto_line_aspect_ratio", 1.0),
-            ("paste_dispenser.auto_area_short_side_factor", 0.0),
-            ("paste_dispenser.auto_area_short_side_factor", -1.0),
-            ("paste_dispenser.motion.lift_height", 0.0),
-            ("paste_dispenser.motion.lift_height", -1.0),
-            ("paste_dispenser.defaults.paste_height", 0.0),
-            ("paste_dispenser.solder_paste_density", 0.0),
+            ("solder.defaults.dispense_mode", "spray"),
+            ("solder.defaults.line_direction", "sideways"),
+            ("solder.auto.line_aspect_ratio", 1.0),
+            ("solder.auto.area_short_side_factor", 0.0),
+            ("solder.auto.area_short_side_factor", -1.0),
+            ("solder.motion.lift_height", 0.0),
+            ("solder.motion.lift_height", -1.0),
+            ("solder.defaults.paste_height", 0.0),
+            ("solder.paste_density", 0.0),
             ("probe.board_edge_margin", 0.0),
             ("probe.board_edge_margin", -1.0),
-            ("paste_dispenser.initial_purge_ul", -0.01),
-            ("paste_dispenser.nozzle_clean.press_depth", -0.01),
-            ("paste_dispenser.nozzle_clean.purge_ul", -0.01),
-            ("paste_dispenser.nozzle_clean.stroke", -0.01),
-            ("paste_dispenser.nozzle_clean.wipe_speed", 0.0),
-            ("paste_dispenser.nozzle_clean.passes", -1),
+            ("solder.initial_purge_ul", -0.01),
+            ("solder.nozzle.clean.press_depth", -0.01),
+            ("solder.nozzle.clean.purge_ul", -0.01),
+            ("solder.nozzle.clean.stroke", -0.01),
+            ("solder.nozzle.clean.wipe_speed", 0.0),
+            ("solder.nozzle.clean.passes", -1),
             # int フィールドへ整数でない float
             ("alignment.blur_ksize", 5.5),
             ("audio.volume", float("nan")),
@@ -270,7 +270,7 @@ class TestFiniteMachineSettings:
         ("key", "pair"),
         [
             ("reference_point.x", False),
-            ("paste_dispenser.defaults.paste_height", False),
+            ("solder.defaults.paste_height", False),
             ("reference_point.offsets.top_left", True),
         ],
     )
@@ -340,18 +340,18 @@ class TestNozzlePositionFields:
     def test_missing_positions_read_as_none(self, machine_config: MachineConfigFile):
         values = machine_config.values()
 
-        assert values["paste_dispenser.nozzle_cap.position"] is None
-        assert values["paste_dispenser.nozzle_clean.position"] is None
-        assert values["paste_dispenser.nozzle_clean.press_depth"] is None
+        assert values["solder.nozzle.cap.position"] is None
+        assert values["solder.nozzle.clean.position"] is None
+        assert values["solder.nozzle.clean.press_depth"] is None
 
     def test_position_is_written_as_three_toml_keys(
         self, machine_config: MachineConfigFile, config_dir: Path
     ):
         """TOML の形（x / y / z）は変えない."""
-        machine_config.write({"paste_dispenser.nozzle_cap.position": [10.0, 20.0, 3.5]})
+        machine_config.write({"solder.nozzle.cap.position": [10.0, 20.0, 3.5]})
 
         document = tomllib.loads((config_dir / "machine.toml").read_text())
-        cap = document["paste_dispenser"]["nozzle_cap"]
+        cap = document["solder"]["nozzle"]["cap"]
         assert cap == {"x": 10.0, "y": 20.0, "z": 3.5}
 
     @pytest.mark.parametrize(
@@ -364,7 +364,7 @@ class TestNozzlePositionFields:
         original = path.read_bytes()
 
         with pytest.raises(InvalidSettingError):
-            machine_config.write({"paste_dispenser.nozzle_cap.position": value})
+            machine_config.write({"solder.nozzle.cap.position": value})
 
         assert path.read_bytes() == original
 
@@ -376,7 +376,7 @@ class TestNozzlePositionFields:
         original = path.read_bytes()
 
         with pytest.raises(InvalidSettingError, match="未知のマシン設定キー"):
-            machine_config.write({"paste_dispenser.nozzle_cap.x": 12.5})
+            machine_config.write({"solder.nozzle.cap.x": 12.5})
 
         assert path.read_bytes() == original
 
@@ -405,11 +405,11 @@ class TestWholeDocumentValidation:
             path.read_text().replace("max_fill_speed = 0.8", "max_fill_speed = 0.6")
         )
 
-        machine_config.write({"paste_dispenser.motion.lift_height": 2.5})
+        machine_config.write({"solder.motion.lift_height": 2.5})
 
         values = machine_config.values()
-        assert values["paste_dispenser.motion.max_fill_speed"] == 0.6
-        assert values["paste_dispenser.motion.lift_height"] == 2.5
+        assert values["solder.motion.max_fill_speed"] == 0.6
+        assert values["solder.motion.lift_height"] == 2.5
 
     def test_fixes_one_error_at_a_time_while_degraded(
         self, machine_config: MachineConfigFile, config_dir: Path
@@ -425,9 +425,9 @@ class TestWholeDocumentValidation:
             .replace("lift_height = 2.0", "lift_height = 0.0")
         )
 
-        machine_config.write({"paste_dispenser.motion.max_fill_speed": 0.8})
+        machine_config.write({"solder.motion.max_fill_speed": 0.8})
 
-        assert machine_config.values()["paste_dispenser.motion.max_fill_speed"] == 0.8
+        assert machine_config.values()["solder.motion.max_fill_speed"] == 0.8
 
     def test_rejects_breaking_another_section_while_degraded(
         self, machine_config: MachineConfigFile, config_dir: Path
@@ -447,10 +447,10 @@ class TestWholeDocumentValidation:
     @pytest.mark.parametrize(
         ("key", "value"),
         [
-            ("paste_dispenser.initial_purge_ul", -5.0),
-            ("paste_dispenser.auto_line_aspect_ratio", 0.5),
-            ("paste_dispenser.defaults.dispense_mode", "spray"),
-            ("paste_dispenser.motion.lift_height", 0.0),
+            ("solder.initial_purge_ul", -5.0),
+            ("solder.auto.line_aspect_ratio", 0.5),
+            ("solder.defaults.dispense_mode", "spray"),
+            ("solder.motion.lift_height", 0.0),
         ],
     )
     def test_rejects_an_invalid_value_in_the_broken_section_while_degraded(
@@ -606,7 +606,7 @@ class TestAudioFields:
 class TestFlowCalibrationFields:
     """運転時流量キャリブレーション設定の読み書き."""
 
-    _PREFIX = "paste_dispenser.volume_correction"
+    _PREFIX = "solder.volume_correction"
 
     def test_missing_settings_read_as_none(self, machine_config: MachineConfigFile):
         values = machine_config.values()
@@ -728,7 +728,7 @@ class TestChangeNotification:
             config_dir, on_change=lambda: changes.append(None)
         )
 
-        machine_config.write({"paste_dispenser.motion.lift_height": 3.0})
+        machine_config.write({"solder.motion.lift_height": 3.0})
         [entry] = machine_config.history_entries()
         machine_config.restore(entry.name)
 
@@ -741,6 +741,6 @@ class TestChangeNotification:
         )
 
         with pytest.raises(InvalidSettingError):
-            machine_config.write({"paste_dispenser.motion.lift_height": 0.0})
+            machine_config.write({"solder.motion.lift_height": 0.0})
 
         assert changes == []

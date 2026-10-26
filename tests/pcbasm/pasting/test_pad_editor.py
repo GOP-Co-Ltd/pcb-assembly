@@ -13,7 +13,7 @@ from collections.abc import Mapping
 from shapely import Polygon
 
 from pcbasm.board import Component, Layer, Pad
-from pcbasm.config.dispenser import PasteDispenserConfig, ToolheadConfig
+from pcbasm.config.solder import AutoModeConfig, SolderConfig
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.hierarchy import HierKey, PadHierarchy
 from pcbasm.pasting.overrides import (
@@ -22,7 +22,8 @@ from pcbasm.pasting.overrides import (
     resolve_pad_settings,
 )
 from pcbasm.pasting.pad_editor import AppliedModeSummary, applied_mode_summaries
-from pcbasm.pasting.params import DispenseMotion, PasteParams, PasteParamValue
+from pcbasm.pasting.params import PasteParams, PasteParamValue
+from tests.support.solder import solder_config
 
 
 def _rect(cx: float, cy: float, w: float, h: float) -> Polygon:
@@ -58,22 +59,11 @@ def _pad(designator: str, pad_number: str, polygon: Polygon) -> Pad:
     )
 
 
-def _config() -> PasteDispenserConfig:
-    return PasteDispenserConfig(
-        rotations_per_ul=45.0,
+def _config() -> SolderConfig:
+    return solder_config(
         nozzle_diameter=1.0,
-        toolhead=ToolheadConfig(x=0.0, y=0.0),
-        auto_line_aspect_ratio=1.618,
-        auto_area_short_side_factor=3.0,
+        auto=AutoModeConfig(line_aspect_ratio=1.618, area_short_side_factor=3.0),
         defaults=PasteParams(ul_per_mm2=0.05, paste_height=0.5),
-        motion=DispenseMotion(
-            max_fill_speed=2.0,
-            max_dispense_rate=5.0,
-            dispense_accel=10.0,
-            retract_amount=10.0,
-            retract_rate=10.0,
-            retract_accel_factor=2.0,
-        ),
     )
 
 

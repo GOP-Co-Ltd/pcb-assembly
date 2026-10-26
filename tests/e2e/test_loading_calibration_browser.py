@@ -128,7 +128,7 @@ class TestCurrentLoadingCalibration:
         expect(browser_page.get_by_test_id("lc-calibration-message")).to_have_text("")
         browser_page.get_by_test_id("lc-apply-rotations-per-ul").click()
         wait_machine_field(
-            live_server.base_url, "paste_dispenser.rotations_per_ul", 0.4725
+            live_server.base_url, "solder.dispenser.rotations_per_ul", 0.4725
         )
 
     def test_a_failed_current_request_keeps_results_unavailable_until_retry(
@@ -158,5 +158,5 @@ class TestCurrentLoadingCalibration:
         expect(browser_page.get_by_test_id("lc-calibration-message")).to_have_text("")
         browser_page.get_by_test_id("lc-apply-rotations-per-ul").click()
         wait_machine_field(
-            live_server.base_url, "paste_dispenser.rotations_per_ul", 0.4725
+            live_server.base_url, "solder.dispenser.rotations_per_ul", 0.4725
         )

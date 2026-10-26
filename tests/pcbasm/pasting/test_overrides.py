@@ -28,7 +28,7 @@ import pytest
 from shapely import Polygon
 
 from pcbasm.board import Board, Component, Layer, Outline, Pad
-from pcbasm.config.dispenser import PasteDispenserConfig, ToolheadConfig
+from pcbasm.config.solder import SolderConfig
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.hierarchy import PadHierarchy
 from pcbasm.pasting.overrides import (
@@ -46,18 +46,22 @@ from pcbasm.pasting.overrides import (
     resolve_node_settings,
     resolve_pad_settings,
 )
-from pcbasm.pasting.params import DispenseMotion, PasteParams, PasteParamsPatch
+from pcbasm.pasting.params import PasteParams, PasteParamsPatch
+from tests.support.solder import solder_config
 
 type Mutate = Callable[[PasteSettingsModel], PasteSettingsModel]
 
 
-def _base_config() -> PasteDispenserConfig:
-    """テスト用の最小 PasteDispenserConfig（override 項目 + 装置値）."""
-    return PasteDispenserConfig(
+def _base_config() -> SolderConfig:
+    """テスト用の最小 SolderConfig（override 項目 + 装置値）."""
+    return solder_config(
         rotations_per_ul=10.0,
         nozzle_diameter=0.4,
-        toolhead=ToolheadConfig(x=0.0, y=0.0),
-        auto_line_aspect_ratio=1.618,
+        max_fill_speed=0.8,
+        max_dispense_rate=1.0,
+        dispense_accel=1.0,
+        retract_amount=0.1,
+        retract_rate=1.0,
         defaults=PasteParams(
             dispense_mode="auto",
             ul_per_mm2=0.05,
@@ -66,14 +70,6 @@ def _base_config() -> PasteDispenserConfig:
             bead_width_factor=1.1,
             overlap=0.3,
             boundary_margin=0.05,
-        ),
-        motion=DispenseMotion(
-            max_fill_speed=0.8,
-            max_dispense_rate=1.0,
-            dispense_accel=1.0,
-            retract_amount=0.1,
-            retract_rate=1.0,
-            retract_accel_factor=2.0,
         ),
     )
 

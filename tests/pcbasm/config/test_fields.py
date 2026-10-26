@@ -29,7 +29,7 @@ class TestSettingFields:
         sections = [field.section for field in setting_fields()]
 
         assert list(dict.fromkeys(sections)) == [
-            "paste_dispenser",
+            "solder",
             "alignment",
             "probe",
             "reference_point",
@@ -37,7 +37,6 @@ class TestSettingFields:
             "settle",
             "detection",
             "audio",
-            "tact",
         ]
         assert sections == sorted(sections, key=sections.index)
 
@@ -55,34 +54,32 @@ class TestSettingFields:
         keys = [field.key for field in setting_fields() if field.group == "吐出の基本"]
 
         assert keys == [
-            "paste_dispenser.rotations_per_ul",
-            "paste_dispenser.nozzle_diameter",
-            "paste_dispenser.nozzle_outer_diameter",
-            "paste_dispenser.solder_paste_density",
-            "paste_dispenser.defaults.ul_per_mm2",
+            "solder.dispenser.rotations_per_ul",
+            "solder.nozzle.diameter",
+            "solder.nozzle.outer_diameter",
+            "solder.paste_density",
+            "solder.defaults.ul_per_mm2",
         ]
 
     def test_kind_follows_the_field_type(self):
         fields = _by_key()
 
-        assert fields["paste_dispenser.nozzle_diameter"].kind == "float"
-        assert fields["paste_dispenser.nozzle_outer_diameter"].kind == "float"
+        assert fields["solder.nozzle.diameter"].kind == "float"
+        assert fields["solder.nozzle.outer_diameter"].kind == "float"
         assert fields["probe.min_samples"].kind == "int"
         assert fields["camera.calibration_file"].kind == "str"
-        assert fields["paste_dispenser.defaults.paste_height"].kind == "float_or_auto"
+        assert fields["solder.defaults.paste_height"].kind == "float_or_auto"
         assert fields["reference_point.offsets.top_left"].kind == "float_pair"
-        assert fields["paste_dispenser.defaults.dispense_mode"].kind == "choice"
+        assert fields["solder.defaults.dispense_mode"].kind == "choice"
 
     def test_choices_cover_every_allowed_value(self):
         fields = _by_key()
 
         assert [
-            value
-            for value, _ in fields["paste_dispenser.defaults.dispense_mode"].choices
+            value for value, _ in fields["solder.defaults.dispense_mode"].choices
         ] == list(DISPENSE_MODES)
         assert [
-            value
-            for value, _ in fields["paste_dispenser.defaults.line_direction"].choices
+            value for value, _ in fields["solder.defaults.line_direction"].choices
         ] == list(LINE_DIRECTIONS)
 
     def test_coordinates_are_one_set_of_three_toml_keys(self):
@@ -90,22 +87,22 @@ class TestSettingFields:
         fields = _by_key()
 
         for key in (
-            "paste_dispenser.nozzle_cap.position",
-            "paste_dispenser.nozzle_clean.position",
+            "solder.nozzle.cap.position",
+            "solder.nozzle.clean.position",
         ):
             assert fields[key].kind == "float_triple"
             assert fields[key].set == XYZ
         assert [field.key for field in setting_fields() if field.set] == [
-            "paste_dispenser.nozzle_cap.position",
-            "paste_dispenser.nozzle_clean.position",
+            "solder.nozzle.cap.position",
+            "solder.nozzle.clean.position",
         ]
 
     def test_resolve_reads_the_effective_value(self):
         machine = load_machine(MINIMAL_MACHINE_TOML)
         fields = _by_key()
 
-        assert fields["paste_dispenser.motion.lift_height"].resolve(machine) == (
-            machine.paste_dispenser.motion.lift_height
+        assert fields["solder.motion.lift_height"].resolve(machine) == (
+            machine.solder.motion.lift_height
         )
         # 未教示の座標は None
-        assert fields["paste_dispenser.nozzle_cap.position"].resolve(machine) is None
+        assert fields["solder.nozzle.cap.position"].resolve(machine) is None

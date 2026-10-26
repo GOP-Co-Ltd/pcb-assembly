@@ -3,15 +3,15 @@
 pad 単位で上書きできる 10 項目を :class:`PasteParams`（全項目確定）と
 :class:`PasteParamsPatch`（差分、欠落 = 継承）の 2 型で表す。項目の一覧・並び・値の制約・表示名は
 :class:`PasteParams` の attrs フィールドが唯一の出典で、``machine.toml`` の
-``[paste_dispenser.defaults]`` もこの型で読む。項目名・pad 編集表の列・HTTP 境界の検証は
+``[solder.defaults]`` もこの型で読む。項目名・pad 編集表の列・HTTP 境界の検証は
 ``attrs.fields`` から導出する。
 
 装置側の吐出ダイナミクス（レート・加速度・リトラクト・リフト）は pad に依らないので
-:class:`DispenseMotion`（``[paste_dispenser.motion]``）に分ける。
+:class:`DispenseMotion` に分ける（設定は ``[solder.dispenser]`` と ``[solder.motion]`` に書く）。
 
 ``pcbasm.config`` がこのモジュールの型で ``machine.toml`` を読むので、ここは L0 の単位だけに依存する。
 そのため設定ページの metadata は :func:`pcbasm.config.fields.setting` を呼ばずに同じキーの dict で書く（:func:`~pcbasm.config.fields.setting_fields` がそれを ``setting`` に通して検査する）。
-``order`` は ``[paste_dispenser]`` の画面での通し番号。
+``order`` は ``[solder]`` の画面での通し番号。
 """
 
 from __future__ import annotations
@@ -25,7 +25,6 @@ from pcbasm.validators import (
     as_validator,
     is_finite_number,
     validate_finite_number,
-    validate_greater_than_one,
     validate_non_negative_number,
     validate_positive_number,
 )
@@ -41,7 +40,6 @@ PasteParamValue = float | str
 _positive = as_validator(validate_positive_number)
 _non_negative = as_validator(validate_non_negative_number)
 _finite = as_validator(validate_finite_number)
-_above_one = as_validator(validate_greater_than_one)
 
 
 def _height(instance: object, attribute: attrs.Attribute, value: PasteHeight) -> None:
@@ -334,9 +332,10 @@ PASTE_PARAM_FIELDS: tuple[ParamField, ...] = tuple(
 
 @attrs.frozen(kw_only=True)
 class DispenseMotion:
-    """装置側の吐出ダイナミクス（pad に依らない。``[paste_dispenser.motion]``）.
+    """吐出の動き（pad に依らない装置側の値。fill sequence が使う）.
 
-    ``retract_rate`` を書かないと ``max_dispense_rate`` と同じ値になる（``pcbasm.config`` が読み込み時に解決する）。
+    :attr:`pcbasm.config.solder.SolderConfig.dispense_motion` が ``[solder.dispenser]`` と ``[solder.motion]`` から組み立てる。
+    値の範囲は設定の読み込みが検証する。
 
     Attributes:
         max_fill_speed: 連続塗布できる移動速度上限 [mm/sec]
@@ -350,91 +349,15 @@ class DispenseMotion:
         post_dispense_settle_seconds: 塗布の移動が終わってからヘッドを上げるまでの静定待ち [sec]
     """
 
-    max_fill_speed: float = attrs.field(
-        validator=_positive,
-        metadata={
-            "label": "最大塗布速度",
-            "unit": "mm/s",
-            "group": "吐出の速度",
-            "order": 22,
-        },
-    )
-    max_dispense_rate: float = attrs.field(
-        validator=_positive,
-        metadata={
-            "label": "吐出レート上限",
-            "unit": "uL/s",
-            "group": "吐出の速度",
-            "order": 20,
-        },
-    )
-    dispense_accel: float = attrs.field(
-        validator=_positive,
-        metadata={
-            "label": "吐出加速度",
-            "unit": "uL/s²",
-            "group": "吐出の速度",
-            "order": 21,
-        },
-    )
-    retract_amount: float = attrs.field(
-        validator=_positive,
-        metadata={
-            "label": "リトラクション量",
-            "unit": "uL",
-            "group": "リトラクト",
-            "order": 30,
-        },
-    )
-    retract_rate: float = attrs.field(
-        validator=_positive,
-        metadata={
-            "label": "リトラクションレート",
-            "unit": "uL/s",
-            "group": "リトラクト",
-            "order": 31,
-        },
-    )
-    retract_accel_factor: float = attrs.field(
-        validator=_above_one,
-        metadata={
-            "label": "リトラクション加速度係数",
-            "group": "リトラクト",
-            "order": 32,
-        },
-    )
-    lift_height: float = attrs.field(
-        default=2.0,
-        validator=_positive,
-        metadata={
-            "label": "吐出後の上昇高さ",
-            "unit": "mm",
-            "group": "Z 高さ",
-            "order": 81,
-        },
-    )
-    micro_line_settle_seconds: float = attrs.field(
-        default=0.1,
-        validator=_non_negative,
-        metadata={
-            "label": "微小線の静定待ち",
-            "unit": "s",
-            "group": "微小線",
-            "order": 72,
-            "minimum": 0.0,
-        },
-    )
-    post_dispense_settle_seconds: float = attrs.field(
-        default=0.1,
-        validator=_non_negative,
-        metadata={
-            "label": "塗布後の静定待ち（上昇前）",
-            "unit": "s",
-            "group": "Z 高さ",
-            "order": 82,
-            "minimum": 0.0,
-        },
-    )
+    max_fill_speed: float
+    max_dispense_rate: float
+    dispense_accel: float
+    retract_amount: float
+    retract_rate: float
+    retract_accel_factor: float
+    lift_height: float
+    micro_line_settle_seconds: float
+    post_dispense_settle_seconds: float
 
     @property
     def retract_accel(self) -> float:

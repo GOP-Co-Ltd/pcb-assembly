@@ -5,30 +5,6 @@
 host = "127.0.0.1"
 port = 7126
 
-[paste_dispenser]
-rotations_per_ul = 1.0
-solder_paste_density = 3.78
-nozzle_diameter = 0.21 # ノズル内径 [mm] (27G相当)
-auto_line_aspect_ratio = 1.618
-
-[paste_dispenser.toolhead]
-x = 13.2
-y = 54.7
-
-[paste_dispenser.defaults]
-dispense_mode = "auto"
-ul_per_mm2 = 0.2
-paste_height = "auto"
-
-[paste_dispenser.motion]
-max_fill_speed = 2.0
-max_dispense_rate = 5.0
-dispense_accel = 10.0
-retract_amount = 10.0
-retract_rate = 50.0
-retract_accel_factor = 2.0
-lift_height = 3.0
-
 [camera]
 device_id = 0
 width = 640
@@ -54,3 +30,33 @@ bottom_right = [5.0, 5.0]
 
 [probe]
 min_radius = 0.7
+
+[solder]
+paste_density = 3.78
+
+[solder.dispenser]
+rotations_per_ul = 1.0
+max_dispense_rate = 5.0
+dispense_accel = 10.0
+retract_amount = 10.0
+retract_rate = 50.0
+retract_accel_factor = 2.0
+
+[solder.nozzle]
+diameter = 0.21 # ノズル内径 [mm] (27G相当)
+
+[solder.nozzle.offset]
+x = 13.2
+y = 54.7
+
+[solder.motion]
+max_fill_speed = 2.0
+lift_height = 3.0
+
+[solder.defaults]
+dispense_mode = "auto"
+ul_per_mm2 = 0.2
+paste_height = "auto"
+
+[solder.auto]
+line_aspect_ratio = 1.618

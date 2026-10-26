@@ -12,53 +12,6 @@ probe_sec = 0.0 # PROBE 実行後の待ち [sec]
 sample_count = 10 # 1 観測で撮るフレーム数
 minimum_sample_count = 5 # 1 観測に必要な有効検出数
 
-[paste_dispenser]
-rotations_per_ul = 23.947899 # 1μLあたりの回転数 [rev/μL]。出発値なので dispense_calibration で機体ごとに校正する
-solder_paste_density = 3.78 # はんだペースト密度 [mg/uL] (S3X70-E150DN)
-nozzle_diameter = 0.30 # ノズル内径 [mm] (23G)
-nozzle_outer_diameter = 0.40 # ノズル外径 [mm]。微小線の端 inset に使う。未指定なら nozzle_diameter
-auto_line_aspect_ratio = 1.618 # Auto時に線塗布へ切り替える縦横比
-auto_area_short_side_factor = 4.0 # Auto時に面塗布へ切り替える短辺のノズル径倍率
-initial_purge_ul = 0.3 # fill sequence前の初回パージ量 [uL]
-
-[paste_dispenser.toolhead]
-# カメラに対するツールヘッドの相対位置 (mm)。設計値なので toolhead_offset で実測値に置き換える
-x = 0.0
-y = 24.08
-
-# タスク終了時の駐機先。WebUI の「ノズル位置の設定」で記録する。
-# [paste_dispenser.nozzle_cap]
-# x = 0.0
-# y = 0.0
-# z = 0.0
-
-# ノズル先端クリーニング。位置（x / y / z）は WebUI の「ノズル位置の設定」で記録する。
-# 初回パージを塗布前後で撮って写らなかったときだけ実行する。
-# 位置が無いとこすらず、パージのやり直しだけを行う。
-[paste_dispenser.nozzle_clean]
-press_depth = 0.0 # 面からの押し込み量 [mm]
-purge_ul = 0.2 # こすり前のパージ量 [uL]
-stroke = 1.0 # 十字往復の片振幅 [mm]
-passes = 2 # 十字往復の反復回数
-wipe_speed = 5.0 # こすり移動速度 [mm/sec]
-
-[paste_dispenser.defaults]
-dispense_mode = "auto" # 塗布方式: auto / dot / line / area / micro_line
-line_direction = "unconstrained" # 線の走行方向: unconstrained / outward / inward
-ul_per_mm2 = 0.2 # パッド面積あたりのペースト量 [uL/mm^2]
-paste_height = 0.2 # 塗布面のZ高さ [mm]、または auto
-prime_extra_delay = 0.0 # プライム後の追加遅延 [sec]
-overlap = 0.2
-
-[paste_dispenser.motion]
-max_fill_speed = 2.0 # 連続塗布できる移動速度上限 [mm/sec]（実機で 1812 が連続になるまで調整）
-max_dispense_rate = 0.05 # 吐出レート上限 [uL/sec]
-dispense_accel = 0.192548 # 吐出加速度 [uL/sec^2]
-retract_amount = 0.03 # リトラクション量 [uL]
-retract_rate = 0.1
-retract_accel_factor = 5.0 # リトラクション加速度係数
-lift_height = 1.0 # 吐出後の上昇高さ [mm]
-
 [camera]
 device_id = 0
 width = 1280
@@ -116,3 +69,57 @@ max_passes = 5
 board_edge_margin = 1.0
 converge_tolerance = 0.015
 region_overlap = 0.2
+
+# この節があれば、はんだ塗布機として使える
+[solder]
+paste_density = 3.78 # はんだペースト密度 [mg/uL] (S3X70-E150DN)
+initial_purge_ul = 0.3 # fill sequence前の初回パージ量 [uL]
+
+[solder.dispenser]
+rotations_per_ul = 23.947899 # 1μLあたりの回転数 [rev/μL]。出発値なので dispense_calibration で機体ごとに校正する
+max_dispense_rate = 0.05 # 吐出レート上限 [uL/sec]
+dispense_accel = 0.192548 # 吐出加速度 [uL/sec^2]
+retract_amount = 0.03 # リトラクション量 [uL]
+retract_rate = 0.1
+retract_accel_factor = 5.0 # リトラクション加速度係数
+
+[solder.nozzle]
+diameter = 0.30 # ノズル内径 [mm] (23G)
+outer_diameter = 0.40 # ノズル外径 [mm]。微小線の端 inset に使う。未指定なら diameter
+
+[solder.nozzle.offset]
+# カメラに対するツールヘッドの相対位置 (mm)。設計値なので toolhead_offset で実測値に置き換える
+x = 0.0
+y = 24.08
+
+# タスク終了時の駐機先。WebUI の「ノズル位置の設定」で記録する。
+# [solder.nozzle.cap]
+# x = 0.0
+# y = 0.0
+# z = 0.0
+
+# ノズル先端クリーニング。位置（x / y / z）は WebUI の「ノズル位置の設定」で記録する。
+# 初回パージを塗布前後で撮って写らなかったときだけ実行する。
+# 位置が無いとこすらず、パージのやり直しだけを行う。
+[solder.nozzle.clean]
+press_depth = 0.0 # 面からの押し込み量 [mm]
+purge_ul = 0.2 # こすり前のパージ量 [uL]
+stroke = 1.0 # 十字往復の片振幅 [mm]
+passes = 2 # 十字往復の反復回数
+wipe_speed = 5.0 # こすり移動速度 [mm/sec]
+
+[solder.motion]
+max_fill_speed = 2.0 # 連続塗布できる移動速度上限 [mm/sec]（実機で 1812 が連続になるまで調整）
+lift_height = 1.0 # 吐出後の上昇高さ [mm]
+
+[solder.defaults]
+dispense_mode = "auto" # 塗布方式: auto / dot / line / area / micro_line
+line_direction = "unconstrained" # 線の走行方向: unconstrained / outward / inward
+ul_per_mm2 = 0.2 # パッド面積あたりのペースト量 [uL/mm^2]
+paste_height = 0.2 # 塗布面のZ高さ [mm]、または auto
+prime_extra_delay = 0.0 # プライム後の追加遅延 [sec]
+overlap = 0.2
+
+[solder.auto]
+line_aspect_ratio = 1.618 # Auto時に線塗布へ切り替える縦横比
+area_short_side_factor = 4.0 # Auto時に面塗布へ切り替える短辺のノズル径倍率

@@ -1119,7 +1119,7 @@ class TestPasteSolderBrowserTactEstimate:
         before = label.text_content()
 
         browser_page.get_by_test_id(
-            "auto-threshold-paste_dispenser.auto_line_aspect_ratio"
+            "auto-threshold-solder.auto.line_aspect_ratio"
         ).fill("1.01")
 
         expect(label).not_to_have_text(before or "")

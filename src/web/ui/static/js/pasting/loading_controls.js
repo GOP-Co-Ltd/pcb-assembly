@@ -22,9 +22,9 @@
   const CALIBRATION_DELAY_MS = 250;
   // 設定キー -> 現在値 output id（適用成功時に表示を更新するため）
   const CURRENT_OUTPUT_FOR = {
-    "paste_dispenser.rotations_per_ul": "lc-current-rotations-per-ul",
-    "paste_dispenser.motion.max_dispense_rate": "lc-current-dispense-rate",
-    "paste_dispenser.motion.dispense_accel": "lc-current-dispense-accel",
+    "solder.dispenser.rotations_per_ul": "lc-current-rotations-per-ul",
+    "solder.dispenser.max_dispense_rate": "lc-current-dispense-rate",
+    "solder.dispenser.dispense_accel": "lc-current-dispense-accel",
   };
   // 最後に取得・表示した算出値（適用ボタンが送る値）。
   let computed = null;
@@ -119,18 +119,18 @@
       input.addEventListener("input", invalidate);
     }
     bindApply("lc-apply-rotations-per-ul", () => ({
-      "paste_dispenser.rotations_per_ul": computed?.rotations_per_ul,
+      "solder.dispenser.rotations_per_ul": computed?.rotations_per_ul,
     }));
     bindApply("lc-apply-dispense-rate", () => ({
-      "paste_dispenser.motion.max_dispense_rate": computed?.max_dispense_rate,
+      "solder.dispenser.max_dispense_rate": computed?.max_dispense_rate,
     }));
     bindApply("lc-apply-dispense-accel", () => ({
-      "paste_dispenser.motion.dispense_accel": computed?.dispense_accel,
+      "solder.dispenser.dispense_accel": computed?.dispense_accel,
     }));
     bindApply("lc-apply-all", () => ({
-      "paste_dispenser.rotations_per_ul": computed?.rotations_per_ul,
-      "paste_dispenser.motion.max_dispense_rate": computed?.max_dispense_rate,
-      "paste_dispenser.motion.dispense_accel": computed?.dispense_accel,
+      "solder.dispenser.rotations_per_ul": computed?.rotations_per_ul,
+      "solder.dispenser.max_dispense_rate": computed?.max_dispense_rate,
+      "solder.dispenser.dispense_accel": computed?.dispense_accel,
     }));
     invalidate();
   }

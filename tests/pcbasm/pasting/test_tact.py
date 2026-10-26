@@ -10,29 +10,27 @@ import pytest
 from shapely import Polygon
 
 from pcbasm.board import Board, Component, Layer, Outline, Pad
-from pcbasm.config import load_machine
-from pcbasm.config.dispenser import PasteDispenserConfig
-from pcbasm.config.tact import TactConfig
+from pcbasm.config.solder import TactConfig
 from pcbasm.geometry import Path, Point2d
 from pcbasm.pasting.overrides import BoardSession
-from pcbasm.pasting.params import DispenseMotion, PasteParams
+from pcbasm.pasting.params import PasteParams
 from pcbasm.pasting.plan import PastePlan, plan_paste
 from pcbasm.pasting.tact import MotionLimits, estimate_paste_tact
-from tests.support.paths import TEST_CONFIG_DIR
+from tests.support.solder import solder_config
 
 _LIMITS = MotionLimits(velocity=50.0, accel=500.0, z_velocity=5.0, z_accel=10.0)
 _NO_SETUP = TactConfig(setup_sec=0.0)
 # 点塗布。prime の加速は無視できる大きさにし、prime を retract_amount / rate にする
-_MOTION = DispenseMotion(
-    max_fill_speed=1.0,
-    max_dispense_rate=0.1,
-    dispense_accel=1e9,
-    retract_amount=0.1,
-    retract_rate=0.1,
-    retract_accel_factor=2.0,
-    lift_height=1.0,
-    post_dispense_settle_seconds=0.1,
-)
+_MOTION = {
+    "max_fill_speed": 1.0,
+    "max_dispense_rate": 0.1,
+    "dispense_accel": 1e9,
+    "retract_amount": 0.1,
+    "retract_rate": 0.1,
+    "retract_accel_factor": 2.0,
+    "lift_height": 1.0,
+    "post_dispense_settle_seconds": 0.1,
+}
 _DOT = PasteParams(
     dispense_mode="dot",
     line_direction="unconstrained",
@@ -61,11 +59,7 @@ def _rect(x: float, y: float, width: float = 0.5, height: float = 0.5) -> Polygo
 
 def _plan(*pads: Polygon, params: PasteParams = _DOT) -> PastePlan:
     """``pads`` を 1 つずつ持つ部品を並べた基板の塗布計画."""
-    config: PasteDispenserConfig = attrs.evolve(
-        load_machine(TEST_CONFIG_DIR / "machine.toml").paste_dispenser,
-        defaults=params,
-        motion=_MOTION,
-    )
+    config = solder_config(defaults=params, **_MOTION)
     names = [f"R{i}" for i in range(1, len(pads) + 1)]
     board = Board(
         outline=Outline(_rect(50.0, 50.0, 100.0, 100.0)),

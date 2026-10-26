@@ -86,7 +86,7 @@ def _run(
         session,
         hooks or RecordingHooks(),
         crop_size_px=20,
-        params=session.machine.paste_dispenser.defaults,
+        params=session.machine.solder.defaults,
         settle_sec=settle_sec,
         stage_prefix=stage_prefix,
     )
@@ -157,9 +157,7 @@ class TestRun:
 class TestParams:
     def test_only_the_prime_extra_delay_is_fixed(self, session: PasteSession):
         """追加遅延は量に依らず一定量を押し出し、指令量と塗布痕の対応を歪める."""
-        params = attrs.evolve(
-            session.machine.paste_dispenser.defaults, prime_extra_delay=0.5
-        )
+        params = attrs.evolve(session.machine.solder.defaults, prime_extra_delay=0.5)
 
         run = DotCaptureRun(session, RecordingHooks(), crop_size_px=20, params=params)
 

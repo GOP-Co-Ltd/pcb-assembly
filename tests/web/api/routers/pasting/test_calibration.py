@@ -2,7 +2,7 @@
 
 質量キャリブレーション算出（GET /api/pasting/calibration/mass-flow）:
 
-router は「machine.toml の ``solder_paste_density`` を引いて
+router は「machine.toml の ``solder.paste_density`` を引いて
 :meth:`pcbasm.pasting.MassFlowEstimate.estimate` へ委譲する」配線のみを持つ。
 算術・丸め・null ゲーティングの網羅は
 tests/pcbasm/pasting/dispense_calibration/test_mass.py::TestMassFlowEstimate が担保する。

@@ -49,7 +49,7 @@ from web.ui.settings import Settings as UiSettings
 # SSR で描画される全ページ（/ は 307 なので除く）
 ALL_PAGE_URLS = [f"/{feature.slug}" for feature in FEATURES]
 
-# 設定フォームの現在値（ConfigStore / tomlkit）や paste_dispenser・alignment の
+# 設定フォームの現在値（ConfigStore / tomlkit）や solder・alignment の
 # 現在値をコンテキストに載せるページ。machine.toml がパース不能だと backend の
 # `/api/machine_config` が 500 になり、frontend は 503 ページを返す（直す経路は設定履歴）
 _MACHINE_TOML_DEPENDENT_URLS = frozenset(
@@ -128,7 +128,7 @@ def machine_toml_without_defaulted_keys(config_dir: Path) -> Path:
         "canny_high",
         "blur_ksize",
         "refine_max_short_side",
-        "solder_paste_density",
+        "paste_density",
     )
     path.write_text(
         "".join(
@@ -142,8 +142,8 @@ def machine_toml_without_defaulted_keys(config_dir: Path) -> Path:
 
 
 @pytest.fixture
-def machine_toml_without_required_paste_dispenser_key(config_dir: Path) -> Path:
-    """`[paste_dispenser]` の必須キー（既定値なし）を 1 本落とす（そのパスを返す）.
+def machine_toml_without_required_solder_key(config_dir: Path) -> Path:
+    """`[solder]` の必須キー（既定値なし）を 1 本落とす（そのパスを返す）.
 
     TOML としては読めるので backend の `/api/machine_config` は 200 を返すが、
     全体の検証に通らない（設定エラー = degraded）ので実効値（`resolved`）は全て None になる。
@@ -154,7 +154,7 @@ def machine_toml_without_required_paste_dispenser_key(config_dir: Path) -> Path:
         "".join(
             line
             for line in path.read_text(encoding="utf-8").splitlines(keepends=True)
-            if not line.startswith("nozzle_diameter")
+            if not line.startswith("diameter")
         ),
         encoding="utf-8",
     )
@@ -466,12 +466,12 @@ class TestPastingJobPages:
     """
 
     PASTE_SOLDER_SETTING_KEYS = (
-        "paste_dispenser.auto_line_aspect_ratio",
-        "paste_dispenser.auto_area_short_side_factor",
-        "paste_dispenser.volume_correction.calibration_file",
-        "paste_dispenser.volume_correction.amount_ul",
-        "paste_dispenser.volume_correction.crop_size_mm",
-        "paste_dispenser.volume_correction.settle_seconds",
+        "solder.auto.line_aspect_ratio",
+        "solder.auto.area_short_side_factor",
+        "solder.volume_correction.calibration_file",
+        "solder.volume_correction.amount_ul",
+        "solder.volume_correction.crop_size_mm",
+        "solder.volume_correction.settle_seconds",
     )
 
     @pytest.mark.parametrize("setting_key", PASTE_SOLDER_SETTING_KEYS)
@@ -707,7 +707,7 @@ class TestNozzleCapPage:
     """ノズルキャップ位置の設定ページ.
 
     ジョブではない静的な設定ページ（非ジョブテンプレート）。現在値が未記録 （repo fixture に
-    [paste_dispenser.nozzle_cap] なし）のときは「未記録」を表示する。
+    [solder.nozzle.cap] なし）のときは「未記録」を表示する。
     """
 
     def test_partially_recorded_cap_shows_placeholder(
@@ -732,14 +732,14 @@ class TestNozzleCapPage:
         assert 'data-job-name="nozzle_clean_test"' in response.text
         assert 'data-job-names="nozzle_clean_test"' in response.text
         assert 'data-testid="nozzle-clean-settings"' in response.text
-        assert 'name="paste_dispenser.nozzle_clean.press_depth"' in response.text
+        assert 'name="solder.nozzle.clean.press_depth"' in response.text
         # 座標は記録ボタンの管轄なので手打ち欄を並べない
-        assert "paste_dispenser.nozzle_clean.position" not in response.text
+        assert "solder.nozzle.clean.position" not in response.text
 
     def test_partially_recorded_clean_shows_placeholder(
         self, partial_nozzle_clean: Path, client: TestClient
     ):
-        """座標の無い `[paste_dispenser.nozzle_clean]` でも 500 にせず「未記録」を出す."""
+        """座標の無い `[solder.nozzle.clean]` でも 500 にせず「未記録」を出す."""
         response = client.get("/nozzle_cap")
 
         assert response.status_code == 200
@@ -752,7 +752,7 @@ class TestNozzleCapPage:
         path = config_dir / "machine.toml"
         with path.open("a", encoding="utf-8") as machine_toml:
             machine_toml.write(
-                "\n[paste_dispenser.nozzle_clean]\nx = 10.0\ny = 20.0\nz = -30.0\npress_depth = 0.4\n"
+                "\n[solder.nozzle.clean]\nx = 10.0\ny = 20.0\nz = -30.0\npress_depth = 0.4\n"
             )
 
         response = client.get("/nozzle_cap")
@@ -766,9 +766,7 @@ class TestNozzleCapPage:
         """キャップ位置も、サーバーが組んだ label をそのまま出す（テンプレートで書式を組まない）."""
         path = config_dir / "machine.toml"
         with path.open("a", encoding="utf-8") as machine_toml:
-            machine_toml.write(
-                "\n[paste_dispenser.nozzle_cap]\nx = 10.0\ny = 20.0\nz = -3.5\n"
-            )
+            machine_toml.write("\n[solder.nozzle.cap]\nx = 10.0\ny = 20.0\nz = -3.5\n")
 
         response = client.get("/nozzle_cap")
 
@@ -786,9 +784,9 @@ class TestCommissioningPage:
         """全段を済ませた機体（ノズル位置・運転時補正の校正ファイル・合格した装置診断）."""
         with (config_dir / "machine.toml").open("a", encoding="utf-8") as machine_toml:
             machine_toml.write(
-                "\n[paste_dispenser.nozzle_cap]\nx = 1.0\ny = 2.0\nz = 3.0\n"
-                "\n[paste_dispenser.nozzle_clean]\nx = 4.0\ny = 5.0\nz = 6.0\n"
-                '\n[paste_dispenser.volume_correction]\ncalibration_file = "a.json"\n'
+                "\n[solder.nozzle.cap]\nx = 1.0\ny = 2.0\nz = 3.0\n"
+                "\n[solder.nozzle.clean]\nx = 4.0\ny = 5.0\nz = 6.0\n"
+                '\n[solder.volume_correction]\ncalibration_file = "a.json"\n'
             )
         calibration_dir = backend_settings.paste_volume_calibration_dir
         calibration_dir.mkdir(parents=True)
@@ -934,13 +932,13 @@ class TestUnsetMachineSettingsShowResolvedValues:
         path = config_dir / "machine.toml"
         with path.open("a", encoding="utf-8") as machine_toml:
             machine_toml.write(
-                "\n[paste_dispenser.nozzle_clean]\nx = 10.0\ny = 20.0\nz = -30.0\n"
+                "\n[solder.nozzle.clean]\nx = 10.0\ny = 20.0\nz = -30.0\n"
             )
 
         text = client.get("/nozzle_cap").text
 
         # NozzleClean の既定値（press_depth=0.5 / stroke=2.0 / passes=2）
-        assert 'name="paste_dispenser.nozzle_clean.press_depth"' in text
+        assert 'name="solder.nozzle.clean.press_depth"' in text
         assert 'placeholder="0.5"' in text
         assert 'placeholder="2.0"' in text
         assert 'placeholder="2"' in text
@@ -950,7 +948,7 @@ class TestUnsetMachineSettingsShowResolvedValues:
     ):
         text = client.get("/loading").text
 
-        # PasteDispenser.solder_paste_density の既定値
+        # SolderConfig.paste_density の既定値
         assert '<dd>3.780 <span class="unit">mg/uL</span></dd>' in text
         assert '<dd>0.000 <span class="unit">mg/uL</span></dd>' not in text
         # machine.toml に書かれているキーは書かれている値のまま
@@ -985,7 +983,7 @@ class TestUnresolvableMachineSettingsAreNotFabricated:
 
     def test_settings_api_answers_200_with_unresolved_values(
         self,
-        machine_toml_without_required_paste_dispenser_key: Path,
+        machine_toml_without_required_solder_key: Path,
         client: TestClient,
         ui_settings: UiSettings,
     ):
@@ -1003,11 +1001,11 @@ class TestUnresolvableMachineSettingsAreNotFabricated:
         fields = {field["key"]: field for field in response.json()["fields"]}
         assert fields["alignment.canny_low"]["resolved"] is None
         assert fields["probe.min_samples"]["resolved"] is None
-        assert fields["paste_dispenser.rotations_per_ul"]["value"] == 45.783133
+        assert fields["solder.dispenser.rotations_per_ul"]["value"] == 45.783133
 
     def test_copper_detection_returns_503_instead_of_zero(
         self,
-        machine_toml_without_required_paste_dispenser_key: Path,
+        machine_toml_without_required_solder_key: Path,
         client: TestClient,
     ):
         response = client.get("/copper_detection")

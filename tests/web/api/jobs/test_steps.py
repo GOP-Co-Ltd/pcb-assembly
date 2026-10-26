@@ -182,7 +182,7 @@ class TestHandleMachineCommand:
         path = config_dir / "machine.toml"
         path.write_text(
             path.read_text(encoding="utf-8")
-            + "\n[paste_dispenser.nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n",
+            + "\n[solder.nozzle.cap]\nx = 10.0\ny = 20.0\nz = 3.5\n",
             encoding="utf-8",
         )
 
@@ -346,9 +346,7 @@ class TestLoadingLoopNotification:
         totals: list[LoadingTotals] = []
 
         def run(ctx: JobContext) -> None:
-            with build_applicator(
-                klipper, stage, ctx.machine.paste_dispenser
-            ) as applicator:
+            with build_applicator(klipper, stage, ctx.machine.solder) as applicator:
                 totals.append(loading_loop(ctx, klipper, stage, applicator))
 
         register_synthetic(catalog, run, name="loading_loop", accepts_commands=True)

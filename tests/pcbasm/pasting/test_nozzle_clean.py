@@ -35,10 +35,10 @@ import attrs
 import pytest
 
 from pcbasm.config import MachineConfig, load_machine
-from pcbasm.config.dispenser import (
+from pcbasm.config.solder import (
     NozzleCleanConfig,
-    PasteDispenserConfig,
-    ToolheadConfig,
+    NozzleOffsetConfig,
+    SolderConfig,
 )
 from pcbasm.geometry import Point3d
 from pcbasm.hal import XYZStage
@@ -54,8 +54,9 @@ from pcbasm.pasting.nozzle_clean import (
     wipe_gcode,
     wipe_points,
 )
-from pcbasm.pasting.params import DispenseMotion, PasteParams
+from pcbasm.pasting.params import PasteParams
 from tests.support.paths import MINIMAL_MACHINE_TOML
+from tests.support.solder import solder_config
 
 # FAKE_PRINTER_CONFIG: x,y ∈ [0,300] / z ∈ [-5,50] / max_velocity = 100
 CENTER_X = 68.0
@@ -109,20 +110,12 @@ def applicator(klipper: FakeKlipper) -> Iterator[PasteApplicator]:
     `clean_nozzle` はパージするので AirPump ON + Stepper Enable を前提にする。
     `with` の外で呼べてしまうとその前提が崩れるので、テストも `with` で組む。
     """
-    config = PasteDispenserConfig(
+    config = solder_config(
         rotations_per_ul=ROTATIONS_PER_UL,
-        nozzle_diameter=0.34,
-        toolhead=ToolheadConfig(x=0.0, y=0.0),
+        max_dispense_rate=1.0,
+        max_fill_speed=5.0,
+        lift_height=5.0,
         defaults=PasteParams(ul_per_mm2=0.05, paste_height=0.5),
-        motion=DispenseMotion(
-            max_fill_speed=5.0,
-            max_dispense_rate=1.0,
-            dispense_accel=10.0,
-            retract_amount=10.0,
-            retract_rate=10.0,
-            retract_accel_factor=2.0,
-            lift_height=5.0,
-        ),
     )
     with build_applicator(klipper, XYZStage(klipper), config) as enabled:
         klipper.clear_sent()  # enable() の送信を数えない
@@ -351,7 +344,7 @@ class TestResolveNozzleClean:
 
     @pytest.mark.parametrize(
         "extra",
-        ["", "[paste_dispenser.nozzle_clean]\npress_depth = 0.4\n"],
+        ["", "[solder.nozzle.clean]\npress_depth = 0.4\n"],
         ids=["no-section", "motion-only"],
     )
     def test_untaught_position_skips_instead_of_failing_the_job(
@@ -373,7 +366,7 @@ class TestResolveNozzleClean:
     def test_recorded_position_is_resolved(self, tmp_path: Path, stage: XYZStage):
         machine = self._machine(
             tmp_path,
-            f"[paste_dispenser.nozzle_clean]\nx = {CENTER_X}\ny = {CENTER_Y}\nz = {SURFACE_Z}\n",
+            f"[solder.nozzle.clean]\nx = {CENTER_X}\ny = {CENTER_Y}\nz = {SURFACE_Z}\n",
         )
 
         resolved = resolve_nozzle_clean(machine, stage)
@@ -384,7 +377,7 @@ class TestResolveNozzleClean:
     def test_unreachable_position_raises(self, tmp_path: Path, stage: XYZStage):
         """教示ミスは黙って進めず、機械を動かす前に気づかせる."""
         machine = self._machine(
-            tmp_path, "[paste_dispenser.nozzle_clean]\nx = 999.0\ny = 20.0\nz = -3.0\n"
+            tmp_path, "[solder.nozzle.clean]\nx = 999.0\ny = 20.0\nz = -3.0\n"
         )
 
         with pytest.raises(ValueError, match="可動域外"):

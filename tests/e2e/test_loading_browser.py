@@ -119,7 +119,7 @@ class TestLoadingOverBrowser:
         # 個別適用: rotations_per_ul のみ永続化 → 現在値 output が更新される
         browser_page.get_by_test_id("lc-apply-rotations-per-ul").click()
         _wait_machine_field(
-            live_server.base_url, "paste_dispenser.rotations_per_ul", 1.89
+            live_server.base_url, "solder.dispenser.rotations_per_ul", 1.89
         )
         expect(browser_page.get_by_test_id("lc-current-rotations-per-ul")).to_have_text(
             "1.890000"
@@ -129,13 +129,13 @@ class TestLoadingOverBrowser:
         # 保存値は Number(toFixed(6)) のトリム後（1.89, 0.26455, 0.26455）
         browser_page.get_by_test_id("lc-apply-all").click()
         _wait_machine_field(
-            live_server.base_url, "paste_dispenser.rotations_per_ul", 1.89
+            live_server.base_url, "solder.dispenser.rotations_per_ul", 1.89
         )
         _wait_machine_field(
-            live_server.base_url, "paste_dispenser.motion.max_dispense_rate", 0.26455
+            live_server.base_url, "solder.dispenser.max_dispense_rate", 0.26455
         )
         _wait_machine_field(
-            live_server.base_url, "paste_dispenser.motion.dispense_accel", 0.26455
+            live_server.base_url, "solder.dispenser.dispense_accel", 0.26455
         )
         expect(browser_page.get_by_test_id("lc-current-dispense-rate")).to_have_text(
             "0.264550"

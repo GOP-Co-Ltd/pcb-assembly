@@ -9,7 +9,7 @@
   （プロキシ配下で必ず誤るため）。未設定時は `http://{machine_id}.local`
   （machine_id が既にドットを含むなら `.local` を重ねない）
   fake の機体（`Env.fake`）は実機の Mainsail へ導かないよう空文字を返す
-- StateResponse に nozzle_cap を追加。`[paste_dispenser.nozzle_cap]` が x/y/z を揃えていない
+- StateResponse に nozzle_cap を追加。`[solder.nozzle.cap]` が x/y/z を揃えていない
   machine.toml でも 200 + null（防御しないと全クライアントのポーリングが 500 する）
 
 操作権リースの HTTP / WS 境界:
@@ -72,7 +72,7 @@ class TestStateApi:
         # machine-info と同じ解決結果（fixture の machine_id はこのホスト名）
         assert data["mainsail_url"] == f"http://{socket.gethostname()}.local"
         assert data["preview_clients"] == 0
-        # fixture の machine.toml に [paste_dispenser.nozzle_cap] / [paste_dispenser.nozzle_clean] が無いので未記録
+        # fixture の machine.toml に [solder.nozzle.cap] / [solder.nozzle.clean] が無いので未記録
         assert data["nozzle_cap"] is None
         assert data["nozzle_clean"] is None
 
@@ -88,9 +88,7 @@ class TestStateApi:
     def test_state_reports_recorded_nozzle_cap(
         self, client: TestClient, machine_config: MachineConfigFile
     ):
-        machine_config.write(
-            {"paste_dispenser.nozzle_cap.position": [10.0, 20.0, -3.5]}
-        )
+        machine_config.write({"solder.nozzle.cap.position": [10.0, 20.0, -3.5]})
 
         data = client.get("/api/session/state").json()
 
@@ -105,7 +103,7 @@ class TestStateApi:
     def test_partially_recorded_nozzle_cap_reports_the_config_error(
         self, partial_nozzle_cap: Path, client: TestClient
     ):
-        """X だけ書かれた `[paste_dispenser.nozzle_cap]` は設定エラー（degraded）.
+        """X だけ書かれた `[solder.nozzle.cap]` は設定エラー（degraded）.
 
         全ページの SSR と全クライアントのポーリングが読むので、500 にせず理由を返す。
         """
@@ -121,8 +119,8 @@ class TestStateApi:
         """表示文字列はサーバーが組んで返す（JS に整形させない）."""
         machine_config.write(
             {
-                "paste_dispenser.nozzle_clean.position": [10.0, 20.0, -30.0],
-                "paste_dispenser.nozzle_clean.press_depth": 0.4,
+                "solder.nozzle.clean.position": [10.0, 20.0, -30.0],
+                "solder.nozzle.clean.press_depth": 0.4,
             }
         )
 
@@ -133,7 +131,7 @@ class TestStateApi:
     def test_partially_recorded_nozzle_clean_reports_null_without_error(
         self, partial_nozzle_clean: Path, client: TestClient
     ):
-        """座標の無い `[paste_dispenser.nozzle_clean]` でも state は 200 + null を返す."""
+        """座標の無い `[solder.nozzle.clean]` でも state は 200 + null を返す."""
         response = client.get("/api/session/state")
 
         assert response.status_code == 200
@@ -157,7 +155,7 @@ class TestMachineInfoApi:
             # frontend / discovery の互換判定に使う値なので、`web.contract.discovery.API_VERSION`
             # を import せずリテラルで固定する（import すると同語反復になり、うっかりの
             # バンプが無音で通る）。バンプは意図的な契約変更なのでここも同時に更新する
-            "api_version": 18,
+            "api_version": 19,
         }
 
     def test_mainsail_url_resolves_from_machine_id_not_request_host(

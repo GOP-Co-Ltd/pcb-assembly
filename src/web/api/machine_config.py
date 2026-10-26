@@ -20,7 +20,7 @@ from pcbasm.atomic import write_bytes_atomic, write_text_atomic
 from pcbasm.config import ConfigError, MachineConfig, load_machine, parse_machine
 from pcbasm.config.fields import SettingField, setting_fields
 from pcbasm.geometry import Point3d
-from pcbasm.migrate.machine_toml import NAME, MigrationError, migrate_machine_toml
+from pcbasm.migrate.machine_toml import MigrationError, migrate_machine_toml
 from pcbasm.validators import is_finite_number
 from web.api.history import ConfigHistory
 from web.contract.models import (
@@ -96,18 +96,20 @@ class MachineConfigFile:
         失敗しても例外は出さない。ファイルに触れず、読めない間はその理由を設定エラーとして出す（degraded）。
         """
         try:
-            changes = migrate_machine_toml(self.path)
+            applied = migrate_machine_toml(self.path)
         except MigrationError as exc:
             logger.error("machine.toml を移行できません: %s", exc)
             self._migration_error = str(exc)
             return
-        if changes:
+        for name, changes in applied.items():
             logger.info(
-                "machine.toml を移行 %s で書き換えました: %s", NAME, " / ".join(changes)
+                "machine.toml を移行 %s で書き換えました: %s", name, " / ".join(changes)
             )
+        if applied:
+            first = next(iter(applied))
             self._notice = (
                 "machine.toml を新しい形へ移行しました"
-                f"（元の内容は設定履歴の machine-pre-{NAME}.toml）"
+                f"（元の内容は設定履歴の machine-pre-{first}.toml）"
             )
 
     def history_entries(self) -> list[ConfigHistoryEntry]:

@@ -18,7 +18,7 @@ import attrs
 import pytest
 
 from pcbasm.config import load_machine
-from pcbasm.config.dispenser import NozzleCleanConfig
+from pcbasm.config.solder import NozzleCleanConfig
 from pcbasm.geometry import Point2d, Point3d
 from pcbasm.hal.fake import FakeCamera, FakeKlipper
 from pcbasm.pasting.initial_purge import ResolvedInitialPurge
@@ -65,7 +65,7 @@ _STEPPER_MOVE_RE = re.compile(r"MANUAL_STEPPER STEPPER=paste_dispenser MOVE=(\S+
 
 
 def _dispenser():
-    return load_machine(TEST_CONFIG_DIR / "machine.toml").paste_dispenser
+    return load_machine(TEST_CONFIG_DIR / "machine.toml").solder
 
 
 def _blocking_loads_ul(klipper: FakeKlipper) -> list[float]:
@@ -73,7 +73,7 @@ def _blocking_loads_ul(klipper: FakeKlipper) -> list[float]:
 
     塗布シーケンス（`SYNC=0` の非同期 MOVE）は除く。
     """
-    rotations_per_ul = _dispenser().rotations_per_ul
+    rotations_per_ul = _dispenser().dispenser.rotations_per_ul
     return [
         float(match.group(1)) / rotations_per_ul
         for match in (_STEPPER_MOVE_RE.match(line) for line in klipper.sent_lines)
@@ -205,7 +205,7 @@ class TestPurgeWithCleaning:
         assert self._count(purged.moves, self._is_capture) == 3
         # 直前のパージはリトラクトで終わっている。押し戻してから掃除のパージをしないと
         # 設定した量が先端から出ない（出たあとはまた引き戻す）
-        retract = _dispenser().motion.retract_amount
+        retract = _dispenser().dispenser.retract_amount
         assert purged.loads == pytest.approx([retract, CLEAN.purge_ul, -retract])
 
     def test_raises_when_the_second_purge_still_shows_nothing(self):

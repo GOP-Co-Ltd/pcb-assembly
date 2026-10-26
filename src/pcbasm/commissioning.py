@@ -77,7 +77,7 @@ STEPS: tuple[Step, ...] = (
         "toolhead_offset",
         "ツールヘッドオフセット",
         ("reference_point_setup",),
-        "[paste_dispenser.toolhead] に x / y がある",
+        "[solder.nozzle.offset] に x / y がある",
         "ノズルを付け替えたとき、カメラを動かしたとき",
     ),
     Step(
@@ -91,7 +91,7 @@ STEPS: tuple[Step, ...] = (
         "paste_volume_calibration",
         "塗布量の校正",
         ("dispense_calibration",),
-        "[paste_dispenser.volume_correction] の calibration_file が data/paste-volume-calibrations にある",
+        "[solder.volume_correction] の calibration_file が data/paste-volume-calibrations にある",
         "ペーストの種類やノズル径を替えたとき",
     ),
 )
@@ -186,17 +186,17 @@ def _missing(
 def _missing_settings(
     machine: MachineConfig, calibration_dir: Path
 ) -> dict[str, str | None]:
-    dispenser = machine.paste_dispenser
+    solder = machine.solder
     camera_file = machine.camera.calibration_file
     untaught = [
         name
         for name, position in (
-            ("キャップ位置", dispenser.nozzle_cap.position),
-            ("クリーニング位置", dispenser.nozzle_clean.position),
+            ("キャップ位置", solder.nozzle.cap.position),
+            ("クリーニング位置", solder.nozzle.clean.position),
         )
         if position is None
     ]
-    volume_file = dispenser.volume_correction.calibration_file
+    volume_file = solder.volume_correction.calibration_file
     if not volume_file:
         volume = "運転時補正に使う校正ファイルを選んでいません"
     elif not (calibration_dir / volume_file).is_file():

@@ -13,10 +13,10 @@ import attrs
 import numpy as np
 import pytest
 
-from pcbasm.config.dispenser import PasteDispenserConfig, ToolheadConfig
+from pcbasm.config.solder import SolderConfig
 from pcbasm.pasting.applicator import DispenseExecution, PasteApplicationResult
 from pcbasm.pasting.dot_capture import PRIME_EXTRA_DELAY
-from pcbasm.pasting.params import DispenseMotion, PasteParams
+from pcbasm.pasting.params import PasteParams
 from pcbasm.pasting.paste_volume.dataset.metadata import (
     DatasetView,
     PasteDatasetLoading,
@@ -41,6 +41,7 @@ from pcbasm.pasting.paste_volume.dataset.store import PasteDatasetStore
 from pcbasm.vision.crop import RectCrop
 from tests.support.camera_model import make_camera_model
 from tests.support.paths import PASTE_DATASET_METADATA
+from tests.support.solder import solder_config
 
 STARTED_AT = datetime(2026, 9, 8, 14, 30, 52, 123456, tzinfo=UTC)
 DENSITY = 3.78
@@ -98,22 +99,12 @@ def _execution(rotations: float) -> PasteApplicationResult:
     )
 
 
-def _dispenser() -> PasteDispenserConfig:
-    return PasteDispenserConfig(
+def _solder() -> SolderConfig:
+    return solder_config(
         rotations_per_ul=20.0,
-        nozzle_diameter=0.34,
-        toolhead=ToolheadConfig(x=0.0, y=0.0),
-        solder_paste_density=DENSITY,
+        paste_density=DENSITY,
         initial_purge_ul=0.5,
         defaults=PasteParams(ul_per_mm2=0.05, paste_height=0.5, prime_extra_delay=0.8),
-        motion=DispenseMotion(
-            max_fill_speed=2.0,
-            max_dispense_rate=5.0,
-            dispense_accel=10.0,
-            retract_amount=10.0,
-            retract_rate=10.0,
-            retract_accel_factor=2.0,
-        ),
     )
 
 
@@ -123,7 +114,7 @@ def _run_info() -> DatasetRunInfo:
         paste_id="paste-1",
         paste_lot=None,
         params=attrs.evolve(
-            _dispenser().defaults,
+            _solder().defaults,
             paste_height=PASTE_HEIGHT_MM,
             prime_extra_delay=PRIME_EXTRA_DELAY,
         ),
@@ -133,7 +124,7 @@ def _run_info() -> DatasetRunInfo:
         crop_size_px=CROP_SIZE_PX,
         loading=LOADING,
         started_at=STARTED_AT,
-        dispenser=_dispenser(),
+        solder=_solder(),
         camera_model=make_camera_model(120.5, (1280, 720), focus_z=12.0),
     )
 
@@ -339,7 +330,7 @@ class TestPasteDatasetRecorder:
         assert metadata.plate.height_plane_z_mm == HEIGHT_PLANE_Z_MM
         assert metadata.loading == LOADING
         assert metadata.label.kind == "rotation_allocated"
-        # dispenser 設定の 0.8 ではなく、実際に塗った値を記録する
+        # solder 設定の 0.8 ではなく、実際に塗った値を記録する
         assert config.prime_extra_delay_s == PRIME_EXTRA_DELAY
 
     def test_record_post_reports_crop_rect_mismatch(

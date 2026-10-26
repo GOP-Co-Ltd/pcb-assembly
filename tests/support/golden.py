@@ -151,7 +151,7 @@ GOLDEN_DIR = PROJECT_ROOT / "tests" / "golden"
 JOBS = GOLDEN_DIR / "jobs"
 CONFIG_FILES = (GOLDEN_DIR / "machine.toml", GOLDEN_DIR / "camera_calibration.json")
 CAMERA_MODEL = CameraModel.load(GOLDEN_DIR / "camera_calibration.json")
-DISPENSER = load_machine(GOLDEN_DIR / "machine.toml").paste_dispenser
+SOLDER = load_machine(GOLDEN_DIR / "machine.toml").solder
 # 運転時補正で塗る点（board 座標）。pad の無い下側のベタに、crop が重ならない間隔で置く
 FLOW_POINTS = (Point2d(5.0, 20.0), Point2d(10.0, 20.0), Point2d(15.0, 20.0))
 
@@ -186,8 +186,8 @@ def scene_camera(
     return SceneCamera(
         klipper,
         pixel_per_mm=pixel_per_mm,
-        toolhead=Point2d(DISPENSER.toolhead.x, DISPENSER.toolhead.y),
-        rotations_per_ul=DISPENSER.rotations_per_ul,
+        toolhead=Point2d(SOLDER.nozzle.offset.x, SOLDER.nozzle.offset.y),
+        rotations_per_ul=SOLDER.dispenser.rotations_per_ul,
         rotation=rotation,
         size=CAMERA_MODEL.image_size,
         shapes=shapes,
@@ -226,15 +226,13 @@ def enable_flow_calibration(settings: Env, backend: Backend, pcb: Path) -> None:
     write_calibration(settings.paste_volume_calibration_dir / name, calibration)
     MachineConfigFile(settings.config_dir).write(
         {
-            "paste_dispenser.volume_correction.calibration_file": name,
-            "paste_dispenser.volume_correction.settle_seconds": 0.0,
+            "solder.volume_correction.calibration_file": name,
+            "solder.volume_correction.settle_seconds": 0.0,
         }
     )
     board = load_board(pcb)
     store = BoardOverrides(settings.webui_data_dir)
-    model = store.load_or_init(
-        pcb.name, backend.machine_config.machine().paste_dispenser
-    )
+    model = store.load_or_init(pcb.name, backend.machine_config.machine().solder)
     store.save(
         pcb.name,
         model.with_flow_calibration_points(FLOW_POINTS),

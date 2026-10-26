@@ -44,7 +44,7 @@ _ALIGN = frozenset(
 # 単位 → L0 のほかに import してよい単位（接頭辞で照合する。単位の中の import はいつでもよい）
 _RULES: dict[str, frozenset[str]] = {
     **{unit: frozenset() for unit in _L0},
-    # [paste_dispenser.defaults] と [paste_dispenser.motion] の型
+    # [solder] の下位表の型
     "pcbasm.config": frozenset({"pcbasm.pasting.params"}),
     # config が import するので、L0 だけに依存する（循環させない）
     "pcbasm.pasting.params": frozenset(),

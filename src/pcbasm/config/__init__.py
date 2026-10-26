@@ -1,7 +1,7 @@
 """machine.toml のスキーマと読み込み.
 
-TOML の 1 節を 1 モジュールに置く（``[paste_dispenser]`` は :mod:`.dispenser`、``[alignment]`` は :mod:`.alignment`）。
-TOML のパスと属性のパスは一致する（``paste_dispenser.defaults.ul_per_mm2`` は ``MachineConfig.paste_dispenser.defaults.ul_per_mm2``）。
+TOML の 1 節を 1 モジュールに置く（``[solder]`` は :mod:`.solder`、``[alignment]`` は :mod:`.alignment`）。
+TOML のパスと属性のパスは一致する（``solder.defaults.ul_per_mm2`` は ``MachineConfig.solder.defaults.ul_per_mm2``）。
 ここは全体の :class:`MachineConfig` と、読み込み・一括検証だけを持つ。
 設定ページの項目は各節の metadata から :func:`pcbasm.config.fields.setting_fields` が作る。
 """
@@ -21,22 +21,21 @@ from pcbasm.config.alignment import AlignmentConfig
 from pcbasm.config.audio import AudioConfig
 from pcbasm.config.camera import CameraConfig
 from pcbasm.config.detection import DetectionConfig
-from pcbasm.config.dispenser import (
-    NozzleCapConfig,
-    NozzleCleanConfig,
-    PasteDispenserConfig,
-)
 from pcbasm.config.fields import section
 from pcbasm.config.klipper import KlipperConfig
 from pcbasm.config.probe import ProbeConfig
 from pcbasm.config.reference_point import ReferencePointConfig
 from pcbasm.config.settle import SettleConfig
-from pcbasm.config.tact import TactConfig
+from pcbasm.config.solder import (
+    DispenserConfig,
+    NozzleCapConfig,
+    NozzleCleanConfig,
+    SolderConfig,
+)
 from pcbasm.pasting.params import (
     DISPENSE_MODES,
     LINE_DIRECTIONS,
     DispenseMode,
-    DispenseMotion,
     LineDirection,
     PasteHeight,
 )
@@ -86,20 +85,20 @@ def _position_hook(
     return hook
 
 
-def _motion_hook(
+def _dispenser_hook(
     converter: cattrs.Converter,
-) -> Callable[[Mapping[str, Any], object], DispenseMotion]:
-    """``[paste_dispenser.motion]`` の structure hook を作る.
+) -> Callable[[Mapping[str, Any], object], DispenserConfig]:
+    """``[solder.dispenser]`` の structure hook を作る.
 
     ``retract_rate`` を省略したら ``max_dispense_rate`` と同じ値にする。
     """
-    structure = make_dict_structure_fn(DispenseMotion, converter)
+    structure = make_dict_structure_fn(DispenserConfig, converter)
 
-    def hook(value: Mapping[str, Any], _: object) -> DispenseMotion:
+    def hook(value: Mapping[str, Any], _: object) -> DispenserConfig:
         data = dict(value)
         if "retract_rate" not in data and "max_dispense_rate" in data:
             data["retract_rate"] = data["max_dispense_rate"]
-        return structure(data, DispenseMotion)
+        return structure(data, DispenserConfig)
 
     return hook
 
@@ -117,7 +116,7 @@ def _make_converter() -> cattrs.Converter:
     )
     for cls in (NozzleCapConfig, NozzleCleanConfig):
         converter.register_structure_hook(cls, _position_hook(cls, converter))
-    converter.register_structure_hook(DispenseMotion, _motion_hook(converter))
+    converter.register_structure_hook(DispenserConfig, _dispenser_hook(converter))
     return converter
 
 
@@ -145,9 +144,7 @@ class MachineConfig:
     """
 
     klipper: KlipperConfig
-    paste_dispenser: PasteDispenserConfig = attrs.field(
-        metadata=section(label="ペーストディスペンサー", order=1)
-    )
+    solder: SolderConfig = attrs.field(metadata=section(label="はんだ塗布", order=1))
     camera: CameraConfig = attrs.field(metadata=section(label="カメラ", order=5))
     reference_point: ReferencePointConfig = attrs.field(
         metadata=section(label="基準点", order=4)
@@ -164,9 +161,6 @@ class MachineConfig:
     )
     detection: DetectionConfig = attrs.field(
         factory=DetectionConfig, metadata=section(label="統計検出", order=7)
-    )
-    tact: TactConfig = attrs.field(
-        factory=TactConfig, metadata=section(label="所要時間の予測", order=9)
     )
 
 

@@ -14,17 +14,21 @@ from pcbasm.config.alignment import AlignmentConfig
 from pcbasm.config.audio import AudioConfig
 from pcbasm.config.camera import CameraConfig, CameraCropConfig
 from pcbasm.config.detection import DetectionConfig
-from pcbasm.config.dispenser import (
-    NozzleCleanConfig,
-    PasteDispenserConfig,
-    ToolheadConfig,
-    VolumeCorrectionConfig,
-)
 from pcbasm.config.klipper import KlipperConfig
 from pcbasm.config.probe import ProbeConfig
 from pcbasm.config.reference_point import CornerOffsetsConfig, ReferencePointConfig
 from pcbasm.config.settle import SettleConfig
-from pcbasm.config.tact import TactConfig
+from pcbasm.config.solder import (
+    AutoModeConfig,
+    DispenserConfig,
+    NozzleCleanConfig,
+    NozzleConfig,
+    NozzleOffsetConfig,
+    SolderConfig,
+    SolderMotionConfig,
+    TactConfig,
+    VolumeCorrectionConfig,
+)
 from pcbasm.geometry import Point3d
 from pcbasm.migrate.machine_toml import migrate_text
 from pcbasm.pasting.params import DispenseMotion, PasteParams
@@ -56,36 +60,31 @@ def _machine_with(tmp_path: Path, extra: str) -> MachineConfig:
     return load_machine(_write_with(tmp_path, extra))
 
 
-def _paste_dispenser(**overrides):
-    """検証用の PasteDispenserConfig.
+def _solder(**overrides) -> SolderConfig:
+    """検証用 machine.toml の [solder] の項目を ``overrides`` で置き換える.
 
-    ``overrides`` には defaults / motion の項目名も渡せる。
+    項目は下位表の項目名で渡す（どの表の項目かは名前で決まる）。
     """
-    flat: dict = {
-        "rotations_per_ul": 1.0,
-        "nozzle_diameter": 0.21,
-        "toolhead": ToolheadConfig(x=13.2, y=54.7),
-        "auto_line_aspect_ratio": 1.618,
+    solder = load_machine(MINIMAL_MACHINE_TOML).solder
+    tables: dict[str, dict] = {
+        name: {} for name in ("dispenser", "nozzle", "motion", "defaults", "auto")
     }
-    defaults: dict = {"ul_per_mm2": 0.2, "paste_height": "auto"}
-    motion: dict = {
-        "max_fill_speed": 2.0,
-        "max_dispense_rate": 5.0,
-        "dispense_accel": 10.0,
-        "retract_amount": 10.0,
-        "retract_rate": 50.0,
-        "retract_accel_factor": 2.0,
-    }
+    root = {}
     for key, value in overrides.items():
-        if key in attrs.fields_dict(PasteParams):
-            defaults[key] = value
-        elif key in attrs.fields_dict(DispenseMotion):
-            motion[key] = value
-        else:
-            flat[key] = value
-    return PasteDispenserConfig(
-        **flat, defaults=PasteParams(**defaults), motion=DispenseMotion(**motion)
-    )
+        owner = next(
+            (
+                name
+                for name in tables
+                if key in attrs.fields_dict(type(getattr(solder, name)))
+            ),
+            None,
+        )
+        (root if owner is None else tables[owner])[key] = value
+    evolved = {
+        name: attrs.evolve(getattr(solder, name), **values)
+        for name, values in tables.items()
+    }
+    return attrs.evolve(solder, **root, **evolved)
 
 
 class TestMachine:
@@ -95,26 +94,26 @@ class TestMachine:
         machine = load_machine(MINIMAL_MACHINE_TOML)
 
         assert machine.klipper == KlipperConfig(host="127.0.0.1", port=7126)
-        assert machine.paste_dispenser == PasteDispenserConfig(
-            rotations_per_ul=1.0,
-            nozzle_diameter=0.21,
-            toolhead=ToolheadConfig(x=13.2, y=54.7),
-            solder_paste_density=3.78,
-            auto_line_aspect_ratio=1.618,
-            defaults=PasteParams(
-                dispense_mode="auto", ul_per_mm2=0.2, paste_height="auto"
-            ),
-            motion=DispenseMotion(
-                max_fill_speed=2.0,
+        assert machine.solder == SolderConfig(
+            paste_density=3.78,
+            dispenser=DispenserConfig(
+                rotations_per_ul=1.0,
                 max_dispense_rate=5.0,
                 dispense_accel=10.0,
                 retract_amount=10.0,
                 retract_rate=50.0,
                 retract_accel_factor=2.0,
-                lift_height=3.0,
             ),
+            nozzle=NozzleConfig(
+                diameter=0.21, offset=NozzleOffsetConfig(x=13.2, y=54.7)
+            ),
+            motion=SolderMotionConfig(max_fill_speed=2.0, lift_height=3.0),
+            defaults=PasteParams(
+                dispense_mode="auto", ul_per_mm2=0.2, paste_height="auto"
+            ),
+            auto=AutoModeConfig(line_aspect_ratio=1.618),
         )
-        assert machine.paste_dispenser.defaults.line_direction == "unconstrained"
+        assert machine.solder.defaults.line_direction == "unconstrained"
         assert machine.camera == CameraConfig(
             device_id=0,
             width=640,
@@ -178,11 +177,11 @@ class TestMachine:
     @pytest.mark.parametrize(
         ("removed_line", "attribute", "expected"),
         [
-            ("solder_paste_density = 3.78\n", "solder_paste_density", 3.78),
+            ("paste_density = 3.78\n", "paste_density", 3.78),
             ("lift_height = 3.0\n", "motion.lift_height", 2.0),
-            ("retract_rate = 50.0\n", "motion.retract_rate", 5.0),
+            ("retract_rate = 50.0\n", "dispenser.retract_rate", 5.0),
             ("", "initial_purge_ul", 0.1),
-            ("", "auto_area_short_side_factor", 3.0),
+            ("", "auto.area_short_side_factor", 3.0),
             ("", "defaults.bead_width_factor", 1.0),
         ],
     )
@@ -195,9 +194,9 @@ class TestMachine:
         path = tmp_path / "machine.toml"
         path.write_text(source, encoding="utf-8")
 
-        dispenser = load_machine(path).paste_dispenser
+        solder = load_machine(path).solder
 
-        assert attrgetter(attribute)(dispenser) == pytest.approx(expected)
+        assert attrgetter(attribute)(solder) == pytest.approx(expected)
 
     def test_alignment_section_overrides_defaults(self, tmp_path):
         source = (MINIMAL_MACHINE_TOML).read_text()
@@ -225,8 +224,8 @@ class TestMachine:
         path = tmp_path / "machine.toml"
         path.write_text(
             source.replace(
-                "[paste_dispenser]\n",
-                f"[paste_dispenser]\ninitial_purge_ul = {amount}\n",
+                "[solder]\n",
+                f"[solder]\ninitial_purge_ul = {amount}\n",
                 1,
             ),
             encoding="utf-8",
@@ -234,11 +233,11 @@ class TestMachine:
 
         machine = load_machine(path)
 
-        assert machine.paste_dispenser.initial_purge_ul == pytest.approx(amount)
+        assert machine.solder.initial_purge_ul == pytest.approx(amount)
 
     def test_unknown_line_direction_is_rejected(self):
         with pytest.raises(ValueError) as raised:
-            _paste_dispenser(line_direction="sideways")
+            _solder(line_direction="sideways")
 
         assert "線走行方向" in str(raised.value)
 
@@ -248,11 +247,12 @@ class TestMachine:
             ("initial_purge_ul", -0.01),
             ("lift_height", 0.0),
             ("lift_height", -1.0),
-            ("auto_area_short_side_factor", 0.0),
-            ("auto_area_short_side_factor", -1.0),
-            ("nozzle_diameter", 0.0),
+            ("area_short_side_factor", 0.0),
+            ("area_short_side_factor", -1.0),
+            ("diameter", 0.0),
             ("max_fill_speed", 0.0),
             ("max_dispense_rate", -1.0),
+            ("dispense_accel", 0.0),
             ("retract_amount", 0.0),
             ("retract_accel_factor", 1.0),
             ("bead_width_factor", 0.0),
@@ -262,9 +262,9 @@ class TestMachine:
             ("ul_per_mm2", 0.0),
             ("prime_extra_delay", -0.1),
             ("paste_height", float("nan")),
-            ("nozzle_diameter", float("inf")),
+            ("diameter", float("inf")),
             ("max_fill_speed", True),
-            ("nozzle_outer_diameter", 0.0),
+            ("outer_diameter", 0.0),
             ("micro_line_z_start", 0.0),
             ("micro_line_z_end", -0.01),
             ("micro_line_z_end", "fast"),
@@ -275,43 +275,58 @@ class TestMachine:
     def test_paste_settings_out_of_range_are_rejected(self, key, value):
         # FillSequence / PasteApplicator は検証済み値を前提にするため入口で弾く。
         with pytest.raises(ValueError, match=key):
-            _paste_dispenser(**{key: value})
+            _solder(**{key: value})
 
     def test_dispense_dynamics_boundary_values_are_accepted(self):
-        dispenser = _paste_dispenser(overlap=0.0, boundary_margin=0.0)
+        dispenser = _solder(overlap=0.0, boundary_margin=0.0)
 
         assert dispenser.defaults.overlap == 0.0
         assert dispenser.defaults.boundary_margin == 0.0
 
     def test_negative_boundary_margin_is_accepted(self):
         # 負の外周余白は pad 外形をはみ出して塗る指定
-        dispenser = _paste_dispenser(boundary_margin=-0.2)
+        dispenser = _solder(boundary_margin=-0.2)
 
         assert dispenser.defaults.boundary_margin == -0.2
 
     def test_nozzle_outer_diameter_defaults_to_inner_diameter(self):
-        dispenser = _paste_dispenser(nozzle_diameter=0.3)
+        nozzle = _solder(diameter=0.3).nozzle
 
-        assert dispenser.nozzle_outer_diameter is None
-        assert dispenser.effective_nozzle_outer_diameter == pytest.approx(0.3)
+        assert nozzle.outer_diameter is None
+        assert nozzle.effective_outer_diameter == pytest.approx(0.3)
 
     def test_nozzle_outer_diameter_smaller_than_inner_is_rejected(self):
-        with pytest.raises(ValueError, match="nozzle_outer_diameter"):
-            _paste_dispenser(nozzle_diameter=0.3, nozzle_outer_diameter=0.29)
+        with pytest.raises(ValueError, match="outer_diameter"):
+            _solder(diameter=0.3, outer_diameter=0.29)
 
     def test_post_dispense_settle_defaults_to_a_tenth_of_a_second(self):
-        assert _paste_dispenser().motion.post_dispense_settle_seconds == pytest.approx(
-            0.1
+        assert _solder().motion.post_dispense_settle_seconds == pytest.approx(0.1)
+
+    def test_dispense_motion_joins_the_dispenser_and_the_motion(self):
+        """Fill sequence が使う吐出の動きは、[solder.dispenser] と [solder.motion]
+        の値そのもの."""
+        solder = load_machine(MINIMAL_MACHINE_TOML).solder
+
+        assert solder.dispense_motion == DispenseMotion(
+            max_fill_speed=2.0,
+            max_dispense_rate=5.0,
+            dispense_accel=10.0,
+            retract_amount=10.0,
+            retract_rate=50.0,
+            retract_accel_factor=2.0,
+            lift_height=3.0,
+            micro_line_settle_seconds=0.1,
+            post_dispense_settle_seconds=0.1,
         )
 
     def test_micro_line_heights_default_to_auto(self):
-        dispenser = _paste_dispenser()
+        dispenser = _solder()
 
         assert dispenser.defaults.micro_line_z_start == "auto"
         assert dispenser.defaults.micro_line_z_end == "auto"
 
     def test_micro_line_mode_is_accepted(self):
-        dispenser = _paste_dispenser(dispense_mode="micro_line")
+        dispenser = _solder(dispense_mode="micro_line")
 
         assert dispenser.defaults.dispense_mode == "micro_line"
 
@@ -342,7 +357,7 @@ class TestLoadMachine:
 
         assert "move_sec" in str(raised.value)
         assert "lift_height" in str(raised.value)
-        assert raised.value.sections == {"settle", "paste_dispenser"}
+        assert raised.value.sections == {"settle", "solder"}
 
     def test_unparsable_toml_is_a_config_error(self, tmp_path):
         path = _write_with(tmp_path, 'broken = "unterminated\n')
@@ -536,24 +551,24 @@ class TestFlowCalibration:
         assert VolumeCorrectionConfig(settle_seconds=0.0).settle_seconds == 0.0
 
 
-class TestMachinePasteDispenserFlowCalibration:
-    """machine.toml の ``[paste_dispenser.volume_correction]`` の読み込み."""
+class TestMachineSolderVolumeCorrection:
+    """machine.toml の ``[solder.volume_correction]`` の読み込み."""
 
     def test_defaults_when_the_section_is_absent(self, tmp_path):
         machine = _machine_with(tmp_path, "")
 
-        assert machine.paste_dispenser.volume_correction == VolumeCorrectionConfig()
+        assert machine.solder.volume_correction == VolumeCorrectionConfig()
 
     def test_reads_the_section_when_present(self, tmp_path):
         machine = _machine_with(
             tmp_path,
-            "[paste_dispenser.volume_correction]\n"
+            "[solder.volume_correction]\n"
             'calibration_file = "cal.paste-volume.json"\n'
             "amount_ul = 0.15\n"
             "crop_size_mm = 2.4\n"
             "settle_seconds = 4.0\n",
         )
-        flow = machine.paste_dispenser.volume_correction
+        flow = machine.solder.volume_correction
 
         assert flow.calibration_file == "cal.paste-volume.json"
         assert flow.amount_ul == pytest.approx(0.15)
@@ -578,16 +593,16 @@ class TestUnknownKeys:
     def test_unknown_key_in_a_section_is_a_config_error(self, tmp_path):
         path = _write_with(
             tmp_path,
-            **{"[paste_dispenser]\n": "[paste_dispenser]\nair_pump_enabled = true\n"},
+            **{"[solder]\n": "[solder]\nair_pump_enabled = true\n"},
         )
 
         with pytest.raises(ConfigError, match="air_pump_enabled") as raised:
             load_machine(path)
 
-        assert raised.value.sections == {"paste_dispenser"}
+        assert raised.value.sections == {"solder"}
 
 
-@pytest.mark.parametrize("section", ["nozzle_cap", "nozzle_clean"])
+@pytest.mark.parametrize("section", ["cap", "clean"])
 class TestNozzlePosition:
     """ノズル位置の座標は「3 つそろうか、すべて無いか」の 1 組.
 
@@ -595,21 +610,21 @@ class TestNozzlePosition:
     """
 
     def test_missing_section_is_untaught(self, section: str):
-        dispenser = load_machine(MINIMAL_MACHINE_TOML).paste_dispenser
+        nozzle = load_machine(MINIMAL_MACHINE_TOML).solder.nozzle
 
-        assert getattr(dispenser, section).position is None
+        assert getattr(nozzle, section).position is None
 
     def test_reads_recorded_position(self, tmp_path: Path, section: str):
         machine = _machine_with(
-            tmp_path, f"[paste_dispenser.{section}]\nx = 10.0\ny = 20.0\nz = 3.5\n"
+            tmp_path, f"[solder.nozzle.{section}]\nx = 10.0\ny = 20.0\nz = 3.5\n"
         )
 
-        position = getattr(machine.paste_dispenser, section).position
+        position = getattr(machine.solder.nozzle, section).position
         assert position == Point3d(10.0, 20.0, 3.5)
 
     def test_partial_coordinates_are_a_config_error(self, tmp_path: Path, section: str):
         """原点や未記録で埋めて動かさず、設定エラーとして運転者に見せる."""
-        path = _write_with(tmp_path, f"[paste_dispenser.{section}]\nx = 12.5\n")
+        path = _write_with(tmp_path, f"[solder.nozzle.{section}]\nx = 12.5\n")
 
         with pytest.raises(ConfigError, match="x / y / z の 3 つ"):
             load_machine(path)
@@ -620,24 +635,20 @@ class TestNozzleClean:
 
     def test_motion_only_section_is_untaught_but_keeps_its_values(self, tmp_path: Path):
         """設定ページから押し込み量だけ保存した状態（座標はまだ教示していない）."""
-        machine = _machine_with(
-            tmp_path, "[paste_dispenser.nozzle_clean]\npress_depth = 0.4\n"
-        )
+        machine = _machine_with(tmp_path, "[solder.nozzle.clean]\npress_depth = 0.4\n")
 
-        assert machine.paste_dispenser.nozzle_clean == NozzleCleanConfig(
-            press_depth=0.4
-        )
+        assert machine.solder.nozzle.clean == NozzleCleanConfig(press_depth=0.4)
 
     def test_reads_recorded_values(self, tmp_path: Path):
         machine = _machine_with(
             tmp_path,
-            "[paste_dispenser.nozzle_clean]\n"
+            "[solder.nozzle.clean]\n"
             "x = 10.0\ny = 20.0\nz = -30.0\n"
             "press_depth = 0.4\npurge_ul = 0.3\n"
             "stroke = 1.5\npasses = 3\nwipe_speed = 8.0\n",
         )
 
-        assert machine.paste_dispenser.nozzle_clean == NozzleCleanConfig(
+        assert machine.solder.nozzle.clean == NozzleCleanConfig(
             position=Point3d(10.0, 20.0, -30.0),
             press_depth=0.4,
             purge_ul=0.3,
@@ -734,21 +745,23 @@ class TestMachineSettle:
 
 
 class TestMachineTact:
-    """`[tact]`: 塗布の所要時間の予測（セクションごと省略可。速度は printer.cfg から読む）."""
+    """`[solder.tact]`: 塗布の所要時間の予測（セクションごと省略可。速度は printer.cfg から読む）."""
 
     def test_defaults_whole_section_when_absent(self):
-        assert load_machine(MINIMAL_MACHINE_TOML).tact == TactConfig(setup_sec=300.0)
+        solder = load_machine(MINIMAL_MACHINE_TOML).solder
+
+        assert solder.tact == TactConfig(setup_sec=300.0)
 
     def test_reads_setup_sec(self, tmp_path):
-        machine = _machine_with(tmp_path, "[tact]\nsetup_sec = 120.0\n")
+        machine = _machine_with(tmp_path, "[solder.tact]\nsetup_sec = 120.0\n")
 
-        assert machine.tact == TactConfig(setup_sec=120.0)
+        assert machine.solder.tact == TactConfig(setup_sec=120.0)
 
     def test_speed_keys_are_unknown(self, tmp_path):
         """速度と加速度は printer.cfg の値を使うので、machine.toml には書けない（移行が消す）."""
         path = tmp_path / "machine.toml"
         path.write_text(
-            MINIMAL_MACHINE_TOML.read_text() + "\n[tact]\ntravel_speed = 10.0\n"
+            MINIMAL_MACHINE_TOML.read_text() + "\n[solder.tact]\ntravel_speed = 10.0\n"
         )
 
         with pytest.raises(ConfigError, match="travel_speed"):
@@ -806,4 +819,4 @@ class TestTemplates:
         load_machine(path)
 
     def test_needs_no_migration(self, path: Path):
-        assert migrate_text(path.read_text())[1] == []
+        assert migrate_text(path.read_text())[1] == {}

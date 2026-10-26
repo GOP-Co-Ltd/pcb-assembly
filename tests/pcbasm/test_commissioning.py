@@ -13,6 +13,7 @@ import pytest
 
 from pcbasm.commissioning import STEPS, readiness
 from pcbasm.config import MachineConfig, load_machine
+from pcbasm.config.solder import NozzleConfig
 from pcbasm.geometry import Point3d
 from pcbasm.machine.diagnostics import Check, save_checks
 from pcbasm.paths import PROJECT_ROOT
@@ -24,19 +25,27 @@ CALIBRATION = "s3x70.paste-volume.json"
 ALL_OK = (Check("Klipper の接続", True, "localhost:7125"),)
 
 
+def _taught(
+    nozzle: NozzleConfig, cap: Point3d | None, clean: Point3d | None
+) -> NozzleConfig:
+    """キャップ位置とクリーニング位置を教示したノズル."""
+    return attrs.evolve(
+        nozzle,
+        cap=attrs.evolve(nozzle.cap, position=cap),
+        clean=attrs.evolve(nozzle.clean, position=clean),
+    )
+
+
 def _commissioned(machine: MachineConfig) -> MachineConfig:
     """ノズル位置を教示し、運転時補正の校正ファイルを選んだ machine."""
-    dispenser = machine.paste_dispenser
+    solder = machine.solder
     return attrs.evolve(
         machine,
-        paste_dispenser=attrs.evolve(
-            dispenser,
-            nozzle_cap=attrs.evolve(dispenser.nozzle_cap, position=Point3d(1, 2, 3)),
-            nozzle_clean=attrs.evolve(
-                dispenser.nozzle_clean, position=Point3d(4, 5, 6)
-            ),
+        solder=attrs.evolve(
+            solder,
+            nozzle=_taught(solder.nozzle, Point3d(1, 2, 3), Point3d(4, 5, 6)),
             volume_correction=attrs.evolve(
-                dispenser.volume_correction, calibration_file=CALIBRATION
+                solder.volume_correction, calibration_file=CALIBRATION
             ),
         ),
     )
@@ -132,14 +141,10 @@ class TestReadiness:
         detail: str,
     ):
         machine = _commissioned(MACHINE)
-        dispenser = machine.paste_dispenser
+        solder = machine.solder
         machine = attrs.evolve(
             machine,
-            paste_dispenser=attrs.evolve(
-                dispenser,
-                nozzle_cap=attrs.evolve(dispenser.nozzle_cap, position=cap),
-                nozzle_clean=attrs.evolve(dispenser.nozzle_clean, position=clean),
-            ),
+            solder=attrs.evolve(solder, nozzle=_taught(solder.nozzle, cap, clean)),
         )
 
         result = readiness(machine, all_ok, calibration_dir)

@@ -7,58 +7,58 @@
 既定値のあるキーは書かなければ既定値で動き、設定ページでは空欄に既定値が薄く出る。
 既定値の無いキーを書き忘れると設定エラーになる。
 
-設定ページに出ない節が 2 つある。
+設定ページに出ない節が 1 つある。
 
 - `[klipper]`: Moonraker の `host` と `port`。既定値は無く、必ず書く（テンプレートは `localhost` と `7125`）
-- `[tact]`: 予約の節。書いてあっても中身は読まない
 
 値の範囲は書込時と起動時に確かめ、範囲外なら設定エラーになる（[保守ガイド](../maintenance.md) の設定エラーからの復旧）。
 
 このファイルは設定のスキーマから生成する。手で直さず、`uv run python -m tests.support.config_reference > docs/reference/config.md` の後に `make format` を実行する。
 
-## ペーストディスペンサー（`[paste_dispenser]`）
+## はんだ塗布（`[solder]`）
 
-| カード                 | キー                                                                                                   | 表示名                          | 単位   | 値                                                                                       |
-| ---------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------- | ------ | ---------------------------------------------------------------------------------------- |
-| 吐出の基本             | `paste_dispenser.rotations_per_ul`                                                                     | 1uLあたりの回転数               | rev/uL | 数値                                                                                     |
-| 吐出の基本             | `paste_dispenser.nozzle_diameter`                                                                      | ノズル内径                      | mm     | 数値                                                                                     |
-| 吐出の基本             | `paste_dispenser.nozzle_outer_diameter`                                                                | ノズル外径                      | mm     | 数値                                                                                     |
-| 吐出の基本             | `paste_dispenser.solder_paste_density`                                                                 | はんだペースト密度              | mg/uL  | 数値                                                                                     |
-| 吐出の基本             | `paste_dispenser.defaults.ul_per_mm2`                                                                  | 面積あたりのペースト量          | uL/mm² | 数値                                                                                     |
-| 吐出の速度             | `paste_dispenser.motion.max_dispense_rate`                                                             | 吐出レート上限                  | uL/s   | 数値                                                                                     |
-| 吐出の速度             | `paste_dispenser.motion.dispense_accel`                                                                | 吐出加速度                      | uL/s²  | 数値                                                                                     |
-| 吐出の速度             | `paste_dispenser.motion.max_fill_speed`                                                                | 最大塗布速度                    | mm/s   | 数値                                                                                     |
-| リトラクト             | `paste_dispenser.motion.retract_amount`                                                                | リトラクション量                | uL     | 数値                                                                                     |
-| リトラクト             | `paste_dispenser.motion.retract_rate`                                                                  | リトラクションレート            | uL/s   | 数値                                                                                     |
-| リトラクト             | `paste_dispenser.motion.retract_accel_factor`                                                          | リトラクション加速度係数        |        | 数値                                                                                     |
-| プライム・パージ       | `paste_dispenser.defaults.prime_extra_delay`                                                           | プライム後追加遅延              | s      | 数値（0 以上）                                                                           |
-| プライム・パージ       | `paste_dispenser.initial_purge_ul`                                                                     | 初回パージ量                    | uL     | 数値（0 以上）                                                                           |
-| 塗布方式               | `paste_dispenser.defaults.dispense_mode`                                                               | 塗布方式                        |        | `auto`（Auto） / `dot`（点） / `line`（線） / `area`（面） / `micro_line`（微小線）      |
-| 塗布方式               | `paste_dispenser.defaults.line_direction`                                                              | 線の走行方向                    |        | `unconstrained`（指定なし） / `outward`（部品中心 → 外側） / `inward`（外側 → 部品中心） |
-| Auto の切り替え        | `paste_dispenser.auto_line_aspect_ratio`                                                               | Auto線塗布しきい縦横比          |        | 数値                                                                                     |
-| Auto の切り替え        | `paste_dispenser.auto_area_short_side_factor`                                                          | Auto面塗布しきい短辺倍率        |        | 数値                                                                                     |
-| 塗布経路               | `paste_dispenser.defaults.bead_width_factor`                                                           | ビード幅係数                    |        | 数値                                                                                     |
-| 塗布経路               | `paste_dispenser.defaults.overlap`                                                                     | 重なり率                        |        | 数値（0 以上）                                                                           |
-| 塗布経路               | `paste_dispenser.defaults.boundary_margin`                                                             | 外周余白                        | mm     | 数値                                                                                     |
-| 微小線                 | `paste_dispenser.defaults.micro_line_z_start`                                                          | 始点高                          | mm     | 数値か `auto`                                                                            |
-| 微小線                 | `paste_dispenser.defaults.micro_line_z_end`                                                            | 終点高                          | mm     | 数値か `auto`                                                                            |
-| 微小線                 | `paste_dispenser.motion.micro_line_settle_seconds`                                                     | 微小線の静定待ち                | s      | 数値（0 以上）                                                                           |
-| Z 高さ                 | `paste_dispenser.defaults.paste_height`                                                                | 塗布高さ                        | mm     | 数値か `auto`                                                                            |
-| Z 高さ                 | `paste_dispenser.motion.lift_height`                                                                   | 吐出後の上昇高さ                | mm     | 数値                                                                                     |
-| Z 高さ                 | `paste_dispenser.motion.post_dispense_settle_seconds`                                                  | 塗布後の静定待ち（上昇前）      | s      | 数値（0 以上）                                                                           |
-| ツールヘッド           | `paste_dispenser.toolhead.x`                                                                           | ツールヘッド相対位置 X          | mm     | 数値                                                                                     |
-| ツールヘッド           | `paste_dispenser.toolhead.y`                                                                           | ツールヘッド相対位置 Y          | mm     | 数値                                                                                     |
-| 流量キャリブレーション | `paste_dispenser.volume_correction.calibration_file`                                                   | 校正ファイル                    |        | 文字列。空欄で無効                                                                       |
-| 流量キャリブレーション | `paste_dispenser.volume_correction.amount_ul`                                                          | 1点あたりの塗布量               | uL     | 数値                                                                                     |
-| 流量キャリブレーション | `paste_dispenser.volume_correction.crop_size_mm`                                                       | 撮影crop寸法                    | mm     | 数値                                                                                     |
-| 流量キャリブレーション | `paste_dispenser.volume_correction.settle_seconds`                                                     | 静定待ち                        | s      | 数値（0 以上）                                                                           |
-| ノズル位置             | `paste_dispenser.nozzle_cap.x` / `paste_dispenser.nozzle_cap.y` / `paste_dispenser.nozzle_cap.z`       | キャップ位置                    | mm     | 座標。3 つそろえるか、すべて書かない                                                     |
-| ノズル位置             | `paste_dispenser.nozzle_clean.x` / `paste_dispenser.nozzle_clean.y` / `paste_dispenser.nozzle_clean.z` | クリーニング位置（Zは面の高さ） | mm     | 座標。3 つそろえるか、すべて書かない                                                     |
-| ノズルクリーニング     | `paste_dispenser.nozzle_clean.press_depth`                                                             | 押し込み量                      | mm     | 数値（0 以上）                                                                           |
-| ノズルクリーニング     | `paste_dispenser.nozzle_clean.purge_ul`                                                                | クリーニング前パージ量          | uL     | 数値（0 以上）                                                                           |
-| ノズルクリーニング     | `paste_dispenser.nozzle_clean.stroke`                                                                  | こすり幅 片側                   | mm     | 数値（0 以上）                                                                           |
-| ノズルクリーニング     | `paste_dispenser.nozzle_clean.passes`                                                                  | 往復回数                        |        | 整数（0 以上）                                                                           |
-| ノズルクリーニング     | `paste_dispenser.nozzle_clean.wipe_speed`                                                              | こすり速度                      | mm/sec | 数値                                                                                     |
+| カード                 | キー                                                                        | 表示名                          | 単位   | 値                                                                                       |
+| ---------------------- | --------------------------------------------------------------------------- | ------------------------------- | ------ | ---------------------------------------------------------------------------------------- |
+| 吐出の基本             | `solder.dispenser.rotations_per_ul`                                         | 1uLあたりの回転数               | rev/uL | 数値                                                                                     |
+| 吐出の基本             | `solder.nozzle.diameter`                                                    | ノズル内径                      | mm     | 数値                                                                                     |
+| 吐出の基本             | `solder.nozzle.outer_diameter`                                              | ノズル外径                      | mm     | 数値                                                                                     |
+| 吐出の基本             | `solder.paste_density`                                                      | はんだペースト密度              | mg/uL  | 数値                                                                                     |
+| 吐出の基本             | `solder.defaults.ul_per_mm2`                                                | 面積あたりのペースト量          | uL/mm² | 数値                                                                                     |
+| 吐出の速度             | `solder.dispenser.max_dispense_rate`                                        | 吐出レート上限                  | uL/s   | 数値                                                                                     |
+| 吐出の速度             | `solder.dispenser.dispense_accel`                                           | 吐出加速度                      | uL/s²  | 数値                                                                                     |
+| 吐出の速度             | `solder.motion.max_fill_speed`                                              | 最大塗布速度                    | mm/s   | 数値                                                                                     |
+| リトラクト             | `solder.dispenser.retract_amount`                                           | リトラクション量                | uL     | 数値                                                                                     |
+| リトラクト             | `solder.dispenser.retract_rate`                                             | リトラクションレート            | uL/s   | 数値                                                                                     |
+| リトラクト             | `solder.dispenser.retract_accel_factor`                                     | リトラクション加速度係数        |        | 数値                                                                                     |
+| プライム・パージ       | `solder.defaults.prime_extra_delay`                                         | プライム後追加遅延              | s      | 数値（0 以上）                                                                           |
+| プライム・パージ       | `solder.initial_purge_ul`                                                   | 初回パージ量                    | uL     | 数値（0 以上）                                                                           |
+| 塗布方式               | `solder.defaults.dispense_mode`                                             | 塗布方式                        |        | `auto`（Auto） / `dot`（点） / `line`（線） / `area`（面） / `micro_line`（微小線）      |
+| 塗布方式               | `solder.defaults.line_direction`                                            | 線の走行方向                    |        | `unconstrained`（指定なし） / `outward`（部品中心 → 外側） / `inward`（外側 → 部品中心） |
+| Auto の切り替え        | `solder.auto.line_aspect_ratio`                                             | Auto線塗布しきい縦横比          |        | 数値                                                                                     |
+| Auto の切り替え        | `solder.auto.area_short_side_factor`                                        | Auto面塗布しきい短辺倍率        |        | 数値                                                                                     |
+| 塗布経路               | `solder.defaults.bead_width_factor`                                         | ビード幅係数                    |        | 数値                                                                                     |
+| 塗布経路               | `solder.defaults.overlap`                                                   | 重なり率                        |        | 数値（0 以上）                                                                           |
+| 塗布経路               | `solder.defaults.boundary_margin`                                           | 外周余白                        | mm     | 数値                                                                                     |
+| 微小線                 | `solder.defaults.micro_line_z_start`                                        | 始点高                          | mm     | 数値か `auto`                                                                            |
+| 微小線                 | `solder.defaults.micro_line_z_end`                                          | 終点高                          | mm     | 数値か `auto`                                                                            |
+| 微小線                 | `solder.motion.micro_line_settle_seconds`                                   | 微小線の静定待ち                | s      | 数値（0 以上）                                                                           |
+| Z 高さ                 | `solder.defaults.paste_height`                                              | 塗布高さ                        | mm     | 数値か `auto`                                                                            |
+| Z 高さ                 | `solder.motion.lift_height`                                                 | 吐出後の上昇高さ                | mm     | 数値                                                                                     |
+| Z 高さ                 | `solder.motion.post_dispense_settle_seconds`                                | 塗布後の静定待ち（上昇前）      | s      | 数値（0 以上）                                                                           |
+| ツールヘッド           | `solder.nozzle.offset.x`                                                    | ツールヘッド相対位置 X          | mm     | 数値                                                                                     |
+| ツールヘッド           | `solder.nozzle.offset.y`                                                    | ツールヘッド相対位置 Y          | mm     | 数値                                                                                     |
+| 流量キャリブレーション | `solder.volume_correction.calibration_file`                                 | 校正ファイル                    |        | 文字列。空欄で無効                                                                       |
+| 流量キャリブレーション | `solder.volume_correction.amount_ul`                                        | 1点あたりの塗布量               | uL     | 数値                                                                                     |
+| 流量キャリブレーション | `solder.volume_correction.crop_size_mm`                                     | 撮影crop寸法                    | mm     | 数値                                                                                     |
+| 流量キャリブレーション | `solder.volume_correction.settle_seconds`                                   | 静定待ち                        | s      | 数値（0 以上）                                                                           |
+| ノズル位置             | `solder.nozzle.cap.x` / `solder.nozzle.cap.y` / `solder.nozzle.cap.z`       | キャップ位置                    | mm     | 座標。3 つそろえるか、すべて書かない                                                     |
+| ノズル位置             | `solder.nozzle.clean.x` / `solder.nozzle.clean.y` / `solder.nozzle.clean.z` | クリーニング位置（Zは面の高さ） | mm     | 座標。3 つそろえるか、すべて書かない                                                     |
+| ノズルクリーニング     | `solder.nozzle.clean.press_depth`                                           | 押し込み量                      | mm     | 数値（0 以上）                                                                           |
+| ノズルクリーニング     | `solder.nozzle.clean.purge_ul`                                              | クリーニング前パージ量          | uL     | 数値（0 以上）                                                                           |
+| ノズルクリーニング     | `solder.nozzle.clean.stroke`                                                | こすり幅 片側                   | mm     | 数値（0 以上）                                                                           |
+| ノズルクリーニング     | `solder.nozzle.clean.passes`                                                | 往復回数                        |        | 整数（0 以上）                                                                           |
+| ノズルクリーニング     | `solder.nozzle.clean.wipe_speed`                                            | こすり速度                      | mm/sec | 数値                                                                                     |
+| 所要時間の予測         | `solder.tact.setup_sec`                                                     | 前段の時間                      | s      | 数値（0 以上）                                                                           |
 
 ## 位置合わせ（`[alignment]`）
 
@@ -133,9 +133,3 @@
 | ------ | -------------- | ------------ | ---- | -------------- |
 | 通知音 | `audio.device` | 出力デバイス |      | 文字列         |
 | 通知音 | `audio.volume` | 音量         |      | 数値（0 以上） |
-
-## 所要時間の予測（`[tact]`）
-
-| カード         | キー             | 表示名     | 単位 | 値             |
-| -------------- | ---------------- | ---------- | ---- | -------------- |
-| 所要時間の予測 | `tact.setup_sec` | 前段の時間 | s    | 数値（0 以上） |

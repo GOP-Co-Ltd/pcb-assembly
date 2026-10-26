@@ -55,7 +55,7 @@ class TestBoardSettingsV1:
         hierarchy = _hierarchy("led_blinker")
         signature = hierarchy.signature()
         source_pcb = doc["source_pcb"]
-        base = load_machine(GOLDEN_DIR / "machine.toml").paste_dispenser
+        base = load_machine(GOLDEN_DIR / "machine.toml").solder
         store = BoardOverrides(tmp_path)
 
         model = store.model_from_doc(

@@ -37,11 +37,11 @@ def live_server(e2e_settings: Env) -> Iterator[LiveServer]:
 
     def run(ctx: JobContext) -> None:
         assert ctx.source_pcb is not None
-        model = overrides.load_or_init(ctx.source_pcb, ctx.machine.paste_dispenser)
+        model = overrides.load_or_init(ctx.source_pcb, ctx.machine.solder)
         ctx.log(f"started with:{model.levels[0].patch.to_dict()['ul_per_mm2']}")
-        ctx.log(f"purge:{ctx.machine.paste_dispenser.initial_purge_ul}")
+        ctx.log(f"purge:{ctx.machine.solder.initial_purge_ul}")
         ctx.log(f"disabled:{any(level.enabled is False for level in model.levels)}")
-        ctx.log(f"aspect:{ctx.machine.paste_dispenser.auto_line_aspect_ratio}")
+        ctx.log(f"aspect:{ctx.machine.solder.auto.line_aspect_ratio}")
         ctx.next_command(timeout=None)
 
     configure_synthetic_job(app, "paste_solder", run)
@@ -210,9 +210,7 @@ class TestStartFlushesMachineSettings:
         page = browser_page
         page.goto(f"{live_ui.base_url}/paste_solder", wait_until="domcontentloaded")
         acquire_control(page)
-        page.get_by_test_id(
-            "auto-threshold-paste_dispenser.auto_line_aspect_ratio"
-        ).fill("3.5")
+        page.get_by_test_id("auto-threshold-solder.auto.line_aspect_ratio").fill("3.5")
 
         page.get_by_test_id("job-run").click()
 

@@ -46,11 +46,11 @@ def get_mass_flow(
 ) -> MassFlowResult:
     """計測質量・回転数・速度・加速度から塗布キャリブレーション値を算出する.
 
-    密度はサーバ側のマシン設定 ``solder_paste_density`` の値を使う。
+    密度はサーバ側のマシン設定 ``solder.paste_density`` の値を使う。
     非正・非有限入力や表現不能な算出値は ``None`` で返す（エラーにしない）。算出は
     :meth:`pcbasm.pasting.dispense_calibration.mass.MassFlowEstimate.estimate` へ委譲する（丸め済み）。
     """
-    density = machine_config.machine().paste_dispenser.solder_paste_density
+    density = machine_config.machine().solder.paste_density
     estimate = MassFlowEstimate.estimate(
         mass_mg=mass_mg,
         rotations=rotations,

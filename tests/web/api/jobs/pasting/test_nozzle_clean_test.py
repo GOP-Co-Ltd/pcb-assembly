@@ -40,9 +40,7 @@ class AbortOnHoming(FakeKlipper):
 
 def _record_clean_position(config_dir: Path, x: float) -> None:
     with (config_dir / "machine.toml").open("a", encoding="utf-8") as machine_toml:
-        machine_toml.write(
-            f"\n[paste_dispenser.nozzle_clean]\nx = {x}\ny = 20.0\nz = -3.0\n"
-        )
+        machine_toml.write(f"\n[solder.nozzle.clean]\nx = {x}\ny = 20.0\nz = -3.0\n")
 
 
 class TestNozzleCleanTest:

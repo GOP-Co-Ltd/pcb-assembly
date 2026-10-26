@@ -8,7 +8,7 @@ import pytest
 
 from pcbasm.board import Board, Layer
 from pcbasm.config import load_machine
-from pcbasm.config.dispenser import VolumeCorrectionConfig
+from pcbasm.config.solder import VolumeCorrectionConfig
 from pcbasm.geometry import Point2d
 from pcbasm.kicad import load_board
 from pcbasm.pasting.hierarchy import PadHierarchy
@@ -56,7 +56,7 @@ def _plan(
     volume_correction: VolumeCorrectionConfig = _DISABLED,
 ) -> PastePlan:
     config = attrs.evolve(
-        load_machine(TEST_CONFIG_DIR / "machine.toml").paste_dispenser,
+        load_machine(TEST_CONFIG_DIR / "machine.toml").solder,
         initial_purge_ul=initial_purge_ul,
         volume_correction=volume_correction,
     )

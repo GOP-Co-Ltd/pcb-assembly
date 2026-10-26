@@ -43,7 +43,7 @@ class TestBackup:
         (config_dir / "printer.cfg").symlink_to(printer_cfg)
         client.put(
             "/api/machine_config",
-            json={"values": {"paste_dispenser.motion.max_fill_speed": 0.9}},
+            json={"values": {"solder.motion.max_fill_speed": 0.9}},
         )
         board_settings = webui_settings.webui_data_dir / "board_settings"
         board_settings.mkdir(parents=True)
@@ -90,17 +90,17 @@ class TestConfigHistoryApi:
         original = path.read_bytes()
         client.put(
             "/api/machine_config",
-            json={"values": {"paste_dispenser.motion.max_fill_speed": 0.9}},
+            json={"values": {"solder.motion.max_fill_speed": 0.9}},
         )
         [entry] = client.get("/api/backup/history").json()["entries"]
-        assert entry["changes"] == ["paste_dispenser.motion.max_fill_speed: 0.8 → 0.9"]
+        assert entry["changes"] == ["solder.motion.max_fill_speed: 0.8 → 0.9"]
 
         response = client.post(f"/api/backup/history/{entry['name']}/restore")
 
         assert response.status_code == 200, response.text
         assert path.read_bytes() == original
         newest = response.json()["entries"][0]
-        assert newest["changes"] == ["paste_dispenser.motion.max_fill_speed: 0.9 → 0.8"]
+        assert newest["changes"] == ["solder.motion.max_fill_speed: 0.9 → 0.8"]
 
     def test_restore_rebuilds_frame_hub(
         self,
@@ -127,7 +127,7 @@ class TestConfigHistoryApi:
     ):
         client.put(
             "/api/machine_config",
-            json={"values": {"paste_dispenser.motion.max_fill_speed": 0.9}},
+            json={"values": {"solder.motion.max_fill_speed": 0.9}},
         )
         [entry] = client.get("/api/backup/history").json()["entries"]
         written = (config_dir / "machine.toml").read_bytes()

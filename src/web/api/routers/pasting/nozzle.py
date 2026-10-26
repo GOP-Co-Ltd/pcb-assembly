@@ -68,7 +68,7 @@ def record_nozzle_cap(
         devices,
         machine_config,
         owner="nozzle-cap-record",
-        prefix="paste_dispenser.nozzle_cap",
+        prefix="solder.nozzle.cap",
     )
     return nozzle_cap_payload(saved)
 
@@ -91,6 +91,6 @@ def record_nozzle_clean(
         devices,
         machine_config,
         owner="nozzle-clean-record",
-        prefix="paste_dispenser.nozzle_clean",
+        prefix="solder.nozzle.clean",
     )
     return nozzle_clean_payload(saved)
