@@ -26,7 +26,7 @@ pcbasm
   L1  config(→pasting.params)   board   vision   hal(→vision.image。config は import しない)
   L2  kicad(→board。pcbnew はここだけ)   machine(→config, hal, vision)   migrate(→config)
   L3  align(→machine, hal, vision, board, config)
-  L4  pasting(→align, machine, kicad, vision, hal, board, config)
+  L4  pasting(→align, machine, kicad, vision, hal, board, config)   pnp（pasting と同じ。互いに import しない）
   L5  commissioning(→pcbasm のすべて)
 web
   process（標準ライブラリだけ）   contract（pydantic と標準ライブラリだけ）
@@ -42,30 +42,67 @@ web
 
 ## 責務と変更先
 
-| 配置                                | 責務                                                                                            |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `src/pcbasm/geometry/`              | 座標変換、ポリゴン、経路、配置の計算                                                            |
-| `src/pcbasm/plotting.py`            | 描画の共通部品（Agg、穴付きポリゴン、基板外形、PNG 保存）。図そのものは使う側のパッケージに置く |
-| `src/pcbasm/config/`                | `machine.toml` のスキーマ（TOML の 1 節が 1 モジュール）と読み込み、設定ページの項目            |
-| `src/pcbasm/migrate/`               | `machine.toml` の冪等な移行（起動時に走り、先にスナップショットを取る）                         |
-| `src/pcbasm/board/`                 | 基板データ（外形・部品・パッド・銅箔）と CSV / JSON の書き出し、全体図の描画                    |
-| `src/pcbasm/kicad/`                 | KiCad 読込・生成、footprint、単位変換（pcbnew はここだけ）                                      |
-| `src/pcbasm/vision/`                | カメラ校正、画像・銅箔・塗布点の検出                                                            |
-| `src/pcbasm/hal/`                   | カメラ、Klipper、ステージ、ディスペンサー、音声の抽象と実装、fake                               |
-| `src/pcbasm/machine/`               | 装置の組み立て、G-code ジャーナル、操作パネルの命令、駐機、装置診断                             |
-| `src/pcbasm/align/`                 | 基板の位置合わせ、基準点、補正、カメラと装置の座標対応                                          |
-| `src/pcbasm/pasting/`               | 塗布の設定解決、経路、高さ面、機械手順、画像収集、塗布量校正                                    |
-| `src/pcbasm/commissioning.py`       | 立ち上げ手順の表と、各段が済んだかの判定（`GET /api/readiness`）                                |
-| `src/web/api/routers/`              | HTTP 入出力とコア呼び出し、例外から HTTP 応答への変換                                           |
-| `src/web/api/jobs/`                 | 長時間処理、進捗、中断、操作者への質問、成果物の公開                                            |
-| `src/web/ui/`                       | マシン探索・選択、SSR ページ、backend への中継                                                  |
-| `src/web/ui/templates/` / `static/` | HTML、CSS、DOM 操作、API 応答の表示                                                             |
-| `src/web/selfupdate/`               | backend / frontend 共通の Git 更新とサービス再起動手順                                          |
-| `src/web/contract/`                 | backend・frontend・自己更新が共有する応答モデルとワイヤ定数                                     |
-| `src/web/process.py`                | backend / frontend 共通の env 読み取りと logging の初期化                                       |
-| `install.sh`、`deploy/`             | ホストの導入（段ごとに冪等）と、unit・sudoers・機種のテンプレート・firmware の雛形              |
+| 配置                                | 責務                                                                                             |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `src/pcbasm/geometry/`              | 座標変換、ポリゴン、経路、配置の計算                                                             |
+| `src/pcbasm/plotting.py`            | 描画の共通部品（Agg、穴付きポリゴン、基板外形、PNG 保存）。図そのものは使う側のパッケージに置く  |
+| `src/pcbasm/config/`                | `machine.toml` のスキーマ（TOML の 1 節が 1 モジュール）と読み込み、設定ページの項目、機体の機能 |
+| `src/pcbasm/migrate/`               | `machine.toml` の冪等な移行（起動時に走り、先にスナップショットを取る）                          |
+| `src/pcbasm/board/`                 | 基板データ（外形・部品・パッド・銅箔）と CSV / JSON の書き出し、全体図の描画                     |
+| `src/pcbasm/kicad/`                 | KiCad 読込・生成、footprint、単位変換（pcbnew はここだけ）                                       |
+| `src/pcbasm/vision/`                | カメラ校正、画像・銅箔・塗布点の検出                                                             |
+| `src/pcbasm/hal/`                   | カメラ、Klipper、ステージ、ディスペンサー、音声の抽象と実装、fake                                |
+| `src/pcbasm/machine/`               | 装置の組み立て、G-code ジャーナル、操作パネルの命令、駐機、装置診断                              |
+| `src/pcbasm/align/`                 | 基板の位置合わせ、基準点、補正、カメラと装置の座標対応                                           |
+| `src/pcbasm/pasting/`               | 塗布の設定解決、経路、高さ面、機械手順、画像収集、塗布量校正                                     |
+| `src/pcbasm/pnp/`                   | 部品実装（Pick and Place）の置き場所。いまは中身が無い                                           |
+| `src/pcbasm/commissioning.py`       | 立ち上げ手順の表と、各段が済んだかの判定（`GET /api/readiness`）                                 |
+| `src/web/api/routers/`              | HTTP 入出力とコア呼び出し、例外から HTTP 応答への変換                                            |
+| `src/web/api/jobs/`                 | 長時間処理、進捗、中断、操作者への質問、成果物の公開                                             |
+| `src/web/ui/`                       | マシン探索・選択、SSR ページ、backend への中継                                                   |
+| `src/web/ui/templates/` / `static/` | HTML、CSS、DOM 操作、API 応答の表示                                                              |
+| `src/web/selfupdate/`               | backend / frontend 共通の Git 更新とサービス再起動手順                                           |
+| `src/web/contract/`                 | backend・frontend・自己更新が共有する応答モデルとワイヤ定数                                      |
+| `src/web/process.py`                | backend / frontend 共通の env 読み取りと logging の初期化                                        |
+| `install.sh`、`deploy/`             | ホストの導入（段ごとに冪等）と、unit・sudoers・機種のテンプレート・firmware の雛形               |
 
-パッケージの中の構成は、各パッケージの README にある（[align](../../src/pcbasm/align/README.md)、[geometry](../../src/pcbasm/geometry/README.md)、[hal](../../src/pcbasm/hal/README.md)、[machine](../../src/pcbasm/machine/README.md)、[pasting](../../src/pcbasm/pasting/README.md)、[vision](../../src/pcbasm/vision/README.md)）。
+パッケージの中の構成は、各パッケージの README にある（[align](../../src/pcbasm/align/README.md)、[geometry](../../src/pcbasm/geometry/README.md)、[hal](../../src/pcbasm/hal/README.md)、[machine](../../src/pcbasm/machine/README.md)、[pasting](../../src/pcbasm/pasting/README.md)、[pnp](../../src/pcbasm/pnp/README.md)、[vision](../../src/pcbasm/vision/README.md)）。
+
+## 機体の機能は machine.toml の節で表す
+
+機体が何をできるかは、`machine.toml` の節の有無で決まる。種別を表すキーは持たない。
+
+| 節         | 機能                   | 読み込んだ値           |
+| ---------- | ---------------------- | ---------------------- |
+| `[solder]` | はんだ塗布（`solder`） | `MachineConfig.solder` |
+| `[pnp]`    | 部品実装（`pnp`）      | `MachineConfig.pnp`    |
+
+両方あれば両方使える機体で、どちらも無い `machine.toml` は設定エラーになる。
+機能の判定は節の有無だけを根拠にする（読み込めば `MachineConfig.solder` / `pnp` が None でないことと同じ）。
+backend は起動したときの節で機能を決め（`MachineConfigFile.capabilities`。検証の前の内容から決めるので、設定エラーの間も節があればその機能がある）、次のものをそれで分ける。
+節を足したり外したりしたら backend を再起動する。
+
+- ジョブ: `src/web/api/jobs/catalog.py` の `default_catalog` が、塗布のジョブを solder 機能の機体にだけ登録する
+- API: `src/web/api/app.py` が、`routers/pasting/` を solder 機能の機体にだけ置く
+- 申告: `GET /api/session/machine-info` の `capabilities` と、mDNS の TXT の `caps`
+- 画面: `src/web/ui/features.py` の各ページの `capability` で、タブ・サイドバー・着地点を絞る。機体に無い機能のページはその機体の着地点へ 307 する
+- 立ち上げ: `pcbasm.commissioning` の共通の段（`COMMON_STEPS`）に、機能ごとの段（`CAPABILITY_STEPS`）を続ける
+- 設定ページ: 無い機能の節の項目は出さず、書き込みも受け付けない
+
+塗布の処理は登録の時点で振り分けてあるので、`[solder]` が無いことを各所で確かめない。
+ジョブは `JobContext.solder`、router は `MachineConfig.require_solder()` で `[solder]` を受け取る。
+どの機体にもある処理で塗布の値を使うもの（終了時の駐機、装置診断のディスペンサー）だけが `machine.solder` の有無を見る。
+
+### PnP を足すときの変更先
+
+PnP の中身は、塗布と同じ形で次の場所に足す。
+
+1. `src/pcbasm/pnp/` に計算と機械手順を置く。`pcbasm.pasting` とは互いに import しない（`tests/test_architecture.py` が確かめる）
+2. `src/pcbasm/config/pnp.py` の `PnpConfig` に `[pnp]` の項目を足す。設定ページに出すなら `MachineConfig.pnp` に `section` の metadata を付ける
+3. `src/web/api/jobs/pnp/` にジョブを置き、`default_catalog` の `if "pnp" in capabilities:` の下で登録する。API の router も `app.py` で同じ条件で置く
+4. `src/web/ui/features.py` の「部品実装」タブ（`pnp`）にページを `capability="pnp"` で足し、準備中のページ（`placement`）を置き換える
+5. 立ち上げの段を `pcbasm.commissioning` の `CAPABILITY_STEPS["pnp"]` に足し、[立ち上げ](../commissioning.md) の表にも足す
+6. 部品実装機の雛形 `deploy/templates/usaremino_pnp/` の `machine.toml` と `printer.cfg` に、PnP のハードウェアの設定を足す
 
 ## 機能 → コードの地図
 
@@ -74,37 +111,37 @@ web
 ジョブでないページは、表の router の API を JS から呼ぶ。
 表の並びは機能表（`src/web/ui/features.py` の `FEATURES`）と同じで、テストが一致を確かめる。
 
-| slug                       | タブ     | 入口（`src/web/api/` の下）                       | 主な `pcbasm` の手順                                                                                                                                                  | 主な設定の節                                                       |
-| -------------------------- | -------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `paste_solder`             | 塗布     | `jobs/pasting/paste_solder.py`                    | `pasting.plan.plan_paste`、`pasting.prepare.prepare_paste`、`pasting.purge_check.purge_with_cleaning`、`pasting.paste_volume.runtime_correction.run_flow_calibration` | `[paste_dispenser]`、`[alignment]`、`[probe]`、`[reference_point]` |
-| `loading`                  | 塗布     | `jobs/pasting/loading.py`                         | `pasting.applicator.build_applicator`                                                                                                                                 | `[paste_dispenser]`                                                |
-| `height_plane`             | 塗布     | `jobs/pasting/height_plane.py`                    | `pasting.height`                                                                                                                                                      | `[probe]`                                                          |
-| `nozzle_clean_test`        | 塗布     | `jobs/pasting/nozzle_clean_test.py`               | `pasting.nozzle_clean.plan_nozzle_clean`、`clean_nozzle`                                                                                                              | `[paste_dispenser.nozzle_clean]`                                   |
-| `placement`                | 部品実装 | なし（準備中のページ）                            | なし                                                                                                                                                                  | `[pnp]`                                                            |
-| `commissioning`            | 校正     | `routers/readiness.py`                            | `commissioning.readiness`                                                                                                                                             | 全体                                                               |
-| `camera_calibration`       | 校正     | `jobs/align/camera_calibration.py`                | `vision.calibration.CheckerboardCalibrator`                                                                                                                           | `[camera]`                                                         |
-| `camera_preview`           | 校正     | `routers/preview.py`                              | `machine.devices`                                                                                                                                                     | `[camera]`                                                         |
-| `reference_point_setup`    | 校正     | `jobs/align/reference_point_setup.py`             | `vision.marker.reference_marker_detector`                                                                                                                             | `[reference_point]`                                                |
-| `board_tour`               | 校正     | `jobs/align/board_tour.py`                        | `align.board_frame.measure_board_frame`、`align.board.align_regions`、`refine_pad`                                                                                    | `[reference_point]`、`[alignment]`                                 |
-| `orthogonality_test`       | 校正     | `jobs/align/orthogonality_test.py`                | `align.orthogonality.OrthogonalityMetrics`                                                                                                                            | `[reference_point]`                                                |
-| `copper_detection`         | 校正     | `routers/preview.py`、`routers/machine_config.py` | `vision.copper.CopperEdgeDetector`                                                                                                                                    | `[alignment]`                                                      |
-| `nozzle_cap`               | 校正     | `routers/pasting/nozzle.py`                       | `hal.stage.XYZStage`                                                                                                                                                  | `[paste_dispenser.nozzle_cap]`、`[paste_dispenser.nozzle_clean]`   |
-| `probe_guide`              | 校正     | なし（説明のページ）                              | なし                                                                                                                                                                  | `[probe]`                                                          |
-| `toolhead_offset`          | 校正     | `jobs/pasting/toolhead_offset.py`                 | `pasting.toolhead_offset.ToolheadOffsetProcedure`                                                                                                                     | `[paste_dispenser.toolhead]`                                       |
-| `dispense_calibration`     | 校正     | `jobs/pasting/dispense_calibration.py`            | `pasting.dispense_calibration.procedure.FlowCalibrationProcedure`                                                                                                     | `[paste_dispenser]`、`[paste_dispenser.motion]`                    |
-| `paste_volume_calibration` | 校正     | `jobs/pasting/paste_volume_calibration.py`        | `pasting.dot_capture.DotCaptureRun`、`pasting.paste_volume.dataset`、`pasting.paste_volume.evaluate`                                                                  | `[paste_dispenser.volume_correction]`                              |
-| `paste_volume_refit`       | 校正     | `jobs/pasting/paste_volume_refit.py`              | `pasting.paste_volume.dataset.reader`、`pasting.paste_volume.fit`                                                                                                     | なし                                                               |
-| `paste_dataset_finalize`   | 校正     | `jobs/pasting/paste_dataset_finalize.py`          | `pasting.paste_volume.dataset.store`、`pasting.paste_volume.dataset.pending`                                                                                          | なし                                                               |
-| `paste_test_board`         | 基板     | `routers/pasting/test_board.py`                   | `pasting.test_board.generator`                                                                                                                                        | なし                                                               |
-| `generate_grid_pcb`        | 基板     | `jobs/kicad/generate_grid_pcb.py`                 | `kicad.build.generate_grid_pcb`                                                                                                                                       | なし                                                               |
-| `generate_rect_pcb`        | 基板     | `jobs/kicad/generate_rect_pcb.py`                 | `pasting.plate.write_rect_board`                                                                                                                                      | なし                                                               |
-| `extract_pcb`              | 基板     | `jobs/kicad/extract_pcb.py`                       | `board.export`、`board.plot.render_pcb`                                                                                                                               | なし                                                               |
-| `make_fill_coverage_pcb`   | 基板     | `jobs/kicad/make_fill_coverage_pcb.py`            | `kicad.build.build_fill_coverage_board`                                                                                                                               | なし                                                               |
-| `klipper_status`           | 機体     | `routers/machine.py`                              | `machine.commands.to_gcode`                                                                                                                                           | `[klipper]`                                                        |
-| `machine_check`            | 機体     | `jobs/machine/machine_check.py`                   | `machine.diagnostics`                                                                                                                                                 | `[klipper]`、`[camera]`、`[audio]`                                 |
-| `machine_config`           | 機体     | `routers/machine_config.py`                       | `config.fields.setting_fields`                                                                                                                                        | 全体                                                               |
-| `audio`                    | 機体     | `routers/audio.py`                                | `hal.audio`                                                                                                                                                           | `[audio]`                                                          |
-| `config_history`           | 機体     | `routers/backup.py`                               | なし（`web/api/history.py` と `backup.py`）                                                                                                                           | 全体                                                               |
+| slug                       | タブ     | 入口（`src/web/api/` の下）                       | 主な `pcbasm` の手順                                                                                                                                                  | 主な設定の節                                              |
+| -------------------------- | -------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `paste_solder`             | 塗布     | `jobs/pasting/paste_solder.py`                    | `pasting.plan.plan_paste`、`pasting.prepare.prepare_paste`、`pasting.purge_check.purge_with_cleaning`、`pasting.paste_volume.runtime_correction.run_flow_calibration` | `[solder]`、`[alignment]`、`[probe]`、`[reference_point]` |
+| `loading`                  | 塗布     | `jobs/pasting/loading.py`                         | `pasting.applicator.build_applicator`                                                                                                                                 | `[solder]`                                                |
+| `height_plane`             | 塗布     | `jobs/pasting/height_plane.py`                    | `pasting.height`                                                                                                                                                      | `[probe]`                                                 |
+| `nozzle_clean_test`        | 塗布     | `jobs/pasting/nozzle_clean_test.py`               | `pasting.nozzle_clean.plan_nozzle_clean`、`clean_nozzle`                                                                                                              | `[solder.nozzle.clean]`                                   |
+| `placement`                | 部品実装 | なし（準備中のページ）                            | なし                                                                                                                                                                  | `[pnp]`                                                   |
+| `commissioning`            | 校正     | `routers/readiness.py`                            | `commissioning.readiness`                                                                                                                                             | 全体                                                      |
+| `camera_calibration`       | 校正     | `jobs/align/camera_calibration.py`                | `vision.calibration.CheckerboardCalibrator`                                                                                                                           | `[camera]`                                                |
+| `camera_preview`           | 校正     | `routers/preview.py`                              | `machine.devices`                                                                                                                                                     | `[camera]`                                                |
+| `reference_point_setup`    | 校正     | `jobs/align/reference_point_setup.py`             | `vision.marker.reference_marker_detector`                                                                                                                             | `[reference_point]`                                       |
+| `board_tour`               | 校正     | `jobs/align/board_tour.py`                        | `align.board_frame.measure_board_frame`、`align.board.align_regions`、`refine_pad`                                                                                    | `[reference_point]`、`[alignment]`                        |
+| `orthogonality_test`       | 校正     | `jobs/align/orthogonality_test.py`                | `align.orthogonality.OrthogonalityMetrics`                                                                                                                            | `[reference_point]`                                       |
+| `copper_detection`         | 校正     | `routers/preview.py`、`routers/machine_config.py` | `vision.copper.CopperEdgeDetector`                                                                                                                                    | `[alignment]`                                             |
+| `nozzle_cap`               | 校正     | `routers/pasting/nozzle.py`                       | `hal.stage.XYZStage`                                                                                                                                                  | `[solder.nozzle.cap]`、`[solder.nozzle.clean]`            |
+| `probe_guide`              | 校正     | なし（説明のページ）                              | なし                                                                                                                                                                  | `[probe]`                                                 |
+| `toolhead_offset`          | 校正     | `jobs/pasting/toolhead_offset.py`                 | `pasting.toolhead_offset.ToolheadOffsetProcedure`                                                                                                                     | `[solder.nozzle.offset]`                                  |
+| `dispense_calibration`     | 校正     | `jobs/pasting/dispense_calibration.py`            | `pasting.dispense_calibration.procedure.FlowCalibrationProcedure`                                                                                                     | `[solder.dispenser]`、`[solder.motion]`                   |
+| `paste_volume_calibration` | 校正     | `jobs/pasting/paste_volume_calibration.py`        | `pasting.dot_capture.DotCaptureRun`、`pasting.paste_volume.dataset`、`pasting.paste_volume.evaluate`                                                                  | `[solder.volume_correction]`                              |
+| `paste_volume_refit`       | 校正     | `jobs/pasting/paste_volume_refit.py`              | `pasting.paste_volume.dataset.reader`、`pasting.paste_volume.fit`                                                                                                     | なし                                                      |
+| `paste_dataset_finalize`   | 校正     | `jobs/pasting/paste_dataset_finalize.py`          | `pasting.paste_volume.dataset.store`、`pasting.paste_volume.dataset.pending`                                                                                          | なし                                                      |
+| `paste_test_board`         | 基板     | `routers/pasting/test_board.py`                   | `pasting.test_board.generator`                                                                                                                                        | なし                                                      |
+| `generate_grid_pcb`        | 基板     | `jobs/kicad/generate_grid_pcb.py`                 | `kicad.build.generate_grid_pcb`                                                                                                                                       | なし                                                      |
+| `generate_rect_pcb`        | 基板     | `jobs/kicad/generate_rect_pcb.py`                 | `pasting.plate.write_rect_board`                                                                                                                                      | なし                                                      |
+| `extract_pcb`              | 基板     | `jobs/kicad/extract_pcb.py`                       | `board.export`、`board.plot.render_pcb`                                                                                                                               | なし                                                      |
+| `make_fill_coverage_pcb`   | 基板     | `jobs/kicad/make_fill_coverage_pcb.py`            | `kicad.build.build_fill_coverage_board`                                                                                                                               | なし                                                      |
+| `klipper_status`           | 機体     | `routers/machine.py`                              | `machine.commands.to_gcode`                                                                                                                                           | `[klipper]`                                               |
+| `machine_check`            | 機体     | `jobs/machine/machine_check.py`                   | `machine.diagnostics`                                                                                                                                                 | `[klipper]`、`[camera]`、`[audio]`                        |
+| `machine_config`           | 機体     | `routers/machine_config.py`                       | `config.fields.setting_fields`                                                                                                                                        | 全体                                                      |
+| `audio`                    | 機体     | `routers/audio.py`                                | `hal.audio`                                                                                                                                                           | `[audio]`                                                 |
+| `config_history`           | 機体     | `routers/backup.py`                               | なし（`web/api/history.py` と `backup.py`）                                                                                                                           | 全体                                                      |
 
 設定の節の中身は [設定キー一覧](../reference/config.md) にある。
 
@@ -156,7 +193,7 @@ JS に `fetch()` や `new WebSocket()` を直接書かない。機体の prefix 
 
 1. ジョブのモジュールを作り、ジョブ関数と `register` を書く。関数は `JobContext` を受け取り、`pcbasm` を呼ぶ。ログ・進捗は `log` / `progress`、質問は `confirm` / `require` / `choose` / `ask_positive` で出す。
 2. `register` で `JobDefinition` を登録する。`name` はファイル名と同じ文字列にする。装置を動かさないジョブは `uses_machine=False` にする。塗布の永続データ（基板ごとの塗布設定、dataset、塗布量校正）を使うジョブは `register` で `PasteStores` を受け取る。
-3. `src/web/api/jobs/catalog.py` の `default_catalog` から `register` を呼ぶ。ここがジョブの一覧になる。
+3. `src/web/api/jobs/catalog.py` の `default_catalog` から `register` を呼ぶ。ここがジョブの一覧になる。機能の要るジョブは、その機能の条件の下で呼ぶ。
 4. 次節「ページを足す」の手順で、ジョブのページを足す。ページに載っていないジョブがあるとテストが失敗する。
 
 複数のジョブが使う台本の部品（基板の計測、マシン操作の command、ローディング、塗布量校正のフィットと報告）は `src/web/api/jobs/steps.py` に置く。ジョブのモジュールは別のジョブのモジュールを import しない。
@@ -169,8 +206,8 @@ JS に `fetch()` や `new WebSocket()` を直接書かない。機体の prefix 
 ページの URL は `/m/{machine_id}/{feature}` になる。feature slug はジョブ名と同じにする。
 タブ・グループ・テンプレートは `src/web/ui/features.py` の機能表 `FEATURES` だけが持ち、ここに無い feature は 404 になる。
 
-1. `FEATURES` に `Feature(slug, tab, group, template)` を 1 行足す。タブの中ではグループごとに表の順でサイドバーに並ぶ。
-2. テンプレートは `src/web/ui/templates/` の、呼ぶドメインのディレクトリ（`align/`、`pasting/`、`machine/`）に置く。JS も `static/js/` の同じ名前のディレクトリに置く。
+1. `FEATURES` に `Feature(slug, tab, group, template)` を 1 行足す。タブの中ではグループごとに表の順でサイドバーに並ぶ。機能の要るページには `capability` を書く。
+2. テンプレートは `src/web/ui/templates/` の、呼ぶドメインのディレクトリ（`align/`、`pasting/`、`pnp/`、`machine/`）に置く。JS も `static/js/` の同じ名前のディレクトリに置く。
 3. ページの種類に応じて、表示名とテンプレートを決める。
 
 | ページの種類 | 表示名                                  | テンプレート                                                                                   |

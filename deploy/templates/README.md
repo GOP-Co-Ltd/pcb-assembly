@@ -24,13 +24,18 @@
 
 ```
 deploy/templates/
-├── usaremino/      # cartesian（001 と 002）
+├── usaremino/      # cartesian のはんだ塗布機（001 と 002）
 │   ├── machine.toml  # Klipper 以外のハードウェア設定
 │   └── printer.cfg   # Klipper 設定
-└── kurousagi/      # inversed_corexy
+├── usaremino_pnp/  # usaremino の筐体の部品実装機（printer.cfg は usaremino への symlink）
+└── kurousagi/      # inversed_corexy のはんだ塗布機
 ```
 
 `machine.toml` と `printer.cfg` の両方を持つディレクトリだけが `./install.sh machine` の選択肢に出る。
+
+機体の機能は `machine.toml` の節で決まる。`[solder]` があればはんだ塗布機、`[pnp]` があれば部品実装機、両方あれば両方使える機体になる。
+`usaremino_pnp` は共通の節と空の `[pnp]` だけを持つ最小の雛形で、部品実装の設定とハードウェアは PnP の実装時に足す。
+塗布と部品実装の両方を使う機体は、塗布機の雛形を置いてから `config/machine.toml` に `[pnp]` を足す。
 
 **個体の実測値はテンプレートに含めない。** カメラキャリブレーション結果、ツールヘッドの実測オフセット、
 ノズルキャップとクリーニングの位置、ロードセルの較正値（`counts_per_gram` / `reference_tare_counts`）、

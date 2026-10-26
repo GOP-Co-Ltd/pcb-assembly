@@ -51,7 +51,7 @@
 
 ### 設定
 
-`machine.toml` の `[paste_dispenser.volume_correction]` に置く。WebUI では 2 か所で編集できる。
+`machine.toml` の `[solder.volume_correction]` に置く。WebUI では 2 か所で編集できる。
 pad editor のツールバーにある流量キャリブレーションの箱（測定点と並んでいる）と、設定ページの
 「ペーストディスペンサー」→「流量キャリブレーション」である。
 
@@ -240,7 +240,7 @@ V_i = \frac{m_{\mathrm{total}}}{\rho}\,\frac{r_i}{\sum_j r_j}
 \]
 
 - \(m_{\mathrm{total}}\): TARE 後の増加質量 [mg]
-- \(\rho\): ペースト密度 [mg/µL]。`machine.toml` の `[paste_dispenser]` の `solder_paste_density`（既定 3.78）を使う
+- \(\rho\): ペースト密度 [mg/µL]。`machine.toml` の `[solder]` の `paste_density`（既定 3.78）を使う
 - \(r_i\): セル \(i\) の指令回転数 [rev]（塗布セルだけで和を取る。blank は含めず真値 0）
 
 ローディングで押し出した分は銅板の外へ捨てるので、\(m_{\mathrm{total}}\) にも配分にも入らない。

@@ -75,18 +75,18 @@
 
 ## 変えた領域と、実施する項目
 
-| 変えた領域                                            | 実施する項目                            |
-| ----------------------------------------------------- | --------------------------------------- |
-| `pcbasm.hal`、`pcbasm.machine`                        | A0, A1, A2, A8, A10, A14, A20           |
-| `pcbasm.gcode`、`pcbasm.geometry`                     | A1, A5, A8                              |
-| `pcbasm.align`、`pcbasm.vision`                       | A3, A4, A5, A8                          |
-| `pcbasm.board`、`pcbasm.kicad`                        | A8, A17                                 |
-| `pcbasm.pasting`                                      | A6, A7, A8, A9, A15, A16, A21           |
-| 描画（`pcbasm.plotting` と `render_*`）               | A7, A9, A17                             |
-| `pcbasm.config`、`web.api.machine_config`、設定の移行 | A10, A13, A18, A19 と、全項目の起動確認 |
-| `web.api`、`web.ui`                                   | A1, A8, A12, A17, A18 の画面操作        |
-| `web.selfupdate`、`scripts/`、unit                    | A11                                     |
-| `tests/golden` の更新                                 | A8 と、差分が出たジョブ・route の項目   |
+| 変えた領域                                            | 実施する項目                                 |
+| ----------------------------------------------------- | -------------------------------------------- |
+| `pcbasm.hal`、`pcbasm.machine`                        | A0, A1, A2, A8, A10, A14, A20                |
+| `pcbasm.gcode`、`pcbasm.geometry`                     | A1, A5, A8                                   |
+| `pcbasm.align`、`pcbasm.vision`                       | A3, A4, A5, A8                               |
+| `pcbasm.board`、`pcbasm.kicad`                        | A8, A17                                      |
+| `pcbasm.pasting`                                      | A6, A7, A8, A9, A15, A16, A21                |
+| 描画（`pcbasm.plotting` と `render_*`）               | A7, A9, A17                                  |
+| `pcbasm.config`、`web.api.machine_config`、設定の移行 | A10, A13, A18, A19, A22 と、全項目の起動確認 |
+| `web.api`、`web.ui`                                   | A1, A8, A12, A17, A18 の画面操作             |
+| `web.selfupdate`、`scripts/`、unit                    | A11                                          |
+| `tests/golden` の更新                                 | A8 と、差分が出たジョブ・route の項目        |
 
 ## 項目
 
@@ -114,6 +114,7 @@
 | A19  | 002 での確認                     | 002                                    |
 | A20  | 電源の入れ直し                   | 001                                    |
 | A21  | 所要時間の予測と実測             | 001                                    |
+| A22  | 機体の機能と [solder] への移行   | 001（002 は A19）                      |
 
 ### A0 装置診断
 
@@ -131,7 +132,7 @@
 
 - 画面: ノズル位置の設定（`nozzle_cap`）、マシン操作パネルの「キャップ位置へ」
 - 操作: ホーミング後にキャップ位置とクリーニング位置を記録する → クリーニングのテストを 2 回続けて押す → もう一度押して、ホーミング中に「中止」を押す → 塗布系のジョブを 1 つ終える → 全軸ホーミングする → 設定ページでクリーニング位置 X を可動域の max より大きくしてテストを押し、元の値に戻す
-- 合格条件: 記録した位置が `config/machine.toml` の `[paste_dispenser.nozzle_cap]` と `[paste_dispenser.nozzle_clean]` に入る。テストはジョブとして走り、同じページにログが出る。こすりの後に TRAVEL_Z へ戻り、終了時にキャップへ駐機して脱力する。2 回目は脱力しているのでホーミングしてからクリーニングする。ホーミング中の中止ではパージせずにキャップへ駐機して「中止」で終わる。ジョブの終了時にキャップへ駐機する。可動域外の位置でのテストは「クリーニング位置が可動域外です」で失敗し、クリーニング位置へは動かず、パージも出ない（終了時の駐機だけ行う。脱力したまま押すと、キャップへの移動を Klipper が断り「タスク終了時の退避に失敗」が出る）
+- 合格条件: 記録した位置が `config/machine.toml` の `[solder.nozzle.cap]` と `[solder.nozzle.clean]` に入る。テストはジョブとして走り、同じページにログが出る。こすりの後に TRAVEL_Z へ戻り、終了時にキャップへ駐機して脱力する。2 回目は脱力しているのでホーミングしてからクリーニングする。ホーミング中の中止ではパージせずにキャップへ駐機して「中止」で終わる。ジョブの終了時にキャップへ駐機する。可動域外の位置でのテストは「クリーニング位置が可動域外です」で失敗し、クリーニング位置へは動かず、パージも出ない（終了時の駐機だけ行う。脱力したまま押すと、キャップへの移動を Klipper が断り「タスク終了時の退避に失敗」が出る）
 
 ### A3 基準点の教示
 
@@ -218,7 +219,7 @@
 
 ### A18 Apply と即時書込
 
-- 対象: rotations_per_ul、max_dispense_rate、max_fill_speed、initial_purge_ul、toolhead、reference_point、camera.calibration_file、canny_low
+- 対象: solder.dispenser.rotations_per_ul、solder.dispenser.max_dispense_rate、solder.motion.max_fill_speed、solder.initial_purge_ul、solder.nozzle.offset、reference_point、camera.calibration_file、alignment.canny_low
 - 合格条件: どれも書込が成功し、設定ページの値と一致する
 
 ### A19 002 での確認
@@ -234,9 +235,15 @@
 ### A21 所要時間の予測と実測
 
 - 画面: `paste_solder`
-- 前提: A8 と同じ基板と PCB。起動時の移行で `machine.toml` の `[tact]` から `travel_speed` / `travel_accel` / `z_speed` / `z_accel` が消え、`setup_sec` が残っている
-- 操作: 実行前に予測所要時間を控え、A8 の塗布を通す。終わったらジョブコンソールの経過と見比べ、`tact.setup_sec` を合わせる
-- 合格条件: パッドを無効にすると予測が短くなる。予測と経過の差が、`tact.setup_sec` を合わせた後に 1 割以内に収まる
+- 前提: A8 と同じ基板と PCB。起動時の移行で `machine.toml` の `[tact]` から `travel_speed` / `travel_accel` / `z_speed` / `z_accel` が消え、`setup_sec` が `[solder.tact]` に残っている
+- 操作: 実行前に予測所要時間を控え、A8 の塗布を通す。終わったらジョブコンソールの経過と見比べ、`solder.tact.setup_sec` を合わせる
+- 合格条件: パッドを無効にすると予測が短くなる。予測と経過の差が、`solder.tact.setup_sec` を合わせた後に 1 割以内に収まる
+
+### A22 機体の機能と [solder] への移行
+
+- 前提: 移行前の `machine.toml`（`[paste_dispenser]` と `[tact]` の形）で、設定ページの全値を控えておく
+- 操作: ブランチで backend を起動する
+- 合格条件: `machine.toml` が `[solder]` の階層（`dispenser` / `nozzle` / `motion` / `defaults` / `auto` / `volume_correction` / `tact`）に移り、`config/history/machine-pre-N.toml` が残る。設定ページの全値が控えと一致する。機体一覧に「はんだ塗布」のバッジが出る。タブ（塗布 / 校正 / 基板 / 機体）、着地点（`paste_solder`）、塗布の画面が移行前と同じで、A8 と A18 が通る
 
 ## 未確認の項目（実機で確かめる）
 
