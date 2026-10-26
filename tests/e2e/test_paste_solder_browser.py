@@ -758,6 +758,30 @@ class TestPasteSolderBrowserPadInteraction:
         _wait_for_override(live_server, "L0", "dispense_mode", "dot")
         expect(marker).to_have_count(0, timeout=_BROWSER_TIMEOUT_MS)
 
+    def test_auto_heights_show_the_computed_value_from_the_server(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
+        _select_led_blinker(live_server)
+        applied = _get_pad_config(live_server)["tree"]["applied"]["paste_height"]
+
+        _open_paste_solder(browser_page, live_ui)
+        root_row = pad_row(browser_page, "L0")
+        height_cell = _field_cell(root_row, "paste_height")
+        # 表示文字列はサーバーが組んだもの（auto (X mm)）をそのまま出す
+        marker = pad_field(height_cell, "pad-applied-value", "paste_height")
+        expect(marker).to_have_text(applied["label"], timeout=_BROWSER_TIMEOUT_MS)
+        assert applied["label"].startswith("auto (")
+
+        _field_select(
+            root_row, "dispense_mode", "pad-dispense-mode-select"
+        ).select_option("micro_line")
+        _wait_for_override(live_server, "L0", "dispense_mode", "micro_line")
+        applied = _get_pad_config(live_server)["tree"]["applied"]
+        for field in ("micro_line_z_start", "micro_line_z_end"):
+            expect(pad_field(height_cell, "pad-applied-value", field)).to_have_text(
+                applied[field]["label"], timeout=_BROWSER_TIMEOUT_MS
+            )
+
     def test_tree_row_highlights_pads_by_node_id_membership(
         self, live_server: LiveServer, live_ui: LiveUi, browser_page
     ):

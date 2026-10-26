@@ -812,7 +812,8 @@ class TestTreeNodeResolution:
             "/api/pasting/board/node",
             json={
                 "node": "L0",
-                "values": {"dispense_mode": "dot"},
+                # 高さも数値にしないと auto の計算値が載る
+                "values": {"dispense_mode": "dot", "paste_height": 0.2},
                 "expected_pcb": _SELECTED_PCB,
             },
         )
@@ -823,6 +824,28 @@ class TestTreeNodeResolution:
             node = stack.pop()
             assert node["applied"] == {}, node["id"]
             stack.extend(node["children"])
+
+    def test_auto_height_rows_carry_the_computed_height(
+        self, selected_client: TestClient
+    ):
+        """塗布高さが auto の行は、計算した高さを ``auto (X mm)`` で持つ（入力値は auto のまま）."""
+        patched = selected_client.patch(
+            "/api/pasting/board/node",
+            json={
+                "node": "L0",
+                "values": {"dispense_mode": "dot", "ul_per_mm2": 0.04},
+                "expected_pcb": _SELECTED_PCB,
+            },
+        )
+        assert patched.status_code == 200, patched.text
+
+        root = _get_config(selected_client)["tree"]
+
+        assert root["resolved"]["paste_height"] == "auto"
+        applied = root["applied"]["paste_height"]
+        # 点・線・面の auto は ul_per_mm2 を膜厚とする
+        assert applied["label"] == "auto (0.040 mm)"
+        assert applied["title"]
 
     def test_fields_metadata_drives_ui_columns(self, selected_client: TestClient):
         """Pad-config の fields は PASTE_PARAM_FIELDS と同順・同集合で、JS の唯一の出典."""

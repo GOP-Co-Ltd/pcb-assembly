@@ -2,7 +2,7 @@
 
 backend の API は、ここで組んだ値を契約モデルへ詰めるだけにする。
 
-- 階層ノードごとの実際の塗布方式（auto 判定・フォールバック後）の集計。「塗布方式」列で、選択値から実際に塗る方式が読み取れないノードに方式を添える
+- 階層ノードごとの実際の塗布方式（auto 判定・フォールバック後）と auto の高さの計算値の集計。選択値から実際の値が読み取れないノードに、方式や ``auto (X mm)`` を添える
 - 初回パージと運転時補正の設定と解決結果（設定が不正でも理由を載せて返す）
 - 銅箔の表示用の簡略化
 """
@@ -17,12 +17,12 @@ from shapely import Polygon
 
 from pcbasm.config.solder import SolderConfig
 from pcbasm.geometry import Point2d
-from pcbasm.pasting.fill_path import FillPlan
+from pcbasm.pasting.fill_path import AppliedDispenseMode, FillPlan, paste_height_mm
 from pcbasm.pasting.hierarchy import HierKey, PadHierarchy
 from pcbasm.pasting.initial_purge import ResolvedInitialPurge
 from pcbasm.pasting.labels import flow_calibration_label, purge_selection_label
 from pcbasm.pasting.overrides import ResolvedSetting
-from pcbasm.pasting.params import PASTE_PARAM_FIELDS
+from pcbasm.pasting.params import PASTE_PARAM_FIELDS, PasteParams
 from pcbasm.pasting.paste_volume.runtime_correction import overlapping_crops
 from pcbasm.pasting.plan import PastePlan
 
@@ -40,12 +40,12 @@ _MODE_LABELS: dict[str, str] = {
 
 
 @attrs.frozen
-class AppliedModeSummary:
-    """1 ノード配下の有効 pad が実際に使う塗布方式.
+class AppliedValueSummary:
+    """1 ノード配下の有効 pad が実際に使う値（塗布方式か、auto の高さの計算値）.
 
     Attributes:
-        counts: 方式ごとの有効 pad 数（選択肢の並び順。0 件の方式は含まない）
-        label: 表示文字列（例: ``→ 面``、``→ 点 12 / 線 6``）
+        counts: 値ごとの有効 pad 数（方式は選択肢の並び順、高さは小さい順。0 件の値は含まない）
+        label: 表示文字列（例: ``→ 面``、``→ 点 12 / 線 6``、``auto (0.050 mm)``、``auto (0.040–0.060 mm)``）
         title: ツールチップ用の説明
     """
 
@@ -157,20 +157,25 @@ def display_rings(polygon: Polygon) -> list[list[list[float]]]:
     ]
 
 
-def applied_mode_summaries(
+def applied_value_summaries(
     hierarchy: PadHierarchy,
     pad_settings: Mapping[str, ResolvedSetting],
     node_settings: Mapping[HierKey, ResolvedSetting],
     config: SolderConfig,
-) -> dict[HierKey, AppliedModeSummary]:
-    """選択値から実際の方式が読み取れないノードについて、配下の有効 pad の方式を集計する.
+) -> dict[HierKey, dict[str, AppliedValueSummary]]:
+    """選択値から実際の値が読み取れないノードについて、配下の有効 pad の値を項目ごとに集計する.
 
-    返すのは次のどちらかに当たるノードだけ。
+    ``dispense_mode`` は次のどちらかに当たるノードに載せる。
 
     - 解決済みの方式が auto
     - 配下の有効 pad に、解決済みの方式と違う方式で塗る pad がある（フォールバックや子孫の override）
 
-    無効 pad は塗らないので数えない。有効 pad が無いノードは返さない。
+    高さは、ノードの高さの欄（``height_fields``）の項目に、配下の有効 pad が auto のまま使う高さの計算値（塗布経路の z と同じ値）を載せる。
+
+    - 方式が微小線のノードは ``micro_line_z_start`` / ``micro_line_z_end`` の欄に、ノードの値が auto のときだけ載せる
+    - それ以外のノードは ``paste_height`` の欄に、点・線・面で塗る pad の値（ノードの値が auto のとき）と、微小線で塗る pad の値（例: ``auto (0.050 mm) / 微小線 auto (0.100 mm)``）を載せる（方式が auto のノードでも微小線になる pad があり、その始点高・終点高の欄は表に出ないため）
+
+    無効 pad は塗らないので数えない。載せる項目が無いノードは返さない。
 
     Args:
         hierarchy: 基板の pad 階層
@@ -178,24 +183,73 @@ def applied_mode_summaries(
         node_settings: :func:`~pcbasm.pasting.overrides.resolve_node_settings` の結果
         config: ``MachineConfig.solder``（ノズル径と auto 判定の閾値）
     """
-    counts: dict[HierKey, Counter[str]] = {}
+    modes: dict[HierKey, Counter[str]] = {}
+    heights: dict[HierKey, dict[str, list[float]]] = {}
     for pad in hierarchy.iter_pads():
         setting = pad_settings[pad.ref]
         if not setting.enabled:
             continue
         mode = FillPlan.mode_for_pad(pad.polygon, config=config, params=setting.params)
+        pad_heights = _auto_heights(pad.polygon, config, setting.params, mode)
         for key in hierarchy.node_keys_for_pad(pad):
-            counts.setdefault(key, Counter())[mode] += 1
+            modes.setdefault(key, Counter())[mode] += 1
+            for field, height in pad_heights.items():
+                heights.setdefault(key, {}).setdefault(field, []).append(height)
 
-    summaries: dict[HierKey, AppliedModeSummary] = {}
-    for key, node_counts in counts.items():
-        selected = node_settings[key].params.dispense_mode
-        if selected == "auto" or set(node_counts) != {selected}:
-            summaries[key] = _summary(node_counts)
+    summaries: dict[HierKey, dict[str, AppliedValueSummary]] = {}
+    for key, node_modes in modes.items():
+        params = node_settings[key].params
+        fields: dict[str, AppliedValueSummary] = {}
+        if params.dispense_mode == "auto" or set(node_modes) != {params.dispense_mode}:
+            fields["dispense_mode"] = _mode_summary(node_modes)
+        node_heights = heights.get(key, {})
+        if params.dispense_mode == "micro_line":
+            for field in params.height_fields:
+                if getattr(params, field) == "auto" and field in node_heights:
+                    fields[field] = _height_summary([("", node_heights[field])])
+        else:
+            parts = [
+                (prefix, node_heights[name])
+                for prefix, name, shown in (
+                    ("", "paste_height", params.paste_height == "auto"),
+                    ("微小線 ", "micro_line", True),
+                )
+                if shown and name in node_heights
+            ]
+            if parts:
+                fields["paste_height"] = _height_summary(parts)
+        if fields:
+            summaries[key] = fields
     return summaries
 
 
-def _summary(counts: Counter[str]) -> AppliedModeSummary:
+def _auto_heights(
+    polygon: Polygon,
+    config: SolderConfig,
+    params: PasteParams,
+    mode: AppliedDispenseMode,
+) -> dict[str, float]:
+    """Pad の高さのうち auto のまま使う項目の計算値（塗布経路の z と同じ値）.
+
+    微小線の pad は、始点高・終点高の auto の値を ``micro_line`` にも入れる（方式が微小線でないノードの塗布高さの欄に出す）。
+    """
+    if mode != "micro_line":
+        if params.paste_height != "auto":
+            return {}
+        return {"paste_height": paste_height_mm(params)}
+    fields = [
+        field
+        for field in ("micro_line_z_start", "micro_line_z_end")
+        if getattr(params, field) == "auto"
+    ]
+    if not fields:
+        return {}
+    ((start, _),) = FillPlan.for_pad(polygon, config=config, params=params).paths
+    # 向きを揃えても auto の値は始点・終点で同じなので、どちらの端の z でもよい
+    return dict.fromkeys([*fields, "micro_line"], start.z)
+
+
+def _mode_summary(counts: Counter[str]) -> AppliedValueSummary:
     ordered = {mode: counts[mode] for mode in _MODE_LABELS if mode in counts}
     if len(ordered) == 1:
         label = f"→ {_MODE_LABELS[next(iter(ordered))]}"
@@ -204,8 +258,26 @@ def _summary(counts: Counter[str]) -> AppliedModeSummary:
             f"{_MODE_LABELS[mode]} {n}" for mode, n in ordered.items()
         )
     detail = "、".join(f"{_MODE_LABELS[mode]} {n} 件" for mode, n in ordered.items())
-    return AppliedModeSummary(
+    return AppliedValueSummary(
         counts=ordered,
         label=label,
         title=f"実際の塗布方式（有効 pad {sum(ordered.values())} 件）: {detail}",
+    )
+
+
+def _height_summary(parts: list[tuple[str, list[float]]]) -> AppliedValueSummary:
+    """``(接頭辞, pad ごとの高さ)`` の組ごとに、値（違えば範囲）を ``auto (X mm)`` で並べる."""
+    labels: list[str] = []
+    counts: dict[str, int] = {}
+    for prefix, heights in parts:
+        values = Counter(f"{height:.3f}" for height in heights)
+        ordered = sorted(values, key=float)
+        shown = ordered[0] if len(ordered) == 1 else f"{ordered[0]}–{ordered[-1]}"
+        labels.append(f"{prefix}auto ({shown} mm)")
+        counts |= {f"{prefix}{value}": values[value] for value in ordered}
+    pads = sum(len(heights) for _, heights in parts)
+    return AppliedValueSummary(
+        counts=counts,
+        label=" / ".join(labels),
+        title=f"auto の高さで塗る有効 pad {pads} 件の計算値",
     )

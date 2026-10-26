@@ -311,7 +311,7 @@ function buildChoiceCell(
 }
 
 // 選択値から読み取れない実際の値（Auto の解決結果など）。文字列も表示の要否もサーバが決める
-function appendAppliedValue(td, node, field) {
+function appendAppliedValue(container, node, field) {
   const applied = node.applied[field];
   if (!applied) return;
   const span = document.createElement("span");
@@ -320,7 +320,7 @@ function appendAppliedValue(td, node, field) {
   span.dataset.field = field;
   span.textContent = applied.label;
   span.title = applied.title;
-  td.appendChild(span);
+  container.appendChild(span);
 }
 
 function buildHeightCell(state, actions, node, field, descendantSummary) {
@@ -405,6 +405,7 @@ function appendHeightControl(container, state, actions, node, field, descendantS
   appendOverrideControls(container, actions, node.id, field, isOverride, select.id);
   container.appendChild(select);
   container.appendChild(input);
+  appendAppliedValue(container, node, field);
   appendDescendantFieldMarker(container, state, field, descendantCount);
 }
 

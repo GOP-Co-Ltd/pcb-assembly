@@ -1,4 +1,4 @@
-"""階層ノードごとの実際の塗布方式の集計テスト（実 Pad / Component を使う）.
+"""階層ノードごとの実際の塗布方式と auto の塗布高さの集計テスト（実 Pad / Component を使う）.
 
 形状はノズル径 1.0・ビード幅係数 1.0・外周余白 0（inset 0.5）・面塗布の短辺閾値 3.0 で
 方式が決まるように選ぶ。
@@ -10,6 +10,7 @@
 
 from collections.abc import Mapping
 
+import attrs
 from shapely import Polygon
 
 from pcbasm.board import Component, Layer, Pad
@@ -21,9 +22,11 @@ from pcbasm.pasting.overrides import (
     resolve_node_settings,
     resolve_pad_settings,
 )
-from pcbasm.pasting.pad_editor import AppliedModeSummary, applied_mode_summaries
+from pcbasm.pasting.pad_editor import AppliedValueSummary, applied_value_summaries
 from pcbasm.pasting.params import PasteParams, PasteParamValue
 from tests.support.solder import solder_config
+
+type Patch = tuple[HierKey, Mapping[str, PasteParamValue] | None, bool | None]
 
 
 def _rect(cx: float, cy: float, w: float, h: float) -> Polygon:
@@ -82,6 +85,16 @@ def _base() -> PasteParams:
     )
 
 
+def _auto_heights() -> PasteParams:
+    """高さを 3 つとも auto にした基板既定値（方式は auto）."""
+    return attrs.evolve(
+        _base(),
+        paste_height="auto",
+        micro_line_z_start="auto",
+        micro_line_z_end="auto",
+    )
+
+
 def _hierarchy() -> PadHierarchy:
     """R1 = 細長 2 枚（auto で線）、U1 = 大 1 枚（面）+ 小 1 枚（点）."""
     components = [_component("R1", "0805"), _component("U1", "QFN-8")]
@@ -95,16 +108,16 @@ def _hierarchy() -> PadHierarchy:
 
 
 def _summaries(
-    *patches: tuple[HierKey, Mapping[str, PasteParamValue] | None, bool | None],
-) -> dict[HierKey, AppliedModeSummary]:
+    base: PasteParams, *patches: Patch
+) -> dict[HierKey, dict[str, AppliedValueSummary]]:
     """``(key, values, enabled)`` の override を重ねたモデルで集計する."""
     hierarchy = _hierarchy()
-    model = PasteSettingsModel(base=_base())
+    model = PasteSettingsModel(base=base)
     for key, values, enabled in patches:
         model = model.with_level_patch(
             key, values=values, enabled=enabled, enabled_sent=enabled is not None
         )
-    return applied_mode_summaries(
+    return applied_value_summaries(
         hierarchy,
         resolve_pad_settings(hierarchy, model),
         resolve_node_settings(hierarchy, model),
@@ -112,11 +125,18 @@ def _summaries(
     )
 
 
+def _modes(*patches: Patch) -> dict[HierKey, AppliedValueSummary]:
+    """高さを数値にした既定値で、塗布方式の集計だけを取り出す."""
+    summaries = _summaries(_base(), *patches)
+    assert all(set(fields) == {"dispense_mode"} for fields in summaries.values())
+    return {key: fields["dispense_mode"] for key, fields in summaries.items()}
+
+
 class TestAutoNodes:
     """解決済みの方式が auto のノードは、配下の有効 pad の実際の方式を出す."""
 
     def test_mixed_modes_are_counted_in_choice_order(self):
-        summaries = _summaries()
+        summaries = _modes()
 
         root = summaries[("L0",)]
         assert root.counts == {"dot": 1, "area": 1, "micro_line": 2}
@@ -126,7 +146,7 @@ class TestAutoNodes:
         assert "微小線 2 件" in root.title
 
     def test_a_single_mode_shows_only_the_mode(self):
-        summaries = _summaries()
+        summaries = _modes()
 
         assert summaries[("L2", "R1")].label == "→ 微小線"
         assert summaries[("L2", "R1")].counts == {"micro_line": 2}
@@ -137,10 +157,10 @@ class TestExplicitModes:
     """明示した方式は、選択値と実際の方式が食い違うノードにだけ出す."""
 
     def test_dot_everywhere_has_nothing_to_show(self):
-        assert _summaries((("L0",), {"dispense_mode": "dot"}, None)) == {}
+        assert _modes((("L0",), {"dispense_mode": "dot"}, None)) == {}
 
     def test_line_fallback_to_dot_is_shown_only_where_it_happens(self):
-        summaries = _summaries((("L0",), {"dispense_mode": "line"}, None))
+        summaries = _modes((("L0",), {"dispense_mode": "line"}, None))
 
         # 小 pad だけ線が成立せず点へ落ちる
         assert summaries[("L4", "U1", "2")].label == "→ 点"
@@ -150,12 +170,12 @@ class TestExplicitModes:
         assert ("L4", "U1", "1") not in summaries
 
     def test_area_fallback_to_line_is_shown(self):
-        summaries = _summaries((("L2", "R1"), {"dispense_mode": "area"}, None))
+        summaries = _modes((("L2", "R1"), {"dispense_mode": "area"}, None))
 
         assert summaries[("L2", "R1")].label == "→ 線"
 
     def test_descendant_override_under_an_explicit_parent_is_shown(self):
-        summaries = _summaries(
+        summaries = _modes(
             (("L0",), {"dispense_mode": "line"}, None),
             (("L4", "U1", "2"), {"dispense_mode": "dot"}, None),
         )
@@ -169,14 +189,111 @@ class TestDisabledPads:
     """無効 pad は塗らないので数えない."""
 
     def test_disabled_pads_are_left_out_of_the_counts(self):
-        summaries = _summaries((("L4", "U1", "2"), None, False))
+        summaries = _modes((("L4", "U1", "2"), None, False))
 
         assert summaries[("L0",)].counts == {"area": 1, "micro_line": 2}
         assert ("L4", "U1", "2") not in summaries
 
     def test_a_node_without_enabled_pads_has_nothing_to_show(self):
-        summaries = _summaries((("L2", "U1"), None, False))
+        summaries = _modes((("L2", "U1"), None, False))
 
         for key in (("L1", "QFN-8"), ("L2", "U1"), ("L4", "U1", "1")):
             assert key not in summaries
         assert summaries[("L0",)].counts == {"micro_line": 2}
+
+
+class TestAutoHeights:
+    """Auto の高さには、塗布に使う計算値を ``auto (X mm)`` で添える.
+
+    点・線・面の auto は ``ul_per_mm2``（0.1）。
+    微小線（0.8 x 5、ノズル外径 1.0）の auto は 塗布量 0.4 uL / (幅 0.8 x (線長 4.0 + 外径 1.0)) = 0.1。
+    4 x 4 を微小線で塗ると 1.6 uL / (幅 1.0 x (線長 3.0 + 外径 1.0)) = 0.4。
+    """
+
+    def test_an_auto_mode_row_shows_both_paste_height_and_micro_line_heights(self):
+        # R1 だけ量を半分にして、微小線の値（0.05）を塗布高さ（0.1）と見分ける
+        summaries = _summaries(
+            _auto_heights(), (("L2", "R1"), {"ul_per_mm2": 0.05}, None)
+        )
+
+        root = summaries[("L0",)]
+        assert set(root) == {"dispense_mode", "paste_height"}
+        assert root["paste_height"].label == "auto (0.100 mm) / 微小線 auto (0.050 mm)"
+        assert root["paste_height"].counts == {"0.100": 2, "微小線 0.050": 2}
+        assert "有効 pad 4 件" in root["paste_height"].title
+        # 方式 auto のまま微小線になる pad だけのノードは、微小線の値だけを出す
+        assert summaries[("L2", "R1")]["paste_height"].label == "微小線 auto (0.050 mm)"
+        assert summaries[("L2", "U1")]["paste_height"].label == "auto (0.100 mm)"
+
+    def test_micro_line_rows_show_the_start_and_end_heights(self):
+        summaries = _summaries(
+            _auto_heights(), (("L2", "R1"), {"dispense_mode": "micro_line"}, None)
+        )
+
+        r1 = summaries[("L2", "R1")]
+        assert set(r1) == {"micro_line_z_start", "micro_line_z_end"}
+        assert r1["micro_line_z_start"].label == "auto (0.100 mm)"
+        assert r1["micro_line_z_end"].label == "auto (0.100 mm)"
+        assert r1["micro_line_z_start"].counts == {"0.100": 2}
+
+    def test_only_the_auto_end_of_a_micro_line_is_shown(self):
+        summaries = _summaries(
+            _auto_heights(),
+            (("L2", "R1"), {"dispense_mode": "micro_line"}, None),
+            (("L2", "R1"), {"micro_line_z_start": 0.07}, None),
+        )
+
+        assert set(summaries[("L2", "R1")]) == {"micro_line_z_end"}
+
+    def test_pads_that_fall_back_to_dot_are_left_out_of_micro_line_heights(self):
+        summaries = _summaries(
+            _auto_heights(), (("L0",), {"dispense_mode": "micro_line"}, None)
+        )
+
+        # 0.8 x 0.8 は点へ落ちるので数えない（塗布高さの欄はこの行に無い）
+        root = summaries[("L0",)]
+        assert set(root) == {"dispense_mode", "micro_line_z_start", "micro_line_z_end"}
+        assert root["micro_line_z_start"].label == "auto (0.100–0.400 mm)"
+        assert root["micro_line_z_start"].counts == {"0.100": 2, "0.400": 1}
+
+    def test_micro_line_heights_are_shown_even_when_paste_height_is_explicit(self):
+        base = attrs.evolve(_base(), micro_line_z_start="auto", micro_line_z_end="auto")
+
+        summaries = _summaries(base)
+
+        assert summaries[("L0",)]["paste_height"].label == "微小線 auto (0.100 mm)"
+        assert "paste_height" not in summaries[("L2", "U1")]
+
+    def test_differing_values_are_shown_as_a_range(self):
+        summaries = _summaries(
+            _auto_heights(), (("L4", "U1", "2"), {"ul_per_mm2": 0.2}, None)
+        )
+
+        u1 = summaries[("L2", "U1")]["paste_height"]
+        assert u1.label == "auto (0.100–0.200 mm)"
+        assert u1.counts == {"0.100": 1, "0.200": 1}
+        pad = summaries[("L4", "U1", "2")]["paste_height"]
+        assert pad.label == "auto (0.200 mm)"
+
+    def test_pads_with_an_explicit_height_are_left_out(self):
+        summaries = _summaries(
+            _auto_heights(), (("L4", "U1", "2"), {"paste_height": 0.3}, None)
+        )
+
+        assert summaries[("L2", "U1")]["paste_height"].counts == {"0.100": 1}
+        assert "paste_height" not in summaries.get(("L4", "U1", "2"), {})
+
+    def test_an_auto_node_under_an_explicit_parent_shows_its_value(self):
+        summaries = _summaries(
+            _base(), (("L4", "U1", "1"), {"paste_height": "auto"}, None)
+        )
+
+        node = summaries[("L4", "U1", "1")]["paste_height"]
+        assert node.label == "auto (0.100 mm)"
+        assert "paste_height" not in summaries[("L0",)]
+
+    def test_disabled_pads_are_left_out(self):
+        summaries = _summaries(_auto_heights(), (("L2", "U1"), None, False))
+
+        assert ("L2", "U1") not in summaries
+        assert summaries[("L0",)]["paste_height"].label == "微小線 auto (0.100 mm)"
