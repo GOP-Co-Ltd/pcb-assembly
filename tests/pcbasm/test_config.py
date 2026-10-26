@@ -271,6 +271,7 @@ class TestMachine:
             ("micro_line_z_start", 0.0),
             ("micro_line_z_end", -0.01),
             ("micro_line_z_end", "fast"),
+            ("micro_line_z_start", "start"),
             ("micro_line_settle_seconds", -0.1),
             ("post_dispense_settle_seconds", -0.1),
         ],
@@ -321,11 +322,15 @@ class TestMachine:
             post_dispense_settle_seconds=0.1,
         )
 
-    def test_micro_line_heights_default_to_auto(self):
+    def test_micro_line_start_defaults_to_auto_and_end_follows_it(self):
         dispenser = _solder()
 
         assert dispenser.defaults.micro_line_z_start == "auto"
-        assert dispenser.defaults.micro_line_z_end == "auto"
+        assert dispenser.defaults.micro_line_z_end == "start"
+
+    @pytest.mark.parametrize("value", ["start", "auto", 0.05])
+    def test_micro_line_end_is_read_as_written(self, value):
+        assert _solder(micro_line_z_end=value).defaults.micro_line_z_end == value
 
     def test_micro_line_mode_is_accepted(self):
         dispenser = _solder(dispense_mode="micro_line")

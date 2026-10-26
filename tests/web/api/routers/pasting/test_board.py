@@ -813,7 +813,8 @@ class TestTreeNodeResolution:
             "/api/pasting/board/node",
             json={
                 "node": "L0",
-                "values": {"dispense_mode": "dot"},
+                # 高さも数値にしないと auto の計算値が載る
+                "values": {"dispense_mode": "dot", "paste_height": 0.2},
                 "expected_pcb": _SELECTED_PCB,
             },
         )
@@ -824,6 +825,28 @@ class TestTreeNodeResolution:
             node = stack.pop()
             assert node["applied"] == {}, node["id"]
             stack.extend(node["children"])
+
+    def test_auto_height_rows_carry_the_computed_height(
+        self, selected_client: TestClient
+    ):
+        """塗布高さが auto の行は、計算した高さを ``(X)`` で持つ（入力値は auto のまま）."""
+        patched = selected_client.patch(
+            "/api/pasting/board/node",
+            json={
+                "node": "L0",
+                "values": {"dispense_mode": "dot", "ul_per_mm2": 0.04},
+                "expected_pcb": _SELECTED_PCB,
+            },
+        )
+        assert patched.status_code == 200, patched.text
+
+        root = _get_config(selected_client)["tree"]
+
+        assert root["resolved"]["paste_height"] == "auto"
+        applied = root["applied"]["paste_height"]
+        # 点・線・面の auto は ul_per_mm2 を膜厚とする
+        assert applied["label"] == "(0.04)"
+        assert applied["title"]
 
     def test_fields_metadata_drives_ui_columns(self, selected_client: TestClient):
         """Pad-config の fields は PASTE_PARAM_FIELDS と同順・同集合で、JS の唯一の出典."""
@@ -845,7 +868,8 @@ class TestTreeNodeResolution:
             "label": "塗布高さ",
             "kind": "height",
             "unit": "mm",
-            "choices": [],
+            # 数値の代わりに選べる値
+            "choices": [{"value": "auto", "label": "auto"}],
             "column": None,
         }
         assert by_name["ul_per_mm2"]["unit"] == "uL/mm²"
@@ -861,7 +885,8 @@ class TestTreeNodeResolution:
         defaults = _get_config(selected_client)["defaults"]
 
         assert defaults["micro_line_z_start"] == "auto"
-        assert defaults["micro_line_z_end"] == "auto"
+        # 終点高は始点高に従う
+        assert defaults["micro_line_z_end"] == "start"
         assert "micro_line_settle_seconds" not in defaults
 
 

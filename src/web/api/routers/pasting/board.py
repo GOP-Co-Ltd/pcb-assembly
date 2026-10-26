@@ -42,8 +42,8 @@ from pcbasm.pasting.overrides import (
 )
 from pcbasm.pasting.pad_editor import (
     COPPER_DISPLAY_TOLERANCE_MM,
-    AppliedModeSummary,
-    applied_mode_summaries,
+    AppliedValueSummary,
+    applied_value_summaries,
     display_rings,
     flow_calibration_view,
     initial_purge_view,
@@ -141,9 +141,10 @@ class OwnSummary(BaseModel):
 class AppliedValueInfo(BaseModel):
     """解決値の選択から読み取れない、実際に使われる値の表示（UI の補足表示用）."""
 
-    label: str  # 表示文字列（例: "→ 点 12 / 線 6"）
+    label: str  # 表示文字列（例: "→ 点 12 / 線 6"、"(0.05)"）
     title: str  # ツールチップ
-    counts: dict[str, int]  # 値ごとの有効 pad 数（選択肢の並び順）
+    # 値ごとの有効 pad 数（方式は選択肢の並び順、高さは小さい順）
+    counts: dict[str, int]
 
 
 class HierNodeInfo(BaseModel):
@@ -413,7 +414,7 @@ def tree(
     node: PadHierarchyNode,
     model: PasteSettingsModel,
     resolved: dict[tuple[str, ...], ResolvedSetting],
-    applied_modes: dict[tuple[str, ...], AppliedModeSummary],
+    applied: dict[tuple[str, ...], dict[str, AppliedValueSummary]],
 ) -> HierNodeInfo:
     setting = model.level(node.key)
     own = NodeOverrideInfo(
@@ -431,14 +432,11 @@ def tree(
         descendant_summary=DescendantSummary(
             **attrs.asdict(descendant_override_summary(node, model))
         ),
-        applied=(
-            {"dispense_mode": AppliedValueInfo(**attrs.asdict(mode))}
-            if (mode := applied_modes.get(node.key)) is not None
-            else {}
-        ),
-        children=[
-            tree(child, model, resolved, applied_modes) for child in node.children
-        ],
+        applied={
+            field: AppliedValueInfo(**attrs.asdict(summary))
+            for field, summary in applied.get(node.key, {}).items()
+        },
+        children=[tree(child, model, resolved, applied) for child in node.children],
     )
 
 
@@ -619,7 +617,7 @@ def build_pad_config(loaded: BoardSession) -> PadConfigResponse:
             hierarchy.root,
             model,
             node_resolved,
-            applied_mode_summaries(
+            applied_value_summaries(
                 hierarchy, resolved, node_resolved, loaded.base_config
             ),
         ),

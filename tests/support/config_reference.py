@@ -34,6 +34,7 @@ _KINDS = {
     "int": "整数",
     "str": "文字列",
     "float_or_auto": "数値か `auto`",
+    "float_auto_or_start": "数値か `auto` か `start`（始点高に従う）",
     "float_pair": "`[x, y]`",
     "float_triple": "座標。3 つそろえるか、すべて書かない",
 }

@@ -275,11 +275,13 @@ def _toml_value(field: SettingField, value: object) -> MachineSettingValue:
             return int(value)
         case "str" | "choice" if isinstance(value, str):
             return value.strip()
-        case "float_or_auto" if value == "auto":
+        case "float_or_auto" | "float_auto_or_start" if value == "auto":
             return "auto"
-        case "float_or_auto" if is_finite_number(value):
+        case "float_auto_or_start" if value == "start":
+            return "start"
+        case "float_or_auto" | "float_auto_or_start" if is_finite_number(value):
             return float(value)
-        case "float_or_auto" if isinstance(value, str):
+        case "float_or_auto" | "float_auto_or_start" if isinstance(value, str):
             # 数値か auto を書く欄は文字列の入力欄なので、数値も文字列で届く
             try:
                 number = float(value)

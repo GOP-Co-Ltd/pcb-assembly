@@ -31,13 +31,20 @@ from typing import TYPE_CHECKING, Any, Literal, get_args, get_origin, get_type_h
 
 import attrs
 
-from pcbasm.pasting.params import PasteHeight
+from pcbasm.pasting.params import MicroLineEndHeight, PasteHeight
 
 if TYPE_CHECKING:
     from pcbasm.config import MachineConfig
 
 type SettingKind = Literal[
-    "float", "int", "str", "float_or_auto", "float_pair", "float_triple", "choice"
+    "float",
+    "int",
+    "str",
+    "float_or_auto",
+    "float_auto_or_start",
+    "float_pair",
+    "float_triple",
+    "choice",
 ]
 
 XYZ = ("x", "y", "z")
@@ -50,6 +57,7 @@ _KINDS: dict[object, SettingKind] = {
     str: "str",
     Path: "str",
     PasteHeight: "float_or_auto",
+    MicroLineEndHeight: "float_auto_or_start",
     tuple[float, float]: "float_pair",
 }
 

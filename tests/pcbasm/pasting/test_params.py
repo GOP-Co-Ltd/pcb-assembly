@@ -74,6 +74,17 @@ class TestPasteParamFields:
         # 塗布高さと同じく数値または auto
         kinds = {field.name: field.kind for field in PASTE_PARAM_FIELDS}
         assert kinds["micro_line_z_start"] == kinds["micro_line_z_end"] == "height"
+        # 数値以外の値は選択肢で渡す（終点高だけ「始点に従う」を持つ）
+        keywords = {
+            field.name: [choice.value for choice in field.choices]
+            for field in PASTE_PARAM_FIELDS
+            if field.kind == "height"
+        }
+        assert keywords == {
+            "paste_height": ["auto"],
+            "micro_line_z_start": ["auto"],
+            "micro_line_z_end": ["start", "auto"],
+        }
         assert [name for name, column in columns.items() if column is not None] == [
             "micro_line_z_start",
             "micro_line_z_end",
@@ -147,6 +158,15 @@ class TestValidateParamValues:
 
         assert validate_param_values(values) is None
 
+    def test_micro_line_end_may_follow_the_start(self):
+        assert validate_param_values({"micro_line_z_end": "start"}) is None
+
+    def test_an_invalid_micro_line_end_names_the_accepted_values(self):
+        message = validate_param_values({"micro_line_z_end": -0.05})
+
+        assert message is not None
+        assert "start" in message
+
     def test_unknown_field_is_rejected(self):
         message = validate_param_values({"bogus": 1.0})
 
@@ -172,6 +192,9 @@ class TestValidateParamValues:
             {"boundary_margin": float("nan")},
             {"micro_line_z_start": 0.0},
             {"micro_line_z_end": -0.05},
+            # 始点に従うのは終点高だけ
+            {"micro_line_z_start": "start"},
+            {"paste_height": "start"},
             # 装置設定。pad では上書きできない
             {"micro_line_settle_seconds": 0.5},
             {"nozzle_outer_diameter": 0.4},
@@ -193,7 +216,7 @@ class TestPasteParamsValidators:
             prime_extra_delay=0.0,
             paste_height="auto",
             micro_line_z_start="auto",
-            micro_line_z_end="auto",
+            micro_line_z_end="start",
         )
 
     @pytest.mark.parametrize(

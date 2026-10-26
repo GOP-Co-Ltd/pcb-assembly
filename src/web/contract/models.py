@@ -11,7 +11,14 @@ type JobStatusName = Literal[
 ]
 
 type SettingValueType = Literal[
-    "float", "int", "str", "float_or_auto", "float_pair", "float_triple", "choice"
+    "float",
+    "int",
+    "str",
+    "float_or_auto",
+    "float_auto_or_start",
+    "float_pair",
+    "float_triple",
+    "choice",
 ]
 
 # bool を受け付けるフィールドは無いが、JSON の true/false が数値へ暗黙変換されず
