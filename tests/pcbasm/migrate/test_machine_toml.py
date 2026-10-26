@@ -4,6 +4,8 @@
 
 移行 N は [paste_dispenser] と [tact] を [solder] の階層へ作り直す。
 
+移行 O は、前段全体の時間だった [solder.tact] setup_sec を除く（前段は計算するようにした）。
+
 002 の旧形（M の前）も 001 の live（M の後）も、続けて当てて同じ形になる。
 """
 
@@ -43,6 +45,8 @@ DEAD = {
     "tact.travel_accel",
     "tact.z_speed",
     "tact.z_accel",
+    # 前段の時間は計算するので、前段全体を 1 つで持っていた値は使わない
+    "tact.setup_sec",
 }
 DEFAULTS = {
     "dispense_mode",
@@ -291,17 +295,25 @@ class TestMigrateMachineToml:
         text = machine_toml.read_text()
         assert text.endswith("\n") and not text.endswith("\n\n")
 
-    def test_keeps_only_setup_sec_in_tact(self, machine_toml: Path):
-        """速度と加速度は printer.cfg から読むので消し、setup_sec はコメントごと [solder.tact] へ移す."""
+    def test_empties_solder_tact(self, machine_toml: Path):
+        """速度と加速度は printer.cfg から読み、前段は計算するので、[solder.tact] には見出しのコメントだけが残る."""
         migrate_machine_toml(machine_toml)
 
         text = machine_toml.read_text()
-        assert tomllib.loads(text)["solder"]["tact"] == {"setup_sec": 300.0}
+        assert tomllib.loads(text)["solder"]["tact"] == {}
         tact = text.split("[solder.tact]")[1]
-        assert tact == (
-            "\n# タクトタイム見積り専用の値（装置の動作はこれを参照しない）\n"
-            "setup_sec = 300.0 # 位置合わせ・高さ計測・パージ等の固定分 [sec]（実測に合わせる）\n"
+        assert (
+            tact == "\n# タクトタイム見積り専用の値（装置の動作はこれを参照しない）\n"
         )
+
+    def test_drops_setup_sec_from_a_file_already_in_the_solder_layout(self):
+        text = "[solder.tact]\nsetup_sec = 300.0 # 前段の時間\nfixed_sec = 60.0\n"
+
+        migrated, changes = migrate_text(text)
+
+        assert migrated == "[solder.tact]\nfixed_sec = 60.0\n"
+        assert changes == {"O": ["solder.tact.setup_sec を削除"]}
+        assert migrate_text(migrated) == (migrated, {})
 
     def test_drops_tact_speeds_from_a_file_already_in_the_current_layout(self):
         """移行 M を当てた後に残っていた [tact] の速度も次の起動で消し、書き忘れた接続先は補わない."""

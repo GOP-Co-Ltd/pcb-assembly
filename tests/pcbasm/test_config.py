@@ -819,26 +819,42 @@ class TestMachineTact:
     def test_defaults_whole_section_when_absent(self):
         solder = load_machine(MINIMAL_MACHINE_TOML).require_solder()
 
-        assert solder.tact == TactConfig(setup_sec=300.0)
+        assert solder.tact == TactConfig()
 
-    def test_reads_setup_sec(self, tmp_path):
-        machine = _machine_with(tmp_path, "[solder.tact]\nsetup_sec = 120.0\n")
-
-        assert machine.require_solder().tact == TactConfig(setup_sec=120.0)
-
-    def test_speed_keys_are_unknown(self, tmp_path):
-        """速度と加速度は printer.cfg の値を使うので、machine.toml には書けない（移行が消す）."""
-        path = tmp_path / "machine.toml"
-        path.write_text(
-            MINIMAL_MACHINE_TOML.read_text() + "\n[solder.tact]\ntravel_speed = 10.0\n"
+    def test_reads_the_values(self, tmp_path):
+        machine = _machine_with(
+            tmp_path,
+            "[solder.tact]\nfixed_sec = 60.0\nprobe_point_sec = 3.0\n"
+            "capture_sec = 0.4\nalign_passes = 2.0\n",
         )
 
-        with pytest.raises(ConfigError, match="travel_speed"):
+        assert machine.require_solder().tact == TactConfig(
+            fixed_sec=60.0, probe_point_sec=3.0, capture_sec=0.4, align_passes=2.0
+        )
+
+    @pytest.mark.parametrize("key", ["travel_speed", "setup_sec"])
+    def test_retired_keys_are_unknown(self, tmp_path, key):
+        """速度は printer.cfg から読み、前段全体の時間は計算するので、machine.toml には書けない（移行が消す）."""
+        path = tmp_path / "machine.toml"
+        path.write_text(
+            MINIMAL_MACHINE_TOML.read_text() + f"\n[solder.tact]\n{key} = 10.0\n"
+        )
+
+        with pytest.raises(ConfigError, match=key):
             load_machine(path)
 
-    def test_rejects_negative_setup_sec(self):
-        with pytest.raises(ValueError, match="setup_sec"):
-            TactConfig(setup_sec=-1.0)
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("fixed_sec", -1.0),
+            ("probe_point_sec", -0.1),
+            ("capture_sec", -0.1),
+            ("align_passes", 0.5),
+        ],
+    )
+    def test_rejects_out_of_range(self, key, value):
+        with pytest.raises(ValueError, match=key):
+            TactConfig(**{key: value})
 
 
 class TestMachineDetection:
