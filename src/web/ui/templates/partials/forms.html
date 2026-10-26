@@ -80,7 +80,7 @@
 </select>
 {% else %}
 <input id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
-       type="{% if field.value_type in ('str', 'float_or_auto') %}text{% else %}number{% endif %}"
+       type="{% if field.value_type in ('str', 'float_or_auto', 'float_auto_or_start') %}text{% else %}number{% endif %}"
        aria-label="{{ field.label }}"
        {% if field.value_type == 'int' %}step="1"{% elif field.value_type == 'float' %}step="any"{% endif %}
        {% if field.minimum is not none %}min="{{ field.minimum }}"{% endif %}

@@ -30,6 +30,7 @@ from shapely import Polygon
 from pcbasm.board import Board, Component, Layer, Outline, Pad
 from pcbasm.config.solder import SolderConfig
 from pcbasm.geometry import Point2d
+from pcbasm.pasting.fill_path import FillPlan
 from pcbasm.pasting.hierarchy import PadHierarchy
 from pcbasm.pasting.overrides import (
     BOARD_SETTINGS_SCHEMA_VERSION,
@@ -1122,6 +1123,42 @@ class TestResolvePadSettingsKeys:
             )
             assert paste.params.overlap == pytest.approx(base.overlap)
             assert paste.params.boundary_margin == pytest.approx(base.boundary_margin)
+
+
+class TestMicroLineEndFollowsStart:
+    """終点高を決めていない pad は、どの層で決めた始点高にも従って塗る."""
+
+    @staticmethod
+    def _end_z(base: PasteParams, patch: PasteParamsPatch) -> float:
+        _, pads, hierarchy = _two_component_hierarchy()
+        model = PasteSettingsModel(
+            base=base, levels=(LevelSetting(("L2", "R1"), patch=patch),)
+        )
+
+        params = resolve_pad_settings(hierarchy, model)["R1.1"].params
+        plan = FillPlan.for_pad(pads[0].polygon, config=_base_config(), params=params)
+
+        assert plan.dispense_mode == "micro_line"
+        ((_, end),) = plan.paths
+        return end.z
+
+    def test_start_set_on_an_upper_level_moves_the_end(self):
+        base = attrs.evolve(
+            _full_base(), dispense_mode="micro_line", micro_line_z_end="start"
+        )
+
+        end = self._end_z(base, PasteParamsPatch(micro_line_z_start=0.09))
+
+        assert end == pytest.approx(0.09)
+
+    def test_an_explicit_end_is_kept(self):
+        base = attrs.evolve(
+            _full_base(), dispense_mode="micro_line", micro_line_z_end=0.03
+        )
+
+        end = self._end_z(base, PasteParamsPatch(micro_line_z_start=0.09))
+
+        assert end == pytest.approx(0.03)
 
 
 class TestOverrideMerge:

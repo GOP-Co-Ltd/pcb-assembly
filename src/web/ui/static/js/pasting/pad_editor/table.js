@@ -336,6 +336,9 @@ function appendHeightControl(container, state, actions, node, field, descendantS
   const isOverride = ownValue !== undefined;
   const resolved = node.resolved[field];
   const descendantCount = descendantSummary.field_counts[field] || 0;
+  // 数値の代わりに選べる値（auto、終点高の「始点に従う」など）はサーバーが決める
+  const keywords = choiceLabels(fieldInfo(state.config, field));
+  const isKeyword = (value) => typeof value === "string" && value in keywords;
 
   const select = document.createElement("select");
   identifyFieldControl(select, node.id, field);
@@ -344,20 +347,16 @@ function appendHeightControl(container, state, actions, node, field, descendantS
   select.dataset.nodeId = node.id;
   select.dataset.testid = "pad-height-mode-select";
   select.title = fieldLabel(state.config, field);
-  const resolvedLabel =
-    resolved === "auto"
-      ? "Auto"
-      : resolved === null || resolved === undefined
-        ? "未設定"
-        : round4(resolved);
+  const resolvedLabel = isKeyword(resolved)
+    ? keywords[resolved]
+    : resolved === null || resolved === undefined
+      ? "未設定"
+      : round4(resolved);
   appendSelectOption(select, "", `継承 (${resolvedLabel})`, !isOverride);
-  appendSelectOption(select, "auto", "Auto", ownValue === "auto");
-  appendSelectOption(
-    select,
-    "manual",
-    "手動",
-    isOverride && ownValue !== "auto"
-  );
+  for (const [value, label] of Object.entries(keywords)) {
+    appendSelectOption(select, value, label, ownValue === value);
+  }
+  appendSelectOption(select, "manual", "手動", isOverride && !isKeyword(ownValue));
   select.dataset.initialValue = select.value;
 
   const input = document.createElement("input");
@@ -369,12 +368,12 @@ function appendHeightControl(container, state, actions, node, field, descendantS
   input.dataset.nodeId = node.id;
   input.dataset.testid = "pad-setting-input";
   input.title = fieldLabel(state.config, field);
-  if (isOverride && ownValue !== "auto") {
+  if (isOverride && !isKeyword(ownValue)) {
     input.value = ownValue;
   } else {
     input.value = "";
     input.placeholder =
-      resolved === "auto" || resolved === null ? "" : String(round4(resolved));
+      isKeyword(resolved) || resolved === null ? "" : String(round4(resolved));
   }
   input.hidden = select.value !== "manual";
   input.required = !input.hidden;
@@ -392,9 +391,9 @@ function appendHeightControl(container, state, actions, node, field, descendantS
     input.hidden = select.value !== "manual";
     input.required = !input.hidden;
     if (select.value === "") actions.patchNodeClear(node.id, field);
-    else if (select.value === "auto") {
+    else if (isKeyword(select.value)) {
       actions.patchNode(
-        { node: node.id, values: { [field]: "auto" } },
+        { node: node.id, values: { [field]: select.value } },
         { descendantField: field, descendantCount }
       );
     } else {

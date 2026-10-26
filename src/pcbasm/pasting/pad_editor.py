@@ -39,6 +39,10 @@ _MODE_LABELS: dict[str, str] = {
 }
 
 
+# 高さの数値以外の値 → 計算値に添える名前
+_HEIGHT_KEYWORD_LABELS: dict[str, str] = {"auto": "auto", "start": "始点に従う"}
+
+
 @attrs.frozen
 class AppliedValueSummary:
     """1 ノード配下の有効 pad が実際に使う値（塗布方式か、auto の高さの計算値）.
@@ -170,9 +174,9 @@ def applied_value_summaries(
     - 解決済みの方式が auto
     - 配下の有効 pad に、解決済みの方式と違う方式で塗る pad がある（フォールバックや子孫の override）
 
-    高さは、ノードの高さの欄（``height_fields``）の項目に、配下の有効 pad が auto のまま使う高さの計算値（塗布経路の z と同じ値）を載せる。
+    高さは、ノードの高さの欄（``height_fields``）の項目に、配下の有効 pad が数値以外の値（auto、終点高の「始点に従う」）のまま使う高さの計算値（塗布経路の z と同じ値）を載せる。
 
-    - 方式が微小線のノードは ``micro_line_z_start`` / ``micro_line_z_end`` の欄に、ノードの値が auto のときだけ載せる
+    - 方式が微小線のノードは ``micro_line_z_start`` / ``micro_line_z_end`` の欄に、ノードの値が数値でないときだけ載せる（例: ``始点に従う (0.090 mm)``）
     - それ以外のノードは ``paste_height`` の欄に、点・線・面で塗る pad の値（ノードの値が auto のとき）と、微小線で塗る pad の値（例: ``auto (0.050 mm) / 微小線 auto (0.100 mm)``）を載せる（方式が auto のノードでも微小線になる pad があり、その始点高・終点高の欄は表に出ないため）
 
     無効 pad は塗らないので数えない。載せる項目が無いノードは返さない。
@@ -205,16 +209,19 @@ def applied_value_summaries(
         node_heights = heights.get(key, {})
         if params.dispense_mode == "micro_line":
             for field in params.height_fields:
-                if getattr(params, field) == "auto" and field in node_heights:
-                    fields[field] = _height_summary([("", node_heights[field])])
+                value = getattr(params, field)
+                if isinstance(value, str) and field in node_heights:
+                    fields[field] = _height_summary(
+                        [(_HEIGHT_KEYWORD_LABELS[value], node_heights[field])]
+                    )
         else:
             parts = [
-                (prefix, node_heights[name])
-                for prefix, name, shown in (
-                    ("", "paste_height", params.paste_height == "auto"),
-                    ("微小線 ", "micro_line", True),
+                (name, node_heights[source])
+                for name, source, shown in (
+                    ("auto", "paste_height", params.paste_height == "auto"),
+                    ("微小線 auto", "micro_line", True),
                 )
-                if shown and name in node_heights
+                if shown and source in node_heights
             ]
             if parts:
                 fields["paste_height"] = _height_summary(parts)
@@ -229,24 +236,28 @@ def _auto_heights(
     params: PasteParams,
     mode: AppliedDispenseMode,
 ) -> dict[str, float]:
-    """Pad の高さのうち auto のまま使う項目の計算値（塗布経路の z と同じ値）.
+    """Pad の高さのうち数値以外の値のまま使う項目の計算値（塗布経路の z と同じ値）.
 
-    微小線の pad は、始点高・終点高の auto の値を ``micro_line`` にも入れる（方式が微小線でないノードの塗布高さの欄に出す）。
+    微小線の pad は、auto の計算値を ``micro_line`` にも入れる（方式が微小線でないノードの塗布高さの欄に出す）。
+    auto の計算値は始点と終点で同じ。
     """
     if mode != "micro_line":
         if params.paste_height != "auto":
             return {}
         return {"paste_height": paste_height_mm(params)}
-    fields = [
-        field
-        for field in ("micro_line_z_start", "micro_line_z_end")
-        if getattr(params, field) == "auto"
-    ]
-    if not fields:
+    start_auto = params.micro_line_z_start == "auto"
+    end_keyword = isinstance(params.micro_line_z_end, str)
+    if not start_auto and not end_keyword:
         return {}
-    ((start, _),) = FillPlan.for_pad(polygon, config=config, params=params).paths
-    # 向きを揃えても auto の値は始点・終点で同じなので、どちらの端の z でもよい
-    return dict.fromkeys([*fields, "micro_line"], start.z)
+    ((start, end),) = FillPlan.for_pad(polygon, config=config, params=params).paths
+    heights: dict[str, float] = {}
+    if start_auto:
+        heights["micro_line_z_start"] = heights["micro_line"] = start.z
+    if end_keyword:
+        heights["micro_line_z_end"] = end.z
+    if params.micro_line_z_end == "auto":
+        heights["micro_line"] = end.z
+    return heights
 
 
 def _mode_summary(counts: Counter[str]) -> AppliedValueSummary:
@@ -266,15 +277,15 @@ def _mode_summary(counts: Counter[str]) -> AppliedValueSummary:
 
 
 def _height_summary(parts: list[tuple[str, list[float]]]) -> AppliedValueSummary:
-    """``(接頭辞, pad ごとの高さ)`` の組ごとに、値（違えば範囲）を ``auto (X mm)`` で並べる."""
+    """``(値の名前, pad ごとの高さ)`` の組ごとに、``auto (X mm)`` のように高さ（違えば範囲）を並べる."""
     labels: list[str] = []
     counts: dict[str, int] = {}
-    for prefix, heights in parts:
+    for name, heights in parts:
         values = Counter(f"{height:.3f}" for height in heights)
         ordered = sorted(values, key=float)
         shown = ordered[0] if len(ordered) == 1 else f"{ordered[0]}–{ordered[-1]}"
-        labels.append(f"{prefix}auto ({shown} mm)")
-        counts |= {f"{prefix}{value}": values[value] for value in ordered}
+        labels.append(f"{name} ({shown} mm)")
+        counts |= {f"{name} {value}": values[value] for value in ordered}
     pads = sum(len(heights) for _, heights in parts)
     return AppliedValueSummary(
         counts=counts,

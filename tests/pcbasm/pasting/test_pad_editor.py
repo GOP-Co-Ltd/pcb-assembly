@@ -11,6 +11,7 @@
 from collections.abc import Mapping
 
 import attrs
+import pytest
 from shapely import Polygon
 
 from pcbasm.board import Component, Layer, Pad
@@ -219,7 +220,7 @@ class TestAutoHeights:
         root = summaries[("L0",)]
         assert set(root) == {"dispense_mode", "paste_height"}
         assert root["paste_height"].label == "auto (0.100 mm) / 微小線 auto (0.050 mm)"
-        assert root["paste_height"].counts == {"0.100": 2, "微小線 0.050": 2}
+        assert root["paste_height"].counts == {"auto 0.100": 2, "微小線 auto 0.050": 2}
         assert "有効 pad 4 件" in root["paste_height"].title
         # 方式 auto のまま微小線になる pad だけのノードは、微小線の値だけを出す
         assert summaries[("L2", "R1")]["paste_height"].label == "微小線 auto (0.050 mm)"
@@ -234,7 +235,7 @@ class TestAutoHeights:
         assert set(r1) == {"micro_line_z_start", "micro_line_z_end"}
         assert r1["micro_line_z_start"].label == "auto (0.100 mm)"
         assert r1["micro_line_z_end"].label == "auto (0.100 mm)"
-        assert r1["micro_line_z_start"].counts == {"0.100": 2}
+        assert r1["micro_line_z_start"].counts == {"auto 0.100": 2}
 
     def test_only_the_auto_end_of_a_micro_line_is_shown(self):
         summaries = _summaries(
@@ -245,6 +246,26 @@ class TestAutoHeights:
 
         assert set(summaries[("L2", "R1")]) == {"micro_line_z_end"}
 
+    @pytest.mark.parametrize(
+        ("z_start", "expected"),
+        [("auto", "始点に従う (0.100 mm)"), (0.09, "始点に従う (0.090 mm)")],
+    )
+    def test_an_end_following_the_start_shows_the_value_it_follows(
+        self, z_start: float | str, expected: str
+    ):
+        base = attrs.evolve(_auto_heights(), micro_line_z_end="start")
+
+        summaries = _summaries(
+            base,
+            (
+                ("L2", "R1"),
+                {"dispense_mode": "micro_line", "micro_line_z_start": z_start},
+                None,
+            ),
+        )
+
+        assert summaries[("L2", "R1")]["micro_line_z_end"].label == expected
+
     def test_pads_that_fall_back_to_dot_are_left_out_of_micro_line_heights(self):
         summaries = _summaries(
             _auto_heights(), (("L0",), {"dispense_mode": "micro_line"}, None)
@@ -254,7 +275,7 @@ class TestAutoHeights:
         root = summaries[("L0",)]
         assert set(root) == {"dispense_mode", "micro_line_z_start", "micro_line_z_end"}
         assert root["micro_line_z_start"].label == "auto (0.100–0.400 mm)"
-        assert root["micro_line_z_start"].counts == {"0.100": 2, "0.400": 1}
+        assert root["micro_line_z_start"].counts == {"auto 0.100": 2, "auto 0.400": 1}
 
     def test_micro_line_heights_are_shown_even_when_paste_height_is_explicit(self):
         base = attrs.evolve(_base(), micro_line_z_start="auto", micro_line_z_end="auto")
@@ -271,7 +292,7 @@ class TestAutoHeights:
 
         u1 = summaries[("L2", "U1")]["paste_height"]
         assert u1.label == "auto (0.100–0.200 mm)"
-        assert u1.counts == {"0.100": 1, "0.200": 1}
+        assert u1.counts == {"auto 0.100": 1, "auto 0.200": 1}
         pad = summaries[("L4", "U1", "2")]["paste_height"]
         assert pad.label == "auto (0.200 mm)"
 
@@ -280,7 +301,7 @@ class TestAutoHeights:
             _auto_heights(), (("L4", "U1", "2"), {"paste_height": 0.3}, None)
         )
 
-        assert summaries[("L2", "U1")]["paste_height"].counts == {"0.100": 1}
+        assert summaries[("L2", "U1")]["paste_height"].counts == {"auto 0.100": 1}
         assert "paste_height" not in summaries.get(("L4", "U1", "2"), {})
 
     def test_an_auto_node_under_an_explicit_parent_shows_its_value(self):

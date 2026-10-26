@@ -172,7 +172,7 @@ class FillPlan[P: (Point2d, Point3d)]:
         は向きを揃えられないので unconstrained として扱う。
 
         各点の z は基板表面からのノズル高さ [mm]。
-        点・線・面は :func:`paste_height_mm`、微小線は向きを揃えた後の始点に ``micro_line_z_start``、終点に ``micro_line_z_end`` を付ける（``auto`` は塗布量から求める）。
+        点・線・面は :func:`paste_height_mm`、微小線は向きを揃えた後の始点に ``micro_line_z_start``、終点に ``micro_line_z_end`` を付ける（``auto`` は塗布量から求め、終点の ``start`` は始点と同じ高さにする）。
 
         Args:
             polygon: pad のポリゴン（board 座標 [mm]）
@@ -220,15 +220,13 @@ class FillPlan[P: (Point2d, Point3d)]:
             amount_ul=amount_per_path_ul(polygon, params, len(plan.paths)),
             nozzle_outer_diameter=config.nozzle.effective_outer_diameter,
         )
-        return FillPlan(
-            "micro_line",
-            (
-                (
-                    start.to3d(_or_auto(params.micro_line_z_start, auto)),
-                    end.to3d(_or_auto(params.micro_line_z_end, auto)),
-                ),
-            ),
+        z_start = _or_auto(params.micro_line_z_start, auto)
+        z_end = (
+            z_start
+            if params.micro_line_z_end == "start"
+            else _or_auto(params.micro_line_z_end, auto)
         )
+        return FillPlan("micro_line", ((start.to3d(z_start), end.to3d(z_end)),))
 
     @staticmethod
     def mode_for_pad(

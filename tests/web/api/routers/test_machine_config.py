@@ -118,6 +118,11 @@ class TestMachineSettingsApi:
                 id="micro_line_auto",
             ),
             pytest.param(
+                "solder.defaults.micro_line_z_end",
+                "start",
+                id="micro_line_end_follows_start",
+            ),
+            pytest.param(
                 "solder.motion.post_dispense_settle_seconds",
                 0.3,
                 id="post_settle",
@@ -172,6 +177,12 @@ class TestMachineSettingsApi:
                 "solder.defaults.line_direction",
                 "sideways",
                 id="unknown-line-direction",
+            ),
+            # 始点に従うのは終点高だけ
+            pytest.param(
+                "solder.defaults.micro_line_z_start",
+                "start",
+                id="start-for-micro-line-start",
             ),
             pytest.param(
                 "solder.auto.line_aspect_ratio", 1.0, id="auto-line-ratio-at-1"

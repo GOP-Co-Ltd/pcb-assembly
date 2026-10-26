@@ -867,7 +867,8 @@ class TestTreeNodeResolution:
             "label": "塗布高さ",
             "kind": "height",
             "unit": "mm",
-            "choices": [],
+            # 数値の代わりに選べる値
+            "choices": [{"value": "auto", "label": "Auto"}],
             "column": None,
         }
         assert by_name["ul_per_mm2"]["unit"] == "uL/mm²"
@@ -883,7 +884,8 @@ class TestTreeNodeResolution:
         defaults = _get_config(selected_client)["defaults"]
 
         assert defaults["micro_line_z_start"] == "auto"
-        assert defaults["micro_line_z_end"] == "auto"
+        # 終点高は始点高に従う
+        assert defaults["micro_line_z_end"] == "start"
         assert "micro_line_settle_seconds" not in defaults
 
 

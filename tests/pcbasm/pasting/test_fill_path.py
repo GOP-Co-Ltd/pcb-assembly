@@ -26,6 +26,8 @@ from pcbasm.pasting.params import (
     DISPENSE_MODES,
     DispenseMotion,
     LineDirection,
+    MicroLineEndHeight,
+    PasteHeight,
     PasteParams,
 )
 from tests.support.solder import solder_config
@@ -412,6 +414,39 @@ class TestMicroLineHeight:
         heights = self._heights(_rectangle(0.25, 0.42), ul_per_mm2=0.2)
 
         assert heights == pytest.approx((0.2, 0.2))
+
+    @pytest.mark.parametrize(
+        ("z_start", "z_end", "expected"),
+        [
+            # 終点の既定は始点に従う
+            pytest.param(0.09, "start", (0.09, 0.09), id="end-follows-start"),
+            pytest.param("auto", "start", (0.05, 0.05), id="end-follows-auto-start"),
+            # 終点だけ決めても始点は変わらない
+            pytest.param("auto", 0.03, (0.05, 0.03), id="end-only"),
+            # 終点を明示的に auto にすると始点に関係なく計算する
+            pytest.param(0.09, "auto", (0.09, 0.05), id="explicit-auto-end"),
+        ],
+    )
+    def test_end_height_follows_the_start_unless_set(
+        self,
+        z_start: PasteHeight,
+        z_end: MicroLineEndHeight,
+        expected: tuple[float, float],
+    ):
+        config = _config(0.3, nozzle_outer_diameter=0.4)
+        params = PasteParams(
+            dispense_mode="micro_line",
+            ul_per_mm2=0.05,
+            paste_height=0.5,
+            micro_line_z_start=z_start,
+            micro_line_z_end=z_end,
+        )
+
+        # auto は 0.011 / (0.25 × 0.88) = 0.05
+        plan = FillPlan.for_pad(_rectangle(0.25, 0.88), config=config, params=params)
+
+        start, end = plan.paths[0]
+        assert (start.z, end.z) == pytest.approx(expected)
 
     @pytest.mark.parametrize(
         ("line_direction", "z_near_reference"), [("outward", 0.08), ("inward", 0.05)]

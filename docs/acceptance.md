@@ -255,9 +255,9 @@
     - `detection.sample_count = 10` で、位置合わせの再現性が落ちていないか（以前は 30）。INFO ログの有効検出数と標準偏差 X・Y で見る
 - 微小線塗布（`micro_line`）
     - 始点の欠けと終点の過多が解消するか
-    - `micro_line_z_start` / `micro_line_z_end`（既定は自動）と `micro_line_settle_seconds`（既定 0.1 s）の値が合っているか
+    - `micro_line_z_start` / `micro_line_z_end`（既定は始点が自動、終点は始点に従う `start`）と `micro_line_settle_seconds`（既定 0.1 s）の値が合っているか
     - 最大速度で下降してもドームが崩れないか
-- 設定表の auto の高さの表示（`auto (X mm)`）が、実際に塗るときのノズル高さと一致するか。G-code ジャーナルの Z と照らす
+- 設定表の auto の高さの表示（`auto (X mm)`、終点高の `始点に従う (X mm)`）が、実際に塗るときのノズル高さと一致するか。G-code ジャーナルの Z と照らす
 - 外周余白（`boundary_margin`）を負にしたとき、狙いどおりにはみ出して塗れるか。塗布量は pad 面積から決まるので、広げた経路では薄くなる。塗布量を増やすかは未決
 - 大径側の外挿: 運転時の流量補正で、過吐出ぎみの `amount_ul` の点が採用されるか。`diameter_above_extrapolation_range` で外れた件数
 - 塗布後の静定（`post_dispense_settle_seconds`、既定 0.1 s）で足りるか。流量キャリブレーションと塗布量校正を取り直す必要があるか

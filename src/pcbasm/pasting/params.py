@@ -34,6 +34,8 @@ DISPENSE_MODES: tuple[DispenseMode, ...] = get_args(DispenseMode)
 LineDirection = Literal["unconstrained", "outward", "inward"]
 LINE_DIRECTIONS: tuple[LineDirection, ...] = get_args(LineDirection)
 PasteHeight = float | Literal["auto"]
+# 微小線の終点高。``start`` は始点高の解決結果（数値か auto の計算値）に従う
+MicroLineEndHeight = float | Literal["auto", "start"]
 PasteParamValue = float | str
 
 
@@ -46,6 +48,14 @@ def _height(instance: object, attribute: attrs.Attribute, value: PasteHeight) ->
     """正の高さ [mm] か ``auto``."""
     if value != "auto":
         _positive(instance, attribute, value)
+
+
+def _end_height(
+    instance: object, attribute: attrs.Attribute, value: MicroLineEndHeight
+) -> None:
+    """正の高さ [mm] か ``auto`` か ``start``."""
+    if value != "start":
+        _height(instance, attribute, value)
 
 
 def _dispense_mode(_: object, __: attrs.Attribute, value: DispenseMode) -> None:
@@ -92,9 +102,9 @@ class ParamField:
     Attributes:
         name: フィールド名（:class:`PasteParams` の属性名）
         label: 表示ラベル
-        kind: ``number`` = 数値 / ``choice`` = 選択式 / ``height`` = 数値または ``auto``
+        kind: ``number`` = 数値 / ``choice`` = 選択式 / ``height`` = 数値または ``auto`` などの値
         unit: 単位表記（無ければ ``None``）
-        choices: ``choice`` の選択肢
+        choices: ``choice`` の選択肢、``height`` の数値以外の値
         column: pad 表でこの項目を描く列の項目名（独立した列なら ``None``）
     """
 
@@ -123,7 +133,7 @@ class PasteParams:
         overlap: ジグザグ行間オーバーラップ [0, 1)
         boundary_margin: 外周マージン [mm]（負なら pad 外形をはみ出して塗る）
         micro_line_z_start: 微小線の始点で基板表面から取る隙間 [mm]、または ``auto``（塗布量から計算）
-        micro_line_z_end: 微小線の終点で基板表面から取る隙間 [mm]、または ``auto``（塗布量から計算）
+        micro_line_z_end: 微小線の終点で基板表面から取る隙間 [mm]、``auto``（塗布量から計算）、または ``start``（始点高に従う）
     """
 
     dispense_mode: DispenseMode = attrs.field(
@@ -195,9 +205,9 @@ class PasteParams:
         validator=_height,
         metadata={"label": "始点高", "unit": "mm", "group": "微小線", "order": 70},
     )
-    micro_line_z_end: PasteHeight = attrs.field(
-        default="auto",
-        validator=_height,
+    micro_line_z_end: MicroLineEndHeight = attrs.field(
+        default="start",
+        validator=_end_height,
         metadata={"label": "終点高", "unit": "mm", "group": "微小線", "order": 71},
     )
 
@@ -307,17 +317,24 @@ _COLUMNS: dict[str, str] = {
 }
 
 
+# 高さの項目（validator で見分ける）→ 数値の代わりに選べる値と表示名
+_HEIGHT_KEYWORDS: dict[object, tuple[tuple[str, str], ...]] = {
+    _height: (("auto", "Auto"),),
+    _end_height: (("start", "始点に従う"), ("auto", "Auto")),
+}
+
+
 def _param_field(attribute: attrs.Attribute) -> ParamField:
+    # 数値か auto などを受け付ける高さの項目は height の入力欄で描き、数値以外の値を choices に載せる
+    keywords = _HEIGHT_KEYWORDS.get(attribute.validator)
     choices = tuple(
         ChoiceOption(value, label)
-        for value, label in attribute.metadata.get("choices", ())
+        for value, label in keywords or attribute.metadata.get("choices", ())
     )
-    # 数値か auto を受け付ける項目（validator が _height）は height の入力欄で描く
-    is_height = attribute.validator is _height
     return ParamField(
         attribute.name,
         attribute.metadata["label"],
-        "choice" if choices else "height" if is_height else "number",
+        "height" if keywords else "choice" if choices else "number",
         unit=attribute.metadata.get("unit"),
         choices=choices,
         column=_COLUMNS.get(attribute.name),

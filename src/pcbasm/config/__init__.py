@@ -43,6 +43,7 @@ from pcbasm.pasting.params import (
     LINE_DIRECTIONS,
     DispenseMode,
     LineDirection,
+    MicroLineEndHeight,
     PasteHeight,
 )
 
@@ -65,6 +66,12 @@ def _structure_paste_height(value: object, _: object) -> PasteHeight:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"高さは'auto'または数値である必要があります: {value!r}")
     return float(value)
+
+
+def _structure_micro_line_end_height(value: object, _: object) -> MicroLineEndHeight:
+    if value == "start":
+        return "start"
+    return _structure_paste_height(value, _)
 
 
 def _position_hook(
@@ -119,6 +126,9 @@ def _make_converter() -> cattrs.Converter:
     )
     converter.register_structure_hook_func(
         lambda t: t == PasteHeight, _structure_paste_height
+    )
+    converter.register_structure_hook_func(
+        lambda t: t == MicroLineEndHeight, _structure_micro_line_end_height
     )
     for cls in (NozzleCapConfig, NozzleCleanConfig):
         converter.register_structure_hook(cls, _position_hook(cls, converter))

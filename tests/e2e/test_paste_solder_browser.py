@@ -777,6 +777,14 @@ class TestPasteSolderBrowserPadInteraction:
         ).select_option("micro_line")
         _wait_for_override(live_server, "L0", "dispense_mode", "micro_line")
         applied = _get_pad_config(live_server)["tree"]["applied"]
+        # 終点高の既定は「始点に従う」（選択肢もサーバーが渡す）
+        z_end_mode = pad_field(
+            height_cell, "pad-height-mode-select", "micro_line_z_end"
+        )
+        expect(z_end_mode.locator("option:checked")).to_have_text(
+            "継承 (始点に従う)", timeout=_BROWSER_TIMEOUT_MS
+        )
+        assert applied["micro_line_z_end"]["label"].startswith("始点に従う (")
         for field in ("micro_line_z_start", "micro_line_z_end"):
             expect(pad_field(height_cell, "pad-applied-value", field)).to_have_text(
                 applied[field]["label"], timeout=_BROWSER_TIMEOUT_MS
