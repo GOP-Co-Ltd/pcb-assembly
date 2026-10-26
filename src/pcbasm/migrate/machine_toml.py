@@ -1,8 +1,9 @@
-"""machine.toml の移行（ステップ M → N の順に当てる）.
+"""machine.toml の移行（ステップ M → N → O の順に当てる）.
 
 - M: 死にキーを除き、節を「TOML のパス = 属性のパス」にそろえる。
   ``[tact]`` の速度と加速度も除く（所要時間の予測は printer.cfg の値を読む。``setup_sec`` は残す）。
 - N: ``[paste_dispenser]`` と ``[tact]`` を ``[solder]`` の階層へ作り直す（:data:`SOLDER_KEYS` と :data:`SOLDER_TABLES`）。
+- O: ``[solder.tact]`` の ``setup_sec`` を除く（前段全体を 1 つで持っていた値。前段は :mod:`pcbasm.pasting.tact` が計算するようにした）。
 
 各ステップは冪等で、移行済みのファイルには何もしない。
 tomlkit で書き換えるので、値の行に付いたコメントは移動先へ一緒に動く。
@@ -453,7 +454,18 @@ def _add_table(
     table.trivia.indent = ""
 
 
+def _migrate_o(doc: Container) -> list[str]:
+    """[solder.tact] の setup_sec を除く（残すと計算した前段に二重に足される）."""
+    solder = _table(doc, "solder")
+    tact = None if solder is None else _table(solder, "tact")
+    if tact is None or "setup_sec" not in tact:
+        return []
+    tact.remove("setup_sec")
+    return ["solder.tact.setup_sec を削除"]
+
+
 _STEPS: tuple[tuple[str, Callable[[Container], list[str]]], ...] = (
     ("M", _migrate_m),
     ("N", _migrate_n),
+    ("O", _migrate_o),
 )

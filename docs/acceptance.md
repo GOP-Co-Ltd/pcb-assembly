@@ -235,9 +235,9 @@
 ### A21 所要時間の予測と実測
 
 - 画面: `paste_solder`
-- 前提: A8 と同じ基板と PCB。起動時の移行で `machine.toml` の `[tact]` から `travel_speed` / `travel_accel` / `z_speed` / `z_accel` が消え、`setup_sec` が `[solder.tact]` に残っている
-- 操作: 実行前に予測所要時間を控え、A8 の塗布を通す。終わったらジョブコンソールの経過と見比べ、`solder.tact.setup_sec` を合わせる
-- 合格条件: パッドを無効にすると予測が短くなる。予測と経過の差が、`solder.tact.setup_sec` を合わせた後に 1 割以内に収まる
+- 前提: A8 と同じ基板と PCB。起動時の移行で `machine.toml` の `[tact]` から `travel_speed` / `travel_accel` / `z_speed` / `z_accel` が消え、`[solder.tact]` から `setup_sec` が消えている（`config/history/machine-pre-O.toml` が残る）
+- 操作: 実行前に予測所要時間と前段の内訳を控え、A8 の塗布を通す。終わったらジョブコンソールの経過と見比べ、ずれが大きければ `solder.tact` の値を合わせる
+- 合格条件: パッドを無効にすると予測が短くなる。予測と経過の差が 1 割以内に収まる（ずれたら `solder.tact` を合わせた後に）
 
 ### A22 機体の機能と [solder] への移行
 

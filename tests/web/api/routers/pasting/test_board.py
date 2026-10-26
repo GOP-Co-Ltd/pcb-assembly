@@ -33,6 +33,7 @@ import pytest
 from fastapi.testclient import TestClient
 from shapely import Polygon
 
+from pcbasm.config.solder import TactConfig
 from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.pasting.params import PASTE_PARAM_NAMES
 from tests.support.moonraker import FakeMoonraker
@@ -1260,7 +1261,7 @@ class TestTactEstimate:
         assert response.status_code == 200, response.text
         return response.json()
 
-    def test_adds_the_setup_to_the_paste_time(
+    def test_adds_the_prelude_to_the_paste_time(
         self, selected_client: TestClient, moonraker: FakeMoonraker
     ):
         enabled_top = [
@@ -1272,24 +1273,28 @@ class TestTactEstimate:
         estimate = self._estimate(selected_client)
 
         assert estimate["error"] is None
-        assert estimate["total_seconds"] > 300.0
-        assert estimate["detail"].startswith(
-            f"{len(enabled_top)} pad（前段 0時間5分0秒 + 塗布 "
+        assert estimate["total_seconds"] > 0.0
+        assert re.fullmatch(
+            rf"{len(enabled_top)} pad（前段 0時間\d+分\d+秒 \+ 塗布 0時間\d+分\d+秒）。"
+            r"前段の内訳: 固定 \d+ 秒・基準点 \d+ 秒・高さ計測 [1-9]\d* 点 \d+ 秒・"
+            r"位置合わせ [1-9]\d* か所 \d+ 秒・パージと流量キャリブレーション \d+ 秒",
+            estimate["detail"],
         )
         assert re.fullmatch(r"0時間\d+分\d+秒", estimate["label"])
 
-    def test_setup_sec_comes_from_the_machine_settings(
+    def test_fixed_sec_comes_from_the_machine_settings(
         self, selected_client: TestClient, moonraker: FakeMoonraker
     ):
         before = self._estimate(selected_client)["total_seconds"]
         response = selected_client.put(
-            "/api/machine_config", json={"values": {"solder.tact.setup_sec": 60.0}}
+            "/api/machine_config",
+            json={"values": {"solder.tact.fixed_sec": TactConfig().fixed_sec + 30.0}},
         )
         assert response.status_code == 200, response.text
 
         after = self._estimate(selected_client)["total_seconds"]
 
-        assert after == pytest.approx(before - 240.0)
+        assert after == pytest.approx(before + 30.0)
 
     def test_disabled_pads_shorten_the_estimate(
         self, selected_client: TestClient, moonraker: FakeMoonraker
@@ -1312,6 +1317,17 @@ class TestTactEstimate:
         assert estimate["total_seconds"] is None
         assert estimate["label"] is None
         assert estimate["error"].startswith("Klipper から printer.cfg を読めないので")
+
+    def test_missing_camera_calibration_returns_the_reason(
+        self, selected_client: TestClient, moonraker: FakeMoonraker, config_dir: Path
+    ):
+        """位置合わせの領域はカメラの校正（画素の大きさ）で決まるので、読めなければ予測しない."""
+        (config_dir / "ov9281_test_fixture.json").unlink()
+
+        estimate = self._estimate(selected_client)
+
+        assert estimate["total_seconds"] is None
+        assert estimate["error"].startswith("カメラの校正を読めないので予測できません")
 
 
 class TestExpectedPcb:

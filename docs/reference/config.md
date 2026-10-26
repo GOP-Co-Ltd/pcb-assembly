@@ -61,7 +61,10 @@
 | ノズルクリーニング     | `solder.nozzle.clean.stroke`                                                | こすり幅 片側                   | mm     | 数値（0 以上）                                                                           |
 | ノズルクリーニング     | `solder.nozzle.clean.passes`                                                | 往復回数                        |        | 整数（0 以上）                                                                           |
 | ノズルクリーニング     | `solder.nozzle.clean.wipe_speed`                                            | こすり速度                      | mm/sec | 数値                                                                                     |
-| 所要時間の予測         | `solder.tact.setup_sec`                                                     | 前段の時間                      | s      | 数値（0 以上）                                                                           |
+| 所要時間の予測         | `solder.tact.fixed_sec`                                                     | 固定分                          | s      | 数値（0 以上）                                                                           |
+| 所要時間の予測         | `solder.tact.probe_point_sec`                                               | プローブ 1 点                   | s      | 数値（0 以上）                                                                           |
+| 所要時間の予測         | `solder.tact.capture_sec`                                                   | 撮影 1 回の処理                 | s      | 数値（0 以上）                                                                           |
+| 所要時間の予測         | `solder.tact.align_passes`                                                  | 1 か所の撮影回数                |        | 数値（1 以上）                                                                           |
 
 ## 位置合わせ（`[alignment]`）
 

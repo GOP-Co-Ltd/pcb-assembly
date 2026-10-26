@@ -75,8 +75,14 @@ def duration_label(seconds: float) -> str:
 
 
 def tact_breakdown_label(estimate: TactEstimate) -> str:
-    """予測所要時間の内訳（塗る pad の数と、前段・塗布の時間）."""
+    """予測所要時間の内訳（塗る pad の数と、前段・塗布の時間、前段の内訳）."""
+    prelude = estimate.prelude
     return (
-        f"{estimate.pad_count} pad（前段 {duration_label(estimate.setup_seconds)}"
-        f" + 塗布 {duration_label(estimate.paste_seconds)}）"
+        f"{estimate.pad_count} pad（前段 {duration_label(prelude.total_seconds)}"
+        f" + 塗布 {duration_label(estimate.paste_seconds)}）。"
+        f"前段の内訳: 固定 {prelude.fixed_seconds:.0f} 秒"
+        f"・基準点 {prelude.reference_seconds:.0f} 秒"
+        f"・高さ計測 {prelude.probe_count} 点 {prelude.probe_seconds:.0f} 秒"
+        f"・位置合わせ {prelude.align_count} か所 {prelude.align_seconds:.0f} 秒"
+        f"・パージと流量キャリブレーション {prelude.purge_seconds:.0f} 秒"
     )

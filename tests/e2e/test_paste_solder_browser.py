@@ -1128,13 +1128,17 @@ class TestPasteSolderBrowserTactEstimate:
         detail = browser_page.get_by_test_id("tact-estimate-detail")
         expect(label).to_have_text(re.compile(r"^\d+時間\d+分\d+秒$"))
         expect(detail).to_have_text(
-            re.compile(r"^[1-9]\d* pad（前段 0時間5分0秒 \+ 塗布 ")
+            re.compile(r"^[1-9]\d* pad（前段 0時間\d+分\d+秒 \+ 塗布 .*前段の内訳: ")
         )
 
         browser_page.get_by_test_id("pad-disable-all").click()
 
-        expect(label).to_have_text("0時間5分0秒")
-        expect(detail).to_have_text("0 pad（前段 0時間5分0秒 + 塗布 0時間0分0秒）")
+        # 塗る pad が無くても、基準点と高さ計測の前段は残る
+        expect(detail).to_have_text(
+            re.compile(
+                r"^0 pad（前段 0時間\d+分\d+秒 \+ 塗布 0時間0分0秒）。.*位置合わせ 0 か所 0 秒"
+            )
+        )
 
     def test_estimate_follows_machine_settings(
         self,

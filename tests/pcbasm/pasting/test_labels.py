@@ -10,7 +10,7 @@ from pcbasm.pasting.labels import (
     purge_selection_label,
     tact_breakdown_label,
 )
-from pcbasm.pasting.tact import TactEstimate
+from pcbasm.pasting.tact import PreludeEstimate, TactEstimate
 
 
 class TestCoordinates:
@@ -78,9 +78,20 @@ class TestDurationLabel:
 
 
 class TestTactBreakdownLabel:
-    def test_pad_count_setup_and_paste(self):
-        estimate = TactEstimate(setup_seconds=300.0, paste_seconds=95.0, pad_count=24)
+    def test_pad_count_prelude_paste_and_the_prelude_parts(self):
+        prelude = PreludeEstimate(
+            fixed_seconds=55.0,
+            reference_seconds=28.4,
+            probe_count=21,
+            probe_seconds=95.0,
+            align_count=41,
+            align_seconds=126.0,
+            purge_seconds=45.6,
+        )
+        estimate = TactEstimate(prelude=prelude, paste_seconds=95.0, pad_count=24)
 
         assert tact_breakdown_label(estimate) == (
-            "24 pad（前段 0時間5分0秒 + 塗布 0時間1分35秒）"
+            "24 pad（前段 0時間5分50秒 + 塗布 0時間1分35秒）。"
+            "前段の内訳: 固定 55 秒・基準点 28 秒・高さ計測 21 点 95 秒・"
+            "位置合わせ 41 か所 126 秒・パージと流量キャリブレーション 46 秒"
         )
