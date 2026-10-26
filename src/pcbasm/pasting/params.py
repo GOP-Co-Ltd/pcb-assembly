@@ -321,7 +321,7 @@ _COLUMNS: dict[str, str] = {
 }
 
 
-# 高さの数値以外の値 → 表示名（pad 表の選択肢と、計算値の表示 ``auto (X mm)`` で共用する）
+# 高さの数値以外の値 → 表示名（pad 表の選択肢と、計算値の表示の title で共用する）
 _HEIGHT_KEYWORD_LABELS: dict[str, str] = {"auto": "auto", "start": "始点に従う"}
 # 高さの項目（validator で見分ける）→ 数値の代わりに選べる値と表示名
 _HEIGHT_KEYWORDS: dict[object, tuple[tuple[str, str], ...]] = {

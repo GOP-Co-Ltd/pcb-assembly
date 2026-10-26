@@ -828,7 +828,7 @@ class TestTreeNodeResolution:
     def test_auto_height_rows_carry_the_computed_height(
         self, selected_client: TestClient
     ):
-        """塗布高さが auto の行は、計算した高さを ``auto (X mm)`` で持つ（入力値は auto のまま）."""
+        """塗布高さが auto の行は、計算した高さを ``(X)`` で持つ（入力値は auto のまま）."""
         patched = selected_client.patch(
             "/api/pasting/board/node",
             json={
@@ -844,7 +844,7 @@ class TestTreeNodeResolution:
         assert root["resolved"]["paste_height"] == "auto"
         applied = root["applied"]["paste_height"]
         # 点・線・面の auto は ul_per_mm2 を膜厚とする
-        assert applied["label"] == "auto (0.040 mm)"
+        assert applied["label"] == "(0.04)"
         assert applied["title"]
 
     def test_fields_metadata_drives_ui_columns(self, selected_client: TestClient):

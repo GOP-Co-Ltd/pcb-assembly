@@ -767,10 +767,10 @@ class TestPasteSolderBrowserPadInteraction:
         _open_paste_solder(browser_page, live_ui)
         root_row = pad_row(browser_page, "L0")
         height_cell = _field_cell(root_row, "paste_height")
-        # 表示文字列はサーバーが組んだもの（auto (X mm)）をそのまま出す
+        # 表示文字列はサーバーが組んだもの（(X)）をそのまま出す
         marker = pad_field(height_cell, "pad-applied-value", "paste_height")
         expect(marker).to_have_text(applied["label"], timeout=_BROWSER_TIMEOUT_MS)
-        assert applied["label"].startswith("auto (")
+        assert applied["label"].startswith("(")
 
         _field_select(
             root_row, "dispense_mode", "pad-dispense-mode-select"
@@ -784,7 +784,7 @@ class TestPasteSolderBrowserPadInteraction:
         expect(z_end_mode.locator("option:checked")).to_have_text(
             "継承 (始点に従う)", timeout=_BROWSER_TIMEOUT_MS
         )
-        assert applied["micro_line_z_end"]["label"].startswith("始点に従う (")
+        assert applied["micro_line_z_end"]["label"].startswith("(")
         for field in ("micro_line_z_start", "micro_line_z_end"):
             expect(pad_field(height_cell, "pad-applied-value", field)).to_have_text(
                 applied[field]["label"], timeout=_BROWSER_TIMEOUT_MS

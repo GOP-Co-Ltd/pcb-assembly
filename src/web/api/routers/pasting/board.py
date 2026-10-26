@@ -136,7 +136,7 @@ class OwnSummary(BaseModel):
 class AppliedValueInfo(BaseModel):
     """解決値の選択から読み取れない、実際に使われる値の表示（UI の補足表示用）."""
 
-    label: str  # 表示文字列（例: "→ 点 12 / 線 6"、"auto (0.050 mm)"）
+    label: str  # 表示文字列（例: "→ 点 12 / 線 6"、"(0.05)"）
     title: str  # ツールチップ
     # 値ごとの有効 pad 数（方式は選択肢の並び順、高さは小さい順）
     counts: dict[str, int]

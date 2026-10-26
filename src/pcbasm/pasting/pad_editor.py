@@ -2,7 +2,7 @@
 
 backend の API は、ここで組んだ値を契約モデルへ詰めるだけにする。
 
-- 階層ノードごとの実際の塗布方式（auto 判定・フォールバック後）と auto の高さの計算値の集計。選択値から実際の値が読み取れないノードに、方式や ``auto (X mm)`` を添える
+- 階層ノードごとの実際の塗布方式（auto 判定・フォールバック後）と auto の高さの計算値の集計。選択値から実際の値が読み取れないノードに、方式や高さの計算値 ``(X)`` を添える
 - 初回パージと運転時補正の設定と解決結果（設定が不正でも理由を載せて返す）
 - 銅箔の表示用の簡略化
 """
@@ -54,7 +54,7 @@ class AppliedValueSummary:
 
     Attributes:
         counts: 値ごとの有効 pad 数（方式は選択肢の並び順、高さは小さい順。0 件の値は含まない）
-        label: 表示文字列（例: ``→ 面``、``→ 点 12 / 線 6``、``auto (0.050 mm)``、``auto (0.040–0.060 mm)``）
+        label: 表示文字列（例: ``→ 面``、``→ 点 12 / 線 6``、``(0.05)``、``(0.04–0.06)``、``(0.10) / 微小線 (0.05)``）
         title: ツールチップ用の説明
     """
 
@@ -181,8 +181,8 @@ def applied_value_summaries(
 
     高さは、ノードの高さの欄（``height_fields``）の項目に、配下の有効 pad が数値以外の値（auto、終点高の「始点に従う」）のまま使う高さの計算値（塗布経路の z と同じ値）を載せる。
 
-    - 方式が微小線のノードは ``micro_line_z_start`` / ``micro_line_z_end`` の欄に、ノードの値が数値でないときだけ載せる（例: ``始点に従う (0.090 mm)``）
-    - それ以外のノードは ``paste_height`` の欄に、点・線・面で塗る pad の値（ノードの値が auto のとき）と、微小線で塗る pad の値（例: ``auto (0.050 mm) / 微小線 auto (0.100 mm)``）を載せる（方式が auto のノードでも微小線になる pad があり、その始点高・終点高の欄は表に出ないため）
+    - 方式が微小線のノードは ``micro_line_z_start`` / ``micro_line_z_end`` の欄に、ノードの値が数値でないときだけ載せる（例: ``(0.09)``）
+    - それ以外のノードは ``paste_height`` の欄に、点・線・面で塗る pad の値（ノードの値が auto のとき）と、微小線で塗る pad の値（例: ``(0.05) / 微小線 (0.10)``）を載せる（方式が auto のノードでも微小線になる pad があり、その始点高・終点高の欄は表に出ないため）
 
     無効 pad は塗らないので数えない。載せる項目が無いノードは返さない。
 
@@ -220,15 +220,15 @@ def applied_value_summaries(
                 # 子孫の override で別の値（auto と start）を使う pad は数えない
                 if isinstance(value, str) and value in node_heights.get(field, {}):
                     fields[field] = _height_summary(
-                        [(_HEIGHT_LABELS[value], node_heights[field][value])]
+                        [(_HEIGHT_LABELS[value], "", node_heights[field][value])]
                     )
         else:
             auto = _HEIGHT_LABELS["auto"]
             parts = [
-                (name, node_heights[source]["auto"])
-                for name, source, shown in (
-                    (auto, "paste_height", params.paste_height == "auto"),
-                    (f"微小線 {auto}", "micro_line", True),
+                (name, prefix, node_heights[source]["auto"])
+                for name, prefix, source, shown in (
+                    (auto, "", "paste_height", params.paste_height == "auto"),
+                    (f"微小線 {auto}", "微小線 ", "micro_line", True),
                 )
                 if shown and "auto" in node_heights.get(source, {})
             ]
@@ -284,17 +284,24 @@ def _mode_summary(counts: Counter[str]) -> AppliedValueSummary:
     )
 
 
-def _height_summary(parts: list[tuple[str, list[float]]]) -> AppliedValueSummary:
-    """``(値の名前, pad ごとの高さ)`` の組ごとに、``auto (X mm)`` のように高さ（違えば範囲）を並べる."""
+def _height_summary(
+    parts: list[tuple[str, str, list[float]]],
+) -> AppliedValueSummary:
+    """``(値の名前, 表示の接頭辞, pad ごとの高さ)`` の組ごとに、``(0.09)`` のように高さ（違えば範囲）を並べる.
+
+    値の名前（auto など）と単位は選択欄と列の見出しに出ているので、表示には付けない。
+    """
     labels: list[str] = []
     counts: dict[str, int] = {}
-    for name, heights in parts:
-        values = Counter(f"{height:.3f}" for height in heights)
+    for name, prefix, heights in parts:
+        values = Counter(f"{height:.2f}" for height in heights)
         ordered = sorted(values, key=float)
         shown = ordered[0] if len(ordered) == 1 else f"{ordered[0]}–{ordered[-1]}"
-        labels.append(f"{name} ({shown} mm)")
+        labels.append(f"{prefix}({shown})")
         counts |= {f"{name} {value}": values[value] for value in ordered}
-    pads = "、".join(f"{name}: 有効 pad {len(heights)} 件" for name, heights in parts)
+    pads = "、".join(
+        f"{name}: 有効 pad {len(heights)} 件" for name, _, heights in parts
+    )
     return AppliedValueSummary(
         counts=counts, label=" / ".join(labels), title=f"計算した高さ（{pads}）"
     )
