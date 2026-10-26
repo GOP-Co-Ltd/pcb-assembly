@@ -3,8 +3,8 @@
   "schema_version": 3,
   "created_at": "<created_at>",
   "machine": {
-    "machine_id": "usaremino001",
-    "name": "usaremino001"
+    "machine_id": "golden-machine",
+    "name": "golden-machine"
   },
   "plate": {
     "width_mm": 20.0,
