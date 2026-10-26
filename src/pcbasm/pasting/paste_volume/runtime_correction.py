@@ -335,7 +335,7 @@ def run_flow_calibration(
         stage_prefix="流量キャリブレーション: ",
     )
     current = CaptureConditions(
-        nozzle_diameter_mm=session.machine.solder.nozzle.diameter,
+        nozzle_diameter_mm=session.solder.nozzle.diameter,
         paste_height_mm=paste_height_mm(run.params),
         pixel_per_mm=pixel_per_mm,
         crop_size_mm=plan.crop_size_mm,

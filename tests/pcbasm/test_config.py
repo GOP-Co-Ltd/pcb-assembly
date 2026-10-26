@@ -7,6 +7,7 @@ import pytest
 from pcbasm.config import (
     ConfigError,
     MachineConfig,
+    load_capabilities,
     load_klipper,
     load_machine,
 )
@@ -15,6 +16,7 @@ from pcbasm.config.audio import AudioConfig
 from pcbasm.config.camera import CameraConfig, CameraCropConfig
 from pcbasm.config.detection import DetectionConfig
 from pcbasm.config.klipper import KlipperConfig
+from pcbasm.config.pnp import PnpConfig
 from pcbasm.config.probe import ProbeConfig
 from pcbasm.config.reference_point import CornerOffsetsConfig, ReferencePointConfig
 from pcbasm.config.settle import SettleConfig
@@ -33,6 +35,7 @@ from pcbasm.geometry import Point3d
 from pcbasm.migrate.machine_toml import migrate_text
 from pcbasm.pasting.params import DispenseMotion, PasteParams
 from pcbasm.paths import PROJECT_ROOT
+from tests.support.machine_toml import pnp_only
 from tests.support.paths import MINIMAL_MACHINE_TOML, TEST_DATA_DIR
 
 
@@ -65,7 +68,7 @@ def _solder(**overrides) -> SolderConfig:
 
     項目は下位表の項目名で渡す（どの表の項目かは名前で決まる）。
     """
-    solder = load_machine(MINIMAL_MACHINE_TOML).solder
+    solder = load_machine(MINIMAL_MACHINE_TOML).require_solder()
     tables: dict[str, dict] = {
         name: {} for name in ("dispenser", "nozzle", "motion", "defaults", "auto")
     }
@@ -113,7 +116,7 @@ class TestMachine:
             ),
             auto=AutoModeConfig(line_aspect_ratio=1.618),
         )
-        assert machine.solder.defaults.line_direction == "unconstrained"
+        assert machine.require_solder().defaults.line_direction == "unconstrained"
         assert machine.camera == CameraConfig(
             device_id=0,
             width=640,
@@ -194,7 +197,7 @@ class TestMachine:
         path = tmp_path / "machine.toml"
         path.write_text(source, encoding="utf-8")
 
-        solder = load_machine(path).solder
+        solder = load_machine(path).require_solder()
 
         assert attrgetter(attribute)(solder) == pytest.approx(expected)
 
@@ -233,7 +236,7 @@ class TestMachine:
 
         machine = load_machine(path)
 
-        assert machine.solder.initial_purge_ul == pytest.approx(amount)
+        assert machine.require_solder().initial_purge_ul == pytest.approx(amount)
 
     def test_unknown_line_direction_is_rejected(self):
         with pytest.raises(ValueError) as raised:
@@ -305,7 +308,7 @@ class TestMachine:
     def test_dispense_motion_joins_the_dispenser_and_the_motion(self):
         """Fill sequence が使う吐出の動きは、[solder.dispenser] と [solder.motion]
         の値そのもの."""
-        solder = load_machine(MINIMAL_MACHINE_TOML).solder
+        solder = load_machine(MINIMAL_MACHINE_TOML).require_solder()
 
         assert solder.dispense_motion == DispenseMotion(
             max_fill_speed=2.0,
@@ -339,6 +342,71 @@ class TestMachine:
             ConfigError, match="必須の項目がありません @ machine.toml.probe"
         ):
             load_machine(path)
+
+
+class TestCapabilities:
+    """機体の機能は machine.toml の節の有無で表す（[solder] ははんだ塗布、[pnp] は部品実装）."""
+
+    def test_solder_section_makes_a_solder_machine(self):
+        machine = load_machine(MINIMAL_MACHINE_TOML)
+
+        assert machine.solder is not None
+        assert machine.pnp is None
+        assert load_capabilities(MINIMAL_MACHINE_TOML) == ("solder",)
+
+    def test_pnp_section_alone_makes_a_pnp_machine(self, tmp_path: Path):
+        path = tmp_path / "machine.toml"
+        path.write_text(pnp_only(MINIMAL_MACHINE_TOML.read_text()))
+
+        machine = load_machine(path)
+
+        assert machine.solder is None
+        assert machine.pnp == PnpConfig()
+        assert load_capabilities(path) == ("pnp",)
+
+    def test_both_sections_make_a_machine_with_both(self, tmp_path: Path):
+        machine = _machine_with(tmp_path, "[pnp]\n")
+
+        assert machine.solder is not None
+        assert machine.pnp == PnpConfig()
+        assert load_capabilities(tmp_path / "machine.toml") == ("solder", "pnp")
+
+    def test_a_machine_without_either_is_a_config_error(self, tmp_path: Path):
+        path = tmp_path / "machine.toml"
+        path.write_text(pnp_only(MINIMAL_MACHINE_TOML.read_text()).replace("[pnp]", ""))
+
+        with pytest.raises(ConfigError, match=r"\[solder\]（はんだ塗布）か \[pnp\]"):
+            load_machine(path)
+
+    def test_pnp_has_no_keys_yet(self, tmp_path: Path):
+        with pytest.raises(ConfigError, match="未知のキーです: nozzle"):
+            load_machine(_write_with(tmp_path, "[pnp]\nnozzle = 1\n"))
+
+    def test_capabilities_are_known_while_the_config_is_invalid(self, tmp_path: Path):
+        """設定エラーの間も、機能ごとのジョブと画面を出せる."""
+        path = _write_with(tmp_path, **{"paste_density = 3.78": "paste_density = -1.0"})
+
+        with pytest.raises(ConfigError):
+            load_machine(path)
+        assert load_capabilities(path) == ("solder",)
+
+    def test_solder_is_required_only_by_the_solder_jobs(self, tmp_path: Path):
+        path = tmp_path / "machine.toml"
+        path.write_text(pnp_only(MINIMAL_MACHINE_TOML.read_text()))
+        machine = load_machine(path)
+
+        with pytest.raises(ConfigError, match=r"\[solder\] がありません"):
+            machine.require_solder()
+        assert load_machine(MINIMAL_MACHINE_TOML).require_solder().paste_density == 3.78
+
+    def test_parks_at_the_nozzle_cap_of_a_solder_machine(self, tmp_path: Path):
+        cap = "[solder.nozzle.cap]\nx = 1.0\ny = 2.0\nz = 3.0\n"
+        pnp = tmp_path / "pnp.toml"
+        pnp.write_text(pnp_only(MINIMAL_MACHINE_TOML.read_text()))
+
+        assert _machine_with(tmp_path, cap).cap_position == Point3d(1.0, 2.0, 3.0)
+        assert load_machine(MINIMAL_MACHINE_TOML).cap_position is None
+        assert load_machine(pnp).cap_position is None
 
 
 class TestLoadMachine:
@@ -557,7 +625,7 @@ class TestMachineSolderVolumeCorrection:
     def test_defaults_when_the_section_is_absent(self, tmp_path):
         machine = _machine_with(tmp_path, "")
 
-        assert machine.solder.volume_correction == VolumeCorrectionConfig()
+        assert machine.require_solder().volume_correction == VolumeCorrectionConfig()
 
     def test_reads_the_section_when_present(self, tmp_path):
         machine = _machine_with(
@@ -568,7 +636,7 @@ class TestMachineSolderVolumeCorrection:
             "crop_size_mm = 2.4\n"
             "settle_seconds = 4.0\n",
         )
-        flow = machine.solder.volume_correction
+        flow = machine.require_solder().volume_correction
 
         assert flow.calibration_file == "cal.paste-volume.json"
         assert flow.amount_ul == pytest.approx(0.15)
@@ -610,7 +678,7 @@ class TestNozzlePosition:
     """
 
     def test_missing_section_is_untaught(self, section: str):
-        nozzle = load_machine(MINIMAL_MACHINE_TOML).solder.nozzle
+        nozzle = load_machine(MINIMAL_MACHINE_TOML).require_solder().nozzle
 
         assert getattr(nozzle, section).position is None
 
@@ -619,7 +687,7 @@ class TestNozzlePosition:
             tmp_path, f"[solder.nozzle.{section}]\nx = 10.0\ny = 20.0\nz = 3.5\n"
         )
 
-        position = getattr(machine.solder.nozzle, section).position
+        position = getattr(machine.require_solder().nozzle, section).position
         assert position == Point3d(10.0, 20.0, 3.5)
 
     def test_partial_coordinates_are_a_config_error(self, tmp_path: Path, section: str):
@@ -637,7 +705,9 @@ class TestNozzleClean:
         """設定ページから押し込み量だけ保存した状態（座標はまだ教示していない）."""
         machine = _machine_with(tmp_path, "[solder.nozzle.clean]\npress_depth = 0.4\n")
 
-        assert machine.solder.nozzle.clean == NozzleCleanConfig(press_depth=0.4)
+        assert machine.require_solder().nozzle.clean == NozzleCleanConfig(
+            press_depth=0.4
+        )
 
     def test_reads_recorded_values(self, tmp_path: Path):
         machine = _machine_with(
@@ -648,7 +718,7 @@ class TestNozzleClean:
             "stroke = 1.5\npasses = 3\nwipe_speed = 8.0\n",
         )
 
-        assert machine.solder.nozzle.clean == NozzleCleanConfig(
+        assert machine.require_solder().nozzle.clean == NozzleCleanConfig(
             position=Point3d(10.0, 20.0, -30.0),
             press_depth=0.4,
             purge_ul=0.3,
@@ -748,14 +818,14 @@ class TestMachineTact:
     """`[solder.tact]`: 塗布の所要時間の予測（セクションごと省略可。速度は printer.cfg から読む）."""
 
     def test_defaults_whole_section_when_absent(self):
-        solder = load_machine(MINIMAL_MACHINE_TOML).solder
+        solder = load_machine(MINIMAL_MACHINE_TOML).require_solder()
 
         assert solder.tact == TactConfig(setup_sec=300.0)
 
     def test_reads_setup_sec(self, tmp_path):
         machine = _machine_with(tmp_path, "[solder.tact]\nsetup_sec = 120.0\n")
 
-        assert machine.solder.tact == TactConfig(setup_sec=120.0)
+        assert machine.require_solder().tact == TactConfig(setup_sec=120.0)
 
     def test_speed_keys_are_unknown(self, tmp_path):
         """速度と加速度は printer.cfg の値を使うので、machine.toml には書けない（移行が消す）."""

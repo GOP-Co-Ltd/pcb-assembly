@@ -121,7 +121,7 @@ def _run_loading(ctx: JobContext) -> JobResult:
             + GCode.wait_for_done()
         )
 
-    with build_applicator(klipper, stage, ctx.machine.solder) as applicator:
+    with build_applicator(klipper, stage, ctx.solder) as applicator:
         total = loading_loop(ctx, klipper, stage, applicator)
     return JobResult(
         summary=(

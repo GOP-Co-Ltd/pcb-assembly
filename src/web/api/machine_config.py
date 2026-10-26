@@ -1,7 +1,7 @@
 """machine.toml の読み込み・起動時の移行と、設定項目の書き込み.
 
 読み込みは呼ぶたびにディスクから読み直す（:meth:`MachineConfigFile.machine`）。
-項目は :func:`pcbasm.config.fields.setting_fields` が設定のスキーマから作る。
+項目は :func:`pcbasm.config.fields.setting_fields` が設定のスキーマから作る。無い機能の節（``[solder]`` など）の項目は除く。
 書き込みは設定ページ・ジョブ・router のどれからでも :meth:`MachineConfigFile.write` の 1 経路を通る。
 項目ごとに値を検証し、ディスクの最新の内容に tomlkit で差分を当て（コメントと構造を保つ）、全体を検証し、書き換える前の内容を設定履歴に残してから atomic に書き、``on_change`` で変更を知らせる。
 設定履歴の復元も :meth:`MachineConfigFile.restore` を通り、``on_change`` で知らせる。
@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -17,7 +18,15 @@ import tomlkit
 from tomlkit.items import Item, Table
 
 from pcbasm.atomic import write_bytes_atomic, write_text_atomic
-from pcbasm.config import ConfigError, MachineConfig, load_machine, parse_machine
+from pcbasm.config import (
+    CAPABILITIES,
+    Capability,
+    ConfigError,
+    MachineConfig,
+    load_capabilities,
+    load_machine,
+    parse_machine,
+)
 from pcbasm.config.fields import SettingField, setting_fields
 from pcbasm.geometry import Point3d
 from pcbasm.migrate.machine_toml import MigrationError, migrate_machine_toml
@@ -69,6 +78,25 @@ class MachineConfigFile:
             ConfigError: machine.toml が読めない・検証に通らない場合（degraded）
         """
         return load_machine(self.path)
+
+    @functools.cached_property
+    def capabilities(self) -> tuple[Capability, ...]:
+        """起動したときの machine.toml の節が表す機体の機能（再起動まで変えない）.
+
+        :meth:`migrate` の後に読む。設定エラーの間も節があれば機能があり、TOML として読めなければ機能は無い。
+        """
+        try:
+            return load_capabilities(self.path)
+        except ConfigError:
+            return ()
+
+    def _setting_fields(self) -> list[SettingField]:
+        """この機体の設定項目（無い機能の節の項目は出さず、書き込みも受け付けない）."""
+        return [
+            field
+            for field in setting_fields()
+            if field.section not in CAPABILITIES or field.section in self.capabilities
+        ]
 
     def machine_or_error(self) -> tuple[MachineConfig, None] | tuple[None, str]:
         """:meth:`machine` の degraded 版。設定エラーなら ``(None, 理由)`` を返す.
@@ -125,7 +153,7 @@ class MachineConfigFile:
             FileNotFoundError: machine.toml が存在しない場合
         """
         doc = tomlkit.parse(self.path.read_text())
-        return {field.key: _written(doc, field) for field in setting_fields()}
+        return {field.key: _written(doc, field) for field in self._setting_fields()}
 
     def fields(self, machine: MachineConfig | None) -> list[SettingsField]:
         """全項目を、表示の定義・書かれている値・実効値付きで表示する順に返す.
@@ -152,7 +180,7 @@ class MachineConfigFile:
                 value=values[field.key],
                 resolved=None if machine is None else _resolved(field, machine),
             )
-            for field in setting_fields()
+            for field in self._setting_fields()
         ]
 
     def write(
@@ -182,7 +210,7 @@ class MachineConfigFile:
                 全体の検証で誤りの無かった節に誤りが出る場合
             OSError: ファイルの保存に失敗した場合
         """
-        by_key = {field.key: field for field in setting_fields()}
+        by_key = {field.key: field for field in self._setting_fields()}
         unknown = [key for key in values if key not in by_key]
         if unknown:
             raise InvalidSettingError(f"未知のマシン設定キーです: {', '.join(unknown)}")

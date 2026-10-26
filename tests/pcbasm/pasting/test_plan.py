@@ -56,7 +56,7 @@ def _plan(
     volume_correction: VolumeCorrectionConfig = _DISABLED,
 ) -> PastePlan:
     config = attrs.evolve(
-        load_machine(TEST_CONFIG_DIR / "machine.toml").solder,
+        load_machine(TEST_CONFIG_DIR / "machine.toml").require_solder(),
         initial_purge_ul=initial_purge_ul,
         volume_correction=volume_correction,
     )

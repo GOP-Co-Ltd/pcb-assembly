@@ -146,7 +146,7 @@ def resolve_nozzle_clean(
     Raises:
         ValueError: クリーニングの経由点が可動域外の場合
     """
-    clean = machine.solder.nozzle.clean
+    clean = machine.require_solder().nozzle.clean
     if clean.position is None:
         (log or logger.info)(_NOT_RECORDED)
         return None

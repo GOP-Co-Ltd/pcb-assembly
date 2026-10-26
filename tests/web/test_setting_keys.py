@@ -11,7 +11,8 @@ from pcbasm.config import MachineConfig
 from pcbasm.config.fields import setting_fields
 from pcbasm.paths import PROJECT_ROOT
 
-_SECTIONS = "|".join(attrs.fields_dict(MachineConfig))
+# 設定ページの節（section の metadata の付いた節。項目の無い節の名前はファイル名などと紛れる）
+_SECTIONS = "|".join(top.name for top in attrs.fields(MachineConfig) if top.metadata)
 # 引用符で囲んだ「<節>.<キー>…」（末尾が "." の接頭辞も含む）
 _KEY = re.compile(rf"[\"'`]((?:{_SECTIONS})\.[a-z_.]+)[\"'`]")
 

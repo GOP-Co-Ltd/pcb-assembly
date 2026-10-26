@@ -16,6 +16,7 @@ import attrs
 from pcbasm.align import BoardFrame, RegionAlignmentSession
 from pcbasm.board import Board, Copper, Layer, Pad
 from pcbasm.config import MachineConfig
+from pcbasm.config.solder import SolderConfig
 from pcbasm.geometry import Compose, HeightPlane, Identity, Point2d, Shift, Transform
 from pcbasm.hal import Camera, KlipperClient, XYZStage
 from pcbasm.pasting.applicator import PasteApplicator, build_applicator
@@ -80,7 +81,7 @@ class PasteSession:
             max_samples=probe_config.max_samples,
             settle_sec=settle.move_sec,
         )
-        toolhead = machine.solder.nozzle.offset
+        toolhead = machine.require_solder().nozzle.offset
         return cls(
             machine=machine,
             klipper=klipper,
@@ -91,6 +92,11 @@ class PasteSession:
             probe_executor=probe_executor,
             height_measurer=height_measurer,
         )
+
+    @property
+    def solder(self) -> SolderConfig:
+        """はんだ塗布の設定."""
+        return self.machine.require_solder()
 
     @property
     def board_to_machine(self) -> Transform:
@@ -192,8 +198,5 @@ class PasteSession:
             lift_height: 塗布後の上昇高さ [mm] の上書き（``None`` で machine 設定の値）
         """
         return build_applicator(
-            self.klipper,
-            self.stage,
-            self.machine.solder,
-            lift_height=lift_height,
+            self.klipper, self.stage, self.solder, lift_height=lift_height
         )

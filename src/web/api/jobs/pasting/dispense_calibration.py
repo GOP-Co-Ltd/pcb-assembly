@@ -445,7 +445,7 @@ def _calibrate_rotations_per_ul(
     質量入力の中止はいずれもメニューへ戻る。
     """
     # 密度はマシン設定 (solder.paste_density [mg/uL]) の値を使う。② と同じ扱い。
-    density = ctx.machine.solder.paste_density
+    density = ctx.solder.paste_density
     ctx.log(
         f"ペースト密度（machine.toml の solder.paste_density）= {density:.3f} mg/uL"
     )
@@ -562,8 +562,8 @@ def _calibrate_max_dispense_rate(
     Raises:
         CalibrationCancelled: レート列が空、または線が銅板に収まらない場合
     """
-    fill_speed = ctx.machine.solder.motion.max_fill_speed
-    density = ctx.machine.solder.paste_density
+    fill_speed = ctx.solder.motion.max_fill_speed
+    density = ctx.solder.paste_density
     params = _params(ctx)
 
     points, message = plan_rate_sweep(params, fill_speed=fill_speed)
@@ -656,7 +656,7 @@ def _calibrate_max_fill_speed(
     Raises:
         CalibrationCancelled: 速度列が空、または線が銅板に収まらない場合
     """
-    solder = ctx.machine.solder
+    solder = ctx.solder
     params = _params(ctx)
 
     sweep, message = plan_speed_sweep(

@@ -102,7 +102,7 @@ class TestSettingFields:
         fields = _by_key()
 
         assert fields["solder.motion.lift_height"].resolve(machine) == (
-            machine.solder.motion.lift_height
+            machine.require_solder().motion.lift_height
         )
         # 未教示の座標は None
         assert fields["solder.nozzle.cap.position"].resolve(machine) is None

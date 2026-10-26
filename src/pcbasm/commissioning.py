@@ -1,6 +1,8 @@
 """立ち上げ手順の表と、各段が済んだかの判定（readiness）.
 
-新しい機体は :data:`STEPS` の順に段を済ませる。docs/commissioning.md の表も同じ順に並べる（テストが一致を確かめる）。
+手順の表は、どの機体にもある共通の段（:data:`COMMON_STEPS`）と、機能ごとの段（:data:`CAPABILITY_STEPS`）に分ける。
+新しい機体は :func:`steps` が機体の機能に応じて並べた順に段を済ませる。
+docs/commissioning.md の表は全機能の段を :data:`STEPS` の順に並べる（テストが一致を確かめる）。
 段は設定キーと参照ファイルがそろえば完了とし、日付は見ない。古くなったかどうかは、やり直しの契機を見て運転者が決める。
 判定は読むだけで、装置には触れない。
 """
@@ -12,7 +14,8 @@ from typing import Literal
 
 import attrs
 
-from pcbasm.config import MachineConfig
+from pcbasm.config import Capability, MachineConfig
+from pcbasm.config.solder import SolderConfig
 from pcbasm.machine.diagnostics import load_checks
 from pcbasm.vision import load_focus_z
 
@@ -44,7 +47,7 @@ class Step:
     redo_when: str
 
 
-STEPS: tuple[Step, ...] = (
+COMMON_STEPS: tuple[Step, ...] = (
     Step(
         "camera_calibration",
         "カメラ校正",
@@ -66,6 +69,9 @@ STEPS: tuple[Step, ...] = (
         "[reference_point] に x / y がある",
         "基板を固定する治具を動かしたとき",
     ),
+)
+
+SOLDER_STEPS: tuple[Step, ...] = (
     Step(
         "nozzle_cap",
         "ノズル位置（キャップ / クリーニング）",
@@ -96,7 +102,25 @@ STEPS: tuple[Step, ...] = (
     ),
 )
 
+# 機能 → その機能を使えるようにする段（共通の段の後ろに、機能の並びで続ける）
+CAPABILITY_STEPS: dict[Capability, tuple[Step, ...]] = {
+    "solder": SOLDER_STEPS,
+    "pnp": (),
+}
+
+# 全機能の段（docs/commissioning.md の表の並び）
+STEPS: tuple[Step, ...] = COMMON_STEPS + tuple(
+    step for capability_steps in CAPABILITY_STEPS.values() for step in capability_steps
+)
+
 _LABELS = {step.name: step.label for step in STEPS}
+
+
+def steps(capabilities: tuple[Capability, ...]) -> tuple[Step, ...]:
+    """機能 ``capabilities`` の機体が済ませる段を、済ませる順に返す."""
+    return COMMON_STEPS + tuple(
+        step for capability in capabilities for step in CAPABILITY_STEPS[capability]
+    )
 
 
 @attrs.frozen
@@ -124,7 +148,7 @@ class StepStatus:
 
 @attrs.frozen
 class Readiness:
-    """立ち上げ状況（:data:`STEPS` の順の各段の状態）."""
+    """立ち上げ状況（:func:`steps` の順の各段の状態）."""
 
     steps: tuple[StepStatus, ...]
 
@@ -142,19 +166,23 @@ class Readiness:
 
 
 def readiness(
-    machine: MachineConfig | None, machine_check_file: Path, calibration_dir: Path
+    machine: MachineConfig | None,
+    capabilities: tuple[Capability, ...],
+    machine_check_file: Path,
+    calibration_dir: Path,
 ) -> Readiness:
-    """各段が済んだかを判定する.
+    """機能 ``capabilities`` の機体の各段が済んだかを判定する.
 
     Args:
         machine: machine.toml（設定エラーで読めなければ None）
+        capabilities: 機体の機能
         machine_check_file: 装置診断ジョブが直近の結果を残すファイル
         calibration_dir: 塗布量校正の置き場所
     """
     missing = _missing(machine, machine_check_file, calibration_dir)
     done: set[str] = set()
-    steps = []
-    for step in STEPS:
+    statuses = []
+    for step in steps(capabilities):
         reason = missing[step.name]
         pending = [_LABELS[name] for name in step.requires if name not in done]
         state: StepState
@@ -166,28 +194,39 @@ def readiness(
             state, detail = "blocked", f"先に{names}を済ませてください"
         else:
             state, detail = "todo", reason
-        steps.append(StepStatus(step.name, step.label, state, detail, step.redo_when))
-    return Readiness(tuple(steps))
+        statuses.append(
+            StepStatus(step.name, step.label, state, detail, step.redo_when)
+        )
+    return Readiness(tuple(statuses))
 
 
 def _missing(
     machine: MachineConfig | None, machine_check_file: Path, calibration_dir: Path
 ) -> dict[str, str | None]:
     """段ごとの、完了に足りないこと（完了なら None）."""
-    reasons: dict[str, str | None]
-    if machine is None:
-        reasons = dict.fromkeys(_LABELS, "machine.toml を読めないため判定できません")
-    else:
-        reasons = _missing_settings(machine, calibration_dir)
+    reasons: dict[str, str | None] = dict.fromkeys(
+        _LABELS, "machine.toml を読めないため判定できません"
+    )
+    if machine is not None:
+        camera_file = machine.camera.calibration_file
+        reasons.update(
+            camera_calibration=(
+                None
+                if load_focus_z(camera_file) is not None
+                else f"校正ファイル {camera_file.name} が無いか、焦点 Z が記録されていません"
+            ),
+            # 基準点は必須の設定なので、machine.toml を読めれば書かれている
+            reference_point_setup=None,
+        )
+        if machine.solder is not None:
+            reasons.update(_missing_solder(machine.solder, calibration_dir))
     reasons["machine_check"] = _missing_machine_check(machine_check_file)
     return reasons
 
 
-def _missing_settings(
-    machine: MachineConfig, calibration_dir: Path
+def _missing_solder(
+    solder: SolderConfig, calibration_dir: Path
 ) -> dict[str, str | None]:
-    solder = machine.solder
-    camera_file = machine.camera.calibration_file
     untaught = [
         name
         for name, position in (
@@ -204,14 +243,8 @@ def _missing_settings(
     else:
         volume = None
     return {
-        "camera_calibration": (
-            None
-            if load_focus_z(camera_file) is not None
-            else f"校正ファイル {camera_file.name} が無いか、焦点 Z が記録されていません"
-        ),
-        # 基準点、ツールヘッド、吐出量は必須の設定なので、machine.toml を読めれば書かれている
-        "reference_point_setup": None,
         "nozzle_cap": f"{'と'.join(untaught)}を記録していません" if untaught else None,
+        # ツールヘッドと吐出量は必須の設定なので、[solder] を読めれば書かれている
         "toolhead_offset": None,
         "dispense_calibration": None,
         "paste_volume_calibration": volume,

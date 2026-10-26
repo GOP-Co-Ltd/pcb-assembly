@@ -435,9 +435,9 @@ class TestRunFlowCalibration:
         machine = attrs.evolve(
             machine,
             solder=attrs.evolve(
-                machine.solder,
+                machine.require_solder(),
                 defaults=attrs.evolve(
-                    machine.solder.defaults,
+                    machine.require_solder().defaults,
                     prime_extra_delay=prime_extra_delay,
                 ),
             ),
@@ -474,7 +474,7 @@ class TestRunFlowCalibration:
                 ],
                 move_count=len(moves),
                 dispensed=_dispense_amounts_ul(
-                    klipper, machine.solder.dispenser.rotations_per_ul
+                    klipper, machine.require_solder().dispenser.rotations_per_ul
                 ),
                 elapsed=elapsed,
             )
@@ -518,8 +518,10 @@ class TestRunFlowCalibration:
             tmp_path, self._write_calibration(tmp_path), prime_extra_delay=0.5
         )
 
-        retract_ul = load_machine(
-            TEST_CONFIG_DIR / "machine.toml"
-        ).solder.dispenser.retract_amount
+        retract_ul = (
+            load_machine(TEST_CONFIG_DIR / "machine.toml")
+            .require_solder()
+            .dispenser.retract_amount
+        )
         expected = retract_ul + VolumeCorrectionConfig().amount_ul
         assert ran.dispensed == pytest.approx([expected] * len(POINTS))

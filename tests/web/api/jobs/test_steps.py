@@ -346,7 +346,9 @@ class TestLoadingLoopNotification:
         totals: list[LoadingTotals] = []
 
         def run(ctx: JobContext) -> None:
-            with build_applicator(klipper, stage, ctx.machine.solder) as applicator:
+            with build_applicator(
+                klipper, stage, ctx.machine.require_solder()
+            ) as applicator:
                 totals.append(loading_loop(ctx, klipper, stage, applicator))
 
         register_synthetic(catalog, run, name="loading_loop", accepts_commands=True)

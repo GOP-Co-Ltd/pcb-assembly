@@ -7,6 +7,7 @@ import contextlib
 from datetime import datetime
 from pathlib import Path
 
+import attrs
 import httpx
 import numpy as np
 import pytest
@@ -55,6 +56,20 @@ class TestCheckKlipper:
         assert checks[1].detail == "X 0〜300 / Y 0〜300 / Z -5〜50 mm、最大 100 mm/s"
         assert checks[3].detail == "[load_cell_probe] があります"
         assert klipper.sent == ()
+
+    def test_a_machine_without_solder_does_not_check_the_dispenser(self):
+        """部品実装だけの機体の printer.cfg には、ディスペンサーの section が無くてよい."""
+        config = dict(FAKE_MACHINE_PRINTER_CONFIG)
+        del config["manual_stepper paste_dispenser"]
+
+        checks = check_klipper(FakeKlipper(config), attrs.evolve(MACHINE, solder=None))
+
+        assert [(check.name, check.ok) for check in checks] == [
+            ("Klipper の接続", True),
+            ("ステージ", True),
+            ("プローブ", True),
+            ("駐機", True),
+        ]
 
     @pytest.mark.parametrize(
         ("section", "name"),

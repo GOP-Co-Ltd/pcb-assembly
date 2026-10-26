@@ -17,6 +17,7 @@ import httpx
 
 from pcbasm.atomic import write_text_atomic
 from pcbasm.config import MachineConfig
+from pcbasm.config.solder import SolderConfig
 from pcbasm.document import structure_document
 from pcbasm.hal import AudioDevice, Camera, KlipperClient, PasteDispenser, XYZStage
 from pcbasm.machine.park import PRESENT_SECTION
@@ -68,7 +69,8 @@ def load_checks(path: Path) -> tuple[tuple[Check, ...] | None, str | None]:
 
 
 def check_klipper(klipper: KlipperClient, machine: MachineConfig) -> list[Check]:
-    """Klipper の状態と、printer.cfg にステージ・ディスペンサー・プローブ・駐機が要求する section があるか確かめる.
+    """Klipper の状態と、printer.cfg にステージ・ディスペンサー（塗布機だけ）・プローブ・駐機が要求する section
+    があるか確かめる.
 
     接続できなければ printer.cfg の項目は並べず、shutdown（MCU の切断など）では読めるので並べる。
     """
@@ -86,10 +88,11 @@ def check_klipper(klipper: KlipperClient, machine: MachineConfig) -> list[Check]
         connection = Check(
             name, False, f"{endpoint} の Klipper が {state} です: {message}"
         )
+    checks = [connection, _component("ステージ", lambda: _stage(klipper))]
+    if (solder := machine.solder) is not None:
+        checks.append(_component("ディスペンサー", lambda: _dispenser(klipper, solder)))
     return [
-        connection,
-        _component("ステージ", lambda: _stage(klipper)),
-        _component("ディスペンサー", lambda: _dispenser(klipper, machine)),
+        *checks,
         _section(config, "プローブ", _PROBE_SECTION),
         _section(config, "駐機", PRESENT_SECTION),
     ]
@@ -149,8 +152,8 @@ def _stage(klipper: KlipperClient) -> str:
     )
 
 
-def _dispenser(klipper: KlipperClient, machine: MachineConfig) -> str:
-    PasteDispenser(klipper, machine.solder.dispenser.rotations_per_ul)
+def _dispenser(klipper: KlipperClient, solder: SolderConfig) -> str:
+    PasteDispenser(klipper, solder.dispenser.rotations_per_ul)
     return "必要な section があります"
 
 

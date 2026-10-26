@@ -562,7 +562,7 @@ def load_session(
     """
     source_pcb, board = _selected_board(selection)
     return BoardSession.load(
-        overrides, source_pcb, board, machine_config.machine().solder
+        overrides, source_pcb, board, machine_config.machine().require_solder()
     )
 
 
@@ -575,7 +575,9 @@ def _initial_session(
         HTTPException: PCB 未選択（409）の場合
     """
     source_pcb, board = _selected_board(selection)
-    return BoardSession.initial(source_pcb, board, machine_config.machine().solder)
+    return BoardSession.initial(
+        source_pcb, board, machine_config.machine().require_solder()
+    )
 
 
 def build_pad_config(loaded: BoardSession) -> PadConfigResponse:
@@ -767,7 +769,7 @@ def get_tact_estimate(
         )
     estimate = estimate_paste_tact(
         plan_paste(loaded),
-        machine_config.machine().solder.tact,
+        machine_config.machine().require_solder().tact,
         MotionLimits.from_printer_config(printer_config),
     )
     return TactEstimateInfo(

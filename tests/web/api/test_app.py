@@ -262,7 +262,9 @@ class TestReadsFromDiskEveryTime:
             JobDefinition(
                 name="lift-height-probe",
                 label="lift_height の確認",
-                run=lambda ctx: seen.append(ctx.machine.solder.motion.lift_height),
+                run=lambda ctx: seen.append(
+                    ctx.machine.require_solder().motion.lift_height
+                ),
                 uses_machine=False,
             )
         )

@@ -397,7 +397,7 @@ class TestToolheadOffsetProcedure:
         klipper: FakeKlipper,
     ):
         klipper.set_status("probe", "last_z_result", 1.5)
-        toolhead = machine.solder.nozzle.offset
+        toolhead = machine.require_solder().nozzle.offset
         board = Point2d(x=10.0, y=20.0)
 
         probed = procedure.probe(board)
@@ -437,8 +437,8 @@ class TestToolheadOffsetProcedure:
             moves = klipper.g1_moves()
 
         # paste_height=auto は膜厚 ul_per_mm2 を表面からの高さに使う
-        assert machine.solder.defaults.paste_height == "auto"
-        paste_height = machine.solder.defaults.ul_per_mm2
+        assert machine.require_solder().defaults.paste_height == "auto"
+        paste_height = machine.require_solder().defaults.ul_per_mm2
         approach, descend = moves[0], moves[1]
         assert approach["x"] == pytest.approx(probed.point.dispense.x)
         assert approach["y"] == pytest.approx(probed.point.dispense.y)
@@ -457,7 +457,7 @@ class TestToolheadOffsetProcedure:
             klipper, FakeCamera([Image(frame)]), machine, diameter_min=0.5
         )
         probed = procedure.probe(Point2d(x=10.0, y=20.0))
-        toolhead = machine.solder.nozzle.offset
+        toolhead = machine.require_solder().nozzle.offset
         # 円検出はステージがカメラ位置に居る状態で行われる
         klipper.set_status(
             "gcode_move",

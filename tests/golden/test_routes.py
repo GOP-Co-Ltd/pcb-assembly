@@ -148,7 +148,7 @@ class TestNozzleMaintenance:
 
         assert response.status_code == 200, response.text
         position = getattr(
-            job_backend.machine_config.machine().solder.nozzle, table
+            job_backend.machine_config.machine().require_solder().nozzle, table
         ).position
         assert (position.x, position.y, position.z) == tuple(START_POSITION[:3])
         assert homed_klipper.sent == ()

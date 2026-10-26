@@ -50,7 +50,7 @@ def get_mass_flow(
     非正・非有限入力や表現不能な算出値は ``None`` で返す（エラーにしない）。算出は
     :meth:`pcbasm.pasting.dispense_calibration.mass.MassFlowEstimate.estimate` へ委譲する（丸め済み）。
     """
-    density = machine_config.machine().solder.paste_density
+    density = machine_config.machine().require_solder().paste_density
     estimate = MassFlowEstimate.estimate(
         mass_mg=mass_mg,
         rotations=rotations,

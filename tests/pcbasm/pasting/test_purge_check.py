@@ -65,7 +65,7 @@ _STEPPER_MOVE_RE = re.compile(r"MANUAL_STEPPER STEPPER=paste_dispenser MOVE=(\S+
 
 
 def _dispenser():
-    return load_machine(TEST_CONFIG_DIR / "machine.toml").solder
+    return load_machine(TEST_CONFIG_DIR / "machine.toml").require_solder()
 
 
 def _blocking_loads_ul(klipper: FakeKlipper) -> list[float]:

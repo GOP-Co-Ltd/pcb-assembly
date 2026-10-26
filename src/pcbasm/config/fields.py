@@ -27,7 +27,7 @@ from __future__ import annotations
 import functools
 from collections.abc import Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, get_origin, get_type_hints
+from typing import TYPE_CHECKING, Any, Literal, get_args, get_origin, get_type_hints
 
 import attrs
 
@@ -125,9 +125,11 @@ class SettingField:
             self._attribute.validator(None, self._attribute, value)
 
     def resolve(self, machine: MachineConfig) -> object:
-        """既定値まで解決した実効値を返す（任意項目が未設定なら None）."""
+        """既定値まで解決した実効値を返す（任意項目が未設定か、機能の節が無ければ None）."""
         value: object = machine
         for name in self.key.split("."):
+            if value is None:
+                return None
             value = getattr(value, name)
         return value
 
@@ -148,9 +150,13 @@ def setting_fields() -> tuple[SettingField, ...]:
         if not top.metadata:
             continue
         meta = section(**top.metadata)
-        for order, field in _leaves(
-            hints[top.name], top.name, (top.name, meta["label"])
-        ):
+        # 機能の節（solder など）は無ければ None なので、None でない側の型を辿る
+        (cls,) = (
+            hint
+            for hint in get_args(hints[top.name]) or (hints[top.name],)
+            if attrs.has(hint)
+        )
+        for order, field in _leaves(cls, top.name, (top.name, meta["label"])):
             position = (meta["order"], order)
             if position in ordered:
                 raise ValueError(

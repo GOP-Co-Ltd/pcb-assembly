@@ -56,6 +56,8 @@ _RULES: dict[str, frozenset[str]] = {
     "pcbasm.migrate": frozenset({"pcbasm.config"}),
     "pcbasm.align": _ALIGN,
     "pcbasm.pasting": _ALIGN | {"pcbasm.align", "pcbasm.kicad"},
+    # 塗布と同じ層。互いに import しない
+    "pcbasm.pnp": _ALIGN | {"pcbasm.align", "pcbasm.kicad"},
     "pcbasm.commissioning": frozenset({"pcbasm"}),
     "web.process": frozenset(),
     "web.contract": frozenset(),
@@ -169,6 +171,11 @@ class TestLayers:
         assert ("pcbasm.vision", "pcbasm.vision.image") in edges
         # from M import <submodule>（machine/devices.py の from pcbasm import hal）
         assert ("pcbasm.machine", "pcbasm.hal") in edges
+
+    def test_pnp_and_pasting_do_not_import_each_other(self):
+        """部品実装と塗布は同じ層で、両方が使うものは下の層に置く."""
+        assert not _matches("pcbasm.pasting", _RULES["pcbasm.pnp"])
+        assert not _matches("pcbasm.pnp", _RULES["pcbasm.pasting"])
 
     def test_no_violation_outside_the_allowlist(self):
         assert _violations() - _ALLOWED_VIOLATIONS == set()

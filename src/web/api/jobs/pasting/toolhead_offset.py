@@ -277,7 +277,7 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
             f"上限={tolerance:.4f} mm）"
         )
 
-    current_toolhead = ctx.machine.solder.nozzle.offset
+    current_toolhead = ctx.solder.nozzle.offset
     diff_x = measured_offset.x - current_toolhead.x
     diff_y = measured_offset.y - current_toolhead.y
     ctx.progress("完了", 100.0)

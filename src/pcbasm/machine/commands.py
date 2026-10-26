@@ -102,7 +102,7 @@ def to_gcode(
                 )
             commands = stage.move(z=z)
         case MoveToCap():
-            cap = machine().solder.nozzle.cap.position
+            cap = machine().cap_position
             if cap is None:
                 raise ValueError("ノズルキャップ位置が未記録です")
             commands = stage.travel_to(cap)

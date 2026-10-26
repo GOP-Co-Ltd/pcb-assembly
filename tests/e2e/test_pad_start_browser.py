@@ -37,11 +37,11 @@ def live_server(e2e_settings: Env) -> Iterator[LiveServer]:
 
     def run(ctx: JobContext) -> None:
         assert ctx.source_pcb is not None
-        model = overrides.load_or_init(ctx.source_pcb, ctx.machine.solder)
+        model = overrides.load_or_init(ctx.source_pcb, ctx.machine.require_solder())
         ctx.log(f"started with:{model.levels[0].patch.to_dict()['ul_per_mm2']}")
-        ctx.log(f"purge:{ctx.machine.solder.initial_purge_ul}")
+        ctx.log(f"purge:{ctx.machine.require_solder().initial_purge_ul}")
         ctx.log(f"disabled:{any(level.enabled is False for level in model.levels)}")
-        ctx.log(f"aspect:{ctx.machine.solder.auto.line_aspect_ratio}")
+        ctx.log(f"aspect:{ctx.machine.require_solder().auto.line_aspect_ratio}")
         ctx.next_command(timeout=None)
 
     configure_synthetic_job(app, "paste_solder", run)

@@ -19,6 +19,9 @@ def get_readiness(env: EnvDep, machine_config: MachineConfigDep) -> ReadinessRes
     """立ち上げの各段の状態を、手順の順に返す."""
     machine, _ = machine_config.machine_or_error()
     result = readiness(
-        machine, env.machine_check_file, env.paste_volume_calibration_dir
+        machine,
+        machine_config.capabilities,
+        env.machine_check_file,
+        env.paste_volume_calibration_dir,
     )
     return ReadinessResponse.model_validate(result, from_attributes=True)

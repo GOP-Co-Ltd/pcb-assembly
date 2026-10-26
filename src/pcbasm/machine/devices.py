@@ -226,11 +226,18 @@ def _scene_camera(
     machine = load_machine(config_path)
     camera_model = CameraModel.load(machine.camera.calibration_file)
     solder = machine.solder
+    # 塗布機でなければ塗布痕は描かれないので、ノズルの位置と吐出量の換算は使わない
+    if solder is None:
+        toolhead, rotations_per_ul = Point2d(0.0, 0.0), 1.0
+    else:
+        offset = solder.nozzle.offset
+        toolhead = Point2d(offset.x, offset.y)
+        rotations_per_ul = solder.dispenser.rotations_per_ul
     return SceneCamera(
         klipper,
         pixel_per_mm=camera_model.pixel_per_mm,
-        toolhead=Point2d(solder.nozzle.offset.x, solder.nozzle.offset.y),
-        rotations_per_ul=solder.dispenser.rotations_per_ul,
+        toolhead=toolhead,
+        rotations_per_ul=rotations_per_ul,
         size=camera_model.image_size,
         shapes=scene(),
     )

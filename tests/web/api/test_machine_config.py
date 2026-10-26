@@ -1,7 +1,7 @@
 """`web.api.machine_config.MachineConfigFile` の仕様テスト.
 
 - machine() は `config/` の machine.toml を呼ぶたびにディスクから読む（起動時の移行と degraded は test_app.py）
-- 設定項目は `setting_fields()` の全項目で、machine.toml に書かれている値を読む
+- 設定項目は `setting_fields()` のうち機体にある機能の節の項目で、machine.toml に書かれている値を読む
 - 書き込みは tomlkit でコメント・構造を保ち、変えた行だけが変わる
 - 未知キー / 型の合わない値 / 全体の検証に通らない値 → InvalidSettingError（何も書かない）
 - 書き込んだら `on_change` で知らせる
@@ -15,6 +15,7 @@ from typing import cast
 import pytest
 
 from pcbasm.config.fields import setting_fields
+from tests.support.machine_toml import pnp_only
 from web.api.machine_config import InvalidSettingError, MachineConfigFile
 from web.contract.models import MachineSettingValue
 
@@ -24,6 +25,42 @@ class TestMachine:
         self, machine_config: MachineConfigFile
     ):
         assert machine_config.machine().klipper.port == 7126
+
+
+class TestCapabilitySections:
+    """無い機能の節の項目は、設定ページに出さず書き込みも受け付けない."""
+
+    @pytest.fixture
+    def pnp_machine(self, config_dir: Path) -> MachineConfigFile:
+        path = config_dir / "machine.toml"
+        path.write_text(pnp_only(path.read_text()))
+        return MachineConfigFile(config_dir)
+
+    def test_capabilities_follow_the_sections(self, pnp_machine: MachineConfigFile):
+        assert pnp_machine.capabilities == ("pnp",)
+
+    def test_solder_settings_are_only_on_a_solder_machine(
+        self, machine_config: MachineConfigFile
+    ):
+        keys = {field.key for field in machine_config.fields(machine_config.machine())}
+
+        assert {field.key for field in setting_fields()} == keys
+
+    def test_a_pnp_machine_has_no_solder_settings(self, pnp_machine: MachineConfigFile):
+        fields = pnp_machine.fields(pnp_machine.machine())
+
+        assert fields
+        assert all(field.section != "solder" for field in fields)
+
+    def test_writing_a_solder_setting_to_a_pnp_machine_is_rejected(
+        self, pnp_machine: MachineConfigFile
+    ):
+        original = pnp_machine.path.read_text()
+
+        with pytest.raises(InvalidSettingError, match="未知のマシン設定キー"):
+            pnp_machine.write({"solder.paste_density": 3.0})
+
+        assert pnp_machine.path.read_text() == original
 
 
 class TestSettingsWithFiles:

@@ -418,7 +418,7 @@ def _plan_collection(
 
     crop のピクセル寸法はここで 1 回だけ決め、capturer / store / metadata の 3 箇所へ同じ値を渡す。
     """
-    solder = ctx.machine.solder
+    solder = ctx.solder
     run_error = validate_dataset_run(
         paste_id=str(ctx.params["paste_id"]).strip(),
         paste_height_mm=float(ctx.params["paste_height"]),
@@ -543,7 +543,7 @@ def _run_paste_volume_calibration(ctx: JobContext, *, stores: PasteStores) -> Jo
     入力だけが装置の外から来るため、そこで WebUI が停止すると撮影済み画像の教師値が残らない。
     残した doc は ``paste_dataset_finalize`` ジョブが計量値と突き合わせて確定する。
     """
-    solder = ctx.machine.solder
+    solder = ctx.solder
     paste_id = str(ctx.params["paste_id"]).strip()
     paste_lot = str(ctx.params.get("paste_lot", "")).strip() or None
     paste_height_mm = float(ctx.params["paste_height"])

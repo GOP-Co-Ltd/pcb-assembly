@@ -29,7 +29,7 @@ MACHINE = load_machine(MINIMAL_MACHINE_TOML)
 ROTATION_DISTANCE = float(
     FAKE_PRINTER_CONFIG["manual_stepper paste_dispenser"]["rotation_distance"]
 )
-RETRACT_AMOUNT = MACHINE.solder.dispenser.retract_amount
+RETRACT_AMOUNT = MACHINE.require_solder().dispenser.retract_amount
 
 _MOVE_RE = re.compile(r"MANUAL_STEPPER STEPPER=paste_dispenser MOVE=(\S+)(.*)")
 
@@ -131,7 +131,7 @@ class TestLifecycle:
         assert any("ENABLE=0" in line for line in disabled)
 
     def test_initial_values_mirror_machine_config(self, procedure):
-        config = MACHINE.solder
+        config = MACHINE.require_solder()
 
         assert procedure.rotations_per_ul == config.dispenser.rotations_per_ul
         assert (
@@ -273,7 +273,7 @@ class TestAdopt:
         # 採用後の吐出加速度 [μL/sec²] は machine 設定の値そのもの
         # （applicator は rotations_per_ul だけ差し替わり、加速度は設定由来のまま）
         assert _dispense_accels_ul_s2(klipper, 2.0) == pytest.approx(
-            [MACHINE.solder.dispenser.dispense_accel]
+            [MACHINE.require_solder().dispenser.dispense_accel]
         )
         # AirPump の OFF→ON もステッパーの無効化も挟まない
         assert switched == []

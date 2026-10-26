@@ -371,8 +371,8 @@ class SceneCamera(Camera):
         Args:
             klipper: ステージ位置と塗布の記録を読む機体
             pixel_per_mm: 1 mm あたりの画素数
-            toolhead: カメラからノズルへの相対位置 [mm]（machine の paste_dispenser.toolhead）
-            rotations_per_ul: 1 μL あたりの manual_stepper の移動量 [mm]（machine の paste_dispenser.rotations_per_ul）
+            toolhead: カメラからノズルへの相対位置 [mm]（machine の solder.nozzle.offset）
+            rotations_per_ul: 1 μL あたりの manual_stepper の移動量 [mm]（machine の solder.dispenser.rotations_per_ul）
             rotation: 機械の軸に対するカメラの回転 [度]
             size: 画像サイズ (width, height)
             shapes: 明るく描く図形（機械座標 [mm]）

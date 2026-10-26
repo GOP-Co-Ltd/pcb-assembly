@@ -2,6 +2,7 @@
 
 立ち上げの各段は、設定キーと参照ファイルがそろえば完了とする（日付は見ない）。
 未完了の段は、先に済ませる段が残っていれば「前提待ち」、そうでなければ残っていることを示す。
+段は共通の段と機能ごとの段に分かれ、機体はその機能の段だけを済ませる。
 手順の並びは、文書（docs/commissioning.md）の表と同じにする。
 """
 
@@ -11,7 +12,7 @@ from pathlib import Path
 import attrs
 import pytest
 
-from pcbasm.commissioning import STEPS, readiness
+from pcbasm.commissioning import COMMON_STEPS, SOLDER_STEPS, STEPS, readiness, steps
 from pcbasm.config import MachineConfig, load_machine
 from pcbasm.config.solder import NozzleConfig
 from pcbasm.geometry import Point3d
@@ -23,6 +24,7 @@ from tests.support.paths import TEST_CONFIG_DIR
 MACHINE = load_machine(TEST_CONFIG_DIR / "machine.toml")
 CALIBRATION = "s3x70.paste-volume.json"
 ALL_OK = (Check("Klipper の接続", True, "localhost:7125"),)
+SOLDER = ("solder",)
 
 
 def _taught(
@@ -38,7 +40,7 @@ def _taught(
 
 def _commissioned(machine: MachineConfig) -> MachineConfig:
     """ノズル位置を教示し、運転時補正の校正ファイルを選んだ machine."""
-    solder = machine.solder
+    solder = machine.require_solder()
     return attrs.evolve(
         machine,
         solder=attrs.evolve(
@@ -82,6 +84,17 @@ class TestSteps:
             assert set(step.requires) <= earlier, step.name
             earlier.add(step.name)
 
+    def test_a_machine_takes_the_common_steps_and_those_of_its_capabilities(self):
+        assert steps(("solder",)) == COMMON_STEPS + SOLDER_STEPS
+        assert steps(("solder", "pnp")) == COMMON_STEPS + SOLDER_STEPS
+        assert steps(("pnp",)) == COMMON_STEPS
+
+    def test_capability_steps_require_only_common_or_their_own_steps(self):
+        """機能の段は、その機能の無い機体には並ばない段を前提にしない."""
+        common = {step.name for step in COMMON_STEPS}
+        for step in SOLDER_STEPS:
+            assert set(step.requires) <= common | {own.name for own in SOLDER_STEPS}
+
     def test_docs_table_lists_the_steps_in_the_same_order(self):
         text = (PROJECT_ROOT / "docs" / "commissioning.md").read_text()
         rows = re.findall(r"^\| \d+ +\| (.+?) +\| `(\w+)` +\|", text, re.MULTILINE)
@@ -91,14 +104,14 @@ class TestSteps:
 
 class TestReadiness:
     def test_all_steps_done(self, all_ok: Path, calibration_dir: Path):
-        result = readiness(_commissioned(MACHINE), all_ok, calibration_dir)
+        result = readiness(_commissioned(MACHINE), SOLDER, all_ok, calibration_dir)
 
         assert [step.state for step in result.steps] == ["done"] * len(STEPS)
         assert result.complete
         assert result.label == "立ち上げ済み"
 
     def test_done_step_shows_its_condition(self, all_ok: Path, calibration_dir: Path):
-        result = readiness(_commissioned(MACHINE), all_ok, calibration_dir)
+        result = readiness(_commissioned(MACHINE), SOLDER, all_ok, calibration_dir)
 
         step = result.steps[0]
         assert (step.name, step.state_label) == ("camera_calibration", "完了")
@@ -107,7 +120,7 @@ class TestReadiness:
 
     def test_new_machine(self, tmp_path: Path):
         """テンプレートどおりの machine.toml で、ノズルを教示しておらず、診断もしていない."""
-        result = readiness(MACHINE, tmp_path / "machine_check.json", tmp_path)
+        result = readiness(MACHINE, SOLDER, tmp_path / "machine_check.json", tmp_path)
 
         assert _states(result) == {
             "camera_calibration": ("done", STEPS[0].done_when),
@@ -141,13 +154,13 @@ class TestReadiness:
         detail: str,
     ):
         machine = _commissioned(MACHINE)
-        solder = machine.solder
+        solder = machine.require_solder()
         machine = attrs.evolve(
             machine,
             solder=attrs.evolve(solder, nozzle=_taught(solder.nozzle, cap, clean)),
         )
 
-        result = readiness(machine, all_ok, calibration_dir)
+        result = readiness(machine, SOLDER, all_ok, calibration_dir)
 
         assert _states(result)["nozzle_cap"] == ("todo", detail)
 
@@ -162,7 +175,7 @@ class TestReadiness:
         checks_file = tmp_path / "machine_check.json"
         save_checks(checks_file, checks)
 
-        result = readiness(_commissioned(MACHINE), checks_file, calibration_dir)
+        result = readiness(_commissioned(MACHINE), SOLDER, checks_file, calibration_dir)
 
         assert _states(result)["machine_check"] == (
             "todo",
@@ -170,7 +183,7 @@ class TestReadiness:
         )
 
     def test_selected_volume_calibration_must_exist(self, all_ok: Path, tmp_path: Path):
-        result = readiness(_commissioned(MACHINE), all_ok, tmp_path)
+        result = readiness(_commissioned(MACHINE), SOLDER, all_ok, tmp_path)
 
         assert _states(result)["paste_volume_calibration"] == (
             "todo",
@@ -192,7 +205,9 @@ class TestReadiness:
             machine, camera=attrs.evolve(machine.camera, calibration_file=camera_file)
         )
 
-        result = readiness(machine, tmp_path / "machine_check.json", calibration_dir)
+        result = readiness(
+            machine, SOLDER, tmp_path / "machine_check.json", calibration_dir
+        )
 
         assert _states(result)["camera_calibration"] == (
             "todo",
@@ -204,9 +219,19 @@ class TestReadiness:
             "先に「カメラ校正」を済ませてください",
         )
 
+    def test_pnp_machine_has_only_the_common_steps(
+        self, all_ok: Path, calibration_dir: Path
+    ):
+        machine = attrs.evolve(_commissioned(MACHINE), solder=None)
+
+        result = readiness(machine, ("pnp",), all_ok, calibration_dir)
+
+        assert [step.name for step in result.steps] == [s.name for s in COMMON_STEPS]
+        assert result.complete
+
     def test_unreadable_machine_toml(self, all_ok: Path, calibration_dir: Path):
         """設定エラーの間も、装置診断は直近の結果で判定し、ほかは判定できないと示す."""
-        result = readiness(None, all_ok, calibration_dir)
+        result = readiness(None, SOLDER, all_ok, calibration_dir)
 
         states = _states(result)
         assert states["camera_calibration"] == (

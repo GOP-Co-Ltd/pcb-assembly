@@ -34,7 +34,7 @@ def _run_nozzle_clean_test(ctx: JobContext) -> JobResult:
     塗布ジョブはリトラクトして終わったパージの後に prime して掃除するので、同じ順序にしないと同じ設定で出る量が食い違う。
     キャップへは終了時の駐機で戻る。
     """
-    solder = ctx.machine.solder
+    solder = ctx.solder
     clean = solder.nozzle.clean
     if clean.position is None:
         raise ValueError("ノズルクリーニング位置が未記録です")

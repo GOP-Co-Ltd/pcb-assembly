@@ -134,7 +134,7 @@ class TestDispenseCalibration:
         manager.submit_command({"type": "run_calib", "which": "finish"})
         finish(job_backend, record)
 
-        solder = job_backend.machine_config.machine().solder
+        solder = job_backend.machine_config.machine().require_solder()
         assert solder.dispenser.rotations_per_ul == pytest.approx(48.07229)
         assert solder.dispenser.max_dispense_rate == 3.0
         assert solder.motion.max_fill_speed == pytest.approx(6.4)
@@ -226,7 +226,7 @@ class TestFlowCalibration:
         def run(ctx: JobContext) -> None:
             pcb = load_board(LED_BLINKER_PCB)
             plan, error = plan_flow_calibration(
-                config=ctx.machine.solder.volume_correction,
+                config=ctx.machine.require_solder().volume_correction,
                 points=FLOW_POINTS,
                 outline=pcb.outline.polygon,
             )

@@ -56,7 +56,7 @@ class TestPasteSettingsValidation:
         assert response.status_code == 400, response.text
         assert key.rsplit(".", 1)[-1] in response.json()["detail"]
         assert path.read_bytes() == original
-        assert load_machine(path).solder.nozzle.diameter > 0
+        assert load_machine(path).require_solder().nozzle.diameter > 0
 
     def test_an_existing_invalid_setting_can_be_repaired_one_field_at_a_time(
         self, client: TestClient, config_dir: Path
@@ -75,7 +75,7 @@ class TestPasteSettingsValidation:
         ):
             response = client.put("/api/machine_config", json={"values": {key: value}})
             assert response.status_code == 200, response.text
-        solder = load_machine(path).solder
+        solder = load_machine(path).require_solder()
         assert solder.nozzle.diameter == 0.3
         assert solder.motion.max_fill_speed == 2.0
 
@@ -231,7 +231,7 @@ class TestMachineSettingsApi:
     ):
         """外径と内径は片方ずつ編集できるので、TOML に残る値と合わせて相互制約を見る.
 
-        ここで拒否しないと、保存はできるのに ``MachineConfig.solder`` が読めない machine.toml になる。
+        ここで拒否しないと、保存はできるのに ``MachineConfig.require_solder()`` が読めない machine.toml になる。
         """
         *accepted, rejected = steps
         for values in accepted:

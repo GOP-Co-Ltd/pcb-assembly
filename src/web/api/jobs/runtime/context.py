@@ -13,6 +13,7 @@ from typing import Any, Literal, overload
 
 from pcbasm.board import Board
 from pcbasm.config import MachineConfig
+from pcbasm.config.solder import SolderConfig
 from pcbasm.hal import Camera, FrameHub, KlipperClient
 from pcbasm.machine.devices import Devices
 from pcbasm.machine.journal import Journal
@@ -279,6 +280,11 @@ class JobContext:
     def machine(self) -> MachineConfig:
         """選択マシンの設定（ジョブ開始時に 1 回ロード済み）."""
         return self._machine
+
+    @property
+    def solder(self) -> SolderConfig:
+        """はんだ塗布の設定（塗布のジョブは solder 機能の機体にだけ登録する）."""
+        return self._machine.require_solder()
 
     @property
     def devices(self) -> Devices:

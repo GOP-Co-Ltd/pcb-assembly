@@ -151,7 +151,7 @@ GOLDEN_DIR = PROJECT_ROOT / "tests" / "golden"
 JOBS = GOLDEN_DIR / "jobs"
 CONFIG_FILES = (GOLDEN_DIR / "machine.toml", GOLDEN_DIR / "camera_calibration.json")
 CAMERA_MODEL = CameraModel.load(GOLDEN_DIR / "camera_calibration.json")
-SOLDER = load_machine(GOLDEN_DIR / "machine.toml").solder
+SOLDER = load_machine(GOLDEN_DIR / "machine.toml").require_solder()
 # 運転時補正で塗る点（board 座標）。pad の無い下側のベタに、crop が重ならない間隔で置く
 FLOW_POINTS = (Point2d(5.0, 20.0), Point2d(10.0, 20.0), Point2d(15.0, 20.0))
 
@@ -232,7 +232,9 @@ def enable_flow_calibration(settings: Env, backend: Backend, pcb: Path) -> None:
     )
     board = load_board(pcb)
     store = BoardOverrides(settings.webui_data_dir)
-    model = store.load_or_init(pcb.name, backend.machine_config.machine().solder)
+    model = store.load_or_init(
+        pcb.name, backend.machine_config.machine().require_solder()
+    )
     store.save(
         pcb.name,
         model.with_flow_calibration_points(FLOW_POINTS),
