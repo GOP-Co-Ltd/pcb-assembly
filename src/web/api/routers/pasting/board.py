@@ -58,7 +58,12 @@ from pcbasm.pasting.paste_volume.runtime_correction import (
     validate_flow_calibration_point,
 )
 from pcbasm.pasting.plan import PastePlan, plan_paste
-from pcbasm.pasting.tact import MotionLimits, estimate_paste_tact
+from pcbasm.pasting.tact import (
+    MotionLimits,
+    estimate_paste_tact,
+    estimate_prelude,
+)
+from pcbasm.vision import CameraModel
 from web.api.deps import (
     ControlDep,
     DevicesDep,
@@ -759,19 +764,27 @@ def get_tact_estimate(
     overrides: OverridesDep,
     devices: DevicesDep,
 ) -> TactEstimateInfo:
-    """選択中基板の塗布にかかる時間を予測する（装置は動かさず、printer.cfg の速度と加速度を読む）."""
+    """選択中基板の塗布にかかる時間を予測する（装置は動かさず、printer.cfg の速度と加速度とカメラの校正を読む）."""
     loaded = load_session(selection, machine_config, overrides)
+    machine = machine_config.machine()
     try:
         printer_config = devices.klipper(STATUS_TIMEOUT).get_config()
     except httpx.HTTPError as exc:
         return TactEstimateInfo(
             error=f"Klipper から printer.cfg を読めないので予測できません: {exc}"
         )
-    estimate = estimate_paste_tact(
-        plan_paste(loaded),
-        machine_config.machine().require_solder().tact,
-        MotionLimits.from_printer_config(printer_config),
-    )
+    try:
+        camera_model = CameraModel.load(machine.camera.calibration_file)
+    except Exception as exc:  # 壊れた校正 JSON は cattrs の例外になる（camera.py と同じく理由を出すだけ）
+        return TactEstimateInfo(
+            error=f"カメラの校正を読めないので予測できません: {exc}"
+        )
+    plan = plan_paste(loaded)
+    limits = MotionLimits.from_printer_config(printer_config)
+    prelude, error = estimate_prelude(plan, loaded.board, machine, limits, camera_model)
+    if prelude is None:
+        return TactEstimateInfo(error=f"前段を予測できません: {error}")
+    estimate = estimate_paste_tact(plan, prelude, limits)
     return TactEstimateInfo(
         total_seconds=estimate.total_seconds,
         label=duration_label(estimate.total_seconds),

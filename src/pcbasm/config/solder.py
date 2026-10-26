@@ -23,6 +23,7 @@ from pcbasm.geometry import Point3d
 from pcbasm.pasting.params import DispenseMotion, PasteParams
 from pcbasm.validators import (
     as_validator,
+    is_finite_number,
     validate_finite_number,
     validate_greater_than_one,
     validate_non_negative_number,
@@ -46,6 +47,13 @@ _TACT = "所要時間の予測"
 _positive = as_validator(validate_positive_number)
 _non_negative = as_validator(validate_non_negative_number)
 _above_one = as_validator(validate_greater_than_one)
+
+
+def _at_least_one(_: object, attribute: attrs.Attribute, value: float) -> None:
+    if not is_finite_number(value) or value < 1.0:
+        raise ValueError(
+            f"{attribute.name}は1以上の有限値である必要があります: {value!r}"
+        )
 
 
 def _non_negative_int(_: object, __: attrs.Attribute, value: int) -> None:
@@ -379,20 +387,41 @@ class VolumeCorrectionConfig:
 class TactConfig:
     """塗布の所要時間の予測（[solder.tact]。節ごと省略可）.
 
-    pad を塗る時間は、塗布計画と printer.cfg の速度・加速度から求める（:mod:`pcbasm.pasting.tact`）。
-    ここには、それで求まらない pad 数に依らない前段の時間だけを置く。
+    塗布ジョブの時間は :mod:`pcbasm.pasting.tact` が、塗布計画・基板・printer.cfg の速度と加速度・機体の静定待ちとカメラの設定から求める。
+    ここには、それで求まらない分だけを置く。
+    既定値は 001 の実測（2026-10-26、47.5 x 20 mm・65 pad の基板）から決めた。
     ジョブコンソールの経過時間（実測）と予測を見比べて合わせる。
 
     Attributes:
-        setup_sec: 位置合わせ・高さ計測・初回パージ・終了後の退避など、pad 数に依らない前段の時間 [sec]
+        fixed_sec: 基板に依らない固定分 [sec]（カメラの起動・ホーミング・最初の基準点への移動・カメラ回転角の計測・最初のプローブの下降・終了後の退避など）
+        probe_point_sec: プローブ 1 点の PROBE（下降・荷重の計測・上昇）[sec]
+        capture_sec: 撮影 1 回の処理（画像処理と応答の待ち。移動・静定待ち・フレームを撮る時間を除く）[sec]
+        align_passes: 基準点・照合領域・pad 中心を 1 か所合わせるまでの平均の撮影回数
     """
 
-    setup_sec: float = attrs.field(
-        default=300.0,
+    fixed_sec: float = attrs.field(
+        default=60.0,
+        validator=_non_negative,
+        metadata=setting(label="固定分", unit="s", group=_TACT, order=130, minimum=0.0),
+    )
+    probe_point_sec: float = attrs.field(
+        default=3.0,
         validator=_non_negative,
         metadata=setting(
-            label="前段の時間", unit="s", group=_TACT, order=130, minimum=0.0
+            label="プローブ 1 点", unit="s", group=_TACT, order=131, minimum=0.0
         ),
+    )
+    capture_sec: float = attrs.field(
+        default=0.4,
+        validator=_non_negative,
+        metadata=setting(
+            label="撮影 1 回の処理", unit="s", group=_TACT, order=132, minimum=0.0
+        ),
+    )
+    align_passes: float = attrs.field(
+        default=2.3,
+        validator=_at_least_one,
+        metadata=setting(label="1 か所の撮影回数", group=_TACT, order=133, minimum=1.0),
     )
 
 
