@@ -156,6 +156,7 @@ class TestMachineInfoApi:
             # を import せずリテラルで固定する（import すると同語反復になり、うっかりの
             # バンプが無音で通る）。バンプは意図的な契約変更なのでここも同時に更新する
             "api_version": 19,
+            "capabilities": [{"name": "solder", "label": "はんだ塗布"}],
         }
 
     def test_mainsail_url_resolves_from_machine_id_not_request_host(

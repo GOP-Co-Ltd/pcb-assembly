@@ -12,6 +12,7 @@ import attrs
 from shapely import Polygon
 
 from pcbasm.align.scene import board_scene, placed_on_reference
+from pcbasm.config import Capability
 from pcbasm.machine.devices import Devices, open_devices
 from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.pasting.test_board.generator import BoardGenerator
@@ -91,6 +92,7 @@ def open_backend(
 
     machine.toml を移行してから読む。
     設定エラーでも組み立ては止めず degraded で上げる（落とすと WebUI から直せない）。
+    ジョブと広告は、移行した machine.toml の節が表す機体の機能（``machine_config.capabilities``）で決める。
 
     Args:
         env: 起動時の環境
@@ -135,7 +137,9 @@ def open_backend(
         paste_dataset_dir=env.paste_dataset_dir,
         paste_volume_calibration_dir=env.paste_volume_calibration_dir,
     )
-    catalog = default_catalog(paste_stores, env.machine_check_file)
+    catalog = default_catalog(
+        machine_config.capabilities, paste_stores, env.machine_check_file
+    )
     control = ControlLease(on_change=lambda: events.publish(control_changed_event()))
     return Backend(
         env=env,
@@ -160,7 +164,11 @@ def open_backend(
         control=control,
         board_generator=BoardGenerator(paste_test_board_footprint_root),
         update=update_runner if update_runner is not None else _update_runner(env),
-        advertiser=_advertiser(env) if env.discovery_enabled else None,
+        advertiser=(
+            _advertiser(env, machine_config.capabilities)
+            if env.discovery_enabled
+            else None
+        ),
     )
 
 
@@ -175,7 +183,7 @@ def _scene(selection: Selection, machine_config: MachineConfigFile) -> list[Poly
     return board_scene(board, reference, placement, placement)
 
 
-def _advertiser(env: Env) -> ServiceAdvertiser:
+def _advertiser(env: Env, capabilities: tuple[Capability, ...]) -> ServiceAdvertiser:
     """環境から広告を組む（ソケットは開かない）.
 
     設定エラー（degraded）でも広告する。機体一覧に載らないと WebUI から直せない。
@@ -191,6 +199,7 @@ def _advertiser(env: Env) -> ServiceAdvertiser:
         machine_id=resolve_machine_id(env),
         port=env.port,
         addresses=addresses,
+        capabilities=capabilities,
         service_type=env.discovery_service_type,
         interfaces=env.discovery_interfaces,
     )

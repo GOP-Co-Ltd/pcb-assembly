@@ -15,7 +15,13 @@ import ifaddr
 from zeroconf import Error as ZeroconfError, InterfaceChoice, IPVersion, ServiceInfo
 from zeroconf.asyncio import AsyncZeroconf
 
-from web.contract.discovery import API_VERSION, SERVICE_TYPE, TXT_KEY_API, TXT_KEY_ID
+from web.contract.discovery import (
+    API_VERSION,
+    SERVICE_TYPE,
+    TXT_KEY_API,
+    TXT_KEY_CAPABILITIES,
+    TXT_KEY_ID,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +66,7 @@ def build_service_info(
     machine_id: str,
     port: int,
     addresses: Sequence[str],
+    capabilities: Sequence[str],
     service_type: str = SERVICE_TYPE,
 ) -> ServiceInfo:
     """広告する ServiceInfo を組む（純関数）.
@@ -73,6 +80,7 @@ def build_service_info(
         machine_id: backend の自己申告 ID（instance 名と TXT の ``id``）
         port: backend WebAPI の port
         addresses: 広告する IPv4 アドレス（`select_advertise_addresses` の結果）
+        capabilities: 機体の機能（TXT の ``caps``）
         service_type: DNS-SD のサービス型（テストはランダム型に閉じる）
 
     Returns:
@@ -83,7 +91,11 @@ def build_service_info(
         name=f"{machine_id}.{service_type}",
         port=port,
         server=f"{machine_id}-pcbasm.local.",
-        properties={TXT_KEY_ID: machine_id, TXT_KEY_API: str(API_VERSION)},
+        properties={
+            TXT_KEY_ID: machine_id,
+            TXT_KEY_API: str(API_VERSION),
+            TXT_KEY_CAPABILITIES: ",".join(capabilities),
+        },
         parsed_addresses=list(addresses),
     )
 
@@ -101,6 +113,7 @@ class ServiceAdvertiser:
         machine_id: str,
         port: int,
         addresses: Sequence[str],
+        capabilities: Sequence[str],
         service_type: str = SERVICE_TYPE,
         interfaces: Sequence[str] | None = None,
     ) -> None:
@@ -110,6 +123,7 @@ class ServiceAdvertiser:
             machine_id: backend の自己申告 ID
             port: backend WebAPI の port
             addresses: 広告する IPv4 アドレス
+            capabilities: 機体の機能
             service_type: DNS-SD のサービス型
             interfaces: 使うインターフェース（None は zeroconf 既定 = 全 IF。
                 テストは ``["127.0.0.1"]`` でループバックに閉じる）
@@ -117,6 +131,7 @@ class ServiceAdvertiser:
         self._machine_id = machine_id
         self._port = port
         self._addresses = tuple(addresses)
+        self._capabilities = tuple(capabilities)
         self._service_type = service_type
         self._interfaces = tuple(interfaces) if interfaces is not None else None
         self._zeroconf: AsyncZeroconf | None = None
@@ -127,6 +142,7 @@ class ServiceAdvertiser:
             machine_id=self._machine_id,
             port=self._port,
             addresses=self._addresses,
+            capabilities=self._capabilities,
             service_type=self._service_type,
         )
 

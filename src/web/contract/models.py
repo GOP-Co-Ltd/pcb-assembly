@@ -312,18 +312,31 @@ class ConfigHistoryResponse(BaseModel):
     entries: list[ConfigHistoryEntry]
 
 
+# 機体の機能（machine.toml の節の名前）
+type Capability = Literal["solder", "pnp"]
+
+
+class CapabilityInfo(BaseModel):
+    """機体の機能 1 つ（``label`` は表示名）."""
+
+    name: Capability
+    label: str
+
+
 class MachineInfo(BaseModel):
     """Backend が自己申告する装置情報（到達性プローブ兼用）.
 
     ``machine_id`` は backend の自己申告 ID（既定は hostname）で、これがそのまま
     機体名になる（machine.toml に表示名の設定は無い）。``mainsail_url`` は backend 側で
-    解決済みの値。
+    解決済みの値。``capabilities`` は起動したときの machine.toml の節が表す機体の機能で、
+    frontend はこれでタブ・ページ・着地点を絞る。
     """
 
     machine_id: str
     mainsail_url: str
     fb_start: str
     api_version: int
+    capabilities: list[CapabilityInfo]
 
 
 class ParamGroupInfo(BaseModel):

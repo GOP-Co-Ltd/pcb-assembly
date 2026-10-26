@@ -13,3 +13,5 @@ SERVICE_TYPE = "_pcbasm._tcp.local."
 # TXT レコードのキー（値は UTF-8 bytes で載る）
 TXT_KEY_ID = "id"
 TXT_KEY_API = "api"
+# 機体の機能（machine.toml の節の名前をカンマでつないだもの。例: "solder,pnp"）
+TXT_KEY_CAPABILITIES = "caps"

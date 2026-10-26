@@ -4,7 +4,7 @@ import shutil
 import socket
 import struct
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from functools import cache, wraps
 from pathlib import Path
 from secrets import token_hex
@@ -13,6 +13,7 @@ import cv2
 import numpy as np
 import pytest
 
+from pcbasm.config import CAPABILITIES, Capability
 from pcbasm.hal import AudioPlayer
 from pcbasm.machine.devices import Devices, open_devices
 from pcbasm.pasting.overrides import BoardOverrides
@@ -141,9 +142,13 @@ def job_manager(
     )
 
 
-def standalone_catalog(data_dir: Path) -> JobCatalog:
-    """Backend を組まずに作る全ジョブのカタログ（定義だけを見るテスト用。塗布の永続データは ``data_dir`` の下）."""
+def standalone_catalog(
+    data_dir: Path, capabilities: Collection[Capability] = CAPABILITIES
+) -> JobCatalog:
+    """Backend を組まずに作るカタログ（定義だけを見るテスト用。既定は全機能の全ジョブ。塗布の永続データは ``data_dir``
+    の下）."""
     return default_catalog(
+        capabilities,
         PasteStores(
             overrides=BoardOverrides(data_dir),
             paste_dataset_dir=data_dir / "paste-dataset",

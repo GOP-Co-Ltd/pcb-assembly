@@ -9,16 +9,24 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from pcbasm.config import CAPABILITY_LABELS
 from pcbasm.geometry import Point3d
 from pcbasm.machine.labels import position_label
 from pcbasm.pasting.labels import clean_position_label
 from pcbasm.vision import load_focus_z
 from web.api.backend import Backend
 from web.api.control import ClientIdentity, LeaseInfo, control_payload
-from web.api.deps import BackendDep, EnvDep, IdentityDep, LeaseDep
+from web.api.deps import (
+    BackendDep,
+    EnvDep,
+    IdentityDep,
+    LeaseDep,
+    MachineConfigDep,
+)
 from web.api.env import Env, resolve_machine_id
 from web.contract.discovery import API_VERSION
 from web.contract.models import (
+    CapabilityInfo,
     ControlStateResponse,
     JobBrief,
     MachineInfo,
@@ -122,7 +130,7 @@ def get_state(backend: BackendDep, identity: IdentityDep) -> StateResponse:
 
 
 @router.get("/machine-info")
-def get_machine_info(env: EnvDep) -> MachineInfo:
+def get_machine_info(env: EnvDep, machine_config: MachineConfigDep) -> MachineInfo:
     """Backend が自己申告する装置情報を返す（到達性プローブ兼用）.
 
     ホスト名の解決といった環境依存の処理はここに集約する（pcbasm 層は machine.toml に
@@ -134,6 +142,10 @@ def get_machine_info(env: EnvDep) -> MachineInfo:
         mainsail_url=_mainsail_url(env),
         fb_start=_fb_start(env),
         api_version=API_VERSION,
+        capabilities=[
+            CapabilityInfo(name=name, label=CAPABILITY_LABELS[name])
+            for name in machine_config.capabilities
+        ],
     )
 
 

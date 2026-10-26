@@ -42,7 +42,7 @@ from web.api.backend import Backend
 from web.api.env import Env as ApiEnv
 from web.api.jobs.runtime.catalog import JobCatalog
 from web.ui.app import create_app as create_frontend_app
-from web.ui.features import FEATURES, TABS, tab_features
+from web.ui.features import FEATURES, machine_tabs, tab_features
 from web.ui.machines import MachineEndpoint
 from web.ui.settings import Settings as UiSettings
 
@@ -200,18 +200,20 @@ class TestPages:
     def test_root_opens_the_paste_page_of_this_host_machine(
         self, client: TestClient, ui_settings: UiSettings
     ):
-        """同居機の `:8080` を開くと、クリック無しで自機の塗布ページに着く."""
+        """同居機の `:8080` を開くと、クリック無しで自機の着地点（塗布機なら塗布ページ）に着く."""
         response = client.get("/", follow_redirects=False)
+        landing = client.get(response.headers["location"], follow_redirects=False)
 
         assert response.status_code == 307
         machine_id = ui_settings.machines[0].machine_id
-        assert response.headers["location"] == f"/m/{machine_id}/paste_solder"
+        assert response.headers["location"] == f"/m/{machine_id}"
+        assert landing.headers["location"] == f"/m/{machine_id}/paste_solder"
 
-    @pytest.mark.parametrize("tab", list(TABS))
+    @pytest.mark.parametrize("tab", list(machine_tabs(("solder",))))
     def test_tab_landing_renders_with_common_chrome(
         self, client: TestClient, backend_settings: ApiEnv, tab: str
     ):
-        response = client.get(f"/{tab_features(tab)[0].slug}")
+        response = client.get(f"/{tab_features(tab, ('solder',))[0].slug}")
 
         assert response.status_code == 200
         assert "緊急停止" in response.text
@@ -1016,7 +1018,7 @@ class TestUnresolvableMachineSettingsAreNotFabricated:
 
 
 class TestMachineControlCapButton:
-    """マシン操作パネルの「キャップ位置へ」ボタン（全機体がペースト機なので常に出す）."""
+    """マシン操作パネルの「キャップ位置へ」ボタン（塗布機に出す）."""
 
     def test_move_to_cap_button_is_shown(self, client: TestClient):
         response = client.get("/klipper_status")
@@ -1293,7 +1295,7 @@ class TestMultipleMachines:
         assert 'data-testid="estop"' not in listing.text
 
     def test_root_opens_this_host_machine_among_several(self, tmp_path: Path):
-        """同居機は、ほかの機体が登録されていても自機の塗布ページに着く."""
+        """同居機は、ほかの機体が登録されていても自機の着地点へ向かう."""
         settings = UiSettings(
             machines=self._machines(),
             machines_file=tmp_path / "absent.toml",
@@ -1304,15 +1306,17 @@ class TestMultipleMachines:
             response = client.get("/", follow_redirects=False)
 
         assert response.status_code == 307
-        assert response.headers["location"] == "/m/bravo/paste_solder"
+        assert response.headers["location"] == "/m/bravo"
 
-    def test_machine_list_selector_opens_the_paste_page(self, tmp_path: Path):
-        """マシン非依存のページで選んだ機体は、着地点（塗布）を開く."""
+    def test_machine_list_selector_opens_the_landing_of_the_machine(
+        self, tmp_path: Path
+    ):
+        """マシン非依存のページで選んだ機体は、その機体の着地点（/m/{machine_id}）を開く."""
         with _frontend_only(self._machines(), tmp_path) as client:
             text = client.get("/machines").text
 
-        assert 'value="/m/alpha/paste_solder"' in text
-        assert 'value="/m/bravo/paste_solder"' in text
+        assert 'value="/m/alpha"' in text
+        assert 'value="/m/bravo"' in text
 
 
 class TestUnreachableBackendPage:
@@ -1341,6 +1345,15 @@ class TestUnreachableBackendPage:
             response = client.get("/m/dead/klipper_status")
 
         assert response.headers["retry-after"] == "5"
+
+    def test_shows_only_the_tabs_every_machine_has(self, tmp_path: Path):
+        """機体の機能が分からないので、塗布と部品実装のタブは出さない."""
+        with _frontend_only(self._dead(), tmp_path) as client:
+            text = client.get("/m/dead/klipper_status").text
+
+        assert 'href="/m/dead/commissioning"' in text
+        assert 'href="/m/dead/paste_solder"' not in text
+        assert 'href="/m/dead/placement"' not in text
 
 
 class TestUpdateOnlyMachinePage:

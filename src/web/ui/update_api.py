@@ -38,7 +38,6 @@ from web.contract.update import UpdateRunResponse, UpdateStatusResponse
 from web.selfupdate.report import UpdatePlan, run_payload, status_payload
 from web.selfupdate.runner import UpdateRunner
 from web.ui import pages
-from web.ui.features import LANDING
 from web.ui.machine_client import BackendGateway, BackendUnavailable, MachineClient
 from web.ui.machines import MachineRegistry, UnknownMachine
 from web.ui.models import UPDATE_INDEX_PATH, UpdateNoticeResponse
@@ -204,5 +203,5 @@ def update_page(request: Request) -> HTMLResponse:
         request,
         "update.html",
         {"title": "ソフトウェア更新", "own_machine": pages.own_machine(request)},
-        current_suffix=LANDING,
+        current_suffix="",
     )

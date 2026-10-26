@@ -14,8 +14,9 @@ backend 取得が 1 本でも失敗したページは 503 ページになる（`
 
 URL 空間は次のとおり。
 
-- ``/m/{machine_id}/{feature}`` が実体。``/m/{machine_id}`` は着地点（paste_solder）へ 307 する
-- ``/`` は frontend 自身のホスト名と同じ machine_id の機体（同居機）の着地点へ 307 する。
+- ``/m/{machine_id}/{feature}`` が実体。``/m/{machine_id}`` は機体の機能で決まる着地点（塗布機なら paste_solder）へ 307 する
+- 機体に無い機能のページ（部品実装だけの機体の paste_solder など）は、その機体の着地点へ 307 する
+- ``/`` は frontend 自身のホスト名と同じ machine_id の機体（同居機）の ``/m/{machine_id}`` へ 307 する。
   その機体が無ければ機体一覧 ``/machines`` へ 307 する。machine を指定しないほかの URL も同じ規則で自機の URL へ飛ぶ
 - 旧 URL（``/m/{machine_id}/{旧タブ}[/{旧 slug}]``、``/m/{machine_id}/settings``、``/bulk``）は新しい URL へ 307 する
 - API 版のずれた機体（`MachineEndpoint.update_only`）の ``/m/{machine_id}/…`` は、どの URL も更新専用ページになる
@@ -36,6 +37,7 @@ from starlette.responses import Response
 
 from web.contract.identity import SESSION_COOKIE
 from web.contract.models import (
+    Capability,
     JobCatalogResponse,
     JobSpecInfo,
     MachineInfo,
@@ -45,11 +47,12 @@ from web.contract.models import (
 )
 from web.ui.features import (
     FEATURES_BY_SLUG,
-    LANDING,
     LEGACY,
     LEGACY_TABS,
     TABS,
     Feature,
+    landing,
+    machine_tabs,
     tab_features,
 )
 from web.ui.layout import param_sections, settings_sections
@@ -188,12 +191,11 @@ def _job_spec(
 
 
 def _suffix_of(path: str) -> str:
-    """URL から ``/m/{machine_id}`` を除いた残り（マシン切替の遷移先に使う）."""
+    """URL から ``/m/{machine_id}`` を除いた残り（マシン切替の遷移先に使う。空なら機体の着地点）."""
     if path.startswith("/m/"):
         _, _, suffix = path.removeprefix("/m/").partition("/")
-    else:
-        suffix = path.lstrip("/")
-    return suffix or LANDING
+        return suffix
+    return path.lstrip("/")
 
 
 def _update_notice_url(machine_id: str | None) -> str:
@@ -203,11 +205,17 @@ def _update_notice_url(machine_id: str | None) -> str:
     return f"/api/update-notice?{urlencode({'machine_id': machine_id})}"
 
 
-def _nav_tabs(base: str) -> list[tuple[str, str, str]]:
-    """トップバーのタブ（slug、表示名、リンク先 = タブの先頭の機能）."""
+def _capabilities(info: MachineInfo) -> tuple[Capability, ...]:
+    return tuple(capability.name for capability in info.capabilities)
+
+
+def _nav_tabs(
+    base: str, capabilities: Sequence[Capability]
+) -> list[tuple[str, str, str]]:
+    """機体のトップバーのタブ（slug、表示名、リンク先 = タブの先頭の機能）."""
     return [
-        (tab, label, f"{base}/{tab_features(tab)[0].slug}")
-        for tab, label in TABS.items()
+        (tab, label, f"{base}/{tab_features(tab, capabilities)[0].slug}")
+        for tab, label in machine_tabs(capabilities).items()
     ]
 
 
@@ -226,7 +234,8 @@ def _chrome_context(
         "update_notice_url": _update_notice_url(machine_id),
         "machines": _registry(request).list(),
         "current_suffix": current_suffix,
-        "tabs": _nav_tabs(base) if machine_id else [],
+        # 機体の機能はページを描くときに backend から取るので、取れないページではどの機体にもあるタブだけを出す
+        "tabs": _nav_tabs(base, ()) if machine_id else [],
         "active_tab": None,
         "active_feature": None,
         # 更新専用ページでは、中継されない機体コマンド（操作権・PCB・再起動）を出さない
@@ -251,7 +260,10 @@ def _base_context(
     context = _chrome_context(
         request, machine_id=machine_id, current_suffix=current_suffix
     )
+    capabilities = _capabilities(info)
     context.update(
+        tabs=_nav_tabs(context["base"], capabilities),
+        capabilities=capabilities,
         selected_pcb=state.pcb_file,
         fb_start=info.fb_start,
         # mainsail_url は backend が解決した値（リクエストのホスト名から導出すると
@@ -267,11 +279,13 @@ def _base_context(
 
 
 def _sidebar_context(
-    feature: Feature, jobs: Mapping[str, JobSpecInfo]
+    feature: Feature,
+    jobs: Mapping[str, JobSpecInfo],
+    capabilities: Sequence[Capability],
 ) -> dict[str, Any]:
-    """機能のページのタブとサイドバー（同じタブの機能を、グループごとに表の順で並べる）."""
+    """機能のページのタブとサイドバー（同じタブにある機体の機能を、グループごとに表の順で並べる）."""
     groups: dict[str, list[tuple[str, str]]] = {}
-    for item in tab_features(feature.tab):
+    for item in tab_features(feature.tab, capabilities):
         groups.setdefault(item.group, []).append(
             (item.slug, _feature_label(jobs, item))
         )
@@ -417,7 +431,10 @@ def _legacy_redirect(machine_id: str, old: str) -> RedirectResponse:
 
 @router.get("/", include_in_schema=False)
 async def index(request: Request) -> Response:
-    return _open_own(request, LANDING)
+    own = own_machine(request)
+    if own is None:
+        return RedirectResponse(url=MACHINES_PATH, status_code=307)
+    return RedirectResponse(url=f"/m/{own.machine_id}", status_code=307)
 
 
 @router.get(MACHINES_PATH, response_class=HTMLResponse)
@@ -432,7 +449,7 @@ async def machines_page(request: Request) -> HTMLResponse:
         request,
         "machines.html",
         {"active_tab": "machines", "title": "機体一覧"},
-        current_suffix=LANDING,
+        current_suffix="",
     )
 
 
@@ -443,8 +460,13 @@ async def bulk_entry() -> RedirectResponse:
 
 
 @router.get("/m/{machine_id}", include_in_schema=False)
-async def machine_entry(machine_id: str) -> RedirectResponse:
-    return RedirectResponse(url=f"/m/{machine_id}/{LANDING}", status_code=307)
+async def machine_entry(machine_id: str, request: Request) -> RedirectResponse:
+    """機体の着地点へ 307 する（着地点は backend が申告する機体の機能で決まる）."""
+    _, client = _resolve(request, machine_id)
+    info = await client.machine_info()
+    return RedirectResponse(
+        url=f"/m/{machine_id}/{landing(_capabilities(info))}", status_code=307
+    )
 
 
 def _loading_context(job: JobSpecInfo, settings: _MachineSettings) -> dict[str, Any]:
@@ -555,9 +577,14 @@ async def feature_page(machine_id: str, slug: str, request: Request) -> Response
         client.jobs(),
         _machine_settings(endpoint, client, slug in _MACHINE_SETTINGS_FEATURES),
     )
+    capabilities = _capabilities(info)
+    if not feature.is_available(capabilities):
+        return RedirectResponse(
+            url=f"/m/{machine_id}/{landing(capabilities)}", status_code=307
+        )
     jobs = _jobs_by_name(catalog)
     context = _base_context(request, machine_id, slug, info, state, readiness)
-    context.update(_sidebar_context(feature, jobs))
+    context.update(_sidebar_context(feature, jobs, capabilities))
     if feature.is_job:
         job = _job_spec(endpoint, jobs, slug)
         # preview ペインとローディング欄の有無は backend 側で決まる事実（フレーム

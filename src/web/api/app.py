@@ -98,10 +98,15 @@ def create_app(
         preview.router,
         update.router,
         readiness.router,
-        board.router,
-        nozzle.router,
-        calibration.router,
-        test_board.router,
     ):
         app.include_router(router)
+    # 塗布の API は、塗布のジョブと同じく solder 機能の機体にだけ置く
+    if "solder" in backend.machine_config.capabilities:
+        for router in (
+            board.router,
+            nozzle.router,
+            calibration.router,
+            test_board.router,
+        ):
+            app.include_router(router)
     return app

@@ -1,4 +1,6 @@
-"""全ジョブのカタログ（`web.api.jobs.catalog.default_catalog`）の登録内容.
+"""ジョブのカタログ（`web.api.jobs.catalog.default_catalog`）の登録内容.
+
+塗布のジョブは solder 機能の機体にだけ登録し、ほかのジョブはどの機体にも登録する。
 
 ジョブ名・ファイル名・画面の feature slug は同じ語で、ジョブのディレクトリは呼ぶ pcbasm のドメインをミラーする。
 """
@@ -56,6 +58,29 @@ class TestJobList:
         assert sorted(names) == sorted(
             name for jobs in JOBS_BY_DOMAIN.values() for name in jobs
         )
+
+    def test_solder_machine_lists_every_job_in_the_same_order_as_before(
+        self, tmp_path: Path
+    ):
+        """はんだ塗布機のジョブ一覧は、機能で分ける前と同じ（塗布のジョブが先）."""
+        names = [d.name for d in standalone_catalog(tmp_path, ("solder",)).list()]
+
+        assert names == [
+            *JOBS_BY_DOMAIN["pasting"],
+            *JOBS_BY_DOMAIN["align"],
+            *JOBS_BY_DOMAIN["kicad"],
+            *JOBS_BY_DOMAIN["machine"],
+        ]
+
+    def test_pnp_machine_has_no_solder_job(self, tmp_path: Path):
+        """塗布のジョブは solder 機能の機体にだけ登録し、ほかのジョブはどの機体にもある."""
+        names = [d.name for d in standalone_catalog(tmp_path, ("pnp",)).list()]
+
+        assert names == [
+            *JOBS_BY_DOMAIN["align"],
+            *JOBS_BY_DOMAIN["kicad"],
+            *JOBS_BY_DOMAIN["machine"],
+        ]
 
     @pytest.mark.parametrize(
         ("domain", "name"),

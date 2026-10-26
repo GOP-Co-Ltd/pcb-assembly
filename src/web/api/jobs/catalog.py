@@ -1,7 +1,9 @@
-"""ジョブの一覧（全ジョブを登録したカタログ）."""
+"""ジョブの一覧（機体の機能に応じたジョブを登録したカタログ）."""
 
+from collections.abc import Collection
 from pathlib import Path
 
+from pcbasm.config import Capability
 from web.api.jobs.align import (
     board_tour,
     camera_calibration,
@@ -30,23 +32,29 @@ from web.api.jobs.pasting import (
 from web.api.jobs.runtime.catalog import JobCatalog
 
 
-def default_catalog(stores: PasteStores, machine_check_file: Path) -> JobCatalog:
-    """全ジョブを登録したカタログを返す（これがジョブの一覧）.
+def default_catalog(
+    capabilities: Collection[Capability], stores: PasteStores, machine_check_file: Path
+) -> JobCatalog:
+    """機体の機能に応じたジョブを登録したカタログを返す（これがジョブの一覧）.
+
+    位置合わせ・カメラ・基板生成・装置診断はどの機体にも登録し、塗布のジョブは solder 機能の機体にだけ登録する。
 
     Args:
+        capabilities: 機体の機能
         stores: 塗布のジョブが読み書きする永続データ
         machine_check_file: 装置診断の直近の結果の置き場所
     """
     catalog = JobCatalog()
-    paste_solder.register(catalog, stores)
-    loading.register(catalog)
-    height_plane.register(catalog)
-    toolhead_offset.register(catalog)
-    nozzle_clean_test.register(catalog)
-    dispense_calibration.register(catalog)
-    paste_volume_calibration.register(catalog, stores)
-    paste_volume_refit.register(catalog, stores)
-    paste_dataset_finalize.register(catalog, stores)
+    if "solder" in capabilities:
+        paste_solder.register(catalog, stores)
+        loading.register(catalog)
+        height_plane.register(catalog)
+        toolhead_offset.register(catalog)
+        nozzle_clean_test.register(catalog)
+        dispense_calibration.register(catalog)
+        paste_volume_calibration.register(catalog, stores)
+        paste_volume_refit.register(catalog, stores)
+        paste_dataset_finalize.register(catalog, stores)
     reference_point_setup.register(catalog)
     camera_calibration.register(catalog)
     board_tour.register(catalog)

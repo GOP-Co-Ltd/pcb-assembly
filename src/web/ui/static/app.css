@@ -2909,6 +2909,17 @@ h2 {
   margin-right: 0.5rem;
 }
 
+.machines-capability {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 400;
+}
+
 /* ---- 設定履歴 ---- */
 .config-history-list > li {
   margin-bottom: 0.75rem;

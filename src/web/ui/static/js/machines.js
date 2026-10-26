@@ -26,7 +26,8 @@
 // - WS の open と close
 // - WS の control_changed / state_changed
 // - 行のボタン操作が終わったとき（成功・失敗を問わない）
-// 更新の要約（GET /api/update/status）は WS の open のときだけ取り直す。更新の操作は /update で行う。
+// 更新の要約（GET /api/update/status）と機体の機能（GET /api/session/machine-info）は WS の open のときだけ取り直す。
+// 更新の操作は /update で行う。機能は backend の起動時に決まり、再起動すると WS がつなぎ直される。
 // 立ち上げの要約（GET /api/readiness）は WS の open と state_changed（machine.toml の書き込み）、
 // job_status（ジョブの開始・質問・終了。装置診断や校正のジョブは終わるときに結果のファイルを書く）で取り直す。
 //
@@ -51,7 +52,9 @@
     const releaseButton = part("machines-release");
     const updateSummary = part("machines-update-summary");
     const readinessEl = part("machines-readiness");
-    // ペーストの行にだけある
+    const capabilitiesEl = part("machines-capabilities");
+    // 塗布の欄（はんだ塗布の機能が無い機体では隠す）
+    const solderEl = part("machines-solder");
     const pcbEl = part("machines-pcb");
     const runButton = part("machines-paste-run");
 
@@ -84,8 +87,8 @@
       releaseButton.disabled = pending;
       const blocked = pending || state !== "held";
       // 不通の機体では前回の PCB を出し続けない
-      if (pcbEl) pcbEl.textContent = state === "unknown" ? "---" : pcbFile ?? "PCB未選択";
-      if (runButton) runButton.disabled = blocked;
+      pcbEl.textContent = state === "unknown" ? "---" : pcbFile ?? "PCB未選択";
+      runButton.disabled = blocked;
     }
 
     async function refresh() {
@@ -103,6 +106,23 @@
         updateSummary.textContent = (await api("GET", `${base}/api/update/status`)).summary;
       } catch {
         updateSummary.textContent = "---";
+      }
+    }
+
+    async function refreshCapabilities() {
+      try {
+        const { capabilities } = await api("GET", `${base}/api/session/machine-info`);
+        capabilitiesEl.replaceChildren(
+          ...capabilities.map((capability) => {
+            const badge = document.createElement("span");
+            badge.className = "machines-capability";
+            badge.textContent = capability.label;
+            return badge;
+          }),
+        );
+        solderEl.hidden = !capabilities.some((capability) => capability.name === "solder");
+      } catch {
+        // 不通の間は前回の表示を残す（操作権が unknown になり、塗布実行は押せない）
       }
     }
 
@@ -135,23 +155,22 @@
       run(async () => applySnapshot(await api("POST", `${base}/api/session/control/release`)))
     );
 
-    if (runButton) {
-      runButton.addEventListener("click", () =>
-        run(async () => {
-          if (!window.confirm(`${label}\nPCB: ${pcbFile ?? "PCB未選択"}\n塗布を実行しますか？`)) {
-            return;
-          }
-          await api("POST", `${base}/api/jobs/${PASTE_JOB}`, { params: {} });
-          toast(`${label}: 塗布を開始しました。進行は塗布ページで確認できます`);
-        })
-      );
-    }
+    runButton.addEventListener("click", () =>
+      run(async () => {
+        if (!window.confirm(`${label}\nPCB: ${pcbFile ?? "PCB未選択"}\n塗布を実行しますか？`)) {
+          return;
+        }
+        await api("POST", `${base}/api/jobs/${PASTE_JOB}`, { params: {} });
+        toast(`${label}: 塗布を開始しました。進行は塗布ページで確認できます`);
+      })
+    );
 
     connectEvents({
       base,
       onOpen: () => {
         // 切断中のイベントは届いていない。更新後の再起動から戻ったときもここを通る
         refresh();
+        refreshCapabilities();
         refreshUpdate();
         refreshReadiness();
       },

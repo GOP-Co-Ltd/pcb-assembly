@@ -33,7 +33,13 @@ from web.api.discovery import (
     select_advertise_addresses,
 )
 from web.api.env import Env, resolve_machine_id
-from web.contract.discovery import API_VERSION, SERVICE_TYPE, TXT_KEY_API, TXT_KEY_ID
+from web.contract.discovery import (
+    API_VERSION,
+    SERVICE_TYPE,
+    TXT_KEY_API,
+    TXT_KEY_CAPABILITIES,
+    TXT_KEY_ID,
+)
 
 # このホストに存在しないアドレス（TEST-NET-3）。zeroconf は bind できず OSError
 UNUSABLE_INTERFACE = "203.0.113.9"
@@ -94,6 +100,7 @@ class TestBuildServiceInfo:
             machine_id="kurousagi",
             port=8081,
             addresses=("192.168.100.201",),
+            capabilities=("solder", "pnp"),
         )
 
     def test_server_is_a_dedicated_name_not_the_avahi_hostname(self, info: ServiceInfo):
@@ -108,6 +115,7 @@ class TestBuildServiceInfo:
         assert info.properties == {
             TXT_KEY_ID.encode(): b"kurousagi",
             TXT_KEY_API.encode(): str(API_VERSION).encode(),
+            TXT_KEY_CAPABILITIES.encode(): b"solder,pnp",
         }
 
     def test_address_and_port_are_advertised(self, info: ServiceInfo):
@@ -128,6 +136,7 @@ class TestAdvertiserWithoutMulticast:
             machine_id="alpha",
             port=8081,
             addresses=("10.0.0.3",),
+            capabilities=("solder",),
             service_type=random_service_type(),
             interfaces=(UNUSABLE_INTERFACE,),
         )
@@ -158,6 +167,7 @@ class TestAdvertiserWithUnbuildableServiceInfo:
             machine_id=machine_id,
             port=8081,
             addresses=("10.0.0.3",),
+            capabilities=("solder",),
             service_type=random_service_type(),
             interfaces=(UNUSABLE_INTERFACE,),
         )
@@ -191,6 +201,7 @@ class TestMachineIdResolution:
             machine_id=resolve_machine_id(webui_settings),
             port=webui_settings.port,
             addresses=(),
+            capabilities=(),
         )
 
         assert info.name == f"{machine_id}.{SERVICE_TYPE}"

@@ -221,7 +221,8 @@ class TestMachineSelectorRefresh:
         select.focus()
         select.press("ArrowDown")
 
-        expect(browser_page).to_have_url(f"{origin}/m/{_GHOST_MACHINE_ID}/paste_solder")
+        # 機体の着地点（/m/{machine_id}）を開く。着地点を申告する backend に届かないので 503 のページになる
+        expect(browser_page).to_have_url(f"{origin}/m/{_GHOST_MACHINE_ID}")
         expect(
             browser_page.get_by_role("heading", name="マシンに接続できません")
         ).to_be_visible()

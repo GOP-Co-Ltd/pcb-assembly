@@ -336,7 +336,7 @@ class TestMachine:
     """`install.sh machine`: 機種のテンプレートから設定を置き、置いた設定は再実行で変えない."""
 
     def test_places_the_chosen_template(self, machine_host: MachineHost):
-        # 機種は名前順に並ぶ（1. kurousagi、2. usaremino）
+        # 機種は名前順に並ぶ（1. kurousagi、2. usaremino、3. usaremino_pnp）
         result = run(INSTALL, "machine", env=machine_host.env(), stdin="2\n")
 
         assert result.returncode == 0, result.stderr
@@ -355,6 +355,20 @@ class TestMachine:
         assert [path.read_text() for path in machine_host.backups()] == [
             "[mcu]\nserial: /dev/null\n[printer]\nkinematics: none\n"
         ]
+
+    def test_places_the_pnp_template(self, machine_host: MachineHost):
+        """部品実装機の雛形は共通の節と空の [pnp] を置き、printer.cfg は同じ筐体のものを使う."""
+        result = run(INSTALL, "machine", env=machine_host.env(), stdin="3\n")
+
+        assert result.returncode == 0, result.stderr
+        machine_toml = (machine_host.config / "machine.toml").read_text()
+        assert (
+            machine_toml == (TEMPLATES / "usaremino_pnp" / "machine.toml").read_text()
+        )
+        assert "[pnp]" in machine_toml and "[solder" not in machine_toml
+        assert (
+            "[printer]\nkinematics: cartesian" in machine_host.printer_cfg.read_text()
+        )
 
     def test_rerun_changes_nothing(self, machine_host: MachineHost):
         run(INSTALL, "machine", env=machine_host.env(), stdin="2\n")

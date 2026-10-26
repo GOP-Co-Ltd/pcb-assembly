@@ -145,6 +145,7 @@ type Capability = Literal["solder", "pnp"]
 
 # 機体の機能。名前はその機能を表す machine.toml の節の名前
 CAPABILITIES: tuple[Capability, ...] = ("solder", "pnp")
+CAPABILITY_LABELS: dict[Capability, str] = {"solder": "はんだ塗布", "pnp": "部品実装"}
 
 
 @attrs.frozen
@@ -175,7 +176,7 @@ class MachineConfig:
         factory=DetectionConfig, metadata=section(label="統計検出", order=7)
     )
     solder: SolderConfig | None = attrs.field(
-        default=None, metadata=section(label="はんだ塗布", order=1)
+        default=None, metadata=section(label=CAPABILITY_LABELS["solder"], order=1)
     )
     # 設定の項目を足すときに section の metadata を付ける
     pnp: PnpConfig | None = None

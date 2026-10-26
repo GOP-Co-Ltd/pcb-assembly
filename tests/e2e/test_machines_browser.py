@@ -8,6 +8,7 @@ SSR テスト（`tests/web/ui/test_machines_page.py`）は行の配線までし�
 - 塗布実行は backend のジョブ開始 API に届く（PCB 未選択なので backend が 400 で拒み、
   その理由が画面に出る。装置は動かない）
 - 立ち上げの要約は backend の ``/api/readiness`` から取り、その機体のチェックリストへのリンクになる
+- 機体の機能は backend の ``/api/session/machine-info`` から取り、バッジにする
 """
 
 from __future__ import annotations
@@ -119,3 +120,11 @@ class TestMachinesRow:
         )
         step = browser_page.get_by_test_id("commissioning-step-machine_check")
         expect(step.get_by_test_id("commissioning-state")).to_have_text("未完了")
+
+    def test_capabilities_are_shown_as_badges(self, paste_ui: LiveUi, browser_page):
+        """行の機体名の横に、backend が申告する機体の機能を出す（はんだ塗布機は塗布の欄も出す）."""
+        browser_page.goto(f"{paste_ui.origin}/machines")
+        row = browser_page.get_by_test_id(f"machines-row-{E2E_MACHINE_ID}")
+
+        expect(row.get_by_test_id("machines-capabilities")).to_have_text("はんだ塗布")
+        expect(row.get_by_test_id("machines-solder")).to_be_visible()

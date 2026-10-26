@@ -141,6 +141,7 @@ async def advertising(
         machine_id=machine_id,
         port=18081,
         addresses=(LOOPBACK,),
+        capabilities=("solder",),
         service_type=service_type,
         interfaces=(LOOPBACK,),
     )
