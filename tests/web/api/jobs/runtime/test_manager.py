@@ -799,9 +799,11 @@ class TestApply:
             manager.apply_payload()
 
     def test_new_job_start_invalidates_payload(
-        self, manager: JobManager, catalog: JobCatalog
+        self, manager: JobManager, catalog: JobCatalog, camera_backend: Backend
     ):
         self._run_with_payload(manager, catalog, self._PAYLOAD)
+        # 終端の確定は駐機とロック解放より前なので、解放を待ってから次を始める
+        wait_until(lambda: camera_backend.lock.owner is None)
         _register(catalog, lambda ctx: None, name="next_job")
 
         record = manager.start("next_job", {})
