@@ -388,7 +388,7 @@ def _lines(
     """表の本文を、キーごとの行と、次の表の見出しに付くコメントに分ける.
 
     キーごとの行は、キーと値の行に、そのキーに付く単独の行のコメントを並べたもの。
-    単独の行のコメントは直前のキーに付ける（最初のキーより前なら最初のキー）。 空行は落とす。
+    単独の行のコメントは直前のキー（最初のキーより前なら最初のキー）に付け、空行は落とす。
     """
     last = max((i for i, (key, _) in enumerate(entries) if key is not None), default=-1)
     own, header = _split_tail([item for _, item in entries[last + 1 :]])

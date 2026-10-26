@@ -69,8 +69,9 @@ def load_checks(path: Path) -> tuple[tuple[Check, ...] | None, str | None]:
 
 
 def check_klipper(klipper: KlipperClient, machine: MachineConfig) -> list[Check]:
-    """Klipper の状態と、printer.cfg にステージ・ディスペンサー（塗布機だけ）・プローブ・駐機が要求する section
-    があるか確かめる.
+    """Klipper の状態と、printer.cfg にステージ・ディスペンサー・プローブ・駐機が要求する section があるか確かめる.
+
+    ディスペンサーは塗布機（[solder] がある機体）だけ確かめる。
 
     接続できなければ printer.cfg の項目は並べず、shutdown（MCU の切断など）では読めるので並べる。
     """

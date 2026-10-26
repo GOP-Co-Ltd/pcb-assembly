@@ -306,8 +306,7 @@ class TestMachine:
         assert _solder().motion.post_dispense_settle_seconds == pytest.approx(0.1)
 
     def test_dispense_motion_joins_the_dispenser_and_the_motion(self):
-        """Fill sequence が使う吐出の動きは、[solder.dispenser] と [solder.motion]
-        の値そのもの."""
+        """Fill sequence の吐出の動きは [solder.dispenser] と [solder.motion] の値."""
         solder = load_machine(MINIMAL_MACHINE_TOML).require_solder()
 
         assert solder.dispense_motion == DispenseMotion(

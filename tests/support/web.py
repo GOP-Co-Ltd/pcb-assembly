@@ -145,8 +145,10 @@ def job_manager(
 def standalone_catalog(
     data_dir: Path, capabilities: Collection[Capability] = CAPABILITIES
 ) -> JobCatalog:
-    """Backend を組まずに作るカタログ（定義だけを見るテスト用。既定は全機能の全ジョブ。塗布の永続データは ``data_dir``
-    の下）."""
+    """Backend を組まずに作るカタログ（定義だけを見るテスト用）.
+
+    既定は全機能の全ジョブ。塗布の永続データは ``data_dir`` の下に置く。
+    """
     return default_catalog(
         capabilities,
         PasteStores(

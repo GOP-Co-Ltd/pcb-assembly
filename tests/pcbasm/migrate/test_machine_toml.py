@@ -1,7 +1,10 @@
 """machine.toml の移行の仕様.
 
-移行 M は死にキーを除いて節を再編し、移行 N は [paste_dispenser] と [tact] を [solder]
-の階層へ作り直す。 002 の旧形（M の前）も 001 の live（M の後）も、続けて当てて同じ形になる。
+移行 M は死にキーを除いて節を再編する。
+
+移行 N は [paste_dispenser] と [tact] を [solder] の階層へ作り直す。
+
+002 の旧形（M の前）も 001 の live（M の後）も、続けて当てて同じ形になる。
 """
 
 import shutil

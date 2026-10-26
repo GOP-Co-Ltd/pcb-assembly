@@ -183,8 +183,10 @@ class MachineConfig:
 
     @property
     def cap_position(self) -> Point3d | None:
-        """ジョブの終了時の駐機先（[solder.nozzle.cap]。塗布機でないか未教示なら None で、PRESENT
-        へ駐機する）."""
+        """ジョブの終了時の駐機先（[solder.nozzle.cap]）.
+
+        塗布機でないか未教示なら None で、PRESENT へ駐機する。
+        """
         return None if self.solder is None else self.solder.nozzle.cap.position
 
     def require_solder(self) -> SolderConfig:
