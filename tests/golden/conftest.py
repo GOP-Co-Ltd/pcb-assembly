@@ -189,6 +189,8 @@ def job_settings(tmp_path: Path) -> Env:
         pcb_upload_dir=pcb_root / "uploads",
         discovery_enabled=False,
         update_state_dir=tmp_path / "selfupdate",
+        # 成果物に残る machine_id を、テストを走らせるホストに依らない値にする
+        hostname="golden-machine",
     )
 
 
