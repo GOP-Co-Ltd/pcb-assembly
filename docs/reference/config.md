@@ -54,6 +54,7 @@
 | 流量キャリブレーション | `solder.volume_correction.amount_ul`                                        | 1点あたりの塗布量               | uL     | 数値                                                                                     |
 | 流量キャリブレーション | `solder.volume_correction.crop_size_mm`                                     | 撮影crop寸法                    | mm     | 数値                                                                                     |
 | 流量キャリブレーション | `solder.volume_correction.settle_seconds`                                   | 静定待ち                        | s      | 数値（0 以上）                                                                           |
+| 流量キャリブレーション | `solder.volume_correction.max_correction_scale`                             | 補正の許容倍率                  |        | 数値                                                                                     |
 | ノズル位置             | `solder.nozzle.cap.x` / `solder.nozzle.cap.y` / `solder.nozzle.cap.z`       | キャップ位置                    | mm     | 座標。3 つそろえるか、すべて書かない                                                     |
 | ノズル位置             | `solder.nozzle.clean.x` / `solder.nozzle.clean.y` / `solder.nozzle.clean.z` | クリーニング位置（Zは面の高さ） | mm     | 座標。3 つそろえるか、すべて書かない                                                     |
 | ノズルクリーニング     | `solder.nozzle.clean.press_depth`                                           | 押し込み量                      | mm     | 数値（0 以上）                                                                           |

@@ -58,8 +58,9 @@ from web.api.jobs.pasting.dispense_calibration import CALIBRATION_MENU_STAGE
 from web.api.jobs.runtime.catalog import JobCatalog
 from web.api.jobs.runtime.context import JobContext
 from web.api.jobs.runtime.manager import JobManager
-from web.api.jobs.runtime.record import JobRecord
+from web.api.jobs.runtime.record import JobRecord, JobStatus
 from web.api.jobs.steps import LOADING_STAGE
+from web.api.machine_config import MachineConfigFile
 
 ARTIFACTS = GOLDEN_DIR / "artifacts"
 # 保存名に時刻を足させない（suffix まで書いた名前はそのまま保存名になる）
@@ -199,6 +200,48 @@ class TestPasteVolumeCalibration:
         assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")
 
 
+def _flow_calibration_job(
+    machine_klipper: FakeKlipper,
+    job_settings: Env,
+    outcomes: list[FlowCalibrationOutcome | None],
+) -> Callable[[JobContext], None]:
+    """paste_solder の運転時補正だけを走らせる合成ジョブ（結果を ``outcomes`` へ足す）."""
+
+    def run(ctx: JobContext) -> None:
+        pcb = load_board(LED_BLINKER_PCB)
+        plan, error = plan_flow_calibration(
+            config=ctx.machine.require_solder().volume_correction,
+            points=FLOW_POINTS,
+            outline=pcb.outline.polygon,
+        )
+        assert plan is not None, error
+        with ctx.open_camera() as camera:
+            session = PasteSession.from_board_frame(
+                BoardFrame(
+                    board=pcb,
+                    camera_model=CAMERA_MODEL,
+                    board_transform=BOARD_PLACEMENT,
+                ),
+                ctx.machine,
+                klipper=machine_klipper,
+                stage=XYZStage(machine_klipper),
+                camera=camera,
+            )
+            with session.make_applicator() as applicator:
+                outcomes.append(
+                    run_flow_calibration(
+                        ctx,
+                        session,
+                        full_board_correction(),
+                        applicator,
+                        plan,
+                        calibration_dir=job_settings.paste_volume_calibration_dir,
+                    )
+                )
+
+    return run
+
+
 class TestFlowCalibration:
     @pytest.mark.parametrize(
         "scenario",
@@ -223,39 +266,11 @@ class TestFlowCalibration:
         )
         outcomes: list[FlowCalibrationOutcome | None] = []
 
-        def run(ctx: JobContext) -> None:
-            pcb = load_board(LED_BLINKER_PCB)
-            plan, error = plan_flow_calibration(
-                config=ctx.machine.require_solder().volume_correction,
-                points=FLOW_POINTS,
-                outline=pcb.outline.polygon,
-            )
-            assert plan is not None, error
-            with ctx.open_camera() as camera:
-                session = PasteSession.from_board_frame(
-                    BoardFrame(
-                        board=pcb,
-                        camera_model=CAMERA_MODEL,
-                        board_transform=BOARD_PLACEMENT,
-                    ),
-                    ctx.machine,
-                    klipper=machine_klipper,
-                    stage=XYZStage(machine_klipper),
-                    camera=camera,
-                )
-                with session.make_applicator() as applicator:
-                    outcomes.append(
-                        run_flow_calibration(
-                            ctx,
-                            session,
-                            full_board_correction(),
-                            applicator,
-                            plan,
-                            calibration_dir=job_settings.paste_volume_calibration_dir,
-                        )
-                    )
-
-        register_synthetic(catalog, run, name="flow_calibration")
+        register_synthetic(
+            catalog,
+            _flow_calibration_job(machine_klipper, job_settings, outcomes),
+            name="flow_calibration",
+        )
         finish(job_backend, manager.start("flow_calibration", {}))
 
         (outcome,) = outcomes
@@ -264,6 +279,41 @@ class TestFlowCalibration:
             attrs.asdict(outcome), ARTIFACTS / "flow_calibration_outcome.json"
         )
         assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")
+
+    def test_fails_when_the_factor_changes_beyond_the_limit(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        job_settings: Env,
+        job_backend: Backend,
+        machine_klipper: FakeKlipper,
+        mount_camera: Callable[[Camera], None],
+        led_blinker_shapes: list[Polygon],
+    ):
+        """補正が許容倍率を超えたら、係数を採らずにジョブを失敗させて校正のやり直しを促す.
+
+        このシナリオの補正は約 1.09 倍なので、許容を 1.05 倍へ絞ると超える。
+        """
+        enable_flow_calibration(job_settings, job_backend, LED_BLINKER_PCB)
+        MachineConfigFile(job_settings.config_dir).write(
+            {"solder.volume_correction.max_correction_scale": 1.05}
+        )
+        (scenario, *_) = scenarios_of("paste_solder", "flow_calibration_only")
+        mount_camera(
+            scene_camera(machine_klipper, scenario.rotation, shapes=led_blinker_shapes)
+        )
+        outcomes: list[FlowCalibrationOutcome | None] = []
+
+        register_synthetic(
+            catalog,
+            _flow_calibration_job(machine_klipper, job_settings, outcomes),
+            name="flow_calibration",
+        )
+        record = manager.start("flow_calibration", {})
+        finish(job_backend, record, JobStatus.FAILED)
+
+        assert outcomes == []
+        assert "吐出量キャリブレーションをやり直してください" in str(record.error)
 
 
 class TestPasteVolumeRefit:
