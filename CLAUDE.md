@@ -53,7 +53,6 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 
 - `src/pcbasm/geometry/`: 座標変換、ポリゴン、経路、配置の計算
 - `src/pcbasm/config/`: `machine.toml` のスキーマと読み込み、設定ページの項目
-- `src/pcbasm/migrate/`: `machine.toml` の冪等な移行
 - `src/pcbasm/board/`: pcbnew に依存しない基板データ（外形・部品・パッド・銅箔）と書き出し
 - `src/pcbasm/kicad/`: KiCAD 読込と基板生成（pcbnew を import する唯一の場所）
 - `src/pcbasm/vision/`: 画像処理、カメラ校正、特徴検出

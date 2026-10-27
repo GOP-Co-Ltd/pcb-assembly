@@ -241,7 +241,6 @@ def _chrome_context(
         # 更新専用ページでは、中継されない機体コマンド（操作権・PCB・再起動）を出さない
         "update_only": False,
         "config_error": None,
-        "config_notice": None,
         "pcb_notice": None,
         # 機体のページだけが持つ（トップバーの立ち上げチップ）
         "readiness": None,
@@ -271,7 +270,6 @@ def _base_context(
         mainsail_url=info.mainsail_url,
         focus_z=state.focus_z,
         config_error=state.config_error,
-        config_notice=state.config_notice,
         pcb_notice=state.pcb_notice,
         readiness=readiness,
     )

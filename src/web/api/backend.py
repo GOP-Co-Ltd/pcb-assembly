@@ -112,7 +112,6 @@ def open_backend(
             f"machine.toml がありません: {machine_config.path} "
             f"（./install.sh machine を実行してください）"
         )
-    machine_config.migrate()
     _, config_error = machine_config.machine_or_error()
     if config_error is not None:
         logger.warning("設定エラーのため degraded で起動します: %s", config_error)

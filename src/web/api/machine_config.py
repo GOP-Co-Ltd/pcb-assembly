@@ -29,7 +29,6 @@ from pcbasm.config import (
 )
 from pcbasm.config.fields import SettingField, setting_fields
 from pcbasm.geometry import Point3d
-from pcbasm.migrate.machine_toml import MigrationError, migrate_machine_toml
 from pcbasm.validators import is_finite_number
 from web.api.history import ConfigHistory
 from web.contract.models import (
@@ -47,7 +46,7 @@ class InvalidSettingError(ValueError):
 
 
 class MachineConfigFile:
-    """``config/machine.toml`` の読み込みと移行、設定項目の読み書きと、その設定履歴."""
+    """``config/machine.toml`` の読み込み、設定項目の読み書きと、その設定履歴."""
 
     def __init__(
         self, config_dir: Path, on_change: Callable[[], None] = lambda: None
@@ -61,8 +60,6 @@ class MachineConfigFile:
         self._config_dir = config_dir
         self._on_change = on_change
         self._history = ConfigHistory(self.path)
-        self._notice: str | None = None
-        self._migration_error: str | None = None
 
     @property
     def path(self) -> Path:
@@ -83,7 +80,7 @@ class MachineConfigFile:
     def capabilities(self) -> tuple[Capability, ...]:
         """起動したときの machine.toml の節が表す機体の機能（再起動まで変えない）.
 
-        :meth:`migrate` の後に読む。設定エラーの間も節があれば機能があり、TOML として読めなければ機能は無い。
+        設定エラーの間も節があれば機能があり、TOML として読めなければ機能は無い。
         """
         try:
             return load_capabilities(self.path)
@@ -99,46 +96,11 @@ class MachineConfigFile:
         ]
 
     def machine_or_error(self) -> tuple[MachineConfig, None] | tuple[None, str]:
-        """:meth:`machine` の degraded 版。設定エラーなら ``(None, 理由)`` を返す.
-
-        起動時の移行に失敗していれば、読めない理由として移行の失敗を返す。
-        """
+        """:meth:`machine` の degraded 版。設定エラーなら ``(None, 理由)`` を返す."""
         try:
             return self.machine(), None
         except ConfigError as exc:
-            if self._migration_error is not None:
-                return None, (
-                    "machine.toml を移行できませんでした（ファイルは変えていません）: "
-                    f"{self._migration_error}"
-                )
             return None, str(exc)
-
-    @property
-    def notice(self) -> str | None:
-        """起動時に machine.toml を移行したときの知らせ（移行しなければ None）."""
-        return self._notice
-
-    def migrate(self) -> None:
-        """machine.toml を移行する（起動時、設定を読む前に 1 回だけ呼ぶ）.
-
-        失敗しても例外は出さない。ファイルに触れず、読めない間はその理由を設定エラーとして出す（degraded）。
-        """
-        try:
-            applied = migrate_machine_toml(self.path)
-        except MigrationError as exc:
-            logger.error("machine.toml を移行できません: %s", exc)
-            self._migration_error = str(exc)
-            return
-        for name, changes in applied.items():
-            logger.info(
-                "machine.toml を移行 %s で書き換えました: %s", name, " / ".join(changes)
-            )
-        if applied:
-            first = next(iter(applied))
-            self._notice = (
-                "machine.toml を新しい形へ移行しました"
-                f"（元の内容は設定履歴の machine-pre-{first}.toml）"
-            )
 
     def history_entries(self) -> list[ConfigHistoryEntry]:
         """machine.toml の世代を新しい順に返す."""
