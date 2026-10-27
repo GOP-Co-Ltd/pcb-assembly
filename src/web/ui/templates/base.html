@@ -69,11 +69,6 @@
   （<a href="{{ base }}/machine_config">マシン設定</a>か<a href="{{ base }}/config_history">設定履歴</a>から直してください）
 </div>
 {% endif %}
-{% if config_notice %}
-<div class="config-notice" role="status" data-testid="config-notice">
-  {{ config_notice }}（<a href="{{ base }}/config_history">設定履歴</a>）
-</div>
-{% endif %}
 {% if pcb_notice %}
 <div class="config-notice" role="status" data-testid="pcb-notice">{{ pcb_notice }}</div>
 {% endif %}

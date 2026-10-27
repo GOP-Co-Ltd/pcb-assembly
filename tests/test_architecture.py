@@ -53,7 +53,6 @@ _RULES: dict[str, frozenset[str]] = {
     "pcbasm.hal": frozenset({"pcbasm.vision.image"}),
     "pcbasm.kicad": frozenset({"pcbasm.board"}),
     "pcbasm.machine": frozenset({"pcbasm.config", "pcbasm.hal", "pcbasm.vision"}),
-    "pcbasm.migrate": frozenset({"pcbasm.config"}),
     "pcbasm.align": _ALIGN,
     "pcbasm.pasting": _ALIGN | {"pcbasm.align", "pcbasm.kicad"},
     # 塗布と同じ層。互いに import しない

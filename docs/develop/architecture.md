@@ -24,7 +24,7 @@ flowchart TD
 pcbasm
   L0  geometry  gcode  errors  document  atomic  paths  plotting  validators（atomic・paths・validators は標準ライブラリだけに依存する）
   L1  config(→pasting.params)   board   vision   hal(→vision.image。config は import しない)
-  L2  kicad(→board。pcbnew はここだけ)   machine(→config, hal, vision)   migrate(→config)
+  L2  kicad(→board。pcbnew はここだけ)   machine(→config, hal, vision)
   L3  align(→machine, hal, vision, board, config)
   L4  pasting(→align, machine, kicad, vision, hal, board, config)   pnp（pasting と同じ。互いに import しない）
   L5  commissioning(→pcbasm のすべて)
@@ -47,7 +47,6 @@ web
 | `src/pcbasm/geometry/`              | 座標変換、ポリゴン、経路、配置の計算                                                             |
 | `src/pcbasm/plotting.py`            | 描画の共通部品（Agg、穴付きポリゴン、基板外形、PNG 保存）。図そのものは使う側のパッケージに置く  |
 | `src/pcbasm/config/`                | `machine.toml` のスキーマ（TOML の 1 節が 1 モジュール）と読み込み、設定ページの項目、機体の機能 |
-| `src/pcbasm/migrate/`               | `machine.toml` の冪等な移行（起動時に走り、先にスナップショットを取る）                          |
 | `src/pcbasm/board/`                 | 基板データ（外形・部品・パッド・銅箔）と CSV / JSON の書き出し、全体図の描画                     |
 | `src/pcbasm/kicad/`                 | KiCad 読込・生成、footprint、単位変換（pcbnew はここだけ）                                       |
 | `src/pcbasm/vision/`                | カメラ校正、画像・銅箔・塗布点の検出                                                             |

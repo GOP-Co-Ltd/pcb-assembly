@@ -32,7 +32,6 @@ from pcbasm.config.solder import (
     VolumeCorrectionConfig,
 )
 from pcbasm.geometry import Point3d
-from pcbasm.migrate.machine_toml import migrate_text
 from pcbasm.pasting.params import DispenseMotion, PasteParams
 from pcbasm.paths import PROJECT_ROOT
 from tests.support.machine_toml import pnp_only
@@ -911,10 +910,7 @@ class TestMachineDetection:
     ids=lambda path: path.parent.name,
 )
 class TestTemplates:
-    """新しい機体の machine.toml の雛形は、そのまま読めて移行も要らない."""
+    """新しい機体の machine.toml の雛形は、そのまま読める."""
 
     def test_loads(self, path: Path):
         load_machine(path)
-
-    def test_needs_no_migration(self, path: Path):
-        assert migrate_text(path.read_text())[1] == {}

@@ -138,9 +138,6 @@ Klipper へ `FIRMWARE_RESTART` を送り、続けて**そのホストで動い�
 - 書式の誤りは、「設定履歴とバックアップ」で誤る前の世代へ戻す（[設定履歴から戻す](#%E8%A8%AD%E5%AE%9A%E5%B1%A5%E6%AD%B4%E3%81%8B%E3%82%89%E6%88%BB%E3%81%99)）
 - 直すと、再起動しなくても理由の表示が消える
 
-起動時には、古い形式の `machine.toml` を新しい形式へ移す。移す前の内容は `config/history/machine-pre-<移行名>.toml` に残る。
-移行で何が変わるかは、書き換えずに `uv run python -m pcbasm.migrate --check config/machine.toml` で確かめられる。
-
 ### 電源の入れ直し
 
 Raspberry Pi の電源を入れ直しても、操作なしで使える状態へ戻る。
