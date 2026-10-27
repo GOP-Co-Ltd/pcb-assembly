@@ -30,7 +30,7 @@ height = 600
 min_radius = 0.3            # サンプル点が銅箔境界から確保すべき最小距離 [mm]
 board_edge_margin = 2.0     # サンプル点が基板外形から確保すべき最小距離 [mm]
 min_samples = 6             # 最小サンプル数 (2次曲面フィットに必要)
-max_samples = 15            # 最大サンプル数
+max_samples = 21            # 最大サンプル数
 lift_height = 0.5
 
 [reference_point]
@@ -77,10 +77,10 @@ initial_purge_ul = 0.3 # fill sequence前の初回パージ量 [uL]
 
 [solder.dispenser]
 rotations_per_ul = 23.947899 # 1μLあたりの回転数 [rev/μL]。出発値なので dispense_calibration で機体ごとに校正する
-max_dispense_rate = 0.05 # 吐出レート上限 [uL/sec]
-dispense_accel = 0.192548 # 吐出加速度 [uL/sec^2]
-retract_amount = 0.03 # リトラクション量 [uL]
-retract_rate = 0.1
+max_dispense_rate = 0.2 # 吐出レート上限 [uL/sec]
+dispense_accel = 2.0 # 吐出加速度 [uL/sec^2]
+retract_amount = 0.05 # リトラクション量 [uL]
+retract_rate = 0.2
 retract_accel_factor = 5.0 # リトラクション加速度係数
 
 [solder.nozzle]
@@ -102,8 +102,8 @@ y = 24.08
 # 初回パージを塗布前後で撮って写らなかったときだけ実行する。
 # 位置が無いとこすらず、パージのやり直しだけを行う。
 [solder.nozzle.clean]
-press_depth = 0.0 # 面からの押し込み量 [mm]
-purge_ul = 0.2 # こすり前のパージ量 [uL]
+press_depth = 1.0 # 面からの押し込み量 [mm]
+purge_ul = 0.1 # こすり前のパージ量 [uL]
 stroke = 1.0 # 十字往復の片振幅 [mm]
 passes = 2 # 十字往復の反復回数
 wipe_speed = 5.0 # こすり移動速度 [mm/sec]
@@ -111,6 +111,8 @@ wipe_speed = 5.0 # こすり移動速度 [mm/sec]
 [solder.motion]
 max_fill_speed = 2.0 # 連続塗布できる移動速度上限 [mm/sec]（実機で 1812 が連続になるまで調整）
 lift_height = 1.0 # 吐出後の上昇高さ [mm]
+micro_line_settle_seconds = 0.5
+post_dispense_settle_seconds = 0.5
 
 [solder.defaults]
 dispense_mode = "auto" # 塗布方式: auto / dot / line / area / micro_line
@@ -123,3 +125,8 @@ overlap = 0.2
 [solder.auto]
 line_aspect_ratio = 1.618 # Auto時に線塗布へ切り替える縦横比
 area_short_side_factor = 4.0 # Auto時に面塗布へ切り替える短辺のノズル径倍率
+
+[solder.volume_correction]
+# calibration_file は機体ごとの塗布量校正で決まるので書かない（空なら補正は無効）
+settle_seconds = 1.0
+crop_size_mm = 2.0
