@@ -2,6 +2,7 @@
 
 実行で最優先は **補正できなくても例外にしない**こと。
 この時点で位置合わせと高さ計測が終わっており、後から足した補正の失敗で塗布を取りやめるのは割に合わない。
+例外は補正倍率が許容を超えたときだけで、``machine.toml`` の係数がずれすぎているので塗らずに止める。
 装置側は自前 HAL の fake。
 """
 
@@ -26,8 +27,6 @@ from pcbasm.pasting.paste_volume.calibration import (
 )
 from pcbasm.pasting.paste_volume.estimator import PasteVolumePrediction
 from pcbasm.pasting.paste_volume.runtime_correction import (
-    MAX_CORRECTION_SCALE,
-    MIN_CORRECTION_SCALE,
     FlowCalibrationOutcome,
     correct_rotations_per_ul,
     overlapping_crops,
@@ -46,6 +45,7 @@ from tests.support.paths import PASTE_VOLUME_CALIBRATION, TEST_CONFIG_DIR
 
 OUTLINE = Polygon([(0.0, 0.0), (40.0, 0.0), (40.0, 30.0), (0.0, 30.0)])
 ENABLED = VolumeCorrectionConfig(calibration_file="cal.paste-volume.json")
+SCALE = 2.0
 
 
 def _accepted(volume_ul: float) -> PasteVolumePrediction:
@@ -90,6 +90,7 @@ class TestPlanFlowCalibration:
         assert plan.amount_ul == pytest.approx(0.2)
         assert plan.crop_size_mm == pytest.approx(2.0)
         assert plan.settle_seconds == pytest.approx(10.0)
+        assert plan.max_correction_scale == pytest.approx(2.0)
         assert plan.total_commanded_ul == pytest.approx(0.6)
 
     def test_is_disabled_when_no_point_is_configured(self):
@@ -222,6 +223,7 @@ class TestCorrectRotationsPerUl:
             [_accepted(0.25), _accepted(0.25), _accepted(0.25)],
             amount_ul=0.2,
             rotations_per_ul=previous,
+            max_correction_scale=SCALE,
         )
 
         assert error is None
@@ -233,7 +235,10 @@ class TestCorrectRotationsPerUl:
 
     def test_under_dispensing_lowers_rotations_per_ul(self):
         outcome, error = correct_rotations_per_ul(
-            [_accepted(0.16)], amount_ul=0.2, rotations_per_ul=1.0
+            [_accepted(0.16)],
+            amount_ul=0.2,
+            rotations_per_ul=1.0,
+            max_correction_scale=SCALE,
         )
 
         assert error is None
@@ -243,7 +248,10 @@ class TestCorrectRotationsPerUl:
 
     def test_aggregates_by_total_volume_not_by_averaging_ratios(self):
         outcome, error = correct_rotations_per_ul(
-            [_accepted(0.1), _accepted(0.3)], amount_ul=0.2, rotations_per_ul=2.0
+            [_accepted(0.1), _accepted(0.3)],
+            amount_ul=0.2,
+            rotations_per_ul=2.0,
+            max_correction_scale=SCALE,
         )
 
         assert error is None
@@ -262,6 +270,7 @@ class TestCorrectRotationsPerUl:
             ],
             amount_ul=0.2,
             rotations_per_ul=1.0,
+            max_correction_scale=SCALE,
         )
 
         assert error is None
@@ -273,7 +282,10 @@ class TestCorrectRotationsPerUl:
 
     def test_no_accepted_prediction_means_no_correction(self):
         outcome, error = correct_rotations_per_ul(
-            [_rejected("no_deposit_detected")], amount_ul=0.2, rotations_per_ul=1.0
+            [_rejected("no_deposit_detected")],
+            amount_ul=0.2,
+            rotations_per_ul=1.0,
+            max_correction_scale=SCALE,
         )
 
         assert outcome is None
@@ -282,36 +294,85 @@ class TestCorrectRotationsPerUl:
 
     def test_an_empty_prediction_list_means_no_correction(self):
         outcome, error = correct_rotations_per_ul(
-            [], amount_ul=0.2, rotations_per_ul=1.0
+            [],
+            amount_ul=0.2,
+            rotations_per_ul=1.0,
+            max_correction_scale=SCALE,
         )
 
         assert outcome is None
         assert error is not None
 
-    def test_clamps_a_ratio_that_would_shrink_the_factor_too_far(self):
+    @pytest.mark.parametrize(
+        ("estimated", "expected"), [(0.4, 0.5), (0.1, 2.0)], ids=["half", "double"]
+    )
+    def test_a_change_of_exactly_the_limit_is_allowed(
+        self, estimated: float, expected: float
+    ):
         outcome, error = correct_rotations_per_ul(
-            [_accepted(2.0)], amount_ul=0.2, rotations_per_ul=1.0
+            [_accepted(estimated)],
+            amount_ul=0.2,
+            rotations_per_ul=1.0,
+            max_correction_scale=SCALE,
         )
 
         assert error is None
         assert outcome is not None
-        assert outcome.ratio == pytest.approx(10.0)
-        assert outcome.clamped is True
-        assert outcome.rotations_per_ul == pytest.approx(MIN_CORRECTION_SCALE)
+        assert outcome.rotations_per_ul == pytest.approx(expected)
+        assert outcome.exceeds_limit is False
 
-    def test_clamps_a_ratio_that_would_grow_the_factor_too_far(self):
+    @pytest.mark.parametrize(
+        ("estimated", "expected"),
+        [(0.5, 0.4), (0.08, 2.5)],
+        ids=["over-dispensing", "under-dispensing"],
+    )
+    def test_flags_a_change_beyond_the_limit_without_clamping(
+        self, estimated: float, expected: float
+    ):
+        """頭打ちした係数で塗らない。超えたら塗布を止めるので、算出値をそのまま報告する."""
         outcome, error = correct_rotations_per_ul(
-            [_accepted(0.01)], amount_ul=0.2, rotations_per_ul=1.0
+            [_accepted(estimated)],
+            amount_ul=0.2,
+            rotations_per_ul=1.0,
+            max_correction_scale=SCALE,
         )
 
         assert error is None
         assert outcome is not None
-        assert outcome.clamped is True
-        assert outcome.rotations_per_ul == pytest.approx(MAX_CORRECTION_SCALE)
+        assert outcome.rotations_per_ul == pytest.approx(expected)
+        assert outcome.max_correction_scale == pytest.approx(SCALE)
+        assert outcome.exceeds_limit is True
+
+    def test_the_limit_follows_the_given_scale(self):
+        outcome, error = correct_rotations_per_ul(
+            [_accepted(0.25)],
+            amount_ul=0.2,
+            rotations_per_ul=1.0,
+            max_correction_scale=1.2,
+        )
+
+        assert error is None
+        assert outcome is not None
+        assert outcome.exceeds_limit is True
+
+    @pytest.mark.parametrize("max_correction_scale", [1.0, 0.5, math.nan])
+    def test_rejects_an_invalid_limit(self, max_correction_scale: float):
+        outcome, error = correct_rotations_per_ul(
+            [_accepted(0.2)],
+            amount_ul=0.2,
+            rotations_per_ul=1.0,
+            max_correction_scale=max_correction_scale,
+        )
+
+        assert outcome is None
+        assert error is not None
 
     def test_a_zero_estimate_cannot_produce_a_factor(self):
         outcome, error = correct_rotations_per_ul(
-            [_accepted(0.0)], amount_ul=0.2, rotations_per_ul=1.0
+            [_accepted(0.0)],
+            amount_ul=0.2,
+            rotations_per_ul=1.0,
+            max_correction_scale=SCALE,
         )
 
         assert outcome is None
@@ -320,7 +381,10 @@ class TestCorrectRotationsPerUl:
     @pytest.mark.parametrize("amount_ul", [0.0, -0.1, math.nan])
     def test_rejects_an_invalid_commanded_amount(self, amount_ul: float):
         outcome, error = correct_rotations_per_ul(
-            [_accepted(0.2)], amount_ul=amount_ul, rotations_per_ul=1.0
+            [_accepted(0.2)],
+            amount_ul=amount_ul,
+            rotations_per_ul=1.0,
+            max_correction_scale=SCALE,
         )
 
         assert outcome is None
@@ -329,7 +393,10 @@ class TestCorrectRotationsPerUl:
     @pytest.mark.parametrize("rotations_per_ul", [0.0, -1.0, math.inf])
     def test_rejects_an_invalid_previous_factor(self, rotations_per_ul: float):
         outcome, error = correct_rotations_per_ul(
-            [_accepted(0.2)], amount_ul=0.2, rotations_per_ul=rotations_per_ul
+            [_accepted(0.2)],
+            amount_ul=0.2,
+            rotations_per_ul=rotations_per_ul,
+            max_correction_scale=SCALE,
         )
 
         assert outcome is None
@@ -343,7 +410,7 @@ def _outcome(**overrides: object) -> FlowCalibrationOutcome:
         "ratio": 1.25,
         "previous_rotations_per_ul": 1.0,
         "rotations_per_ul": 0.8,
-        "clamped": False,
+        "max_correction_scale": 2.0,
         "accepted_count": 3,
         "rejections": (),
     }
@@ -361,8 +428,13 @@ class TestOutcomeSummary:
         assert "1.0000" in line
         assert "0.8000" in line
 
-    def test_marks_a_clamped_correction(self):
-        assert "頭打ち" in _outcome(clamped=True).summary()
+    def test_marks_a_change_beyond_the_limit(self):
+        line = _outcome(ratio=2.5, rotations_per_ul=0.4).summary()
+
+        assert "許容 2 倍を超過" in line
+
+    def test_says_nothing_about_the_limit_within_it(self):
+        assert "許容" not in _outcome().summary()
 
 
 POINTS = (Point2d(10.0, 6.0), Point2d(13.0, 6.0), Point2d(16.0, 6.0))

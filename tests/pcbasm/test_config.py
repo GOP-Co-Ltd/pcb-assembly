@@ -612,6 +612,9 @@ class TestFlowCalibration:
             ("crop_size_mm", -1.0),
             ("settle_seconds", -1.0),
             ("settle_seconds", float("nan")),
+            ("max_correction_scale", 1.0),
+            ("max_correction_scale", 0.5),
+            ("max_correction_scale", float("inf")),
         ],
     )
     def test_rejects_invalid_values(self, key, value):
@@ -620,6 +623,9 @@ class TestFlowCalibration:
 
     def test_accepts_zero_settle_seconds_to_skip_the_wait(self):
         assert VolumeCorrectionConfig(settle_seconds=0.0).settle_seconds == 0.0
+
+    def test_allows_doubling_or_halving_the_factor_by_default(self):
+        assert VolumeCorrectionConfig().max_correction_scale == pytest.approx(2.0)
 
 
 class TestMachineSolderVolumeCorrection:
@@ -637,7 +643,8 @@ class TestMachineSolderVolumeCorrection:
             'calibration_file = "cal.paste-volume.json"\n'
             "amount_ul = 0.15\n"
             "crop_size_mm = 2.4\n"
-            "settle_seconds = 4.0\n",
+            "settle_seconds = 4.0\n"
+            "max_correction_scale = 1.5\n",
         )
         flow = machine.require_solder().volume_correction
 
@@ -645,6 +652,7 @@ class TestMachineSolderVolumeCorrection:
         assert flow.amount_ul == pytest.approx(0.15)
         assert flow.crop_size_mm == pytest.approx(2.4)
         assert flow.settle_seconds == pytest.approx(4.0)
+        assert flow.max_correction_scale == pytest.approx(1.5)
         assert flow.enabled is True
 
 

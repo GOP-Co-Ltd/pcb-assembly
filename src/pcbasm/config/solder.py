@@ -344,11 +344,16 @@ class VolumeCorrectionConfig:
     塗り終えてすぐ撮ると、ペーストが広がりきる前の小さい円を測ることになる。
     そのため塗布後の撮影に入る前に ``settle_seconds`` だけ待つ。
 
+    補正で ``rotations_per_ul`` が ``max_correction_scale`` 倍を超えて増える、または
+    1/``max_correction_scale`` 倍を下回って減るときは、pad の塗布を始めずにジョブを失敗させる。
+    そこまでずれる係数は運転時補正で直すものではなく、吐出量キャリブレーションのやり直しが要る。
+
     Attributes:
         calibration_file: 使う校正ファイル名（空なら無効）
         amount_ul: 1 点あたりの指令塗布量 [μL]
         crop_size_mm: 塗布前後画像の一辺 [mm]
         settle_seconds: 全点を塗ってから塗布後の撮影に入るまでの待ち [秒]（0 で待たない）
+        max_correction_scale: 補正で許す ``rotations_per_ul`` の変化の倍率（1.0 より大きい。増減とも）
     """
 
     calibration_file: str = attrs.field(
@@ -375,6 +380,11 @@ class VolumeCorrectionConfig:
         metadata=setting(
             label="静定待ち", unit="s", group=_VOLUME, order=103, minimum=0.0
         ),
+    )
+    max_correction_scale: float = attrs.field(
+        default=2.0,
+        validator=_above_one,
+        metadata=setting(label="補正の許容倍率", group=_VOLUME, order=104),
     )
 
     @property

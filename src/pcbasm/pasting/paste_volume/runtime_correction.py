@@ -9,6 +9,10 @@
 
 1 点だけでは点ごとの吐出ばらつき（実測で相対 9〜11 %）がそのまま補正値に乗って
 しまうので、複数点を合計体積で集約する。
+
+補正で係数が許容倍率（``[solder.volume_correction] max_correction_scale``）を超えて動くときは、
+pad の塗布を始めずにジョブを失敗させる。画像の取り違え・ノズル詰まり・校正の条件違い・
+吐出量キャリブレーションの古さは極端な比として現れ、どの係数で塗っても基板を無駄にするため。
 """
 
 from __future__ import annotations
@@ -35,14 +39,8 @@ from pcbasm.pasting.paste_volume.estimator import (
 )
 from pcbasm.pasting.prepare import PasteCorrection
 from pcbasm.pasting.session import PasteSession
-from pcbasm.validators import is_finite_number
+from pcbasm.validators import is_finite_number, validate_greater_than_one
 from pcbasm.vision.crop import RectCrop, crop_pixel_size
-
-# 1 回の補正で許す ``rotations_per_ul`` の変化幅。
-# 画像の取り違え・ノズル詰まり・校正の条件違いは極端な比として現れるので、
-# 極端な係数で装置を動かさないよう要件書どおり 1/3〜3 倍で頭打ちにする。
-MIN_CORRECTION_SCALE = 1.0 / 3.0
-MAX_CORRECTION_SCALE = 3.0
 
 
 @attrs.frozen
@@ -55,6 +53,7 @@ class FlowCalibrationPlan:
         crop_size_mm: 塗布前後画像の一辺 [mm]
         calibration_file: 推定に使う校正ファイル名
         settle_seconds: 全点を塗ってから塗布後の撮影に入るまでの待ち [秒]
+        max_correction_scale: 補正で許す ``rotations_per_ul`` の変化の倍率（増減とも）
     """
 
     points: tuple[Point2d, ...]
@@ -62,6 +61,7 @@ class FlowCalibrationPlan:
     crop_size_mm: float
     calibration_file: str
     settle_seconds: float
+    max_correction_scale: float
 
     @property
     def total_commanded_ul(self) -> float:
@@ -78,8 +78,8 @@ class FlowCalibrationOutcome:
         estimated_ul: 同じ点の推定塗布量の合計 [μL]
         ratio: 実塗布量 / 指令塗布量
         previous_rotations_per_ul: 補正前の係数 [rev/μL]
-        rotations_per_ul: 補正後の係数 [rev/μL]
-        clamped: 1/3〜3 倍の頭打ちに当たったか
+        rotations_per_ul: 補正後の係数 [rev/μL]（許容倍率を超えても頭打ちしない）
+        max_correction_scale: 許容する係数の変化の倍率（増減とも）
         accepted_count: 集約へ入れた点の数
         rejections: 採用しなかった点の理由（入力順）
     """
@@ -89,9 +89,14 @@ class FlowCalibrationOutcome:
     ratio: float
     previous_rotations_per_ul: float
     rotations_per_ul: float
-    clamped: bool
+    max_correction_scale: float
     accepted_count: int
     rejections: tuple[str, ...]
+
+    @property
+    def exceeds_limit(self) -> bool:
+        """係数の変化が増減どちらかの向きで許容倍率を超えたか."""
+        return max(self.ratio, 1.0 / self.ratio) > self.max_correction_scale
 
     def summary(self) -> str:
         """補正結果の 1 行表示（ログとジョブのまとめで共用）."""
@@ -100,7 +105,11 @@ class FlowCalibrationOutcome:
             f"推定 {self.estimated_ul:.3f} uL / 指令 {self.commanded_ul:.3f} uL / "
             f"比 {self.ratio:.3f} / rotations_per_ul "
             f"{self.previous_rotations_per_ul:.4f} → {self.rotations_per_ul:.4f}"
-            + ("（上限で頭打ち）" if self.clamped else "")
+            + (
+                f"（許容 {self.max_correction_scale:g} 倍を超過）"
+                if self.exceeds_limit
+                else ""
+            )
         )
 
 
@@ -140,6 +149,7 @@ def plan_flow_calibration(
             crop_size_mm=config.crop_size_mm,
             calibration_file=config.calibration_file,
             settle_seconds=config.settle_seconds,
+            max_correction_scale=config.max_correction_scale,
         ),
         None,
     )
@@ -227,6 +237,7 @@ def correct_rotations_per_ul(
     *,
     amount_ul: float,
     rotations_per_ul: float,
+    max_correction_scale: float,
 ) -> tuple[FlowCalibrationOutcome | None, str | None]:
     """推定塗布量から ``rotations_per_ul`` の補正値を求める.
 
@@ -235,13 +246,18 @@ def correct_rotations_per_ul(
 
     算出:
         ratio = 採用点の推定量の合計 / (amount_ul × 採用点の数)
-        補正後の係数 = rotations_per_ul / ratio を、補正前の 1/3〜3 倍に頭打ちする
+        補正後の係数 = rotations_per_ul / ratio
     指令より多く出ていれば（ratio > 1）係数は小さくなる。
+
+    補正後の係数が補正前の 1/``max_correction_scale`` 倍〜``max_correction_scale`` 倍を外れても頭打ちせず、
+    :attr:`FlowCalibrationOutcome.exceeds_limit` で知らせる（ちょうど境界は許容）。
+    頭打ちした係数で塗っても塗布量は合わないので、止めるかどうかは呼び出し側が決める。
 
     Args:
         predictions: 点ごとの推定結果（入力順）
         amount_ul: 1 点あたりの指令塗布量 [μL]
         rotations_per_ul: 補正前の係数 [rev/μL]
+        max_correction_scale: 許容する係数の変化の倍率（1.0 より大きい。増減とも）
 
     Returns:
         ``(結果, None)`` または ``(None, 補正しない理由)``
@@ -250,6 +266,9 @@ def correct_rotations_per_ul(
         return None, f"指令塗布量は正の有限値が必要です: {amount_ul!r}"
     if not is_finite_number(rotations_per_ul) or rotations_per_ul <= 0:
         return None, f"rotations_per_ulは正の有限値が必要です: {rotations_per_ul!r}"
+    error = validate_greater_than_one("補正の許容倍率", max_correction_scale)
+    if error is not None:
+        return None, error
 
     accepted = [
         prediction.mean_volume_ul for prediction in predictions if prediction.accepted
@@ -269,18 +288,14 @@ def correct_rotations_per_ul(
         return None, f"推定塗布量の合計が0以下です: {estimated}"
 
     ratio = estimated / commanded
-    corrected = rotations_per_ul / ratio
-    lowest = rotations_per_ul * MIN_CORRECTION_SCALE
-    highest = rotations_per_ul * MAX_CORRECTION_SCALE
-    clamped = min(max(corrected, lowest), highest)
     return (
         FlowCalibrationOutcome(
             commanded_ul=commanded,
             estimated_ul=estimated,
             ratio=ratio,
             previous_rotations_per_ul=rotations_per_ul,
-            rotations_per_ul=clamped,
-            clamped=clamped != corrected,
+            rotations_per_ul=rotations_per_ul / ratio,
+            max_correction_scale=max_correction_scale,
             accepted_count=len(accepted),
             rejections=rejections,
         ),
@@ -305,6 +320,9 @@ def run_flow_calibration(
     **補正できなくても例外にしない。** この時点で基板の位置合わせと高さ計測が済んでおり、後から足した補正が失敗したせいで塗布そのものを取りやめるのは割に合わない。
     校正ファイルが読めない・撮れない・検出できない・採用できる直径範囲の外だった、のいずれもログに残して ``None`` を返し、呼び出し側は ``machine.toml`` の係数のまま塗る。
 
+    例外にするのは、補正できたうえで係数が許容倍率（``plan.max_correction_scale``）を超えて動くときだけ。
+    ``machine.toml`` の係数も補正後の係数も信用できないので、pad を塗らずに止めて吐出量キャリブレーションのやり直しを促す。
+
     Args:
         hooks: 経過の出力と中断の確認
         session: 計測済みの塗布セッション
@@ -312,6 +330,9 @@ def run_flow_calibration(
         applicator: 塗布に使うディスペンサー（有効化済み）
         plan: 測定点と条件
         calibration_dir: 校正ファイルの置き場所
+
+    Raises:
+        ValueError: 補正で係数が許容倍率を超えて動く場合
     """
     estimator, error = load_diameter_estimator(
         calibration_dir / plan.calibration_file, reliable_range_only=True
@@ -382,15 +403,18 @@ def run_flow_calibration(
         predictions,
         amount_ul=plan.amount_ul,
         rotations_per_ul=applicator.rotations_per_ul,
+        max_correction_scale=plan.max_correction_scale,
     )
     if outcome is None:
         hooks.log(f"流量キャリブレーション: 補正しません: {error}")
         return None
     hooks.log(outcome.summary())
-    if outcome.clamped:
-        hooks.log(
-            "流量キャリブレーション: 補正量が 1/3〜3 倍の上限に当たりました。"
-            "校正の条件やノズルの状態を確認してください"
+    if outcome.exceeds_limit:
+        raise ValueError(
+            f"流量キャリブレーション: rotations_per_ul が "
+            f"{outcome.previous_rotations_per_ul:.4f} → {outcome.rotations_per_ul:.4f} と"
+            f"許容 {outcome.max_correction_scale:g} 倍を超えて変わります。"
+            "吐出量キャリブレーションをやり直してください"
         )
     return outcome
 

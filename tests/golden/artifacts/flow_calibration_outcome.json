@@ -4,7 +4,7 @@
   "ratio": 0.917169729085308,
   "previous_rotations_per_ul": 45.783133,
   "rotations_per_ul": 49.91784132001331,
-  "clamped": false,
+  "max_correction_scale": 2.0,
   "accepted_count": 3,
   "rejections": []
 }

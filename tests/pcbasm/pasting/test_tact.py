@@ -360,6 +360,7 @@ class TestEstimatePrelude:
             crop_size_mm=2.0,
             calibration_file="c.json",
             settle_seconds=3.0,
+            max_correction_scale=2.0,
         )
         plan = attrs.evolve(_plan_of(self._BOARD), flow_calibration=flow)
         machine = _machine(plan)
