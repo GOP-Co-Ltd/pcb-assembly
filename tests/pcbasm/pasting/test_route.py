@@ -81,3 +81,45 @@ class TestPlanPasteRoute:
             "U1.far",
         ]
         assert len({stop.group_label for stop in stops}) == 1
+
+
+class TestPlanPasteRouteOrder:
+    """paste_order の小さい pad から塗り、同じ順序の中は形状グループと nearest route で並べる."""
+
+    def test_lower_paste_order_routes_first_regardless_of_area(self):
+        small = _pad("R1", "1", center=Point2d(0.0, 0.0), width=0.5, height=1.0)
+        large = _pad("U1", "1", center=Point2d(10.0, 0.0), width=2.0, height=2.0)
+        orders = {"U1": -1}
+
+        stops = plan_paste_route(
+            [small, large], paste_order=lambda pad: orders.get(pad.designator, 0)
+        )
+
+        assert [_pad_id(stop.pad) for stop in stops] == ["U1.1", "R1.1"]
+        assert [stop.order for stop in stops] == [1, 2]
+
+    def test_same_shape_in_different_orders_is_split(self):
+        first = _pad("R1", "1", center=Point2d(0.0, 0.0), width=0.5, height=1.0)
+        last = _pad("R2", "1", center=Point2d(1.0, 0.0), width=0.5, height=1.0)
+        large = _pad("U1", "1", center=Point2d(5.0, 0.0), width=2.0, height=2.0)
+        orders = {"R2": 1}
+
+        stops = plan_paste_route(
+            [first, last, large],
+            paste_order=lambda pad: orders.get(pad.designator, 0),
+        )
+
+        assert [_pad_id(stop.pad) for stop in stops] == ["R1.1", "U1.1", "R2.1"]
+
+    def test_next_order_continues_from_the_last_pad(self):
+        head = _pad("U1", "1", center=Point2d(10.0, 0.0), width=2.0, height=2.0)
+        near = _pad("R1", "near", center=Point2d(9.0, 0.0), width=0.5, height=1.0)
+        far = _pad("R1", "far", center=Point2d(0.0, 0.0), width=0.5, height=1.0)
+        orders = {"U1": 0, "R1": 1}
+
+        stops = plan_paste_route(
+            [far, near, head],
+            paste_order=lambda pad: orders[pad.designator],
+        )
+
+        assert [_pad_id(stop.pad) for stop in stops] == ["U1.1", "R1.near", "R1.far"]

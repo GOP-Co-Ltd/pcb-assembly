@@ -1,6 +1,6 @@
 """塗布パラメータの単一ソース.
 
-pad 単位で上書きできる 10 項目を :class:`PasteParams`（全項目確定）と
+pad 単位で上書きできる 11 項目を :class:`PasteParams`（全項目確定）と
 :class:`PasteParamsPatch`（差分、欠落 = 継承）の 2 型で表す。項目の一覧・並び・値の制約・表示名は
 :class:`PasteParams` の attrs フィールドが唯一の出典で、``machine.toml`` の
 ``[solder.defaults]`` もこの型で読む。項目名・pad 編集表の列・HTTP 境界の検証は
@@ -60,6 +60,19 @@ def _end_height(
         _height(instance, attribute, value)
     except ValueError as exc:
         raise ValueError(f"{exc}（数値のほかに auto と start を受け付けます）") from exc
+
+
+def _paste_order(_: object, attribute: attrs.Attribute, value: Any) -> None:
+    """整数（JSON と JS は整数と小数を区別しないので、整数値の float も受ける）."""
+    if not is_finite_number(value) or not float(value).is_integer():
+        raise ValueError(f"{attribute.name}は整数である必要があります: {value!r}")
+
+
+def _integral_to_int(value: Any) -> Any:
+    """整数値の float を int にする（それ以外は validator に任せる）."""
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
 
 
 def _dispense_mode(_: object, __: attrs.Attribute, value: DispenseMode) -> None:
@@ -122,12 +135,13 @@ class ParamField:
 
 @attrs.frozen(kw_only=True)
 class PasteParams:
-    """Pad 1 枚に適用する塗布パラメータ 10 項目（全項目確定）.
+    """Pad 1 枚に適用する塗布パラメータ 11 項目（全項目確定）.
 
     フィールド名は基板ごとの override（board_settings）の鍵なので変えない。
     フィールドの並びは UI の列順になる（:data:`PASTE_PARAM_FIELDS`）。
 
     Attributes:
+        paste_order: 塗布順序（小さいほど先に塗る。同じ値の中は :func:`~pcbasm.pasting.route.plan_paste_route` の自動順）
         dispense_mode: 塗布方式 auto / dot / line / area / micro_line
         line_direction: 線塗布・微小線の走行方向 unconstrained / outward / inward
         ul_per_mm2: パッド面積あたりのペースト量 [μL/mm²]
@@ -140,6 +154,12 @@ class PasteParams:
         micro_line_z_end: 微小線の終点で基板表面から取る隙間 [mm]、``auto``（塗布量から計算）、または ``start``（始点高に従う）
     """
 
+    paste_order: int = attrs.field(
+        default=0,
+        converter=_integral_to_int,
+        validator=_paste_order,
+        metadata={"label": "塗布順序", "group": "塗布方式", "order": 52},
+    )
     dispense_mode: DispenseMode = attrs.field(
         default="auto",
         validator=_dispense_mode,
@@ -246,6 +266,11 @@ def _validate_field_values(values: Mapping[str, object]) -> str | None:
     return None
 
 
+def _convert(name: str, value: PasteParamValue) -> PasteParamValue:
+    converter = _PASTE_PARAM_ATTRIBUTES[name].converter
+    return value if converter is None else converter(value)  # type: ignore[operator]
+
+
 def validate_field_names(fields: Iterable[str]) -> str | None:
     """:data:`PASTE_PARAM_NAMES` 外の項目があればエラー文、無ければ ``None``."""
     unknown = [field for field in fields if field not in _PASTE_PARAM_ATTRIBUTES]
@@ -272,8 +297,9 @@ class PasteParamsPatch:
     def __init__(self, **values: PasteParamValue | None) -> None:
         if (message := validate_field_names(values)) is not None:
             raise TypeError(message)
+        # PasteParams と同じ値で持つ（整数の項目は HTTP や JSON から float で届く）
         self._values = {
-            name: value
+            name: _convert(name, value)
             for name in PASTE_PARAM_NAMES
             if (value := values.get(name)) is not None
         }

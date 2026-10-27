@@ -708,6 +708,20 @@ class TestMicroLineOverride:
         assert restored.levels[0].patch == patch
 
 
+class TestPasteOrderOverride:
+    def test_json_round_trip_restores_an_integer_order(self):
+        patch = PasteParamsPatch(paste_order=-2)
+        model = PasteSettingsModel(
+            base=_base(), levels=(LevelSetting(("L2", "U1"), patch=patch),)
+        )
+        doc = json.loads(json.dumps(encode_board_settings(model, source_pcb="a")))
+
+        restored = _decode(doc)
+
+        assert restored.levels[0].patch == patch
+        assert restored.base.patched(restored.levels[0].patch).paste_order == -2
+
+
 class TestInitialPurgePointCodec:
     """パージ位置は ``settings.initial_purge_point`` に [x, y] で残す."""
 

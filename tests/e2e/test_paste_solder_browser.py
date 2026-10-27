@@ -397,9 +397,9 @@ class TestPasteSolderBrowserRendering:
         )
 
         root_row = pad_row(browser_page, "L0")
-        first_setting = root_row.get_by_test_id("pad-setting-input").nth(0)
-        assert first_setting.input_value(timeout=_BROWSER_TIMEOUT_MS) == ""
-        assert first_setting.get_attribute("placeholder") == str(
+        amount = pad_field(root_row, "pad-setting-input", "ul_per_mm2")
+        assert amount.input_value(timeout=_BROWSER_TIMEOUT_MS) == ""
+        assert amount.get_attribute("placeholder") == str(
             config["defaults"]["ul_per_mm2"]
         )
         assert root_row.get_by_test_id("pad-own-override-marker").count() == 0
