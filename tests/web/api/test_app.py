@@ -19,14 +19,8 @@ backend は静的資産を配信しない（ブラウザキャッシュを 1 本
 装置への接続の契約:
 
 - 起動時には Moonraker へ接続しない。Moonraker が落ちていても起動し、起きた後は操作なしで使える
-
-起動時の移行（pcbasm.migrate）の契約:
-
-- 設定を読む前に移行し、移行したことを `/api/session/state` の config_notice に出す
-- 移行できなければ元のファイルに触れずに degraded で起動し、理由を config_error に出す
 """
 
-import shutil
 from collections.abc import Callable
 from pathlib import Path
 
@@ -35,7 +29,6 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper
-from pcbasm.paths import PROJECT_ROOT
 from tests.support.moonraker import FakeMoonraker
 from tests.support.polling import wait_until
 from tests.support.web import devices_with_audio
@@ -44,10 +37,6 @@ from web.api.backend import Backend
 from web.api.env import Env
 from web.api.jobs.runtime.catalog import JobDefinition
 from web.api.jobs.runtime.context import JobContext
-
-MIGRATION_BEFORE = (
-    PROJECT_ROOT / "tests" / "pcbasm" / "migrate" / "machine-before-M.toml"
-)
 
 # tests/data/config/machine.toml の 1 行（lift_height は正の値が必要）
 _LIFT_HEIGHT = "lift_height = 2.0"
@@ -178,66 +167,6 @@ class TestMoonrakerAtStartup:
             status = client.get("/api/machine/status").json()
 
         assert status["connected"] is True
-
-
-class TestMigrationAtStartup:
-    """設定を読む前に machine.toml を移行する."""
-
-    def test_migrates_the_old_layout_and_reports_it(
-        self, config_dir: Path, webui_settings: Env
-    ):
-        path = config_dir / "machine.toml"
-        shutil.copy(MIGRATION_BEFORE, path)
-
-        with TestClient(create_app(webui_settings)) as client:
-            state = client.get("/api/session/state").json()
-
-        assert state["config_error"] is None
-        assert "machine-pre-M.toml" in state["config_notice"]
-        assert (config_dir / "history" / "machine-pre-M.toml").is_file()
-        assert (config_dir / "history" / "machine-pre-N.toml").is_file()
-        assert "[solder.motion]" in path.read_text()
-
-    def test_current_layout_starts_without_notice(self, client: TestClient):
-        assert client.get("/api/session/state").json()["config_notice"] is None
-
-    @pytest.mark.parametrize(
-        ("header", "inserted", "reason"),
-        [
-            ("[camera]", "[broken\n", "TOML として読めません"),
-            (
-                "[camera]",
-                "[paste_dispenser.pad_align]\ncanny_low = 1.0\n\n",
-                "途中まで移行済み",
-            ),
-            (
-                "[camera]",
-                "[paste_dispenser]\noverlap = 0.2\n\n[unknown]\n\n"
-                "[paste_dispenser.pad_align]\ncanny_low = 1.0\n\n",
-                "ほかの節をはさんで",
-            ),
-        ],
-        ids=["broken", "partially-migrated", "interleaved"],
-    )
-    def test_unmigratable_file_starts_degraded_and_is_left_untouched(
-        self,
-        config_dir: Path,
-        webui_settings: Env,
-        header: str,
-        inserted: str,
-        reason: str,
-    ):
-        """``inserted`` を ``header`` の直前に書いた machine.toml で起動する."""
-        _edit(config_dir, f"\n{header}\n", f"\n{inserted}{header}\n")
-        path = config_dir / "machine.toml"
-        original = path.read_text()
-
-        with TestClient(create_app(webui_settings)) as client:
-            state = client.get("/api/session/state").json()
-
-        assert "machine.toml を移行できませんでした" in state["config_error"]
-        assert reason in state["config_error"]
-        assert path.read_text() == original
 
 
 class TestReadsFromDiskEveryTime:
