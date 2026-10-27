@@ -310,6 +310,7 @@ class TestGetPadConfig:
         assert pad["resolved"]["line_direction"] == "unconstrained"
         assert pad["resolved"]["prime_extra_delay"] == 0.0
         assert pad["resolved"]["paste_height"] == "auto"
+        assert pad["resolved"]["paste_order"] == 0
 
         node_ids = pad["node_ids"]
         assert all(isinstance(node_id, str) for node_id in node_ids)
@@ -930,6 +931,38 @@ class TestPatchNode:
         assert root["height_fields"] == ["paste_height"]
         assert _node_by_id(root, "L2:U1")["height_fields"] == micro
         assert _node_by_id(root, "L4:U1:1")["height_fields"] == micro
+
+    @pytest.mark.parametrize("node", ["L2:U1", "L4:U1:1"])
+    def test_paste_order_override_persists_as_an_integer(
+        self, selected_client: TestClient, node: str
+    ):
+        # 部品ごと（L2）にも pad ごと（L4）にも書け、JSON の数 2 を整数の順序として読む
+        response = selected_client.patch(
+            "/api/pasting/board/node",
+            json={
+                "node": node,
+                "values": {"paste_order": 2},
+                "expected_pcb": _SELECTED_PCB,
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        config = _get_config(selected_client)
+        assert config["overrides"][node]["values"] == {"paste_order": 2}
+        pad = next(pad for pad in config["pads"] if pad["id"] == "U1.1")
+        assert pad["resolved"]["paste_order"] == 2
+
+    def test_fractional_paste_order_is_rejected(self, selected_client: TestClient):
+        response = selected_client.patch(
+            "/api/pasting/board/node",
+            json={
+                "node": "L2:U1",
+                "values": {"paste_order": 1.5},
+                "expected_pcb": _SELECTED_PCB,
+            },
+        )
+
+        assert response.status_code == 400
 
     def test_l2_values_upsert_reflects_on_children(self, selected_client: TestClient):
         response = selected_client.patch(

@@ -36,6 +36,7 @@ class TestPasteParamFields:
     def test_field_names_are_fixed(self):
         """項目名は基板ごとの override（board_settings）の鍵なので変えない."""
         assert PASTE_PARAM_NAMES == (
+            "paste_order",
             "dispense_mode",
             "line_direction",
             "ul_per_mm2",
@@ -56,6 +57,7 @@ class TestPasteParamFields:
         by_name = {field.name: field for field in PASTE_PARAM_FIELDS}
         assert by_name["paste_height"].kind == "height"
         assert by_name["ul_per_mm2"].kind == "number"
+        assert by_name["paste_order"].kind == "number"
 
     def test_labels_are_shared_with_the_settings_page(self):
         """表示名・単位・選択肢は attrs の metadata 1 か所から引き、設定ページと pad 編集表で同じになる."""
@@ -158,6 +160,11 @@ class TestValidateParamValues:
 
         assert validate_param_values(values) is None
 
+    @pytest.mark.parametrize("order", [0, 3, -2, 2.0])
+    def test_paste_order_accepts_any_integer(self, order: float):
+        # JSON と JS は整数と小数を区別しないので、整数値の 2.0 も受ける
+        assert validate_param_values({"paste_order": order}) is None
+
     def test_micro_line_end_may_follow_the_start(self):
         assert validate_param_values({"micro_line_z_end": "start"}) is None
 
@@ -190,6 +197,9 @@ class TestValidateParamValues:
             {"bead_width_factor": 0.0},
             {"prime_extra_delay": -1.0},
             {"boundary_margin": float("nan")},
+            {"paste_order": 1.5},
+            {"paste_order": True},
+            {"paste_order": "1"},
             {"micro_line_z_start": 0.0},
             {"micro_line_z_end": -0.05},
             # 始点に従うのは終点高だけ
@@ -209,10 +219,17 @@ class TestValidateParamValues:
 
 
 class TestPasteParamsValidators:
+    def test_integral_paste_order_is_stored_as_int(self):
+        params = _params(paste_order=2.0)
+
+        assert params.paste_order == 2
+        assert type(params.paste_order) is int
+
     def test_defaults_fill_optional_fields(self):
         params = PasteParams(ul_per_mm2=0.1, paste_height="auto")
 
         assert params == _params(
+            paste_order=0,
             prime_extra_delay=0.0,
             paste_height="auto",
             micro_line_z_start="auto",

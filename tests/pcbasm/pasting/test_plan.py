@@ -149,6 +149,20 @@ class TestPlanPaste:
         assert plan.params_for(by_id["U1.1"]).ul_per_mm2 == 0.25
         assert plan.params_for(by_id["U1.2"]) == _BASE
 
+    def test_paste_order_override_routes_the_component_first(self, pcb, hierarchy):
+        default_last = _plan(pcb, hierarchy, _model()).routed_pads[-1]
+        key = ("L2", default_last.designator)
+        model = _model().with_level_patch(key, values={"paste_order": -1})
+
+        plan = _plan(pcb, hierarchy, model)
+
+        designators = [pad.designator for pad in plan.routed_pads]
+        count = designators.count(default_last.designator)
+        assert designators[:count] == [default_last.designator] * count
+        assert [stop.order for stop in plan.route] == list(
+            range(1, len(plan.route) + 1)
+        )
+
     def test_line_reference_is_the_component_position(self, pcb, hierarchy):
         plan = _plan(pcb, hierarchy, _model())
         positions = {c.designator: c.position for c in pcb.components}

@@ -37,6 +37,7 @@
 | プライム・パージ       | `solder.initial_purge_ul`                                                   | 初回パージ量                    | uL     | 数値（0 以上）                                                                           |
 | 塗布方式               | `solder.defaults.dispense_mode`                                             | 塗布方式                        |        | `auto`（Auto） / `dot`（点） / `line`（線） / `area`（面） / `micro_line`（微小線）      |
 | 塗布方式               | `solder.defaults.line_direction`                                            | 線の走行方向                    |        | `unconstrained`（指定なし） / `outward`（部品中心 → 外側） / `inward`（外側 → 部品中心） |
+| 塗布方式               | `solder.defaults.paste_order`                                               | 塗布順序                        |        | 整数                                                                                     |
 | Auto の切り替え        | `solder.auto.line_aspect_ratio`                                             | Auto線塗布しきい縦横比          |        | 数値                                                                                     |
 | Auto の切り替え        | `solder.auto.area_short_side_factor`                                        | Auto面塗布しきい短辺倍率        |        | 数値                                                                                     |
 | 塗布経路               | `solder.defaults.bead_width_factor`                                         | ビード幅係数                    |        | 数値                                                                                     |

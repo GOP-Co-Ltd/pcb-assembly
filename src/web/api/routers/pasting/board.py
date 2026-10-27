@@ -86,6 +86,7 @@ class ResolvedSettings(BaseModel):
     """解決済みの確定塗布設定（enabled + override 項目）."""
 
     enabled: bool
+    paste_order: int
     dispense_mode: str
     line_direction: str
     paste_height: float | str

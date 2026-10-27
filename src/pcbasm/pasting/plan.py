@@ -97,7 +97,7 @@ class PastePlan:
 def plan_paste(loaded: BoardSession, *, layer: Layer = Layer.TOP) -> PastePlan:
     """基板設定から ``layer`` の塗布の前計画を組む.
 
-    有効 pad だけを :func:`~pcbasm.pasting.route.plan_paste_route` の順に並べる。
+    有効 pad だけを、解決済みの塗布順序で :func:`~pcbasm.pasting.route.plan_paste_route` の順に並べる。
     初回パージと運転時補正は、機能が無効なら解決しない（エラーにもしない）。
     """
     board = loaded.board
@@ -105,7 +105,12 @@ def plan_paste(loaded: BoardSession, *, layer: Layer = Layer.TOP) -> PastePlan:
     config = loaded.base_config
     resolved = resolve_pad_settings(loaded.hierarchy, model)
     pads = tuple(pad for pad in board.pads if pad.layer is layer)
-    route = tuple(plan_paste_route(pad for pad in pads if resolved[pad.ref].enabled))
+    route = tuple(
+        plan_paste_route(
+            (pad for pad in pads if resolved[pad.ref].enabled),
+            paste_order=lambda pad: resolved[pad.ref].params.paste_order,
+        )
+    )
     flow_calibration, flow_calibration_error = plan_flow_calibration(
         config=config.volume_correction,
         points=model.flow_calibration_points,

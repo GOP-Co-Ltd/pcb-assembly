@@ -1,6 +1,6 @@
 """Paste pad の塗布順路計算."""
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 import attrs
 
@@ -31,40 +31,43 @@ def plan_paste_route(
     *,
     start: Point2d = Point2d(0.0, 0.0),
     shape_quantum: float = 0.01,
+    paste_order: Callable[[Pad], int] = lambda _: 0,
 ) -> list[PasteRouteStop]:
-    """Pad を同種類ごとにまとめ、面積の小さい順に塗布順へ並べる.
+    """Pad を塗布順序と同種類ごとにまとめ、順序・面積の小さい順に塗布順へ並べる.
 
     同種類の判定は :class:`pcbasm.pasting.hierarchy.PadShapeKey` に従う。グループ間は
-    面積昇順、グループ内は直前位置からの nearest route で並べる。
+    塗布順序の昇順、同じ順序の中は面積昇順、グループ内は直前位置からの nearest route で並べる。
     面積が同じグループどうしは長辺・短辺の昇順、次に通常形状を先、最後に入力順で決める。
 
     Args:
         pads: 並べる pad（有効/無効の絞り込みは呼び出し側で済ませる）
         start: 最初のグループの nearest route の起点（board 座標 [mm]）
         shape_quantum: 同種類判定で面積・辺長を丸める単位 [mm / mm²]
+        paste_order: pad の塗布順序（小さいほど先。既定は全 pad 同じ）
     """
-    groups: dict[PadShapeKey, list[Pad]] = {}
-    first_index: dict[PadShapeKey, int] = {}
+    groups: dict[tuple[int, PadShapeKey], list[Pad]] = {}
+    first_index: dict[tuple[int, PadShapeKey], int] = {}
     for index, pad in enumerate(pads):
-        key = PadShapeKey.of(pad, quantum=shape_quantum)
+        key = (paste_order(pad), PadShapeKey.of(pad, quantum=shape_quantum))
         groups.setdefault(key, []).append(pad)
         first_index.setdefault(key, index)
 
-    ordered_keys = sorted(
-        groups,
-        key=lambda key: (
-            key.area_q,
-            key.long_q,
-            key.short_q,
-            key.is_custom_shape,
+    def sort_key(key: tuple[int, PadShapeKey]) -> tuple[int, int, int, int, bool, int]:
+        paste_order, shape = key
+        return (
+            paste_order,
+            shape.area_q,
+            shape.long_q,
+            shape.short_q,
+            shape.is_custom_shape,
             first_index[key],
-        ),
-    )
+        )
 
     route: list[PasteRouteStop] = []
     current = start.to3d()
     order = 1
-    for key in ordered_keys:
+    for key in sorted(groups, key=sort_key):
+        _, shape = key
         group = sort_by_nearest(
             groups[key],
             current,
@@ -75,7 +78,7 @@ def plan_paste_route(
                 PasteRouteStop(
                     pad=pad,
                     order=order,
-                    group_label=key.label,
+                    group_label=shape.label,
                     area=pad.area,
                 )
             )
