@@ -1,8 +1,8 @@
 # GitHub Actions Runner
 
 GitHub Actions 専用の Raspberry Pi 5（arm64、8GB RAM）を self-hosted runner として
-構築する。self-hosted runner は 1 instance あたり 1 job しか実行しない。3 job を並列に
-実行するため、runner instance を 3 つ登録する。
+構築する。self-hosted runner は 1 instance あたり 1 job しか実行しない。Raspberry Pi を
+複数台用意して並列度を確保し、1 台につき runner instance を 1 つ登録する。
 
 ## 前提
 
@@ -31,8 +31,8 @@ repository を checkout した Raspberry Pi 上で、`sudo` を付けずに実�
 
 - CI に必要な OS package、Git LFS、KiCad（`pcbnew`）、Chromium、`uv 0.10.9` のインストール
 - `github-runner` user の作成と host cache directory の準備
-- `actions/runner` の最新 release を `/opt/actions-runner/pcb-assembly-rpi-{1,2,3}` へ展開
-- registration token の取得（`gh`）または非表示入力による 3 instance の登録
+- `actions/runner` の最新 release を `/opt/actions-runner/pcb-assembly-rpi-1` へ展開
+- registration token の取得（`gh`）または非表示入力による instance の登録
 - systemd service の作成・起動と、service・登録状態・GitHub 接続の検証
 
 処理を分ける場合は、次の順に実行する。
@@ -71,7 +71,7 @@ runs-on: [self-hosted, linux, ARM64, rpi-ci]
 
 `verify` は次を確認する。
 
-- 3 instance が登録済みで、systemd service が有効かつ起動中
+- instance が登録済みで、systemd service が有効かつ起動中
 - Git LFS の system filter 設定と `pcbnew` の import
 - `uv` version
 - GitHub 側の runner 一覧（name / status / busy / label）
@@ -89,8 +89,8 @@ OS package は job ごとにインストールしない。各 job は独立し�
 /home/github-runner/.cache/pre-commit
 ```
 
-3 instance は同じ host cache を共有する。`uv` と pre-commit は cache への並行アクセスを
-lock で保護するため、並列 job でも安全に共有できる。
+host cache は同じ host 上の job が共有する。`uv` と pre-commit は cache への並行アクセスを
+lock で保護する。
 
 `pcbnew` Python module は Trixie の `kicad` package から導入する。CI では symbol、footprint、
 demo を使わないため、`kicad` の推奨 package はインストールしない。
@@ -125,11 +125,17 @@ Actions Runner は service が自動で self-update するため、通常は作�
 `install` は、`config.sh` がすでにある instance directory を上書きしない。`register` も登録済み
 instance を登録し直さない。runner version を明示的に入れ替える場合は、次の順に行う。
 
-1. 「登録解除と削除」の手順で 3 instance すべてを削除する
+1. 「登録解除と削除」の手順で instance を削除する
 2. `RUNNER_VERSION=<version> ./github-runner/setup.sh setup` を実行する
 
 `uv` を入れ替えるには、`setup.sh` の `UV_VERSION` を変えた変更が review された後に `install` を
 再実行する（`install` は導入済み `uv` の version が `UV_VERSION` と違うときだけ入れ直す）。
+
+## 3 instance 構成からの移行
+
+以前は 1 台に 3 instance（`pcb-assembly-rpi-{1,2,3}`）を置いていた。この構成の host では、
+「登録解除と削除」の手順を `pcb-assembly-rpi-2` と `pcb-assembly-rpi-3` に対して実行する。
+`pcb-assembly-rpi-1` は残し、そのまま使う。`setup.sh` は余分な instance を削除しない。
 
 ## 登録解除と削除
 
@@ -147,7 +153,7 @@ sudo -u github-runner ./config.sh remove \
 cd - && sudo rm -rf "$dir"
 ```
 
-3 instance すべてを削除したら、GitHub の Settings > Actions > Runners に削除済み runner が
+instance を削除したら、GitHub の Settings > Actions > Runners に削除済み runner が
 残っていないか確認する。
 
 ## 参考
