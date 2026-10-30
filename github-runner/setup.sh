@@ -25,6 +25,8 @@ Usage: $(basename "$0") <setup|install|register|status|verify>
 
 環境変数:
   RUNNER_VERSION  導入するActions Runnerのversion（既定: 最新release）
+  RUNNER_NAME     GitHub上のrunner名（既定: ${RUNNER_NAME_PREFIX}-1）
+  RUNNER_TOKEN    registration token（既定: gh、無ければ端末から入力）
 EOF
 }
 
@@ -50,7 +52,7 @@ instance_dir() {
 }
 
 instance_name() {
-    echo "${RUNNER_NAME_PREFIX}-$1"
+    echo "${RUNNER_NAME:-${RUNNER_NAME_PREFIX}-$1}"
 }
 
 service_name() {
@@ -180,7 +182,7 @@ install_runner_instances() {
     trap - EXIT
 
     # installdependencies.sh も runner root 上での実行を前提にしている。
-    (cd "$(instance_dir 1)" && sudo ./bin/installdependencies.sh)
+    (cd "$(instance_dir 1)" && sudo env DEBIAN_FRONTEND=noninteractive ./bin/installdependencies.sh)
     echo "Actions Runner ${version}を${RUNNER_COUNT} instance導入しました。"
 }
 
@@ -189,8 +191,8 @@ install_dependencies() {
     require_command curl
     check_platform
 
-    sudo apt-get update
-    sudo apt-get install --yes \
+    sudo env DEBIAN_FRONTEND=noninteractive apt-get update
+    sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes \
         ca-certificates \
         chromium \
         curl \
@@ -204,7 +206,7 @@ install_dependencies() {
         v4l-utils
     sudo git lfs install --system --skip-repo
     verify_git_lfs
-    sudo apt-get install --yes --no-install-recommends kicad
+    sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends kicad
     verify_pcbnew_import
 
     install_uv
@@ -237,6 +239,11 @@ instance_is_registered() {
 read_registration_token() {
     local token
 
+    if [ -n "${RUNNER_TOKEN:-}" ]; then
+        echo "${RUNNER_TOKEN}"
+        return
+    fi
+
     if command -v gh >/dev/null 2>&1 &&
         token="$(gh api --method POST \
             "repos/${REPO_SLUG}/actions/runners/registration-token" \
@@ -245,6 +252,9 @@ read_registration_token() {
         return
     fi
 
+    if ! { : </dev/tty; } 2>/dev/null; then
+        die "registration tokenを取得できません。RUNNER_TOKENを指定するか、ghで認証してください"
+    fi
     if ! IFS= read -r -s -p "Runner registration token (A...): " token </dev/tty; then
         printf '\n' >&2
         die "registration tokenを読み取れませんでした"
@@ -281,24 +291,30 @@ register_instance() {
 }
 
 install_instance_service() {
-    local index instance service
+    local index registered_now instance service restart
 
     index="$1"
+    registered_now="$2"
     instance="$(instance_dir "${index}")"
+    restart="${registered_now}"
 
     if ! service="$(service_name "${index}")"; then
         # svc.sh も runner root を cwd にして実行する必要がある。
         (cd "${instance}" && sudo ./svc.sh install "${RUNNER_USER}")
         service="$(service_name "${index}")" ||
             die "$(instance_name "${index}")のservice名を取得できませんでした"
+        restart="true"
     fi
 
+    # 登録済みで起動中のserviceは、実行中のjobを止めないよう触らない。
     sudo systemctl enable --now "${service}"
-    sudo systemctl restart "${service}"
+    if [ "${restart}" = "true" ]; then
+        sudo systemctl restart "${service}"
+    fi
 }
 
 register_runner() {
-    local index token=""
+    local index registered_now token=""
 
     require_command sudo
     require_command systemctl
@@ -307,6 +323,7 @@ register_runner() {
         sudo test -x "$(instance_dir "${index}")/config.sh" ||
             die "$(instance_dir "${index}")が未インストールです。先にinstallを実行してください。"
 
+        registered_now="false"
         if instance_is_registered "${index}"; then
             echo "$(instance_name "${index}")は登録済みです。"
         else
@@ -315,9 +332,10 @@ register_runner() {
                 token="$(read_registration_token)"
             fi
             register_instance "${index}" "${token}"
+            registered_now="true"
         fi
 
-        install_instance_service "${index}"
+        install_instance_service "${index}" "${registered_now}"
     done
     token=""
 }
