@@ -52,6 +52,7 @@ jobs:
       - name: Run pyright
         run: make type
 
+  # 非 E2E テストと WebUI E2E は互いに独立なので、別 job にして別の runner で並列に走らせる。
   pytest:
     runs-on: [self-hosted, linux, ARM64, rpi-ci]
     timeout-minutes: 30
@@ -78,6 +79,35 @@ jobs:
         env:
           PYTEST_ADDOPTS: --timeout=180 --junitxml=pytest-report.xml
 
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-report
+          path: pytest-report.xml
+          retention-days: 7
+
+  e2e:
+    runs-on: [self-hosted, linux, ARM64, rpi-ci]
+    timeout-minutes: 30
+    env:
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      UV_NO_SYNC: "1"
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure host caches
+        run: echo "UV_CACHE_DIR=$HOME/.cache/uv" >>"$GITHUB_ENV"
+
+      - name: Sync dependencies
+        run: |
+          uv venv --clear --system-site-packages --python /usr/bin/python3
+          uv sync --locked --all-groups
+
+      - name: Fetch LFS objects
+        run: git lfs pull
+
       - name: Prepare Chromium for browser tests
         run: |
           if [ ! -x /usr/bin/chromium ]; then
@@ -93,8 +123,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pytest-report
-          path: |
-            pytest-report.xml
-            e2e-report.xml
+          name: e2e-report
+          path: e2e-report.xml
           retention-days: 7
