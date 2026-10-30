@@ -89,9 +89,9 @@ Chromium がシステムにない場合は `make playwright-install` でブラ�
 `make format` は git が追跡するファイルだけを検査する。新規ファイルは `git add` してから実行する。
 `make format` がファイルを書き換えた場合は diff を確認して再実行する。
 日本語 docstring は 1 文を 1 行に書く。複数行にまたがる文は docformatter が崩す。
-GitHub Actions は専用 Raspberry Pi runner で pre-commit、pyright、テストと
-隔離 E2E を実行する。`pytest` チェックはテストに続けてブラウザ・HTTP・WS・MJPEG を
-検証し、`pytest-report` artifact に両スイートの JUnit レポートを残す。
+GitHub Actions は専用 Raspberry Pi runner で pre-commit、pyright、テスト、隔離 E2E を
+別 job にして並列に実行する。`pytest` job は非 E2E テスト、`e2e` job はブラウザ・HTTP・WS・
+MJPEG の検証を受け持ち、JUnit レポートを `pytest-report` と `e2e-report` の artifact に残す。
 
 ## テストの書き方
 

@@ -129,9 +129,10 @@ demo を使わないため、`kicad` の推奨 package はインストールし�
 テスト画像・音声は Git LFS で管理する。`install` は Git LFS filter を system 設定し、pytest
 job は checkout 済み workspace に対して `git lfs pull` を実行する。
 
-`pytest` job は非実機テストに続けて、fake カメラと隔離した backend・frontend を使う
-WebUI E2E を実行する。Chromium は headless で起動し、カメラや GPIO の権限は不要。
-両スイートの JUnit レポートは `pytest-report` artifact に 7 日間保存する。
+`pytest` job は非実機テストを、`e2e` job は fake カメラと隔離した backend・frontend を使う
+WebUI E2E を実行する。2 つは別 job で、別の runner に並列で割り当てられる。Chromium は
+headless で起動し、カメラや GPIO の権限は不要。JUnit レポートは `pytest-report` と
+`e2e-report` の artifact に 7 日間保存する。
 
 新しい runner には `install` で system Chromium を導入する。既存 runner に
 `/usr/bin/chromium` が無い場合、workflow は Playwright の headless shell をユーザー cache へ
