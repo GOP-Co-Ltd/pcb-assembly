@@ -49,6 +49,37 @@ runner version を固定する場合は `RUNNER_VERSION` を指定する。
 RUNNER_VERSION=2.330.0 ./github-runner/setup.sh install
 ```
 
+## 環境変数
+
+| 変数             | 既定                 | 内容                                                     |
+| ---------------- | -------------------- | -------------------------------------------------------- |
+| `RUNNER_NAME`    | `pcb-assembly-rpi-1` | GitHub 上の runner 名。instance directory は変わらない   |
+| `RUNNER_TOKEN`   | なし                 | registration token。指定すると `gh` も端末入力も使わない |
+| `RUNNER_VERSION` | 最新 release         | 導入する Actions Runner の version                       |
+
+registration token の優先順は `RUNNER_TOKEN`、`gh`、端末（`/dev/tty`）の入力。どれも使えないと、
+待たずに失敗する。token は標準出力にもログにも出さない。
+
+複数台を同じ repository へ登録するときは、台ごとに別の `RUNNER_NAME` を指定する。同じ名前だと
+`--replace` により、後から登録した host が先の登録を奪う。
+
+```bash
+RUNNER_NAME=pcb-assembly-usausa001 RUNNER_TOKEN=<token> \
+    ./github-runner/setup.sh setup </dev/null
+```
+
+`setup` は何度流しても、登録済みの runner を登録し直さず、起動中の service も再起動しない。
+`apt-get` は `DEBIAN_FRONTEND=noninteractive` で実行する。
+
+## 本番の 4 台
+
+本番の 4 台（usausa000 から usausa003）は、usausa（Raspberry Pi を Ansible で管理する repository）から
+導入する。usausa は commit SHA を固定して `setup.sh` を 1 つだけ各機体へ配り、
+`RUNNER_NAME` と `RUNNER_TOKEN` を渡して実行する。`setup.sh` は他のファイルを参照せず、単体で
+動く状態を保つこと。
+
+`setup.sh` を変えただけでは本番に反映されない。merge 後に usausa 側で SHA を更新し、rollout する。
+
 registration token は 1 時間で失効する短命 token で、コマンド引数のみで渡すため
 repository や shell 履歴には残らない。登録後の認証情報は runner instance directory の
 `.runner` / `.credentials` に保存される。これらを repository へコピーしないこと。
