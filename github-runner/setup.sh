@@ -9,8 +9,8 @@ readonly RUNNER_ROOT="/opt/actions-runner"
 readonly RUNNER_NAME_PREFIX="pcb-assembly-rpi"
 readonly RUNNER_LABELS="rpi-ci"
 # GitHub Actions の self-hosted runner は 1 instance あたり 1 job しか
-# 実行しない。GitLab Runner の concurrent = 3 に合わせて 3 instance 置く。
-readonly RUNNER_COUNT="3"
+# 実行しない。Raspberry Pi を 4 台導入したので、1 台につき 1 instance 置く。
+readonly RUNNER_COUNT="1"
 readonly UV_VERSION="0.10.9"
 
 usage() {
