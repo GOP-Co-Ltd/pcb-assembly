@@ -34,7 +34,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from pcbasm.commissioning import STEPS
-from pcbasm.config.fields import setting_fields
+from pcbasm.config.fields import SettingField, setting_fields
 from pcbasm.machine.diagnostics import Check, save_checks
 from tests.support.web import BACKEND_MACHINE_ID
 from web.api.app import create_app as create_backend_app
@@ -70,7 +70,16 @@ ROBUST_PAGE_URLS = [
 _OVERLAY_RADIO_RE = re.compile(r"<input[^>]*name=\"overlay\"[^>]*>")
 
 # ジョブコンテキスト（job_name / param_specs）が注入される全ページ
-JOB_PAGES = sorted(feature.slug for feature in FEATURES if feature.is_job)
+# テストの機体（tests/data/config）ははんだ塗布機なので、部品実装のページと設定は持たない
+JOB_PAGES = sorted(
+    feature.slug
+    for feature in FEATURES
+    if feature.is_job and feature.is_available(("solder",))
+)
+
+
+def _solder_machine_fields() -> list[SettingField]:
+    return [field for field in setting_fields() if field.section != "pnp"]
 
 
 def _loading_amount_input(default: object) -> str:
@@ -272,7 +281,7 @@ class TestPages:
 
         missing = [
             field.key
-            for field in setting_fields()
+            for field in _solder_machine_fields()
             if f'name="{field.key}"' not in text
             and f'data-pair-key="{field.key}"' not in text
         ]
@@ -294,7 +303,9 @@ class TestPages:
             r'class="settings-section"[^>]*data-section="([^"]+)"', text
         )
 
-        assert nav_slugs == list(dict.fromkeys(f.section for f in setting_fields()))
+        assert nav_slugs == list(
+            dict.fromkeys(f.section for f in _solder_machine_fields())
+        )
         assert panel_slugs == nav_slugs
         assert text.count('class="settings-section" data-section') == len(nav_slugs)
 

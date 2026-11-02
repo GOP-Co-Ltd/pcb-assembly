@@ -1,7 +1,13 @@
 # pnp
 
 Pick and Place（部品実装）のドメインロジックを置く場所。machine.toml に `[pnp]` がある機体で使う。
-いまは中身が無い。PnP を実装するときに、塗布（`pasting/`）と同じ形でここへ足す。
+塗布（`pasting/`）と同じ形でここへ足していく。
+
+## いまあるもの
+
+| モジュール       | 中身                                                                                                                                     |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `servo_setup.py` | ピンセットの 2 台のサーボの役割判別（Rotation / Open Close）と、Open Close の閉じ切り・開き切りの位置の検証。ジョブ `servo_setup` が使う |
 
 ## 置くもの
 
@@ -20,6 +26,7 @@ PnP のジョブは、塗布のジョブと同じく機体に `pnp` 機能があ
 | `pcbasm.board`   | 部品の位置・向き・pad（`Board` / `Component`）                                         |
 | `pcbasm.kicad`   | KiCad の基板の読み込み                                                                 |
 | `pcbasm.machine` | 装置（Klipper・カメラ）と駐機                                                          |
+| `pcbasm.hal`     | ピンセットのサーボ（`ServoBus`・`wiggle`・`Tweezer`）                                  |
 | `pcbasm.config`  | `MachineConfig.pnp`（`[pnp]`）と共通の節                                               |
 
 ## 依存方向

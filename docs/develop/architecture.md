@@ -81,7 +81,7 @@ web
 backend は起動したときの節で機能を決め（`MachineConfigFile.capabilities`。検証の前の内容から決めるので、設定エラーの間も節があればその機能がある）、次のものをそれで分ける。
 節を足したり外したりしたら backend を再起動する。
 
-- ジョブ: `src/web/api/jobs/catalog.py` の `default_catalog` が、塗布のジョブを solder 機能の機体にだけ登録する
+- ジョブ: `src/web/api/jobs/catalog.py` の `default_catalog` が、塗布のジョブを solder 機能の機体にだけ、部品実装のジョブを pnp 機能の機体にだけ登録する
 - API: `src/web/api/app.py` が、`routers/pasting/` を solder 機能の機体にだけ置く
 - 申告: `GET /api/session/machine-info` の `capabilities` と、mDNS の TXT の `caps`
 - 画面: `src/web/ui/features.py` の各ページの `capability` で、タブ・サイドバー・着地点を絞る。機体に無い機能のページはその機体の着地点へ 307 する
@@ -97,7 +97,7 @@ backend は起動したときの節で機能を決め（`MachineConfigFile.capab
 PnP の中身は、塗布と同じ形で次の場所に足す。
 
 1. `src/pcbasm/pnp/` に計算と機械手順を置く。`pcbasm.pasting` とは互いに import しない（`tests/test_architecture.py` が確かめる）
-2. `src/pcbasm/config/pnp.py` の `PnpConfig` に `[pnp]` の項目を足す。設定ページに出すなら `MachineConfig.pnp` に `section` の metadata を付ける
+2. `src/pcbasm/config/pnp.py` の `PnpConfig` に `[pnp]` の項目を足す。設定ページに出す項目には `setting` の metadata を付ける（`MachineConfig.pnp` には `section` の metadata が付いている）
 3. `src/web/api/jobs/pnp/` にジョブを置き、`default_catalog` の `if "pnp" in capabilities:` の下で登録する。API の router も `app.py` で同じ条件で置く
 4. `src/web/ui/features.py` の「部品実装」タブ（`pnp`）にページを `capability="pnp"` で足し、準備中のページ（`placement`）を置き換える
 5. 立ち上げの段を `pcbasm.commissioning` の `CAPABILITY_STEPS["pnp"]` に足し、[立ち上げ](../commissioning.md) の表にも足す
@@ -124,6 +124,7 @@ PnP の中身は、塗布と同じ形で次の場所に足す。
 | `board_tour`               | 校正     | `jobs/align/board_tour.py`                        | `align.board_frame.measure_board_frame`、`align.board.align_regions`、`refine_pad`                                                                                    | `[reference_point]`、`[alignment]`                        |
 | `orthogonality_test`       | 校正     | `jobs/align/orthogonality_test.py`                | `align.orthogonality.OrthogonalityMetrics`                                                                                                                            | `[reference_point]`                                       |
 | `copper_detection`         | 校正     | `routers/preview.py`、`routers/machine_config.py` | `vision.copper.CopperEdgeDetector`                                                                                                                                    | `[alignment]`                                             |
+| `servo_setup`              | 校正     | `jobs/pnp/servo_setup.py`                         | `pnp.servo_setup`、`hal.servo.wiggle`                                                                                                                                 | `[pnp.servo]`                                             |
 | `nozzle_cap`               | 校正     | `routers/pasting/nozzle.py`                       | `hal.stage.XYZStage`                                                                                                                                                  | `[solder.nozzle.cap]`、`[solder.nozzle.clean]`            |
 | `probe_guide`              | 校正     | なし（説明のページ）                              | なし                                                                                                                                                                  | `[probe]`                                                 |
 | `toolhead_offset`          | 校正     | `jobs/pasting/toolhead_offset.py`                 | `pasting.toolhead_offset.ToolheadOffsetProcedure`                                                                                                                     | `[solder.nozzle.offset]`                                  |
@@ -189,6 +190,7 @@ JS に `fetch()` や `new WebSocket()` を直接書かない。機体の prefix 
 | `pcbasm.pasting` | `src/web/api/jobs/pasting/` |
 | `pcbasm.kicad`   | `src/web/api/jobs/kicad/`   |
 | `pcbasm.machine` | `src/web/api/jobs/machine/` |
+| `pcbasm.pnp`     | `src/web/api/jobs/pnp/`     |
 
 1. ジョブのモジュールを作り、ジョブ関数と `register` を書く。関数は `JobContext` を受け取り、`pcbasm` を呼ぶ。ログ・進捗は `log` / `progress`、質問は `confirm` / `require` / `choose` / `ask_positive` で出す。
 2. `register` で `JobDefinition` を登録する。`name` はファイル名と同じ文字列にする。装置を動かさないジョブは `uses_machine=False` にする。塗布の永続データ（基板ごとの塗布設定、dataset、塗布量校正）を使うジョブは `register` で `PasteStores` を受け取る。

@@ -621,6 +621,7 @@ class FakeServoBus:
             positions or {}
         )
         self._commands: list[ServoCommand] = []
+        self._torque = dict.fromkeys(self._modes, False)
         self._closed = False
         self._lock = threading.Lock()
 
@@ -653,6 +654,7 @@ class FakeServoBus:
         self._mode(servo_id)
         with self._lock:
             self._commands.append(ServoCommand(servo_id, "torque", int(on)))
+            self._torque[servo_id] = on
 
     def goto(self, servo_id: int, position: int) -> None:
         self._require(servo_id, ServoMode.POSITION)
@@ -670,6 +672,20 @@ class FakeServoBus:
 
     def close(self) -> None:
         self._closed = True
+
+    def turn_by_hand(self, servo_id: int, position: int) -> None:
+        """トルクを切っている間に人が手で position まで回したことにする（指令には記録しない）.
+
+        Raises:
+            ServoError: 応答しない ID か、トルクが入っている場合
+        """
+        self._mode(servo_id)
+        with self._lock:
+            if self._torque[servo_id]:
+                raise ServoError(
+                    f"サーボ {servo_id} はトルクが入っていて手で回せません"
+                )
+            self._positions[servo_id] = position
 
     def _mode(self, servo_id: int) -> ServoMode:
         if servo_id not in self._modes:

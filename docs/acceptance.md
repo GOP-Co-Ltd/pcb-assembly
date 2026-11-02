@@ -87,6 +87,7 @@
 | `web.api`、`web.ui`                                   | A1, A8, A12, A17, A18 の画面操作             |
 | `web.selfupdate`、`scripts/`、unit                    | A11                                          |
 | `tests/golden` の更新                                 | A8 と、差分が出たジョブ・route の項目        |
+| `pcbasm.pnp`、`pcbasm.hal.servo`                      | A23                                          |
 
 ## 項目
 
@@ -115,6 +116,7 @@
 | A20  | 電源の入れ直し                   | 001                                    |
 | A21  | 所要時間の予測と実測             | 001                                    |
 | A22  | 機体の機能と [solder] への移行   | 001（002 は A19）                      |
+| A23  | ピンセットのサーボ設定           | PnP 機                                 |
 
 ### A0 装置診断
 
@@ -244,6 +246,18 @@
 - 前提: 移行前の `machine.toml`（`[paste_dispenser]` と `[tact]` の形）で、設定ページの全値を控えておく
 - 操作: ブランチで backend を起動する
 - 合格条件: `machine.toml` が `[solder]` の階層（`dispenser` / `nozzle` / `motion` / `defaults` / `auto` / `volume_correction` / `tact`）に移り、`config/history/machine-pre-N.toml` が残る。設定ページの全値が控えと一致する。機体一覧に「はんだ塗布」のバッジが出る。タブ（塗布 / 校正 / 基板 / 機体）、着地点（`paste_solder`）、塗布の画面が移行前と同じで、A8 と A18 が通る
+
+### A23 ピンセットのサーボ設定
+
+- 画面: `servo_setup`（PnP 機の校正タブ）
+- 前提: 2 台のサーボが別々の ID を持つ。Rotation はモード 3（ステップ）、Open Close はモード 0（位置）に FD ツールで書いてある。`machine.toml` の `[pnp.servo]` に `port` を書いてある
+- 操作: ジョブを始め、振られたサーボの役割を 1 台ずつ選ぶ。Open Close のトルクが切れたら、手で閉じ切り・開き切りにして「読む」を押す。確認の開閉を見て「はい」を押し、Apply する
+- 合格条件:
+    - 役割を尋ねる前に振る ±5° の動きで、どちらのサーボか見分けられ、振った後は元の向き・位置に戻る
+    - 確認の開閉で、閉じ切り・開き切りの当たりで唸らない（唸るなら「やり直す」で読み直せる）
+    - Apply の後、`[pnp.servo]` の `rotation_id` / `open_close_id` / `closed_position` / `open_position` が summary の 4 値と一致する
+    - 役割を逆に選ぶと、モードが合わないことを伝えて止まる
+    - Rotation（ステップモード）の振りの向きと量が指令どおり（+ で一方へ 5°、- で逆へ 10°、+ で戻る。負の step の sign-magnitude を確かめる）
 
 ## 未確認の項目（実機で確かめる）
 

@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import attrs
 
+from pcbasm.config.fields import setting
 from pcbasm.validators import as_validator
+
+_SERVO = "ピンセットのサーボ"
 
 _MAX_SERVO_ID = 253
 _MAX_POSITION = 4095
@@ -58,12 +61,33 @@ class ServoConfig:
         open_position: Open Close の開いた位置（raw 0〜4095）
     """
 
-    port: str
-    baudrate: int = 1_000_000
-    rotation_id: int | None = attrs.field(default=None, validator=_servo_id)
-    open_close_id: int | None = attrs.field(default=None, validator=_servo_id)
-    closed_position: int | None = attrs.field(default=None, validator=_position)
-    open_position: int | None = attrs.field(default=None, validator=_position)
+    port: str = attrs.field(
+        metadata=setting(label="シリアルポート", group=_SERVO, order=1)
+    )
+    baudrate: int = attrs.field(
+        default=1_000_000,
+        metadata=setting(label="通信速度", group=_SERVO, order=2, unit="bps"),
+    )
+    rotation_id: int | None = attrs.field(
+        default=None,
+        validator=_servo_id,
+        metadata=setting(label="Rotation の ID", group=_SERVO, order=3, minimum=0),
+    )
+    open_close_id: int | None = attrs.field(
+        default=None,
+        validator=_servo_id,
+        metadata=setting(label="Open Close の ID", group=_SERVO, order=4, minimum=0),
+    )
+    closed_position: int | None = attrs.field(
+        default=None,
+        validator=_position,
+        metadata=setting(label="閉じた位置", group=_SERVO, order=5, minimum=0),
+    )
+    open_position: int | None = attrs.field(
+        default=None,
+        validator=_position,
+        metadata=setting(label="開いた位置", group=_SERVO, order=6, minimum=0),
+    )
 
     def __attrs_post_init__(self) -> None:
         if error := self._validate_relations():

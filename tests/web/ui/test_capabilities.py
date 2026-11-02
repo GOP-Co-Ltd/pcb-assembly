@@ -41,8 +41,9 @@ class TestSolderMachine:
 
         assert _tabs(text) == ["塗布", "校正", "基板", "機体", "機体一覧"]
 
-    def test_pnp_page_leads_to_the_landing(self, client: TestClient):
-        response = client.get(f"{BASE}/placement", follow_redirects=False)
+    @pytest.mark.parametrize("slug", ["placement", "servo_setup"])
+    def test_pnp_pages_lead_to_the_landing(self, client: TestClient, slug: str):
+        response = client.get(f"{BASE}/{slug}", follow_redirects=False)
 
         assert response.status_code == 307
         assert response.headers["location"] == f"{BASE}/paste_solder"
@@ -98,3 +99,8 @@ class TestPnpMachine:
             "machine_check",
         ):
             assert client.get(f"{BASE}/{slug}").status_code == 200, slug
+
+    def test_servo_setup_page_renders_the_job_form(self, client: TestClient):
+        text = client.get(f"{BASE}/servo_setup").text
+
+        assert 'id="param-max_id"' in text

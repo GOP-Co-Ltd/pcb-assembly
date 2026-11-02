@@ -416,6 +416,24 @@ class TestFakeServoBus:
             ServoCommand(2, "torque", 0),
         ]
 
+    def test_turn_by_hand_moves_a_released_servo_without_a_command(
+        self, bus: FakeServoBus
+    ):
+        bus.set_torque(2, False)
+
+        bus.turn_by_hand(2, 1500)
+
+        assert bus.position(2) == 1500
+        assert bus.commands == [ServoCommand(2, "torque", 0)]
+
+    def test_turn_by_hand_is_refused_while_the_torque_is_on(self, bus: FakeServoBus):
+        bus.set_torque(2, True)
+
+        with pytest.raises(ServoError):
+            bus.turn_by_hand(2, 1500)
+
+        assert bus.position(2) == 1000
+
     def test_close_marks_the_bus_closed(self, bus: FakeServoBus):
         assert not bus.closed
 

@@ -54,6 +54,7 @@ _KINDS: dict[object, SettingKind] = {
     float: "float",
     float | None: "float",
     int: "int",
+    int | None: "int",
     str: "str",
     Path: "str",
     PasteHeight: "float_or_auto",
@@ -158,12 +159,8 @@ def setting_fields() -> tuple[SettingField, ...]:
         if not top.metadata:
             continue
         meta = section(**top.metadata)
-        # 機能の節（solder など）は無ければ None なので、None でない側の型を辿る
-        (cls,) = (
-            hint
-            for hint in get_args(hints[top.name]) or (hints[top.name],)
-            if attrs.has(hint)
-        )
+        cls = _table(hints[top.name])
+        assert cls is not None, top.name
         for order, field in _leaves(cls, top.name, (top.name, meta["label"])):
             position = (meta["order"], order)
             if position in ordered:
@@ -183,8 +180,8 @@ def _leaves(
         key = f"{prefix}.{attribute.name}"
         hint = hints[attribute.name]
         if not attribute.metadata:
-            if attrs.has(hint):
-                yield from _leaves(hint, key, top)
+            if (table := _table(hint)) is not None:
+                yield from _leaves(table, key, top)
             continue
         meta = setting(**attribute.metadata)
         yield (
@@ -204,6 +201,18 @@ def _leaves(
                 attribute=attribute,
             ),
         )
+
+
+def _table(hint: object) -> type | None:
+    """下位表の型（無ければ None の機能の節や下位表は、None でない側の型）。表でなければ None."""
+    return next(
+        (
+            arg
+            for arg in get_args(hint) or (hint,)
+            if isinstance(arg, type) and attrs.has(arg)
+        ),
+        None,
+    )
 
 
 def _kind(hint: object, set: tuple[str, ...]) -> SettingKind:
