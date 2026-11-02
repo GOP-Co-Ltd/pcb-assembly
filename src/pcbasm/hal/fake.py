@@ -1,4 +1,4 @@
-"""実機の代わりに使う Klipper・カメラ・音声出力の fake.
+"""実機の代わりに使う Klipper・カメラ・音声出力・サーボの fake.
 
 テストと開発用のシミュレーション起動（``make dev``）が同じ実装を使う。
 機構の物理は模擬せず、送信した G-code から位置と押出量を追うところまでにとどめる。
@@ -13,7 +13,7 @@ import time
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import Future
-from typing import Any, override
+from typing import Any, Literal, override
 
 import attrs
 import cv2
@@ -27,6 +27,7 @@ from pcbasm.vision.image import Image, ImageArray
 from .audio import AudioDevice, AudioPlayer, Sound
 from .camera import Camera, CameraInfo, Resolution
 from .klipper import GCodeJournal, KlipperError
+from .servo import STEPS_PER_REV, ServoError, ServoMode
 
 # FakeKlipper が既定で返す printer.cfg。XYZStage / PasteDispenser / ProbeExecutor と所要時間の予測が読むセクションだけを持つ
 FAKE_PRINTER_CONFIG: dict[str, dict[str, Any]] = {
@@ -581,3 +582,102 @@ class FakeAudioPlayer(AudioPlayer):
     @override
     def close(self) -> None:
         self._close_calls += 1
+
+
+@attrs.frozen
+class ServoCommand:
+    """FakeServoBus が受けた 1 回の指令.
+
+    Attributes:
+        servo_id: 送り先のサーボ ID
+        kind: 指令の種類（``goto`` は絶対位置、``step`` は相対 step、``torque`` はトルクの入切）
+        value: goto は位置、step は step 数、torque は 1（入）か 0（切）
+    """
+
+    servo_id: int
+    kind: Literal["goto", "step", "torque"]
+    value: int
+
+
+class FakeServoBus:
+    """指令を記録し、即座に位置へ反映する ``ServoBus``（動いている途中は無い）.
+
+    ``modes`` にある ID だけが応答する。位置モードの ID は goto だけ、ステップモードの ID は step だけを受け付ける。
+    """
+
+    def __init__(
+        self,
+        modes: Mapping[int, ServoMode],
+        positions: Mapping[int, int] | None = None,
+    ) -> None:
+        """Fake のバスを作る.
+
+        Args:
+            modes: 応答するサーボの ID とモード
+            positions: 初期位置（raw 0〜4095。書かない ID は 2048）
+        """
+        self._modes = dict(modes)
+        self._positions = {servo_id: 2048 for servo_id in self._modes} | dict(
+            positions or {}
+        )
+        self._commands: list[ServoCommand] = []
+        self._closed = False
+        self._lock = threading.Lock()
+
+    @property
+    def commands(self) -> list[ServoCommand]:
+        """受けた goto / step / torque の指令（送った順）."""
+        return self._commands
+
+    @property
+    def closed(self) -> bool:
+        """Close() されたか."""
+        return self._closed
+
+    def ping(self, servo_id: int) -> bool:
+        return servo_id in self._modes
+
+    def mode(self, servo_id: int) -> ServoMode:
+        return self._mode(servo_id)
+
+    def position(self, servo_id: int) -> int:
+        self._mode(servo_id)
+        with self._lock:
+            return self._positions[servo_id]
+
+    def moving(self, servo_id: int) -> bool:
+        self._mode(servo_id)
+        return False
+
+    def set_torque(self, servo_id: int, on: bool) -> None:
+        self._mode(servo_id)
+        with self._lock:
+            self._commands.append(ServoCommand(servo_id, "torque", int(on)))
+
+    def goto(self, servo_id: int, position: int) -> None:
+        self._require(servo_id, ServoMode.POSITION)
+        with self._lock:
+            self._commands.append(ServoCommand(servo_id, "goto", position))
+            self._positions[servo_id] = position
+
+    def step(self, servo_id: int, steps: int) -> None:
+        self._require(servo_id, ServoMode.STEP)
+        with self._lock:
+            self._commands.append(ServoCommand(servo_id, "step", steps))
+            self._positions[servo_id] = (
+                self._positions[servo_id] + steps
+            ) % STEPS_PER_REV
+
+    def close(self) -> None:
+        self._closed = True
+
+    def _mode(self, servo_id: int) -> ServoMode:
+        if servo_id not in self._modes:
+            raise ServoError(f"サーボ {servo_id} が応答しません")
+        return self._modes[servo_id]
+
+    def _require(self, servo_id: int, mode: ServoMode) -> None:
+        if (actual := self._mode(servo_id)) is not mode:
+            raise ServoError(
+                f"サーボ {servo_id} は {actual.name} モードなので受け付けません"
+            )

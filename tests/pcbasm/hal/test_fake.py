@@ -8,15 +8,24 @@ from shapely import Point
 
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d, Point3d
-from pcbasm.hal import FrameHub, KlipperError, ManualStepper, XYZStage
+from pcbasm.hal import (
+    FrameHub,
+    KlipperError,
+    ManualStepper,
+    ServoError,
+    ServoMode,
+    XYZStage,
+)
 from pcbasm.hal.fake import (
     FAKE_PRINTER_CONFIG,
     Checkerboard,
     FakeAudioPlayer,
     FakeCamera,
     FakeKlipper,
+    FakeServoBus,
     SceneCamera,
     SentGCode,
+    ServoCommand,
     StepperMove,
 )
 from pcbasm.vision import CheckerboardCalibrator, Image, ImageArray
@@ -319,3 +328,97 @@ class TestFakeAudioPlayer:
 
         with pytest.raises(RuntimeError, match="no device"):
             player.play("failure", "default", 0.75).result()
+
+
+class TestFakeServoBus:
+    """指令の記録と、指令から即座に追う位置."""
+
+    @pytest.fixture
+    def bus(self) -> FakeServoBus:
+        return FakeServoBus({1: ServoMode.STEP, 2: ServoMode.POSITION}, {2: 1000})
+
+    def test_answers_ping_only_for_known_ids(self, bus: FakeServoBus):
+        assert bus.ping(1)
+        assert bus.ping(2)
+        assert not bus.ping(3)
+
+    def test_reports_the_mode_of_each_id(self, bus: FakeServoBus):
+        assert bus.mode(1) == ServoMode.STEP
+        assert bus.mode(2) == ServoMode.POSITION
+
+    def test_position_defaults_to_the_middle_of_the_raw_range(self, bus: FakeServoBus):
+        assert bus.position(1) == 2048
+        assert bus.position(2) == 1000
+
+    @pytest.mark.parametrize(
+        "operate",
+        [
+            lambda bus: bus.mode(9),
+            lambda bus: bus.position(9),
+            lambda bus: bus.moving(9),
+            lambda bus: bus.set_torque(9, True),
+            lambda bus: bus.goto(9, 100),
+            lambda bus: bus.step(9, 100),
+        ],
+    )
+    def test_operations_other_than_ping_on_unknown_id_are_servo_errors(
+        self, bus: FakeServoBus, operate: Callable[[FakeServoBus], object]
+    ):
+        with pytest.raises(ServoError):
+            operate(bus)
+
+    def test_goto_is_refused_in_step_mode(self, bus: FakeServoBus):
+        with pytest.raises(ServoError):
+            bus.goto(1, 100)
+
+        assert bus.position(1) == 2048
+
+    def test_step_is_refused_in_position_mode(self, bus: FakeServoBus):
+        with pytest.raises(ServoError):
+            bus.step(2, 100)
+
+        assert bus.position(2) == 1000
+
+    def test_goto_moves_to_the_absolute_position_at_once(self, bus: FakeServoBus):
+        bus.goto(2, 3000)
+
+        assert bus.position(2) == 3000
+        assert not bus.moving(2)
+
+    def test_step_moves_relatively_and_wraps_at_one_revolution(self):
+        bus = FakeServoBus({1: ServoMode.STEP}, {1: 4000})
+
+        bus.step(1, 200)
+        assert bus.position(1) == 104
+
+        bus.step(1, -300)
+        assert bus.position(1) == 3900
+
+        bus.step(1, 4096 * 3)
+        assert bus.position(1) == 3900
+
+    def test_is_never_moving(self, bus: FakeServoBus):
+        bus.step(1, 4096)
+
+        assert not bus.moving(1)
+        assert not bus.moving(2)
+
+    def test_records_goto_step_and_torque_in_order(self, bus: FakeServoBus):
+        bus.set_torque(1, True)
+        bus.step(1, -10)
+        bus.goto(2, 1100)
+        bus.set_torque(2, False)
+
+        assert bus.commands == [
+            ServoCommand(1, "torque", 1),
+            ServoCommand(1, "step", -10),
+            ServoCommand(2, "goto", 1100),
+            ServoCommand(2, "torque", 0),
+        ]
+
+    def test_close_marks_the_bus_closed(self, bus: FakeServoBus):
+        assert not bus.closed
+
+        bus.close()
+
+        assert bus.closed
