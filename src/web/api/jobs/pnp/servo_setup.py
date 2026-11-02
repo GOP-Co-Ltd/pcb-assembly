@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from pcbasm.hal import ServoBus, wiggle
+from pcbasm.hal import ServoBus, hold_position, wiggle
 from pcbasm.pnp.servo_setup import (
     OpenCloseRange,
     ServoRole,
-    ServoSetupError,
     exercise,
     find_pair,
-    hold_here,
     release,
     role_of_mode,
     roles_from_answers,
@@ -29,7 +27,13 @@ def register(catalog: JobCatalog) -> None:
             name="servo_setup",
             label="ピンセットのサーボ設定（役割と開閉の範囲）",
             run=_run_servo_setup,
-            params=(ParamSpec("max_id", "探す ID の上限", "int", 20, minimum=1),),
+            params=(
+                ParamSpec(
+                    "max_id", "探す ID の上限", "int", 20, minimum=1, maximum=253
+                ),
+            ),
+            # サーボだけを動かし、XYZ には触れない。終了時のノズルキャップ駐機をせず、
+            # そのため機体スピーカーの完了音も鳴らない
             uses_machine=False,
         )
     )
@@ -41,16 +45,21 @@ def _run_servo_setup(ctx: JobContext) -> JobResult:
     ctx.progress("サーボを探す")
     pair = find_pair(bus, range(int(ctx.params["max_id"]) + 1))
     ctx.log(f"応答したサーボ: ID {pair[0]}、ID {pair[1]}")
+    # 位置モードのサーボを振るので、ピンセットが当たりにあると押し付けてしまう
+    ctx.require(
+        "サーボを 1 台ずつ少し振ります。ピンセットを中ほど（閉じ切り・開き切りでない位置）にしてから"
+        "「始める」を押してください",
+        true_label="始める",
+    )
 
     ctx.progress("役割の判別")
     while True:
         answers = {servo_id: _ask_role(ctx, bus, servo_id) for servo_id in pair}
-        try:
-            roles = roles_from_answers(answers)
-        except ServoSetupError as exc:
-            ctx.log(str(exc))
-            continue
-        break
+        if (roles := roles_from_answers(answers)) is not None:
+            break
+        ctx.log(
+            "2 台に同じ役割を選びました。Rotation と Open Close を 1 台ずつ選んでください"
+        )
     verify_modes(bus, roles)
 
     ctx.progress("開閉の範囲")
@@ -58,7 +67,16 @@ def _run_servo_setup(ctx: JobContext) -> JobResult:
         span = _read_range(ctx, bus, roles.open_close_id)
         if span is None:
             continue
-        exercise(bus, roles.open_close_id, span)
+        ctx.require(
+            "閉じ切り → 開き切りと動かして確かめます。ピンセットから手を離してから「動かす」を押してください",
+            true_label="動かす",
+        )
+        if not exercise(bus, roles.open_close_id, span):
+            ctx.log(
+                "確認の開閉が止まりきらない（当たりに押し付けている）のでトルクを切りました。"
+                "閉じ切り・開き切りを読み直します"
+            )
+            continue
         if ctx.confirm(
             "閉じ切り → 開き切りと動かしました。当たって唸らずに開閉しましたか?",
             true_label="はい",
@@ -107,9 +125,9 @@ def _read_range(ctx: JobContext, bus: ServoBus, servo_id: int) -> OpenCloseRange
         "手でピンセットを開き切りにして保持し、「読む」を押してください（読むとトルクが入ります）",
         true_label="読む",
     )
-    opened = hold_here(bus, servo_id)
-    try:
-        return OpenCloseRange(closed, opened)
-    except ServoSetupError as exc:
-        ctx.log(f"{exc}。もう一度読みます")
+    opened = hold_position(bus, servo_id)
+    span = OpenCloseRange(closed, opened)
+    if error := span.validate():
+        ctx.log(f"{error}。もう一度読みます")
         return None
+    return span

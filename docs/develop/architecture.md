@@ -54,7 +54,7 @@ web
 | `src/pcbasm/machine/`               | 装置の組み立て、G-code ジャーナル、操作パネルの命令、駐機、装置診断                              |
 | `src/pcbasm/align/`                 | 基板の位置合わせ、基準点、補正、カメラと装置の座標対応                                           |
 | `src/pcbasm/pasting/`               | 塗布の設定解決、経路、高さ面、機械手順、画像収集、塗布量校正                                     |
-| `src/pcbasm/pnp/`                   | 部品実装（Pick and Place）の置き場所。いまは中身が無い                                           |
+| `src/pcbasm/pnp/`                   | 部品実装（Pick and Place）。いまはピンセットのサーボの役割判別と開閉の範囲（`servo_setup.py`）   |
 | `src/pcbasm/commissioning.py`       | 立ち上げ手順の表と、各段が済んだかの判定（`GET /api/readiness`）                                 |
 | `src/web/api/routers/`              | HTTP 入出力とコア呼び出し、例外から HTTP 応答への変換                                            |
 | `src/web/api/jobs/`                 | 長時間処理、進捗、中断、操作者への質問、成果物の公開                                             |

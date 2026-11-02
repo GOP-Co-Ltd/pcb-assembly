@@ -3,6 +3,9 @@
 2 台のサーボを 1 台ずつ動かして、人がどちらが Rotation / Open Close かを答える。
 次に Open Close のトルクを切り、人が手で閉じ切り・開き切りにした位置を読む。
 ここには判別と範囲の検証だけを置き、人への問い合わせはジョブ（``web.api.jobs.pnp.servo_setup``）が担う。
+
+人の答えが使えないとき（同じ役割を 2 回選んだ、範囲が狭い）は戻り値で知らせ、ジョブが尋ね直す。
+:class:`ServoSetupError` は、人が答え直しても先へ進めない失敗（2 台見つからない、モードが合わない）に使う。
 """
 
 from __future__ import annotations
@@ -12,17 +15,16 @@ from collections.abc import Iterable, Mapping
 
 import attrs
 
-from pcbasm.hal import ServoBus, ServoMode, hold_position, scan, wait_stopped
+from pcbasm.config.pnp import open_close_span_error
+from pcbasm.hal import ServoBus, ServoMode, scan, wait_stopped
 from pcbasm.hal.servo import STEPS_PER_REV
 
 # 開き量がこれ未満なら、手で開き切りにし損ねたとみなす [deg]
 MIN_SPAN_DEGREES = 3.0
-# 閉じ〜開きが半回転を超えるなら 4095/0 の境目をまたいでいる
-_MAX_SPAN_STEPS = STEPS_PER_REV // 2
 
 
 class ServoSetupError(ValueError):
-    """役割や開閉の範囲が使えない（文言は利用者にそのまま見せる）."""
+    """サーボの組や役割が使えず、先へ進めない（文言は利用者にそのまま見せる）."""
 
 
 class ServoRole(enum.StrEnum):
@@ -87,17 +89,15 @@ class ServoRoles:
         return self.rotation_id if role is ServoRole.ROTATION else self.open_close_id
 
 
-def roles_from_answers(answers: Mapping[int, ServoRole]) -> ServoRoles:
+def roles_from_answers(answers: Mapping[int, ServoRole]) -> ServoRoles | None:
     """2 台それぞれに人が答えた役割から、役割の割り当てを作る.
 
-    Raises:
-        ServoSetupError: 両方の役割がそろっていない場合
+    Returns:
+        役割の割り当て。両方の役割がそろっていない（同じ役割を 2 回選んだ）なら None
     """
     by_role = {role: servo_id for servo_id, role in answers.items()}
     if len(answers) != 2 or len(by_role) != 2:
-        raise ServoSetupError(
-            "2 台に同じ役割を選びました。Rotation と Open Close を 1 台ずつ選んでください"
-        )
+        return None
     return ServoRoles(
         rotation_id=by_role[ServoRole.ROTATION],
         open_close_id=by_role[ServoRole.OPEN_CLOSE],
@@ -125,14 +125,6 @@ def release(bus: ServoBus, servo_id: int) -> None:
     bus.set_torque(servo_id, False)
 
 
-def hold_here(bus: ServoBus, servo_id: int) -> int:
-    """今の位置でトルクを入れ、その位置を返す.
-
-    トルクを入れる前に目標を今の位置にし、古い目標へ跳ばないようにする（:func:`pcbasm.hal.hold_position`）。
-    """
-    return hold_position(bus, servo_id)
-
-
 @attrs.frozen
 class OpenCloseRange:
     """Open Close の閉じ切り・開き切りの位置（raw 0〜4095）.
@@ -140,30 +132,29 @@ class OpenCloseRange:
     Attributes:
         closed_position: 閉じ切りの位置
         open_position: 開き切りの位置（閉じより小さくてもよい）
-
-    Raises:
-        ServoSetupError: 2 つが同じか、開き量が :data:`MIN_SPAN_DEGREES` 未満か、4095/0 の境目をまたぐ場合
     """
 
     closed_position: int
     open_position: int
 
-    def __attrs_post_init__(self) -> None:
-        steps = abs(self.open_position - self.closed_position)
-        if steps == 0:
-            raise ServoSetupError(
-                f"閉じ切りと開き切りが同じ位置（{self.closed_position}）です。開き切りまで動かしてから読んでください"
-            )
-        if steps > _MAX_SPAN_STEPS:
-            raise ServoSetupError(
-                f"閉じ切り（{self.closed_position}）と開き切り（{self.open_position}）の間が"
-                "サーボの 4095/0 の境目をまたいでいます。ホーンの付け位置を変えてください"
+    def validate(self) -> str | None:
+        """使えない範囲ならその理由（使えるなら None）.
+
+        設定と同じ規則（同じ位置は不可、4095/0 の境目をまたがない。
+        :func:`pcbasm.config.pnp.open_close_span_error`）に加え、開き量が
+        :data:`MIN_SPAN_DEGREES` 未満なら開き切りにし損ねたとみなす。
+        """
+        if error := open_close_span_error(self.closed_position, self.open_position):
+            return (
+                f"{error}。閉じ切り・開き切りまで動かしてから読み直すか、"
+                "境目をまたぐならホーンの付け位置を変えてください"
             )
         if self.span_degrees < MIN_SPAN_DEGREES:
-            raise ServoSetupError(
+            return (
                 f"開き量が {self.span_degrees:.1f}° しかありません（{MIN_SPAN_DEGREES:g}° 以上が要ります）。"
                 "閉じ切り・開き切りまで動かしてから読んでください"
             )
+        return None
 
     @property
     def span_degrees(self) -> float:
@@ -173,18 +164,23 @@ class OpenCloseRange:
 
 def exercise(
     bus: ServoBus, servo_id: int, span: OpenCloseRange, *, timeout: float = 6.0
-) -> None:
+) -> bool:
     """Open Close を閉じ切り → 開き切りと動かす（各移動の完了を待つ）.
 
+    移動が timeout 内に終わらなければ、当たりに押し付け続けないようトルクを切って止める。
+
+    Returns:
+        閉じ切り・開き切りとも timeout 内に動き終えたか（False ならトルクを切ってある）
+
     Raises:
-        ServoSetupError: 移動が timeout 内に終わらない場合
+        ServoError: 通信に失敗した場合
     """
     for target in (span.closed_position, span.open_position):
         bus.goto(servo_id, target)
         if not wait_stopped(bus, servo_id, timeout=timeout):
-            raise ServoSetupError(
-                f"サーボ {servo_id} の移動が {timeout} 秒で終わりません。当たって止まっていないか見てください"
-            )
+            release(bus, servo_id)
+            return False
+    return True
 
 
 def servo_settings(roles: ServoRoles, span: OpenCloseRange) -> dict[str, int]:

@@ -21,6 +21,23 @@ _MAX_POSITION = 4095
 _MAX_OPEN_CLOSE_SPAN = 2048
 
 
+def open_close_span_error(closed: int, opened: int) -> str | None:
+    """Open Close の閉じた位置と開いた位置の組が使えない理由（使えるなら None）.
+
+    2 つが同じ位置なら開閉できない。差が半回転（2048）を超えるなら 4095/0 の境目をまたいでおり、
+    サーボは短い側の逆向きに回ってしまう。設定の読み込みと、サーボ設定ジョブの両方が使う。
+    """
+    span = abs(opened - closed)
+    if span == 0:
+        return f"閉じた位置と開いた位置が同じ（{closed}）です"
+    if span > _MAX_OPEN_CLOSE_SPAN:
+        return (
+            f"閉じた位置（{closed}）と開いた位置（{opened}）の差が {_MAX_OPEN_CLOSE_SPAN} を超え、"
+            "サーボの 4095/0 の境目をまたいでいます"
+        )
+    return None
+
+
 def _validate_servo_id(name: str, value: object) -> str | None:
     if (
         isinstance(value, bool)
@@ -98,14 +115,8 @@ class ServoConfig:
             return f"rotation_idとopen_close_idは別のIDである必要があります: {self.rotation_id}"
         if self.closed_position is None or self.open_position is None:
             return None
-        span = abs(self.open_position - self.closed_position)
-        if span == 0:
-            return f"closed_positionとopen_positionは別の位置である必要があります: {self.closed_position}"
-        if span > _MAX_OPEN_CLOSE_SPAN:
-            return (
-                f"closed_position（{self.closed_position}）とopen_position（{self.open_position}）の差が"
-                f"{_MAX_OPEN_CLOSE_SPAN}を超えます（4095/0 の境目をまたいでいます）"
-            )
+        if error := open_close_span_error(self.closed_position, self.open_position):
+            return f"closed_position / open_position: {error}"
         return None
 
 

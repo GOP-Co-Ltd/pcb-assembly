@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from pcbasm.config import ConfigError, load_machine
-from pcbasm.config.pnp import PnpConfig, ServoConfig
+from pcbasm.config.pnp import PnpConfig, ServoConfig, open_close_span_error
 from tests.support.machine_toml import pnp_only
 from tests.support.paths import MINIMAL_MACHINE_TOML
 
@@ -157,3 +157,23 @@ class TestPnpServo:
         assert machine.pnp is not None
         assert machine.pnp.servo is not None
         assert machine.pnp.servo.open_position == open_
+
+
+class TestOpenCloseSpanError:
+    """設定の読み込みとサーボ設定ジョブが共有する、閉じ・開きの位置の組の規則."""
+
+    @pytest.mark.parametrize(
+        ("closed", "opened"), [(1000, 1001), (1300, 1000), (100, 2148), (3000, 952)]
+    )
+    def test_usable_pair_is_none(self, closed: int, opened: int):
+        assert open_close_span_error(closed, opened) is None
+
+    @pytest.mark.parametrize(
+        ("closed", "opened", "message"),
+        [(1000, 1000, "同じ"), (100, 2149, "境目"), (4000, 1951, "境目")],
+        ids=["same", "wraps_up", "wraps_down"],
+    )
+    def test_unusable_pair_tells_why(self, closed: int, opened: int, message: str):
+        error = open_close_span_error(closed, opened)
+
+        assert error is not None and message in error

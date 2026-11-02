@@ -15,7 +15,6 @@ from pcbasm.pnp.servo_setup import (
     ServoSetupError,
     exercise,
     find_pair,
-    hold_here,
     release,
     role_of_mode,
     roles_from_answers,
@@ -71,9 +70,8 @@ class TestRolesFromAnswers:
         assert roles == ServoRoles(rotation_id=2, open_close_id=1)
 
     @pytest.mark.parametrize("role", list(ServoRole))
-    def test_same_role_twice_is_an_error(self, role: ServoRole):
-        with pytest.raises(ServoSetupError, match="同じ役割"):
-            roles_from_answers({1: role, 2: role})
+    def test_same_role_twice_is_none(self, role: ServoRole):
+        assert roles_from_answers({1: role, 2: role}) is None
 
 
 class TestVerifyModes:
@@ -95,7 +93,7 @@ class TestVerifyModes:
         assert "FD" in message
 
 
-class TestReleaseAndHold:
+class TestRelease:
     def test_release_turns_the_torque_off(self):
         bus = FakeServoBus({2: ServoMode.POSITION})
 
@@ -103,65 +101,64 @@ class TestReleaseAndHold:
 
         assert bus.commands == [ServoCommand(2, "torque", 0)]
 
-    def test_hold_here_targets_the_current_position_before_the_torque(self):
-        bus = FakeServoBus({2: ServoMode.POSITION}, {2: 1000})
-        release(bus, 2)
-        bus.turn_by_hand(2, 1234)
-
-        assert hold_here(bus, 2) == 1234
-        assert bus.commands[1:] == [
-            ServoCommand(2, "goto", 1234),
-            ServoCommand(2, "torque", 1),
-        ]
-        assert bus.position(2) == 1234
-
 
 class TestOpenCloseRange:
     @pytest.mark.parametrize(("closed", "opened"), [(1000, 1300), (1300, 1000)])
     def test_either_direction_is_accepted(self, closed: int, opened: int):
         span = OpenCloseRange(closed, opened)
 
+        assert span.validate() is None
         assert span.span_degrees == pytest.approx(300 * 360 / 4096)
 
     @pytest.mark.parametrize(
         ("closed", "opened", "message"),
         [
-            (1000, 1000, "同じ位置"),
+            (1000, 1000, "同じ"),
             (1000, 1033, "開き量"),  # 33 step ≈ 2.9°
             (100, 3000, "境目"),
         ],
         ids=["same", "too_small", "wraps"],
     )
-    def test_unusable_range_is_an_error(self, closed: int, opened: int, message: str):
-        with pytest.raises(ServoSetupError, match=message):
-            OpenCloseRange(closed, opened)
+    def test_unusable_range_tells_why(self, closed: int, opened: int, message: str):
+        error = OpenCloseRange(closed, opened).validate()
+
+        assert error is not None and message in error
 
     def test_minimum_span_is_accepted(self):
         steps = round(MIN_SPAN_DEGREES * 4096 / 360) + 1
+        span = OpenCloseRange(1000, 1000 + steps)
 
-        assert OpenCloseRange(1000, 1000 + steps).span_degrees >= MIN_SPAN_DEGREES
+        assert span.validate() is None
+        assert span.span_degrees >= MIN_SPAN_DEGREES
 
     def test_half_turn_is_accepted(self):
-        assert OpenCloseRange(0, 2048).span_degrees == pytest.approx(180.0)
+        span = OpenCloseRange(0, 2048)
+
+        assert span.validate() is None
+        assert span.span_degrees == pytest.approx(180.0)
 
 
 class TestExercise:
     def test_moves_to_closed_then_open(self):
         bus = FakeServoBus({2: ServoMode.POSITION}, {2: 1300})
 
-        exercise(bus, 2, OpenCloseRange(1000, 1300))
-
+        assert exercise(bus, 2, OpenCloseRange(1000, 1300)) is True
         assert bus.commands == [
             ServoCommand(2, "goto", 1000),
             ServoCommand(2, "goto", 1300),
         ]
 
-    def test_servo_that_keeps_moving_is_an_error(self):
+    def test_servo_that_keeps_moving_is_released_and_reported(self):
         bus = FakeServoBus({2: ServoMode.POSITION}, {2: 1300})
         bus.jam(2)
 
-        with pytest.raises(ServoSetupError, match="終わりません"):
-            exercise(bus, 2, OpenCloseRange(1000, 1300), timeout=0.1)
+        assert exercise(bus, 2, OpenCloseRange(1000, 1300), timeout=0.1) is False
+        # 閉じ切りへの移動が終わらないので、開き切りへは動かさずにトルクを切る
+        assert bus.commands == [
+            ServoCommand(2, "goto", 1000),
+            ServoCommand(2, "torque", 0),
+        ]
+        bus.turn_by_hand(2, 1100)  # トルクが切れていれば手で回せる
 
 
 class TestServoSettings:

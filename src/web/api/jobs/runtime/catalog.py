@@ -42,6 +42,7 @@ class ParamSpec:
         help: 補足説明（任意）
         runtime_editable: 実行中に値を変更できるか（True で patch 受理）
         minimum: 数値型の下限（None は制約なし。下回る値は検証エラー）
+        maximum: 数値型の上限（None は制約なし。上回る値は検証エラー）
         optional: True なら値の省略を許し、省略時は検証結果にキーを含めない
         group: フォーム内のまとまり（None はまとめない）
     """
@@ -55,6 +56,7 @@ class ParamSpec:
     help: str | None = None
     runtime_editable: bool = False
     minimum: float | None = None
+    maximum: float | None = None
     optional: bool = False
     group: ParamGroup | None = None
 
@@ -161,12 +163,12 @@ class JobCatalog:
         """実行中編集用に runtime_editable な subset のみ検証して返す.
 
         与えられたキーだけを coerce して返す（default 充填はしない＝patch）。
-        型変換規則・int 規則・minimum 下限は ``validate_params`` と同じ
+        型変換規則・int 規則・minimum・maximum の上下限は ``validate_params`` と同じ
         ``_coerce_param`` を共有する。
 
         Raises:
             ValueError: runtime_editable でないキー（固定／未知）・型不一致・
-                minimum 未満の場合
+                minimum 未満・maximum 超の場合
         """
         editable = {
             spec.name: spec for spec in definition.params if spec.runtime_editable
@@ -206,19 +208,21 @@ def _coerce_param(spec: ParamSpec, value: object) -> ParamValue:
     """値を ParamSpec の型に合わせて検証・変換する.
 
     Raises:
-        ValueError: 型が一致しない・choice 範囲外・minimum 未満の場合
+        ValueError: 型が一致しない・choice 範囲外・minimum 未満・maximum 超の場合
     """
     coerced = _coerce_type(spec, value)
-    # 下限制約（minimum）は起動時 validate_params と実行中
+    # 上下限（minimum / maximum）は起動時 validate_params と実行中
     # validate_runtime_params の両経路で適用されるよう coerce 共通層に置く。
-    if (
-        spec.minimum is not None
-        and not isinstance(coerced, bool)
-        and isinstance(coerced, (int, float))
-        and coerced < spec.minimum
-    ):
+    if isinstance(coerced, bool) or not isinstance(coerced, (int, float)):
+        return coerced
+    if spec.minimum is not None and coerced < spec.minimum:
         raise ValueError(
             f"{spec.name}: {spec.minimum:g} 以上が必要です"
+            f"（与えられた値: {coerced!r}）"
+        )
+    if spec.maximum is not None and coerced > spec.maximum:
+        raise ValueError(
+            f"{spec.name}: {spec.maximum:g} 以下が必要です"
             f"（与えられた値: {coerced!r}）"
         )
     return coerced
