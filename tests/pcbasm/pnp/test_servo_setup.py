@@ -156,6 +156,13 @@ class TestExercise:
             ServoCommand(2, "goto", 1300),
         ]
 
+    def test_servo_that_keeps_moving_is_an_error(self):
+        bus = FakeServoBus({2: ServoMode.POSITION}, {2: 1300})
+        bus.jam(2)
+
+        with pytest.raises(ServoSetupError, match="終わりません"):
+            exercise(bus, 2, OpenCloseRange(1000, 1300), timeout=0.1)
+
 
 class TestServoSettings:
     def test_keys_of_pnp_servo(self):

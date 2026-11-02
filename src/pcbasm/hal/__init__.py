@@ -20,8 +20,10 @@ from .servo import (
     ServoMode,
     Tweezer,
     degrees_to_steps,
+    hold_position,
     open_servo_bus,
     scan,
+    wait_stopped,
     wiggle,
 )
 from .stage import Limits, ScalarLimits, Speed, XYZStage
@@ -67,7 +69,9 @@ __all__ = [
     "ServoMode",
     "Tweezer",
     "degrees_to_steps",
+    "hold_position",
     "open_servo_bus",
     "scan",
+    "wait_stopped",
     "wiggle",
 ]

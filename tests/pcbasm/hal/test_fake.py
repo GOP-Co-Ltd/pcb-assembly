@@ -403,6 +403,22 @@ class TestFakeServoBus:
         assert not bus.moving(1)
         assert not bus.moving(2)
 
+    def test_jammed_servo_keeps_moving(self, bus: FakeServoBus):
+        bus.jam(2)
+
+        assert bus.moving(2)
+        assert not bus.moving(1)
+
+    def test_jam_of_an_unanswered_id_is_a_servo_error(self, bus: FakeServoBus):
+        with pytest.raises(ServoError):
+            bus.jam(9)
+
+    def test_commands_is_a_snapshot(self, bus: FakeServoBus):
+        commands = bus.commands
+        bus.set_torque(1, True)
+
+        assert commands == []
+
     def test_records_goto_step_and_torque_in_order(self, bus: FakeServoBus):
         bus.set_torque(1, True)
         bus.step(1, -10)

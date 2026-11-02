@@ -600,7 +600,7 @@ class ServoCommand:
 
 
 class FakeServoBus:
-    """指令を記録し、即座に位置へ反映する ``ServoBus``（動いている途中は無い）.
+    """指令を記録し、即座に位置へ反映する ``ServoBus``（:meth:`jam` しない限り動いている途中は無い）.
 
     ``modes`` にある ID だけが応答する。位置モードの ID は goto だけ、ステップモードの ID は step だけを受け付ける。
     """
@@ -622,13 +622,15 @@ class FakeServoBus:
         )
         self._commands: list[ServoCommand] = []
         self._torque = dict.fromkeys(self._modes, False)
+        self._jammed: set[int] = set()
         self._closed = False
         self._lock = threading.Lock()
 
     @property
     def commands(self) -> list[ServoCommand]:
         """受けた goto / step / torque の指令（送った順）."""
-        return self._commands
+        with self._lock:
+            return list(self._commands)
 
     @property
     def closed(self) -> bool:
@@ -648,7 +650,7 @@ class FakeServoBus:
 
     def moving(self, servo_id: int) -> bool:
         self._mode(servo_id)
-        return False
+        return servo_id in self._jammed
 
     def set_torque(self, servo_id: int, on: bool) -> None:
         self._mode(servo_id)
@@ -672,6 +674,15 @@ class FakeServoBus:
 
     def close(self) -> None:
         self._closed = True
+
+    def jam(self, servo_id: int) -> None:
+        """以後そのサーボが動いている途中のまま止まらないことにする（当たって止まった模擬）.
+
+        Raises:
+            ServoError: 応答しない ID の場合
+        """
+        self._mode(servo_id)
+        self._jammed.add(servo_id)
 
     def turn_by_hand(self, servo_id: int, position: int) -> None:
         """トルクを切っている間に人が手で position まで回したことにする（指令には記録しない）.

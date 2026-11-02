@@ -11,10 +11,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import enum
+import math
+import termios
 import threading
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Protocol
 
 from scservo_sdk import COMM_SUCCESS, PacketHandler, PortHandler
@@ -38,7 +41,7 @@ _ACC = 10  # [100 step/s²]
 _STEP_SIGN = 1 << 15
 _MAX_STEPS = _STEP_SIGN - 1
 
-_POLL_INTERVAL = 0.02  # wiggle が moving を見る間隔 [sec]
+_POLL_INTERVAL = 0.02  # wait_stopped が moving を見る間隔 [sec]
 
 
 class ServoMode(enum.IntEnum):
@@ -56,7 +59,11 @@ class ServoBus(Protocol):
     """サーボのバス 1 本（ID でサーボを選ぶ）."""
 
     def ping(self, servo_id: int) -> bool:
-        """その ID のサーボが応答するか."""
+        """その ID のサーボが応答するか.
+
+        Raises:
+            ServoError: シリアルの I/O に失敗した場合
+        """
         ...
 
     def mode(self, servo_id: int) -> ServoMode:
@@ -95,6 +102,7 @@ class ServoBus(Protocol):
         """位置モードのサーボを絶対位置（raw 0〜4095）へ動かす（完了は待たない）.
 
         Raises:
+            ValueError: position が 0〜4095 の外の場合
             ServoError: 通信に失敗した場合
         """
         ...
@@ -116,7 +124,8 @@ class FeetechBus:
     """scservo_sdk で STS シリーズのサーボと話す :class:`ServoBus`（:func:`open_servo_bus`
     で作る）.
 
-    複数のスレッドから呼ばれ得るので、1 本の Lock で送受信を直列にする。
+    複数のスレッドから呼ばれ得るので、1 本の Lock で送受信を直列にする。 シリアルの I/O が失敗したら（URT-2
+    を抜いたなど）ポートを閉じ、次の呼び出しで開き直す。
     """
 
     def __init__(self, port: PortHandler) -> None:
@@ -124,11 +133,13 @@ class FeetechBus:
         self._port = port
         self._packet = PacketHandler(0)  # STS 系はリトルエンディアン
         self._lock = threading.Lock()
+        self._closed = False
 
     def ping(self, servo_id: int) -> bool:
         """その ID のサーボが応答するか."""
-        with self._lock:
-            _, result, _ = self._packet.ping(self._port, servo_id)
+        _, result, _ = self._transact(
+            servo_id, lambda: self._packet.ping(self._port, servo_id)
+        )
         return result == COMM_SUCCESS
 
     def mode(self, servo_id: int) -> ServoMode:
@@ -143,10 +154,12 @@ class FeetechBus:
 
     def position(self, servo_id: int) -> int:
         """現在位置を読む（raw 0〜4095）."""
-        with self._lock:
-            value, result, error = self._packet.read2ByteTxRx(
+        value, result, error = self._transact(
+            servo_id,
+            lambda: self._packet.read2ByteTxRx(
                 self._port, servo_id, _ADDR_PRESENT_POSITION
-            )
+            ),
+        )
         self._check(servo_id, result, error)
         return value
 
@@ -156,14 +169,24 @@ class FeetechBus:
 
     def set_torque(self, servo_id: int, on: bool) -> None:
         """トルクを入れる・切る."""
-        with self._lock:
-            result, error = self._packet.write1ByteTxRx(
+        result, error = self._transact(
+            servo_id,
+            lambda: self._packet.write1ByteTxRx(
                 self._port, servo_id, _ADDR_TORQUE_ENABLE, int(on)
-            )
+            ),
+        )
         self._check(servo_id, result, error)
 
     def goto(self, servo_id: int, position: int) -> None:
-        """位置モードのサーボを絶対位置へ動かす."""
+        """位置モードのサーボを絶対位置へ動かす.
+
+        Raises:
+            ValueError: position が 0〜4095 の外の場合
+        """
+        if not 0 <= position < STEPS_PER_REV:
+            raise ValueError(
+                f"位置は 0〜{STEPS_PER_REV - 1} の範囲で送ります: {position}"
+            )
         self._write_goal(servo_id, position)
 
     def step(self, servo_id: int, steps: int) -> None:
@@ -179,13 +202,15 @@ class FeetechBus:
     def close(self) -> None:
         """ポートを閉じる."""
         with self._lock:
-            self._port.closePort()
+            self._closed = True
+            if self._port.is_open:
+                self._port.closePort()
 
     def _read1(self, servo_id: int, address: int) -> int:
-        with self._lock:
-            value, result, error = self._packet.read1ByteTxRx(
-                self._port, servo_id, address
-            )
+        value, result, error = self._transact(
+            servo_id,
+            lambda: self._packet.read1ByteTxRx(self._port, servo_id, address),
+        )
         self._check(servo_id, result, error)
         return value
 
@@ -199,11 +224,38 @@ class FeetechBus:
             _SPEED & 0xFF,
             _SPEED >> 8,
         ]
-        with self._lock:
-            result, error = self._packet.writeTxRx(
+        result, error = self._transact(
+            servo_id,
+            lambda: self._packet.writeTxRx(
                 self._port, servo_id, _ADDR_ACC, _GOAL_LENGTH, data
-            )
+            ),
+        )
         self._check(servo_id, result, error)
+
+    def _transact[T](self, servo_id: int, call: Callable[[], T]) -> T:
+        """Lock の下で SDK を 1 回呼ぶ（I/O の失敗は ServoError にし、次の呼び出しで開き直す）."""
+        with self._lock:
+            if self._closed:
+                raise ServoError(f"サーボのバスは閉じています（サーボ {servo_id}）")
+            try:
+                if not self._port.is_open:
+                    self._reopen()
+                return call()
+            # serial.SerialException は OSError の派生。flush（tcdrain）は termios.error を出す
+            except (OSError, termios.error) as exc:
+                # SDK は送受信の途中で例外が出ると is_using を戻さず、以後 COMM_PORT_BUSY になる
+                self._port.is_using = False
+                with contextlib.suppress(OSError, termios.error):
+                    self._port.closePort()
+                raise ServoError(
+                    f"サーボ {servo_id} と通信できません（{self._port.getPortName()}）: {exc}"
+                ) from exc
+
+    def _reopen(self) -> None:
+        if not self._port.setBaudRate(self._port.getBaudRate()):
+            raise ServoError(
+                f"サーボのポート {self._port.getPortName()} を開き直せません"
+            )
 
     def _check(self, servo_id: int, result: int, error: int) -> None:
         if result != COMM_SUCCESS:
@@ -233,8 +285,9 @@ def open_servo_bus(port: str, baudrate: int = 1_000_000) -> FeetechBus:
 
 
 def degrees_to_steps(degrees: float) -> int:
-    """角度 [deg] を step に換算する（四捨五入）."""
-    return round(degrees * STEPS_PER_REV / 360)
+    """角度 [deg] を step に換算する（四捨五入。端数 0.5 は 0 から遠い方へ）."""
+    steps = degrees * STEPS_PER_REV / 360
+    return int(math.copysign(math.floor(abs(steps) + 0.5), steps))
 
 
 def scan(bus: ServoBus, ids: Iterable[int]) -> tuple[int, ...]:
@@ -247,7 +300,8 @@ def wiggle(
 ) -> None:
     """サーボを +degrees → -degrees → 元の位置と動かす（どのサーボがどの役割か人が見て判別する）.
 
-    トルクを入れてから動かし、各移動の完了を待つ。
+    トルクを入れてから動かし、各移動の完了を待つ。位置モードでは :func:`hold_position` で
+    トルクを入れる。移動が timeout 内に終わらなければ、当たりに押し続けないようトルクを切る。
 
     Args:
         bus: サーボのバス
@@ -266,7 +320,7 @@ def wiggle(
         bus.set_torque(servo_id, True)
         for steps in (n, -2 * n, n):
             bus.step(servo_id, steps)
-            _wait_stopped(bus, servo_id, timeout)
+            _wait_or_release(bus, servo_id, timeout)
         return
     origin = bus.position(servo_id)
     targets = (origin + n, origin - n, origin)
@@ -274,18 +328,49 @@ def wiggle(
         raise ServoError(
             f"サーボ {servo_id} は位置 {origin} から ±{n} step 動かすと 0〜{STEPS_PER_REV - 1} を外れます"
         )
-    bus.set_torque(servo_id, True)
+    hold_position(bus, servo_id)
     for target in targets:
         bus.goto(servo_id, target)
-        _wait_stopped(bus, servo_id, timeout)
+        _wait_or_release(bus, servo_id, timeout)
 
 
-def _wait_stopped(bus: ServoBus, servo_id: int, timeout: float) -> None:
+def hold_position(bus: ServoBus, servo_id: int) -> int:
+    """位置モードのサーボに今の位置でトルクを入れ、その位置を返す.
+
+    トルクを入れる前に goal を今の位置にし、入れた瞬間に古い goal へ跳ばないようにする。
+
+    Raises:
+        ServoError: 通信に失敗した場合
+    """
+    position = bus.position(servo_id)
+    bus.goto(servo_id, position)
+    bus.set_torque(servo_id, True)
+    return position
+
+
+def wait_stopped(bus: ServoBus, servo_id: int, *, timeout: float) -> bool:
+    """サーボの移動が終わるのを待つ.
+
+    Returns:
+        timeout 秒以内に止まったか
+
+    Raises:
+        ServoError: 通信に失敗した場合
+    """
     deadline = time.monotonic() + timeout
     while bus.moving(servo_id):
         if time.monotonic() > deadline:
-            raise ServoError(f"サーボ {servo_id} の移動が {timeout} 秒で終わりません")
+            return False
         time.sleep(_POLL_INTERVAL)
+    return True
+
+
+def _wait_or_release(bus: ServoBus, servo_id: int, timeout: float) -> None:
+    if not wait_stopped(bus, servo_id, timeout=timeout):
+        bus.set_torque(servo_id, False)
+        raise ServoError(
+            f"サーボ {servo_id} の移動が {timeout} 秒で終わらないので、トルクを切りました"
+        )
 
 
 class Tweezer:
@@ -305,6 +390,8 @@ class Tweezer:
         open_position: int,
     ) -> None:
         """両方のサーボの応答とモードを確かめ、トルクを入れる.
+
+        Open Close は :func:`hold_position` で今の位置のままトルクを入れる。
 
         Args:
             bus: サーボのバス
@@ -328,8 +415,8 @@ class Tweezer:
                 raise ServoError(
                     f"{role} のサーボ {servo_id} のモードが {expected.name} ではありません: {mode.name}"
                 )
-        for _, servo_id, _ in roles:
-            bus.set_torque(servo_id, True)
+        bus.set_torque(rotation_id, True)
+        hold_position(bus, open_close_id)
         self._bus = bus
         self._rotation_id = rotation_id
         self._open_close_id = open_close_id

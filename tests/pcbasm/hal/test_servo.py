@@ -1,11 +1,15 @@
 """`pcbasm.hal.servo` の仕様テスト.
 
 ピンセットのサーボ（Feetech STS3032 ×2）。回転はステップモード、開閉は位置モードで動かす。
-バスは `FakeServoBus` を使う。`FeetechBus` は実機が要るので、開けないポートの扱いだけを確かめる。
+バスは `FakeServoBus` を使う。`FeetechBus` は疑似端末（pty）の向こうに置いた `_WireServo` と話させ、
+線に出たパケットを確かめる（scservo_sdk と pyserial は実物）。
 """
 
+import os
+import select
+import threading
+import tty
 from pathlib import Path
-from typing import override
 
 import pytest
 
@@ -19,6 +23,7 @@ from pcbasm.hal import (
     wiggle,
 )
 from pcbasm.hal.fake import FakeServoBus, ServoCommand
+from pcbasm.hal.servo import FeetechBus
 
 ROTATION = 1
 OPEN_CLOSE = 2
@@ -44,18 +49,85 @@ def _tweezer(
     )
 
 
-def _moves(bus: FakeServoBus) -> list[ServoCommand]:
-    """記録した指令のうち、サーボを動かすもの（goto / step）."""
-    return [command for command in bus.commands if command.kind != "torque"]
+def _moves(commands: list[ServoCommand]) -> list[ServoCommand]:
+    """指令のうち、サーボを動かすもの（goto / step）."""
+    return [command for command in commands if command.kind != "torque"]
 
 
-class _StuckServoBus(FakeServoBus):
-    """指令を受けても動作中のまま止まらないバス."""
+def _moves_since(bus: FakeServoBus, sent: int) -> list[ServoCommand]:
+    """先頭の sent 個より後に受けた goto / step."""
+    return _moves(bus.commands[sent:])
 
-    @override
-    def moving(self, servo_id: int) -> bool:
-        super().moving(servo_id)
-        return True
+
+_INSTRUCTION_WRITE = 0x03
+_INSTRUCTION_READ = 0x02
+
+
+class _WireServo:
+    """疑似端末の master 側で STS のサーボを演じる（受けた instruction packet を記録し、status packet
+    を返す）.
+
+    読み出しには 0 を並べて返す。slave 側のパス（:attr:`path`）をポートとして開かせる。
+    """
+
+    def __init__(self) -> None:
+        self._master, self._slave = os.openpty()
+        tty.setraw(self._master)
+        tty.setraw(self._slave)
+        self.path = os.ttyname(self._slave)
+        self.packets: list[bytes] = []
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+        self._thread.start()
+
+    def writes(self) -> list[tuple[int, int, bytes]]:
+        """受けた WRITE の（ID、先頭アドレス、データ）."""
+        return [
+            (packet[2], packet[5], packet[6:-1])
+            for packet in self.packets
+            if packet[4] == _INSTRUCTION_WRITE
+        ]
+
+    def unplug(self) -> None:
+        """線を抜いたことにする（master を閉じ、slave 側の I/O を失敗させる）."""
+        self._stop.set()
+        self._thread.join()
+        os.close(self._master)
+
+    def close(self) -> None:
+        if not self._stop.is_set():
+            self.unplug()
+        os.close(self._slave)
+
+    def _serve(self) -> None:
+        buffer = b""
+        while not self._stop.is_set():
+            if not select.select([self._master], [], [], 0.02)[0]:
+                continue
+            buffer += os.read(self._master, 256)
+            while len(buffer) >= 4 and len(buffer) >= buffer[3] + 4:
+                size = buffer[3] + 4
+                packet, buffer = buffer[:size], buffer[size:]
+                self.packets.append(packet)
+                data = bytes(packet[6]) if packet[4] == _INSTRUCTION_READ else b""
+                body = bytes([packet[2], len(data) + 2, 0]) + data
+                os.write(self._master, b"\xff\xff" + body + bytes([~sum(body) & 0xFF]))
+
+
+@pytest.fixture
+def wire():
+    servo = _WireServo()
+    yield servo
+    servo.close()
+
+
+@pytest.fixture
+def feetech(wire: _WireServo):
+    # root conftest は pcbasm.hal.open_servo_bus を塞ぐので、モジュールの実物を呼ぶ。
+    # 開くのはテストが作った疑似端末なので実機には届かない
+    bus = servo_module.open_servo_bus(wire.path)
+    yield bus
+    bus.close()
 
 
 class TestDegreesToSteps:
@@ -70,6 +142,14 @@ class TestDegreesToSteps:
         assert degrees_to_steps(0.04) == 0
         assert degrees_to_steps(0.06) == 1
         assert degrees_to_steps(-0.06) == -1
+
+    @pytest.mark.parametrize(
+        ("half_steps", "steps"), [(1, 1), (5, 3), (-1, -1), (-5, -3)]
+    )
+    def test_rounds_half_away_from_zero(self, half_steps: int, steps: int):
+        degrees = half_steps / 2 * 360 / 4096  # ちょうど x.5 step（2 進で割り切れる）
+
+        assert degrees_to_steps(degrees) == steps
 
 
 class TestScan:
@@ -108,6 +188,7 @@ class TestWiggle:
         wiggle(bus, OPEN_CLOSE)
 
         assert bus.commands == [
+            ServoCommand(OPEN_CLOSE, "goto", 2048),
             ServoCommand(OPEN_CLOSE, "torque", 1),
             ServoCommand(OPEN_CLOSE, "goto", 2105),
             ServoCommand(OPEN_CLOSE, "goto", 1991),
@@ -120,7 +201,11 @@ class TestWiggle:
 
         wiggle(bus, ROTATION, 90.0)
 
-        assert [command.value for command in _moves(bus)] == [1024, -2048, 1024]
+        assert [command.value for command in _moves(bus.commands)] == [
+            1024,
+            -2048,
+            1024,
+        ]
 
     @pytest.mark.parametrize("position", [30, 4070])
     def test_position_mode_refuses_to_cross_the_raw_range_without_moving(
@@ -131,7 +216,7 @@ class TestWiggle:
         with pytest.raises(ServoError):
             wiggle(bus, OPEN_CLOSE)
 
-        assert _moves(bus) == []
+        assert bus.commands == []
         assert bus.position(OPEN_CLOSE) == position
 
     def test_position_mode_accepts_reaching_the_ends_of_the_raw_range(self):
@@ -139,7 +224,8 @@ class TestWiggle:
 
         wiggle(bus, OPEN_CLOSE)
 
-        assert [command.value for command in _moves(bus)] == [114, 0, 57]
+        # 先頭の 57 はトルクを入れる前に goal を今の位置にしたもの
+        assert [command.value for command in _moves(bus.commands)] == [57, 114, 0, 57]
 
     def test_unanswered_id_is_a_servo_error(self):
         bus = _bus()
@@ -149,11 +235,15 @@ class TestWiggle:
 
         assert bus.commands == []
 
-    def test_servo_that_keeps_moving_times_out(self):
-        bus = _StuckServoBus({ROTATION: ServoMode.STEP})
+    @pytest.mark.parametrize("servo_id", [ROTATION, OPEN_CLOSE])
+    def test_servo_that_keeps_moving_times_out_with_the_torque_off(self, servo_id: int):
+        bus = _bus(open_close_position=2048)
+        bus.jam(servo_id)
 
         with pytest.raises(ServoError):
-            wiggle(bus, ROTATION, timeout=0.1)
+            wiggle(bus, servo_id, timeout=0.1)
+
+        assert bus.commands[-1] == ServoCommand(servo_id, "torque", 0)
 
 
 class TestTweezerInit:
@@ -162,10 +252,21 @@ class TestTweezerInit:
 
         _tweezer(bus)
 
-        assert sorted(bus.commands, key=lambda command: command.servo_id) == [
+        assert [c for c in bus.commands if c.kind == "torque"] == [
             ServoCommand(ROTATION, "torque", 1),
             ServoCommand(OPEN_CLOSE, "torque", 1),
         ]
+
+    def test_open_close_targets_the_current_position_before_the_torque(self):
+        bus = _bus(open_close_position=1234)
+
+        _tweezer(bus)
+
+        assert [c for c in bus.commands if c.servo_id == OPEN_CLOSE] == [
+            ServoCommand(OPEN_CLOSE, "goto", 1234),
+            ServoCommand(OPEN_CLOSE, "torque", 1),
+        ]
+        assert bus.position(OPEN_CLOSE) == 1234
 
     @pytest.mark.parametrize(
         ("rotation_id", "open_close_id"), [(9, OPEN_CLOSE), (ROTATION, 9)]
@@ -217,11 +318,12 @@ class TestTweezerRotate:
     def test_rotate_by_sends_relative_steps(self):
         bus = _bus()
         tweezer = _tweezer(bus)
+        sent = len(bus.commands)
 
         tweezer.rotate_by(90.0)
         tweezer.rotate_by(-450.0)
 
-        assert _moves(bus) == [
+        assert _moves_since(bus, sent) == [
             ServoCommand(ROTATION, "step", 1024),
             ServoCommand(ROTATION, "step", -5120),
         ]
@@ -229,10 +331,11 @@ class TestTweezerRotate:
     def test_rotation_below_one_step_sends_nothing(self):
         bus = _bus()
         tweezer = _tweezer(bus)
+        sent = len(bus.commands)
 
         tweezer.rotate_by(0.01)
 
-        assert _moves(bus) == []
+        assert _moves_since(bus, sent) == []
 
 
 class TestTweezerOpen:
@@ -241,19 +344,21 @@ class TestTweezerOpen:
     def test_open_by_moves_toward_open(self):
         bus = _bus(open_close_position=1000)
         tweezer = _tweezer(bus)
+        sent = len(bus.commands)
 
         tweezer.open_by(10.0)
 
-        assert _moves(bus) == [ServoCommand(OPEN_CLOSE, "goto", 1114)]
+        assert _moves_since(bus, sent) == [ServoCommand(OPEN_CLOSE, "goto", 1114)]
 
     def test_open_by_is_relative_to_the_current_position(self):
         bus = _bus(open_close_position=1200)
         tweezer = _tweezer(bus)
+        sent = len(bus.commands)
 
         tweezer.open_by(10.0)
         tweezer.open_by(-5.0)
 
-        assert _moves(bus) == [
+        assert _moves_since(bus, sent) == [
             ServoCommand(OPEN_CLOSE, "goto", 1314),
             ServoCommand(OPEN_CLOSE, "goto", 1257),
         ]
@@ -277,11 +382,12 @@ class TestTweezerOpen:
     ):
         bus = _bus(open_close_position=position)
         tweezer = _tweezer(bus)
+        sent = len(bus.commands)
 
         with pytest.raises(ValueError):
             tweezer.open_by(degrees)
 
-        assert _moves(bus) == []
+        assert _moves_since(bus, sent) == []
         assert bus.position(OPEN_CLOSE) == position
 
     def test_opening_is_zero_at_closed(self):
@@ -304,10 +410,11 @@ class TestTweezerReversed:
     def test_open_by_moves_toward_open(self):
         bus = _bus(open_close_position=3000)
         tweezer = _tweezer(bus, closed_position=3000, open_position=2500)
+        sent = len(bus.commands)
 
         tweezer.open_by(10.0)
 
-        assert _moves(bus) == [ServoCommand(OPEN_CLOSE, "goto", 2886)]
+        assert _moves_since(bus, sent) == [ServoCommand(OPEN_CLOSE, "goto", 2886)]
         assert tweezer.opening() == pytest.approx(114 * 360 / 4096)
 
     @pytest.mark.parametrize(("position", "degrees"), [(3000, -10.0), (2550, 10.0)])
@@ -316,11 +423,12 @@ class TestTweezerReversed:
     ):
         bus = _bus(open_close_position=position)
         tweezer = _tweezer(bus, closed_position=3000, open_position=2500)
+        sent = len(bus.commands)
 
         with pytest.raises(ValueError):
             tweezer.open_by(degrees)
 
-        assert _moves(bus) == []
+        assert _moves_since(bus, sent) == []
 
 
 class TestOpenServoBus:
@@ -329,3 +437,91 @@ class TestOpenServoBus:
         # 存在しないパスなので実機には届かない
         with pytest.raises(ServoError):
             servo_module.open_servo_bus(str(tmp_path / "no-such-tty"))
+
+
+def _goal(goal_low: int, goal_high: int) -> bytes:
+    """ACC から 7 byte（ACC=10、goal、time=0、speed=500）."""
+    return bytes([10, goal_low, goal_high, 0, 0, 500 & 0xFF, 500 >> 8])
+
+
+_ADDR_ACC = 41
+
+
+class TestFeetechBus:
+    """線に出る STS のパケット（ACC から 7 byte を 1 回の WRITE で送る）."""
+
+    @pytest.mark.parametrize(
+        ("steps", "goal"),
+        [
+            (100, _goal(0x64, 0x00)),
+            (-100, _goal(0x64, 0x80)),  # 負は bit15 を立てた sign-magnitude
+            (32767, _goal(0xFF, 0x7F)),
+            (-32767, _goal(0xFF, 0xFF)),
+        ],
+    )
+    def test_step_writes_sign_magnitude_goal(
+        self, wire: _WireServo, feetech: FeetechBus, steps: int, goal: bytes
+    ):
+        feetech.step(1, steps)
+
+        assert wire.writes() == [(1, _ADDR_ACC, goal)]
+
+    @pytest.mark.parametrize(
+        ("position", "goal"),
+        [(0, _goal(0x00, 0x00)), (1234, _goal(0xD2, 0x04)), (4095, _goal(0xFF, 0x0F))],
+    )
+    def test_goto_writes_acc_position_time_and_speed(
+        self, wire: _WireServo, feetech: FeetechBus, position: int, goal: bytes
+    ):
+        feetech.goto(2, position)
+
+        assert wire.writes() == [(2, _ADDR_ACC, goal)]
+
+    @pytest.mark.parametrize("steps", [32768, -32768])
+    def test_step_beyond_15_bits_is_refused_without_sending(
+        self, wire: _WireServo, feetech: FeetechBus, steps: int
+    ):
+        with pytest.raises(ValueError):
+            feetech.step(1, steps)
+
+        assert wire.packets == []
+
+    @pytest.mark.parametrize("position", [-1, 4096])
+    def test_goto_outside_the_raw_range_is_refused_without_sending(
+        self, wire: _WireServo, feetech: FeetechBus, position: int
+    ):
+        with pytest.raises(ValueError):
+            feetech.goto(2, position)
+
+        assert wire.packets == []
+
+    def test_unplugged_port_is_a_servo_error(
+        self, wire: _WireServo, feetech: FeetechBus
+    ):
+        wire.unplug()
+
+        with pytest.raises(ServoError):
+            feetech.step(1, 100)
+        with pytest.raises(ServoError):
+            feetech.position(2)
+
+    def test_recovers_on_the_next_call_after_replugging(self, tmp_path: Path):
+        # udev のシンボリックリンクのように、同じパスの先が差し直したポートに替わる
+        link = tmp_path / "ttyServo"
+        first, second = _WireServo(), _WireServo()
+        try:
+            link.symlink_to(first.path)
+            bus = servo_module.open_servo_bus(str(link))
+            first.unplug()
+            with pytest.raises(ServoError):
+                bus.step(1, 100)
+
+            link.unlink()
+            link.symlink_to(second.path)
+            bus.step(1, 100)
+
+            assert second.writes() == [(1, _ADDR_ACC, _goal(0x64, 0x00))]
+            bus.close()
+        finally:
+            first.close()
+            second.close()

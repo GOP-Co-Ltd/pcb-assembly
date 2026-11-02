@@ -8,19 +8,17 @@
 from __future__ import annotations
 
 import enum
-import time
 from collections.abc import Iterable, Mapping
 
 import attrs
 
-from pcbasm.hal import ServoBus, ServoMode, scan
+from pcbasm.hal import ServoBus, ServoMode, hold_position, scan, wait_stopped
 from pcbasm.hal.servo import STEPS_PER_REV
 
 # 開き量がこれ未満なら、手で開き切りにし損ねたとみなす [deg]
 MIN_SPAN_DEGREES = 3.0
 # 閉じ〜開きが半回転を超えるなら 4095/0 の境目をまたいでいる
 _MAX_SPAN_STEPS = STEPS_PER_REV // 2
-_POLL_INTERVAL = 0.02  # 移動の完了を見る間隔 [sec]
 
 
 class ServoSetupError(ValueError):
@@ -130,12 +128,9 @@ def release(bus: ServoBus, servo_id: int) -> None:
 def hold_here(bus: ServoBus, servo_id: int) -> int:
     """今の位置でトルクを入れ、その位置を返す.
 
-    トルクを入れる前に目標を今の位置にし、古い目標へ跳ばないようにする。
+    トルクを入れる前に目標を今の位置にし、古い目標へ跳ばないようにする（:func:`pcbasm.hal.hold_position`）。
     """
-    position = bus.position(servo_id)
-    bus.goto(servo_id, position)
-    bus.set_torque(servo_id, True)
-    return position
+    return hold_position(bus, servo_id)
 
 
 @attrs.frozen
@@ -186,13 +181,10 @@ def exercise(
     """
     for target in (span.closed_position, span.open_position):
         bus.goto(servo_id, target)
-        deadline = time.monotonic() + timeout
-        while bus.moving(servo_id):
-            if time.monotonic() > deadline:
-                raise ServoSetupError(
-                    f"サーボ {servo_id} の移動が {timeout} 秒で終わりません。当たって止まっていないか見てください"
-                )
-            time.sleep(_POLL_INTERVAL)
+        if not wait_stopped(bus, servo_id, timeout=timeout):
+            raise ServoSetupError(
+                f"サーボ {servo_id} の移動が {timeout} 秒で終わりません。当たって止まっていないか見てください"
+            )
 
 
 def servo_settings(roles: ServoRoles, span: OpenCloseRange) -> dict[str, int]:

@@ -345,6 +345,56 @@ class TestServoBus:
         with pytest.raises(ConfigError):
             devices.servo_bus()
 
+    def test_reopens_when_the_port_changes(
+        self,
+        config_path: Path,
+        journal_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        _write_servo(config_path)
+        opened: list[tuple[str, int]] = []
+        buses: list[FakeServoBus] = []
+
+        def open_servo_bus(port: str, baudrate: int = 1_000_000) -> FakeServoBus:
+            opened.append((port, baudrate))
+            buses.append(_servo_bus())
+            return buses[-1]
+
+        monkeypatch.setattr("pcbasm.hal.open_servo_bus", open_servo_bus)
+        devices = Devices(config_path, journal_dir)
+        first = devices.servo_bus()
+        config_path.write_text(
+            config_path.read_text(encoding="utf-8").replace(
+                'port = "/dev/ttyACM0"', 'port = "/dev/ttyACM1"\nbaudrate = 500000'
+            ),
+            encoding="utf-8",
+        )
+
+        second = devices.servo_bus()
+
+        assert opened == [("/dev/ttyACM0", 1_000_000), ("/dev/ttyACM1", 500000)]
+        assert second is not first
+        assert first is buses[0] and buses[0].closed
+        assert not buses[1].closed
+
+    def test_close_closes_the_opened_bus(
+        self,
+        config_path: Path,
+        journal_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        _write_servo(config_path)
+        bus = _servo_bus()
+        monkeypatch.setattr(
+            "pcbasm.hal.open_servo_bus", lambda port, baudrate=1_000_000: bus
+        )
+        devices = Devices(config_path, journal_dir)
+        devices.servo_bus()
+
+        devices.close()
+
+        assert bus.closed
+
     def test_close_closes_the_bus(self, config_path: Path, journal_dir: Path):
         _write_servo(config_path)
         bus = _servo_bus()
@@ -371,6 +421,7 @@ class TestTweezer:
         tweezer.open_by(10.0)
 
         assert [c for c in bus.commands if c.kind != "torque"] == [
+            ServoCommand(2, "goto", 2048),  # トルクを入れる前に goal を今の位置にする
             ServoCommand(1, "step", 1024),
             ServoCommand(2, "goto", 2048 + 114),
         ]

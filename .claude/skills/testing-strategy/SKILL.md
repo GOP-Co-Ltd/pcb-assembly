@@ -38,6 +38,7 @@ pytest は実機に触れない。テストは本番機の上でも走るので�
 root conftest（`tests/conftest.py`）の autouse fixture が、テストから実機とサービスへの経路を塞ぐ。外さない。
 
 - `forbid_real_klipper`：`open_klipper` を呼ぶとテストが落ちる。Klipper が要るテストは `moonraker`（`tests/support/moonraker.py` の FakeMoonraker）か `mount_klipper`（`FakeKlipper`）を使う
+- `forbid_real_servo`：`open_servo_bus` を呼ぶとテストが落ちる。サーボが要るテストは `FakeServoBus` を使う。`FeetechBus` のエンコードは疑似端末（`os.openpty()`）の slave をモジュールの実物 `pcbasm.hal.servo.open_servo_bus` で開いて確かめる
 - `forbid_real_systemctl`：自己更新の `sudo` と `systemctl` を、呼ばれたら失敗する stub に向ける
 - `fake_by_default`：`PCBASM_FAKE=1` にし、env から組む起動設定を fake の機体にする
 
