@@ -8,7 +8,6 @@ from pcbasm.pnp.servo_setup import (
     ServoRole,
     exercise,
     find_pair,
-    release,
     role_of_mode,
     roles_from_answers,
     servo_settings,
@@ -115,7 +114,7 @@ def _ask_role(ctx: JobContext, bus: ServoBus, servo_id: int) -> ServoRole:
 
 def _read_range(ctx: JobContext, bus: ServoBus, servo_id: int) -> OpenCloseRange | None:
     """トルクを切って人に閉じ切り・開き切りにしてもらい、その位置を読む（使えない範囲なら None）."""
-    release(bus, servo_id)
+    bus.set_torque(servo_id, False)
     ctx.require(
         f"Open Close（ID {servo_id}）のトルクを切りました。手でピンセットを閉じ切りにして保持し、「読む」を押してください",
         true_label="読む",

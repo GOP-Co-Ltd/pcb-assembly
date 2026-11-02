@@ -659,6 +659,10 @@ class FakeServoBus:
             self._torque[servo_id] = on
 
     def goto(self, servo_id: int, position: int) -> None:
+        if not 0 <= position < STEPS_PER_REV:
+            raise ValueError(
+                f"位置は 0〜{STEPS_PER_REV - 1} の範囲で送ります: {position}"
+            )
         self._require(servo_id, ServoMode.POSITION)
         with self._lock:
             self._commands.append(ServoCommand(servo_id, "goto", position))

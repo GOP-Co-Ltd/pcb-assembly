@@ -505,6 +505,16 @@ class TestFeetechBus:
         with pytest.raises(ServoError):
             feetech.position(2)
 
+    def test_call_after_close_is_a_servo_error_without_reopening(
+        self, wire: _WireServo, feetech: FeetechBus
+    ):
+        feetech.close()
+
+        with pytest.raises(ServoError):
+            feetech.step(1, 100)
+
+        assert wire.packets == []
+
     def test_recovers_on_the_next_call_after_replugging(self, tmp_path: Path):
         # udev のシンボリックリンクのように、同じパスの先が差し直したポートに替わる
         link = tmp_path / "ttyServo"

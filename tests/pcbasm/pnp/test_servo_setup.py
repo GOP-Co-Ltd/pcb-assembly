@@ -15,7 +15,6 @@ from pcbasm.pnp.servo_setup import (
     ServoSetupError,
     exercise,
     find_pair,
-    release,
     role_of_mode,
     roles_from_answers,
     servo_settings,
@@ -91,15 +90,6 @@ class TestVerifyModes:
         assert "POSITION" in message
         assert "STEP" in message
         assert "FD" in message
-
-
-class TestRelease:
-    def test_release_turns_the_torque_off(self):
-        bus = FakeServoBus({2: ServoMode.POSITION})
-
-        release(bus, 2)
-
-        assert bus.commands == [ServoCommand(2, "torque", 0)]
 
 
 class TestOpenCloseRange:

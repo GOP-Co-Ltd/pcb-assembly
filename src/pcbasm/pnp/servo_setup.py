@@ -120,11 +120,6 @@ def verify_modes(bus: ServoBus, roles: ServoRoles) -> None:
             )
 
 
-def release(bus: ServoBus, servo_id: int) -> None:
-    """トルクを切る（手で回せるようにする）."""
-    bus.set_torque(servo_id, False)
-
-
 @attrs.frozen
 class OpenCloseRange:
     """Open Close の閉じ切り・開き切りの位置（raw 0〜4095）.
@@ -178,7 +173,7 @@ def exercise(
     for target in (span.closed_position, span.open_position):
         bus.goto(servo_id, target)
         if not wait_stopped(bus, servo_id, timeout=timeout):
-            release(bus, servo_id)
+            bus.set_torque(servo_id, False)
             return False
     return True
 

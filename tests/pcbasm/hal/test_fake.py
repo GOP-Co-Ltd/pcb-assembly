@@ -379,6 +379,16 @@ class TestFakeServoBus:
 
         assert bus.position(2) == 1000
 
+    @pytest.mark.parametrize("position", [-1, 4096])
+    def test_goto_outside_the_raw_range_is_refused_without_recording(
+        self, bus: FakeServoBus, position: int
+    ):
+        with pytest.raises(ValueError):
+            bus.goto(2, position)
+
+        assert bus.commands == []
+        assert bus.position(2) == 1000
+
     def test_goto_moves_to_the_absolute_position_at_once(self, bus: FakeServoBus):
         bus.goto(2, 3000)
 

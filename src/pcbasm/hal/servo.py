@@ -124,7 +124,7 @@ class FeetechBus:
     """scservo_sdk で STS シリーズのサーボと話す :class:`ServoBus`（:func:`open_servo_bus`
     で作る）.
 
-    複数のスレッドから呼ばれ得るので、1 本の Lock で送受信を直列にする。 シリアルの I/O が失敗したら（URT-2
+    複数のスレッドから呼ばれ得るので、1 本の Lock で送受信を直列にする。シリアルの I/O が失敗したら（URT-2
     を抜いたなど）ポートを閉じ、次の呼び出しで開き直す。
     """
 
@@ -376,7 +376,7 @@ def _wait_or_release(bus: ServoBus, servo_id: int, timeout: float) -> None:
 class Tweezer:
     """ピンセット（Rotation と Open Close の 2 台のサーボ）.
 
-    指令を送るだけで、動き終わるのは待たない。 Open Close の角度から開き幅への換算（角度 → 直動 →
+    指令を送るだけで、動き終わるのは待たない。Open Close の角度から開き幅への換算（角度 → 直動 →
     開き）はモデル化せず、角度のまま扱う。
     """
 

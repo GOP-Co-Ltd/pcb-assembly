@@ -26,8 +26,8 @@ PnP のジョブは、塗布のジョブと同じく機体に `pnp` 機能があ
 | `pcbasm.board`   | 部品の位置・向き・pad（`Board` / `Component`）                                         |
 | `pcbasm.kicad`   | KiCad の基板の読み込み                                                                 |
 | `pcbasm.machine` | 装置（Klipper・カメラ）と駐機                                                          |
-| `pcbasm.hal`     | ピンセットのサーボ（`ServoBus`・`wiggle`・`Tweezer`）                                  |
-| `pcbasm.config`  | `MachineConfig.pnp`（`[pnp]`）と共通の節                                               |
+| `pcbasm.hal`     | ピンセットのサーボ（`ServoBus`・`ServoMode`・`scan`・`wait_stopped`・`hold_position`） |
+| `pcbasm.config`  | `MachineConfig.pnp`（`[pnp]`）と共通の節。開閉の範囲の規則（`open_close_span_error`）  |
 
 ## 依存方向
 
