@@ -44,7 +44,8 @@ OS を入れ、ホスト名を機体ごとに一意な名前へ変える。ホ�
 
     - KIAUH では Klipper、Moonraker、Mainsail を選んで入れる
     - カメラは CAMERA port 0 / 1 と driver を選ぶ。driver は `ov9281`（標準構成）、`imx708`、
-        `imx477`、`imx296`、`imx219`、`ov5647`、overlay 名の手入力から選ぶ
+        `imx477`、`imx296`、`imx219`、`ov5647`、overlay 名の手入力から選ぶ。続けて 2nd カメラを
+        設定するか聞かれ、設定する場合は残りの port の driver を同じ候補から選ぶ
     - スピーカーは `max98357a`（標準構成）、`hifiberry-dac`、`hifiberry-dacplus`、
         `iqaudio-dacplus`、`googlevoicehat-soundcard`、overlay 名の手入力、未設定から選ぶ
     - BTT SKR Pico v1.0 は画面の案内に従って BOOT jumper と RESET を操作し、

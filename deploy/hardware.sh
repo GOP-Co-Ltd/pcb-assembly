@@ -147,10 +147,24 @@ backup_file() {
     fi
 }
 
+camera_overlay_for_port() {
+    # CAMERA port 1 は driver 名だけ、port 0 は ",cam0" を付けた overlay 指定になる。
+    local driver="$1"
+    local port="$2"
+
+    if [ "$port" -eq 0 ]; then
+        printf '%s' "${driver},cam0"
+    else
+        printf '%s' "$driver"
+    fi
+}
+
 write_boot_config() {
+    # $4 が空なら 2nd カメラの dtoverlay 行を書かない。
     local boot_config="$1"
     local camera_overlay="$2"
     local speaker_overlay="$3"
+    local second_camera_overlay="${4:-}"
     local temporary_file
     local backup_file
 
@@ -164,6 +178,9 @@ write_boot_config() {
         echo "[all]"
         echo "camera_auto_detect=0"
         echo "dtoverlay=${camera_overlay}"
+        if [ -n "$second_camera_overlay" ]; then
+            echo "dtoverlay=${second_camera_overlay}"
+        fi
         echo "$CAMERA_BLOCK_END"
         if [ -n "$speaker_overlay" ]; then
             echo "$SPEAKER_BLOCK_BEGIN"
@@ -266,6 +283,8 @@ main() {
     local camera_port
     local camera_driver
     local camera_overlay
+    local second_camera_port
+    local second_camera_overlay=""
     local speaker_overlay
     local klipper_choice
     local answer
@@ -279,10 +298,18 @@ main() {
 
     echo ""
     camera_driver="$(choose_overlay "カメラドライバ" CAMERA_OVERLAYS)"
-    camera_overlay="$camera_driver"
-    if [ "$camera_port" -eq 0 ]; then
-        camera_overlay="${camera_overlay},cam0"
-    fi
+    camera_overlay="$(camera_overlay_for_port "$camera_driver" "$camera_port")"
+
+    echo ""
+    second_camera_port=$((1 - camera_port))
+    read -rp "2nd カメラ（CAMERA port ${second_camera_port}）を設定しますか? [y/N]: " answer || answer=""
+    case "$answer" in
+        [yY])
+            echo ""
+            camera_driver="$(choose_overlay "2nd カメラのドライバ" CAMERA_OVERLAYS)"
+            second_camera_overlay="$(camera_overlay_for_port "$camera_driver" "$second_camera_port")"
+            ;;
+    esac
 
     echo ""
     speaker_overlay="$(choose_overlay "スピーカー" SPEAKER_OVERLAYS \
@@ -292,6 +319,11 @@ main() {
     echo "boot 設定の変更内容:"
     echo "  config: ${boot_config}"
     echo "  camera: dtoverlay=${camera_overlay}"
+    if [ -n "$second_camera_overlay" ]; then
+        echo "  2nd camera: dtoverlay=${second_camera_overlay}"
+    else
+        echo "  2nd camera: 未設定"
+    fi
     if [ -n "$speaker_overlay" ]; then
         echo "  speaker: dtoverlay=${speaker_overlay}"
     else
@@ -299,7 +331,7 @@ main() {
     fi
     read -rp "この内容で更新しますか? [y/N]: " answer || answer=""
     case "$answer" in
-        [yY]) write_boot_config "$boot_config" "$camera_overlay" "$speaker_overlay" ;;
+        [yY]) write_boot_config "$boot_config" "$camera_overlay" "$speaker_overlay" "$second_camera_overlay" ;;
         *) die "boot 設定の更新を中止しました" ;;
     esac
 
