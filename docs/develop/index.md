@@ -71,14 +71,19 @@ main へのマージはメンテナーが判断する。
 コミット前に次の基本検証を実行する。
 
 ```sh
-make check  # make format、make type、make test を順に実行する
+make check  # make format、make type、make test-short を順に実行する
 ```
+
+`make test-short` は 1 件 1 秒を超えるテスト（`slow` マーカー。ジョブの G-code golden など）と E2E を除き、
+CPU の数だけ並列で流す。それらを含むフルテスト（`make test` と `make test-e2e`）は CI が流す。
+`slow` のテストが確かめる振る舞い（ジョブが送る G-code 列など）を変えたら、対象パスを指定して流す。
 
 WebUI の画面・HTTP・WebSocket・動画配信を変更したら `make test-e2e` も実行する。
 Chromium がシステムにない場合は `make playwright-install` でブラウザを用意する。
 
 | 検証               | 用途                                              | 実行例                                |
 | ------------------ | ------------------------------------------------- | ------------------------------------- |
+| 短いテスト         | 普段の検証。`slow` と E2E を除いて並列で流す      | `make test-short`                     |
 | テスト             | 計算、ファイル、HAL fake を通す結合、SSR / JSON   | `make test`                           |
 | 対象を絞ったテスト | 修正中の短い検証                                  | `uv run pytest tests/pcbasm/geometry` |
 | E2E                | 隔離した実サーバーを通すブラウザ・HTTP・WS・MJPEG | `make test-e2e`                       |

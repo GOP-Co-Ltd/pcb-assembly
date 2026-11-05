@@ -231,6 +231,7 @@ class TestMonotonic:
         assert len(set(seconds)) == len(seconds)
 
 
+@pytest.mark.slow
 class TestEstimatePrelude:
     """前段（ジョブの開始から pad を塗り始めるまで）の予測."""
 
