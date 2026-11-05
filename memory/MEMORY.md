@@ -18,6 +18,10 @@ pytest は実機に触れない（`@mark_hardware` のテストは無く、テ�
 - [テストはクラスにまとめる](feedback_test_class.md) — pytest テストは関数ではなく `class TestXxx` 形式に集約する
 - [和欧文間の半角空白は必須](feedback_jp_en_spacing.md) — 日本語と英数字の間に半角空白を 1 つ入れる。yomiyasu には規約を追記済み
 
+## プロジェクトの前提
+
+- [PnP はピンセット方式](premise_tweezer_pnp.md) — 吸着ではなくピンセットで部品をつかんで基板に置く。自由度 4+1（XYZθ + 開閉）、カメラ 2 系統（トップ + フロント広角）
+
 ## 技術選定の記録
 
 - [rustuna を採らない判断](decision_rustuna.md) — 実測で 16 倍速いが我々のボトルネックではない。再検討する条件つき
