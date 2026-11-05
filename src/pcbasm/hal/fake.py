@@ -600,21 +600,26 @@ class ServoCommand:
 
 
 class FakeServoBus:
-    """指令を記録し、即座に位置へ反映する ``ServoBus``（:meth:`jam` しない限り動いている途中は無い）.
+    """指令を記録し、即座に位置へ反映する ``ServoBus``.
 
     ``modes`` にある ID だけが応答する。位置モードの ID は goto だけ、ステップモードの ID は step だけを受け付ける。
+    goto / step の後は実機と同じく、``start_delay`` 回の :meth:`moving` が False（まだ動き出していない）、
+    次の 1 回が True（動いている途中）、その後は False（止まった）を返す。:meth:`jam` したサーボは True を返し続ける。
     """
 
     def __init__(
         self,
         modes: Mapping[int, ServoMode],
         positions: Mapping[int, int] | None = None,
+        *,
+        start_delay: int = 0,
     ) -> None:
         """Fake のバスを作る.
 
         Args:
             modes: 応答するサーボの ID とモード
             positions: 初期位置（raw 0〜4095。書かない ID は 2048）
+            start_delay: 指令の後、moving が True になるまでに False を返す読み出しの回数
         """
         self._modes = dict(modes)
         self._positions = {servo_id: 2048 for servo_id in self._modes} | dict(
@@ -623,6 +628,8 @@ class FakeServoBus:
         self._commands: list[ServoCommand] = []
         self._torque = dict.fromkeys(self._modes, False)
         self._jammed: set[int] = set()
+        self._start_delay = start_delay
+        self._reads_until_start: dict[int, int] = {}
         self._closed = False
         self._lock = threading.Lock()
 
@@ -650,7 +657,15 @@ class FakeServoBus:
 
     def moving(self, servo_id: int) -> bool:
         self._mode(servo_id)
-        return servo_id in self._jammed
+        if servo_id in self._jammed:
+            return True
+        with self._lock:
+            if (reads := self._reads_until_start.pop(servo_id, None)) is None:
+                return False
+            if reads > 0:
+                self._reads_until_start[servo_id] = reads - 1
+                return False
+            return True
 
     def set_torque(self, servo_id: int, on: bool) -> None:
         self._mode(servo_id)
@@ -667,6 +682,7 @@ class FakeServoBus:
         with self._lock:
             self._commands.append(ServoCommand(servo_id, "goto", position))
             self._positions[servo_id] = position
+            self._reads_until_start[servo_id] = self._start_delay
 
     def step(self, servo_id: int, steps: int) -> None:
         self._require(servo_id, ServoMode.STEP)
@@ -675,6 +691,7 @@ class FakeServoBus:
             self._positions[servo_id] = (
                 self._positions[servo_id] + steps
             ) % STEPS_PER_REV
+            self._reads_until_start[servo_id] = self._start_delay
 
     def close(self) -> None:
         self._closed = True

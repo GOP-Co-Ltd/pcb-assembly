@@ -42,6 +42,8 @@ _STEP_SIGN = 1 << 15
 _MAX_STEPS = _STEP_SIGN - 1
 
 _POLL_INTERVAL = 0.02  # wait_stopped が moving を見る間隔 [sec]
+# 指令の直後はまだ moving が立たない（実機で約 0.05 秒）。この間に立たなければ動かない指令とみなす
+_START_GRACE = 0.2  # [sec]
 
 
 class ServoMode(enum.IntEnum):
@@ -349,7 +351,10 @@ def hold_position(bus: ServoBus, servo_id: int) -> int:
 
 
 def wait_stopped(bus: ServoBus, servo_id: int, *, timeout: float) -> bool:
-    """サーボの移動が終わるのを待つ.
+    """指令を送った直後に呼び、サーボが動き出して止まるまで待つ.
+
+    指令の直後はまだ moving が立たないので、まず動き出すのを少し待つ。その間に動き出さなければ
+    （今の位置と同じ所への指令など）、止まっているものとして返す。
 
     Returns:
         timeout 秒以内に止まったか
@@ -357,7 +362,12 @@ def wait_stopped(bus: ServoBus, servo_id: int, *, timeout: float) -> bool:
     Raises:
         ServoError: 通信に失敗した場合
     """
-    deadline = time.monotonic() + timeout
+    start = time.monotonic()
+    deadline = start + timeout
+    while not bus.moving(servo_id):
+        if time.monotonic() > start + _START_GRACE:
+            return True
+        time.sleep(_POLL_INTERVAL)
     while bus.moving(servo_id):
         if time.monotonic() > deadline:
             return False

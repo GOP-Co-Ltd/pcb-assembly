@@ -393,7 +393,6 @@ class TestFakeServoBus:
         bus.goto(2, 3000)
 
         assert bus.position(2) == 3000
-        assert not bus.moving(2)
 
     def test_step_moves_relatively_and_wraps_at_one_revolution(self):
         bus = FakeServoBus({1: ServoMode.STEP}, {1: 4000})
@@ -407,11 +406,29 @@ class TestFakeServoBus:
         bus.step(1, 4096 * 3)
         assert bus.position(1) == 3900
 
-    def test_is_never_moving(self, bus: FakeServoBus):
-        bus.step(1, 4096)
-
+    def test_is_not_moving_without_a_command(self, bus: FakeServoBus):
         assert not bus.moving(1)
         assert not bus.moving(2)
+
+    @pytest.mark.parametrize(
+        ("servo_id", "move"),
+        [(2, lambda bus: bus.goto(2, 3000)), (1, lambda bus: bus.step(1, 100))],
+    )
+    def test_reports_moving_once_after_a_command_then_stops(
+        self,
+        bus: FakeServoBus,
+        servo_id: int,
+        move: Callable[[FakeServoBus], None],
+    ):
+        move(bus)
+
+        assert [bus.moving(servo_id) for _ in range(3)] == [True, False, False]
+
+    def test_start_delay_holds_moving_off_for_that_many_reads(self):
+        bus = FakeServoBus({2: ServoMode.POSITION}, start_delay=2)
+        bus.goto(2, 3000)
+
+        assert [bus.moving(2) for _ in range(5)] == [False, False, True, False, False]
 
     def test_jammed_servo_keeps_moving(self, bus: FakeServoBus):
         bus.jam(2)

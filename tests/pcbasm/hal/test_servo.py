@@ -20,6 +20,7 @@ from pcbasm.hal import (
     degrees_to_steps,
     scan,
     servo as servo_module,
+    wait_stopped,
     wiggle,
 )
 from pcbasm.hal.fake import FakeServoBus, ServoCommand
@@ -244,6 +245,29 @@ class TestWiggle:
             wiggle(bus, servo_id, timeout=0.1)
 
         assert bus.commands[-1] == ServoCommand(servo_id, "torque", 0)
+
+
+class TestWaitStopped:
+    """指令の後、動き出して止まるまで待つ（指令の直後は実機でもまだ moving が立たない）."""
+
+    def test_waits_for_a_servo_that_starts_moving_late(self):
+        bus = FakeServoBus({OPEN_CLOSE: ServoMode.POSITION}, start_delay=3)
+        bus.goto(OPEN_CLOSE, 2100)
+
+        assert wait_stopped(bus, OPEN_CLOSE, timeout=1.0)
+        # 動き出し → 停止まで読み切っている（後から動き出すことはない）
+        assert not any(bus.moving(OPEN_CLOSE) for _ in range(5))
+
+    def test_returns_when_the_servo_never_starts(self):
+        bus = FakeServoBus({OPEN_CLOSE: ServoMode.POSITION})
+
+        assert wait_stopped(bus, OPEN_CLOSE, timeout=1.0)
+
+    def test_servo_that_keeps_moving_times_out(self):
+        bus = FakeServoBus({OPEN_CLOSE: ServoMode.POSITION})
+        bus.jam(OPEN_CLOSE)
+
+        assert not wait_stopped(bus, OPEN_CLOSE, timeout=0.1)
 
 
 class TestTweezerInit:
