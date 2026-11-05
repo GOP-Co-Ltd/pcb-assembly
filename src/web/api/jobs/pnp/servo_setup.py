@@ -30,6 +30,16 @@ def register(catalog: JobCatalog) -> None:
                 ParamSpec(
                     "max_id", "探す ID の上限", "int", 20, minimum=1, maximum=253
                 ),
+                ParamSpec(
+                    "wiggle_degrees",
+                    "判別で振る角度",
+                    "float",
+                    5.0,
+                    unit="°",
+                    help="役割を見分けるために、各サーボをこの角度だけ ± に振って元へ戻す",
+                    minimum=1.0,
+                    maximum=30.0,
+                ),
             ),
             # サーボだけを動かし、XYZ には触れない。終了時のノズルキャップ駐機をせず、
             # そのため機体スピーカーの完了音も鳴らない
@@ -52,8 +62,11 @@ def _run_servo_setup(ctx: JobContext) -> JobResult:
     )
 
     ctx.progress("役割の判別")
+    degrees = float(ctx.params["wiggle_degrees"])
     while True:
-        answers = {servo_id: _ask_role(ctx, bus, servo_id) for servo_id in pair}
+        answers = {
+            servo_id: _ask_role(ctx, bus, servo_id, degrees) for servo_id in pair
+        }
         if (roles := roles_from_answers(answers)) is not None:
             break
         ctx.log(
@@ -97,16 +110,19 @@ def _run_servo_setup(ctx: JobContext) -> JobResult:
     )
 
 
-def _ask_role(ctx: JobContext, bus: ServoBus, servo_id: int) -> ServoRole:
-    """サーボを動かして見せ、役割を選ばれるまで尋ねる."""
+def _ask_role(
+    ctx: JobContext, bus: ServoBus, servo_id: int, degrees: float
+) -> ServoRole:
+    """サーボを ±degrees 振って見せ、役割を選ばれるまで尋ねる."""
     default = role_of_mode(bus.mode(servo_id)).label
     roles = {role.label: role for role in ServoRole}
     while True:
-        wiggle(bus, servo_id)
-        answer = ctx.choose(
-            f"ID {servo_id} のサーボを少し振りました。どちらのサーボですか?",
-            (*roles, AGAIN),
+        wiggle(bus, servo_id, degrees)
+        answer = ctx.choose_button(
+            f"ID {servo_id} のサーボを ±{degrees:g}° 振りました。どちらのサーボですか?",
+            tuple(roles),
             default=default,
+            other=AGAIN,
         )
         if answer in roles:
             return roles[answer]

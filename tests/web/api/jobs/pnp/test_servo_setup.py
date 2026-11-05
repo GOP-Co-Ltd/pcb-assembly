@@ -144,7 +144,12 @@ class TestServoSetupJob:
         start = operator.start()
         assert "中ほど" in start.message
         first = operator.answer(ROTATION)
-        assert first.kind == "choice"
+        # 役割はボタンで選び、「もう一度動かす」は別段のボタンにする
+        assert (first.kind, first.choices, first.false_label) == (
+            "buttons",
+            (ROTATION, OPEN_CLOSE),
+            AGAIN,
+        )
         assert first.default == ROTATION  # ID 1 はステップモード
         assert "ID 1" in first.message
         second = operator.answer(OPEN_CLOSE)
@@ -213,6 +218,21 @@ class TestServoSetupJob:
         operator.wait()
 
         assert _move_count(bus, 1) == 2 * once
+        manager.request_abort()
+        _finish(record)
+
+    def test_wiggle_degrees_sets_how_far_the_servo_swings(
+        self, manager: JobManager, bus: FakeServoBus
+    ):
+        record = manager.start("servo_setup", {**PARAMS, "wiggle_degrees": 10.0})
+        operator = _Operator(record, manager)
+
+        operator.start()
+        prompt = operator.wait()
+
+        assert "±10°" in prompt.message
+        # ID 1 はステップモード。10° = 114 step を +、-2 倍、+ で振って元へ戻す
+        assert [c.value for c in bus.commands if c.kind == "step"] == [114, -228, 114]
         manager.request_abort()
         _finish(record)
 
