@@ -122,6 +122,7 @@ class TestCameraCalibrationJob:
         assert record.status == JobStatus.ABORTED
         assert record.apply_available is False
 
+    @pytest.mark.slow
     def test_undetectable_image_logs_warning_and_reprompts(self, manager: JobManager):
         """検出不能画像（fake_camera.png）→ 警告 log 後に再 prompt で継続できる.
 

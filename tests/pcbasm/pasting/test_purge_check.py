@@ -170,6 +170,7 @@ class TestPurgeWithCleaning:
             if here and not (index > 0 and hits[index - 1])
         )
 
+    @pytest.mark.slow
     def test_does_not_clean_when_the_purge_shows_up(self):
         """出ているならそのまま塗布へ進む."""
         purged = _purge([uniform_frame(), dot_frame(DOT_PX)])
@@ -179,6 +180,7 @@ class TestPurgeWithCleaning:
         assert self._count(purged.moves, self._is_clean_approach) == 0
         assert purged.loads == []
 
+    @pytest.mark.slow
     def test_captures_the_purge_point_before_and_after_purging(self):
         """塗布前後の差分で見るので、パージの前にも撮る."""
         purged = _purge([uniform_frame(), dot_frame(DOT_PX)])
@@ -193,6 +195,7 @@ class TestPurgeWithCleaning:
         assert "purge" in kinds
         assert kinds[-1] == "capture"
 
+    @pytest.mark.slow
     def test_cleans_and_purges_again_when_nothing_shows_up(self):
         """1 回目が未検出 → クリーニング → もう一度パージして確かめる."""
         purged = _purge([uniform_frame(), uniform_frame(), dot_frame(DOT_PX)])
@@ -208,6 +211,7 @@ class TestPurgeWithCleaning:
         retract = _dispenser().dispenser.retract_amount
         assert purged.loads == pytest.approx([retract, CLEAN.purge_ul, -retract])
 
+    @pytest.mark.slow
     def test_raises_when_the_second_purge_still_shows_nothing(self):
         """掃除しても出ないなら pad を塗り始めない."""
         purged = _purge([uniform_frame()])
@@ -218,6 +222,7 @@ class TestPurgeWithCleaning:
         assert self._count(purged.moves, self._is_clean_approach) == 1
         assert self._count(purged.moves, self._is_purge) == 2
 
+    @pytest.mark.slow
     def test_purges_again_without_wiping_when_the_position_is_not_recorded(self):
         """位置未記録ならこすれないが、パージのやり直しには意味がある."""
         purged = _purge(
@@ -239,6 +244,7 @@ class TestPurgeWithCleaning:
         assert self._count(purged.moves, self._is_clean_approach) == 0
         assert self._count(purged.moves, lambda move: "x" in move) == 1
 
+    @pytest.mark.slow
     def test_purges_without_checking_when_the_images_cannot_be_measured(self):
         """計測できないことは「出ていない」ことの証拠にならない."""
         purged = _purge([uniform_frame(), _half_size_frame()])

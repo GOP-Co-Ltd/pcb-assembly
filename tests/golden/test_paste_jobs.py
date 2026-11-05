@@ -91,6 +91,7 @@ def _forget_nozzle_clean(settings: Env) -> None:
     path.write_text(tomlkit.dumps(document), encoding="utf-8")
 
 
+@pytest.mark.slow
 class TestPasteSolder:
     @pytest.fixture
     def machine_klipper(self) -> CloggedKlipper:
@@ -189,6 +190,7 @@ class TestPasteSolder:
         run(scenario)
 
 
+@pytest.mark.slow
 class TestHeightPlane:
     @pytest.mark.parametrize(
         "scenario", scenarios_of("height_plane"), ids=lambda s: s.name
@@ -214,6 +216,7 @@ class TestHeightPlane:
         assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")
 
 
+@pytest.mark.slow
 class TestToolheadOffset:
     @pytest.fixture
     def plate_shapes(

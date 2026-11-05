@@ -352,6 +352,7 @@ class TestStartIsRefused:
 class TestSingleFlight:
     """単一実行ロック（安全弁 2）。同居機の api / ui が同時に走るのも止める."""
 
+    @pytest.mark.slow
     def test_second_start_in_the_same_process_is_refused(
         self, clone: Path, tmp_path: Path, publisher: Path
     ):
@@ -498,6 +499,7 @@ class TestRestartServices:
         assert reason is not None
         assert restart_calls(log_path(settings)) == []
 
+    @pytest.mark.slow
     def test_running_update_is_not_interrupted(
         self, clone: Path, tmp_path: Path, publisher: Path
     ):
