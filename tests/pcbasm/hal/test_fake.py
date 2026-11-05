@@ -440,6 +440,12 @@ class TestFakeServoBus:
         with pytest.raises(ServoError):
             bus.jam(9)
 
+    def test_set_mode_changes_the_mode_and_is_recorded(self, bus: FakeServoBus):
+        bus.set_mode(2, ServoMode.STEP)
+
+        assert bus.mode(2) == ServoMode.STEP
+        assert bus.commands == [ServoCommand(2, "mode", 3)]
+
     def test_commands_is_a_snapshot(self, bus: FakeServoBus):
         commands = bus.commands
         bus.set_torque(1, True)

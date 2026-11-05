@@ -8,6 +8,7 @@
 import os
 import select
 import threading
+import time
 import tty
 from pathlib import Path
 
@@ -52,7 +53,7 @@ def _tweezer(
 
 def _moves(commands: list[ServoCommand]) -> list[ServoCommand]:
     """指令のうち、サーボを動かすもの（goto / step）."""
-    return [command for command in commands if command.kind != "torque"]
+    return [command for command in commands if command.kind in {"goto", "step"}]
 
 
 def _moves_since(bus: FakeServoBus, sent: int) -> list[ServoCommand]:
@@ -69,9 +70,11 @@ class _WireServo:
     を返す）.
 
     読み出しには 0 を並べて返す。slave 側のパス（:attr:`path`）をポートとして開かせる。
+    ``reply_delays`` にあるアドレスへの WRITE は、その秒数だけ遅れて応答する。
     """
 
-    def __init__(self) -> None:
+    def __init__(self, reply_delays: dict[int, float] | None = None) -> None:
+        self._reply_delays = reply_delays or {}
         self._master, self._slave = os.openpty()
         tty.setraw(self._master)
         tty.setraw(self._slave)
@@ -110,6 +113,8 @@ class _WireServo:
                 size = buffer[3] + 4
                 packet, buffer = buffer[:size], buffer[size:]
                 self.packets.append(packet)
+                if packet[4] == _INSTRUCTION_WRITE:
+                    time.sleep(self._reply_delays.get(packet[5], 0.0))
                 data = bytes(packet[6]) if packet[4] == _INSTRUCTION_READ else b""
                 body = bytes([packet[2], len(data) + 2, 0]) + data
                 os.write(self._master, b"\xff\xff" + body + bytes([~sum(body) & 0xFF]))
@@ -500,6 +505,32 @@ class TestFeetechBus:
         feetech.goto(2, position)
 
         assert wire.writes() == [(2, _ADDR_ACC, goal)]
+
+    @pytest.mark.parametrize("mode", list(ServoMode))
+    def test_set_mode_unlocks_the_eeprom_writes_the_mode_and_locks_it_again(
+        self, wire: _WireServo, feetech: FeetechBus, mode: ServoMode
+    ):
+        feetech.set_mode(1, mode)
+
+        assert wire.writes() == [
+            (1, 55, b"\x00"),
+            (1, 33, bytes([mode.value])),
+            (1, 55, b"\x01"),
+        ]
+
+    def test_set_mode_waits_for_the_late_reply_of_a_mode_change(self):
+        # 実機は MODE が変わると応答まで約 40 ms かかる
+        wire = _WireServo(reply_delays={33: 0.08})
+        bus = servo_module.open_servo_bus(wire.path)
+        try:
+            bus.set_mode(1, ServoMode.STEP)
+
+            # 遅れた応答を読み切っているので、次の読み出しが乱れない
+            assert bus.mode(1) is ServoMode.POSITION  # _WireServo は 0 を返す
+            assert [address for _, address, _ in wire.writes()] == [55, 33, 55]
+        finally:
+            bus.close()
+            wire.close()
 
     @pytest.mark.parametrize("steps", [32768, -32768])
     def test_step_beyond_15_bits_is_refused_without_sending(

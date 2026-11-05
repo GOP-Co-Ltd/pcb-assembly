@@ -6,12 +6,12 @@ from pcbasm.hal import ServoBus, hold_position, wiggle
 from pcbasm.pnp.servo_setup import (
     OpenCloseRange,
     ServoRole,
+    apply_modes,
     exercise,
     find_pair,
     role_of_mode,
     roles_from_answers,
     servo_settings,
-    verify_modes,
 )
 from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.runtime.context import JobContext
@@ -72,7 +72,9 @@ def _run_servo_setup(ctx: JobContext) -> JobResult:
         ctx.log(
             "2 台に同じ役割を選びました。Rotation と Open Close を 1 台ずつ選んでください"
         )
-    verify_modes(bus, roles)
+    for servo_id in apply_modes(bus, roles):
+        mode = bus.mode(servo_id)
+        ctx.log(f"ID {servo_id} のモードを {mode.name}（{mode.value}）に書きました")
 
     ctx.progress("開閉の範囲")
     while True:

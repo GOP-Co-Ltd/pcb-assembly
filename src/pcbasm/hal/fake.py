@@ -590,12 +590,13 @@ class ServoCommand:
 
     Attributes:
         servo_id: 送り先のサーボ ID
-        kind: 指令の種類（``goto`` は絶対位置、``step`` は相対 step、``torque`` はトルクの入切）
-        value: goto は位置、step は step 数、torque は 1（入）か 0（切）
+        kind: 指令の種類（``goto`` は絶対位置、``step`` は相対 step、``torque`` はトルクの入切、
+            ``mode`` は動作モードの書き込み）
+        value: goto は位置、step は step 数、torque は 1（入）か 0（切）、mode はモードの値
     """
 
     servo_id: int
-    kind: Literal["goto", "step", "torque"]
+    kind: Literal["goto", "step", "torque", "mode"]
     value: int
 
 
@@ -635,7 +636,7 @@ class FakeServoBus:
 
     @property
     def commands(self) -> list[ServoCommand]:
-        """受けた goto / step / torque の指令（送った順）."""
+        """受けた goto / step / torque / mode の指令（送った順）."""
         with self._lock:
             return list(self._commands)
 
@@ -672,6 +673,12 @@ class FakeServoBus:
         with self._lock:
             self._commands.append(ServoCommand(servo_id, "torque", int(on)))
             self._torque[servo_id] = on
+
+    def set_mode(self, servo_id: int, mode: ServoMode) -> None:
+        self._mode(servo_id)
+        with self._lock:
+            self._commands.append(ServoCommand(servo_id, "mode", int(mode)))
+            self._modes[servo_id] = mode
 
     def goto(self, servo_id: int, position: int) -> None:
         if not 0 <= position < STEPS_PER_REV:

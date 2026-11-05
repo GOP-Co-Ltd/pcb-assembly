@@ -236,7 +236,25 @@ class TestServoSetupJob:
         manager.request_abort()
         _finish(record)
 
-    def test_swapped_roles_fail_on_the_mode(
+    def test_freshly_installed_servos_get_the_mode_of_their_role(
+        self, manager: JobManager, bus: FakeServoBus
+    ):
+        bus.set_mode(1, ServoMode.POSITION)  # 取り付けたばかりで 2 台とも位置モード
+        record = manager.start("servo_setup", PARAMS)
+        operator = _Operator(record, manager)
+
+        operator.start()
+        operator.answer(ROTATION)
+        operator.answer(OPEN_CLOSE)
+        operator.read_and_move(bus, 1000, 1300)
+        operator.answer(True)
+        _finish(record)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert (bus.mode(1), bus.mode(2)) == (ServoMode.STEP, ServoMode.POSITION)
+        assert "ID 1 のモードを STEP（3）に書きました" in record.log_lines
+
+    def test_swapped_roles_rewrite_both_modes(
         self, manager: JobManager, bus: FakeServoBus
     ):
         record = manager.start("servo_setup", PARAMS)
@@ -245,11 +263,15 @@ class TestServoSetupJob:
         operator.start()
         operator.answer(OPEN_CLOSE)
         operator.answer(ROTATION)
-        _finish(record)
+        operator.wait()  # Open Close（ID 1）の閉じ切りを読む問い
 
-        assert record.status == JobStatus.FAILED
-        assert record.error is not None and "モード" in record.error
-        assert record.apply_available is False
+        assert (bus.mode(1), bus.mode(2)) == (ServoMode.POSITION, ServoMode.STEP)
+        assert {
+            "ID 2 のモードを STEP（3）に書きました",
+            "ID 1 のモードを POSITION（0）に書きました",
+        } <= set(record.log_lines)
+        manager.request_abort()
+        _finish(record)
 
     def test_unusable_range_reads_again(self, manager: JobManager, bus: FakeServoBus):
         record = manager.start("servo_setup", PARAMS)

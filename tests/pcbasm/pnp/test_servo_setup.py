@@ -13,12 +13,12 @@ from pcbasm.pnp.servo_setup import (
     ServoRole,
     ServoRoles,
     ServoSetupError,
+    apply_modes,
     exercise,
     find_pair,
     role_of_mode,
     roles_from_answers,
     servo_settings,
-    verify_modes,
 )
 
 ROTATION = ServoRole.ROTATION
@@ -73,23 +73,33 @@ class TestRolesFromAnswers:
         assert roles_from_answers({1: role, 2: role}) is None
 
 
-class TestVerifyModes:
-    def test_matching_modes_pass(self):
+class TestApplyModes:
+    def test_matching_modes_write_nothing(self):
         bus = FakeServoBus({1: ServoMode.STEP, 2: ServoMode.POSITION})
 
-        verify_modes(bus, ServoRoles(rotation_id=1, open_close_id=2))
+        assert apply_modes(bus, ServoRoles(rotation_id=1, open_close_id=2)) == ()
+        assert bus.commands == []
 
-    def test_swapped_roles_name_the_id_and_both_modes(self):
+    def test_freshly_installed_rotation_gets_the_step_mode_after_torque_off(self):
+        # 取り付けたばかりのサーボは 2 台とも位置モード
+        bus = FakeServoBus({1: ServoMode.POSITION, 2: ServoMode.POSITION})
+
+        written = apply_modes(bus, ServoRoles(rotation_id=1, open_close_id=2))
+
+        assert written == (1,)
+        assert bus.commands == [
+            ServoCommand(1, "torque", 0),
+            ServoCommand(1, "mode", ServoMode.STEP.value),
+        ]
+        assert (bus.mode(1), bus.mode(2)) == (ServoMode.STEP, ServoMode.POSITION)
+
+    def test_swapped_modes_are_both_rewritten(self):
         bus = FakeServoBus({1: ServoMode.STEP, 2: ServoMode.POSITION})
 
-        with pytest.raises(ServoSetupError) as excinfo:
-            verify_modes(bus, ServoRoles(rotation_id=2, open_close_id=1))
+        written = apply_modes(bus, ServoRoles(rotation_id=2, open_close_id=1))
 
-        message = str(excinfo.value)
-        assert "ID 2" in message
-        assert "POSITION" in message
-        assert "STEP" in message
-        assert "FD" in message
+        assert written == (2, 1)
+        assert (bus.mode(1), bus.mode(2)) == (ServoMode.POSITION, ServoMode.STEP)
 
 
 class TestOpenCloseRange:

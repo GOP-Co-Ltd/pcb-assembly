@@ -1,11 +1,11 @@
 """ピンセットのサーボの役割判別と開閉の範囲.
 
-2 台のサーボを 1 台ずつ動かして、人がどちらが Rotation / Open Close かを答える。
-次に Open Close のトルクを切り、人が手で閉じ切り・開き切りにした位置を読む。
+2 台のサーボを 1 台ずつ動かして、人がどちらが Rotation / Open Close かを答える。取り付けたばかりの
+サーボは役割に合うモードとは限らないので、役割が決まったら合わないサーボにモードを書く。次に Open Close のトルクを切り、人が手で閉じ切り・開き切りにした位置を読む。
 ここには判別と範囲の検証だけを置き、人への問い合わせはジョブ（``web.api.jobs.pnp.servo_setup``）が担う。
 
 人の答えが使えないとき（同じ役割を 2 回選んだ、範囲が狭い）は戻り値で知らせ、ジョブが尋ね直す。
-:class:`ServoSetupError` は、人が答え直しても先へ進めない失敗（2 台見つからない、モードが合わない）に使う。
+:class:`ServoSetupError` は、人が答え直しても先へ進めない失敗（2 台見つからない、モードを書けない）に使う。
 """
 
 from __future__ import annotations
@@ -104,20 +104,31 @@ def roles_from_answers(answers: Mapping[int, ServoRole]) -> ServoRoles | None:
     )
 
 
-def verify_modes(bus: ServoBus, roles: ServoRoles) -> None:
-    """各サーボのモードが役割に合っているか確かめる.
+def apply_modes(bus: ServoBus, roles: ServoRoles) -> tuple[int, ...]:
+    """役割とモードが合わないサーボに、役割のモードを書く.
+
+    書く前にそのサーボのトルクを切る（モードが変わると goal の意味が変わるため）。
+
+    Returns:
+        モードを書いたサーボの ID（役割の順。合っていれば空）
 
     Raises:
-        ServoSetupError: 役割とモードが合わない場合
+        ServoSetupError: 書いたのに読み戻すと役割のモードになっていない場合
     """
+    written: list[int] = []
     for role in ServoRole:
         servo_id = roles.id_of(role)
+        if bus.mode(servo_id) is role.mode:
+            continue
+        bus.set_torque(servo_id, False)
+        bus.set_mode(servo_id, role.mode)
         if (mode := bus.mode(servo_id)) is not role.mode:
             raise ServoSetupError(
-                f"{role.label} に選んだ ID {servo_id} のモードが {mode.name}（{mode.value}）です。"
-                f"{role.mode.name}（{role.mode.value}）が要ります。役割の選び間違いでなければ、"
-                "モードを FD ツールで書き換えてからやり直してください"
+                f"{role.label} の ID {servo_id} にモード {role.mode.name}（{role.mode.value}）を書きましたが、"
+                f"読み戻すと {mode.name}（{mode.value}）です"
             )
+        written.append(servo_id)
+    return tuple(written)
 
 
 @attrs.frozen

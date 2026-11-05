@@ -5,7 +5,8 @@
 - Rotation: ピンセットの向き。多回転するのでステップモード（:attr:`ServoMode.STEP`）で相対 step を送る
 - Open Close: ピンセットの開閉。位置モード（:attr:`ServoMode.POSITION`）で閉じ〜開きの間の絶対位置を送る
 
-モードはサーボの EEPROM にあり、ここでは読むだけで書かない（役割と合わなければ :class:`ServoError`）。
+モードはサーボの EEPROM にある。取り付けたばかりのサーボは役割が分からないので、役割を特定したあとに
+:meth:`ServoBus.set_mode` で書く（``pcbasm.pnp.servo_setup``）。:class:`Tweezer` は読んで確かめるだけ。
 実装は scservo_sdk の :class:`FeetechBus` と、``pcbasm.hal.fake.FakeServoBus`` の 2 つに限る。
 """
 
@@ -27,9 +28,10 @@ from pcbasm.errors import DeviceError
 STEPS_PER_REV = 4096
 
 # STS シリーズのコントロールテーブル
-_ADDR_MODE = 33  # EEPROM。読むだけで書かない
+_ADDR_MODE = 33  # EEPROM（書くときは LOCK を外す）
 _ADDR_TORQUE_ENABLE = 40
 _ADDR_ACC = 41  # ACC から 7 byte: ACC, GOAL_POSITION(42), GOAL_TIME(44), GOAL_SPEED(46)
+_ADDR_LOCK = 55  # EEPROM の書き込みロック（0 で外す、1 で戻す）
 _ADDR_PRESENT_POSITION = 56
 _ADDR_MOVING = 66
 _GOAL_LENGTH = 7
@@ -40,6 +42,10 @@ _ACC = 10  # [100 step/s²]
 # ステップモードの goal は sign-magnitude（bit15 が負号、下位 15 bit が大きさ）
 _STEP_SIGN = 1 << 15
 _MAX_STEPS = _STEP_SIGN - 1
+
+# MODE が実際に変わる書き込みは、応答まで約 40 ms かかる（SDK が書き込みの応答を待つのは約 34 ms）
+_MODE_REPLY_TIMEOUT_MS = 200
+_PKT_ERROR = 4  # status packet の ERROR の位置（HEADER0 HEADER1 ID LENGTH ERROR ...）
 
 _POLL_INTERVAL = 0.02  # wait_stopped が moving を見る間隔 [sec]
 # 指令の直後はまだ moving が立たない（実機で約 0.05 秒）。この間に立たなければ動かない指令とみなす
@@ -94,6 +100,14 @@ class ServoBus(Protocol):
 
     def set_torque(self, servo_id: int, on: bool) -> None:
         """トルクを入れる・切る.
+
+        Raises:
+            ServoError: 通信に失敗した場合
+        """
+        ...
+
+    def set_mode(self, servo_id: int, mode: ServoMode) -> None:
+        """動作モードを EEPROM に書く（電源を切っても残る。トルクは呼ぶ側が先に切る）.
 
         Raises:
             ServoError: 通信に失敗した場合
@@ -171,13 +185,15 @@ class FeetechBus:
 
     def set_torque(self, servo_id: int, on: bool) -> None:
         """トルクを入れる・切る."""
-        result, error = self._transact(
-            servo_id,
-            lambda: self._packet.write1ByteTxRx(
-                self._port, servo_id, _ADDR_TORQUE_ENABLE, int(on)
-            ),
-        )
-        self._check(servo_id, result, error)
+        self._write1(servo_id, _ADDR_TORQUE_ENABLE, int(on))
+
+    def set_mode(self, servo_id: int, mode: ServoMode) -> None:
+        """EEPROM のロックを外して動作モードを書き、ロックを戻す（失敗してもロックは戻す）."""
+        self._write1(servo_id, _ADDR_LOCK, 0)
+        try:
+            self._write_mode(servo_id, mode)
+        finally:
+            self._write1(servo_id, _ADDR_LOCK, 1)
 
     def goto(self, servo_id: int, position: int) -> None:
         """位置モードのサーボを絶対位置へ動かす.
@@ -215,6 +231,28 @@ class FeetechBus:
         )
         self._check(servo_id, result, error)
         return value
+
+    def _write1(self, servo_id: int, address: int, value: int) -> None:
+        result, error = self._transact(
+            servo_id,
+            lambda: self._packet.write1ByteTxRx(self._port, servo_id, address, value),
+        )
+        self._check(servo_id, result, error)
+
+    def _write_mode(self, servo_id: int, mode: ServoMode) -> None:
+        """MODE を書き、遅れて届く応答を長めに待つ（SDK の待ち時間で切ると、遅れた応答が次の読み出しに混ざる）."""
+
+        def call() -> tuple[list[int], int]:
+            result = self._packet.write1ByteTxOnly(
+                self._port, servo_id, _ADDR_MODE, int(mode)
+            )
+            if result != COMM_SUCCESS:
+                return [], result
+            self._port.setPacketTimeoutMillis(_MODE_REPLY_TIMEOUT_MS)
+            return self._packet.rxPacket(self._port)
+
+        packet, result = self._transact(servo_id, call)
+        self._check(servo_id, result, packet[_PKT_ERROR] if packet else 0)
 
     def _write_goal(self, servo_id: int, goal: int) -> None:
         data = [
