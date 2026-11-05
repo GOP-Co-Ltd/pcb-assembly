@@ -12,6 +12,10 @@ format: ## Run pre-commit hooks
 test: ## Run tests except e2e (hardware is checked by docs/acceptance.md)
 	uv run pytest -v -m "not e2e"
 
+# 開発中に流す短いテスト。遅いテスト（slow）と E2E を除き、CPU の数だけ並列で走らせる
+test-short: ## Run tests except slow and e2e in parallel (CI runs test and test-e2e)
+	uv run pytest -n auto -m "not e2e and not slow"
+
 test-e2e: ## Run WebUI full-stack E2E (live uvicorn + HTTP/WS/MJPEG)
 	uv run pytest -v -m e2e --timeout=180
 
@@ -32,4 +36,4 @@ ui: ## Run UI frontend server
 dev: ## Run fake backend and frontend together (isolated ports and temp dir)
 	uv run python -m web.dev
 
-check: format type test ## Run format, type check and tests
+check: format type test-short ## Run format, type check and short tests

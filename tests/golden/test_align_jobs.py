@@ -95,6 +95,7 @@ class TestCameraCalibration:
         assert result.z_position == FOCUS_Z
         assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")
 
+    @pytest.mark.slow
     def test_applied_calibration_is_used_by_the_next_job_without_restart(
         self,
         manager: JobManager,
@@ -175,6 +176,7 @@ class TestCalibrationWithoutFocusZ:
         assert "G28 X Y Z" not in machine_klipper.sent_lines
 
 
+@pytest.mark.slow
 class TestBoardTour:
     @pytest.mark.parametrize(
         "scenario", scenarios_of("board_tour"), ids=lambda s: s.name
@@ -200,6 +202,7 @@ class TestBoardTour:
         assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")
 
 
+@pytest.mark.slow
 class TestOrthogonalityTest:
     @pytest.mark.parametrize(
         "scenario", scenarios_of("orthogonality_test"), ids=lambda s: s.name

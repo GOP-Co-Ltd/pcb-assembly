@@ -576,6 +576,7 @@ class TestRunFlowCalibration:
         last = ran.move_count
         assert focus[3:] == [last - 3, last - 2, last - 1]
 
+    @pytest.mark.slow
     def test_waits_for_the_paste_to_settle_before_the_post_pass(self, tmp_path: Path):
         """塗り終えてすぐ撮ると、広がりきる前の小さい円を測ることになる."""
         ran = self._run(tmp_path, self._write_calibration(tmp_path), settle_seconds=1.5)

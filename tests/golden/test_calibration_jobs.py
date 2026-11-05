@@ -94,6 +94,7 @@ def plate_shapes(
     return shapes
 
 
+@pytest.mark.slow
 class TestDispenseCalibration:
     @pytest.mark.parametrize(
         "scenario", scenarios_of("dispense_calibration"), ids=lambda s: s.name
@@ -142,6 +143,7 @@ class TestDispenseCalibration:
         assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")
 
 
+@pytest.mark.slow
 class TestPasteVolumeCalibration:
     @pytest.mark.parametrize(
         "scenario",

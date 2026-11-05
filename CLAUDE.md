@@ -75,9 +75,10 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 - `make setup`: 開発環境セットアップ
 - `make format`: pre-commit 実行
 - `make type`: pyright 型チェック
-- `make test`: E2E 以外の全テスト（pytest は実機に触れない。テスト中の Klipper 接続と systemctl は必ず失敗する）
+- `make test`: E2E 以外の全テスト（CI が流す。pytest は実機に触れない。テスト中の Klipper 接続と systemctl は必ず失敗する）
+- `make test-short`: 遅いテスト（`slow` マーカー）と E2E を除き並列で流す短いテスト。普段はこれを使う
 - `make test-e2e`: WebUI E2E
-- `make check`: format → type → test
+- `make check`: format → type → test-short
 - `make api`: backend WebAPI 起動（port 8081）
 - `make ui`: UI frontend 起動（port 8080）
 - `make dev`: Klipper もカメラも fake にした backend と frontend を同時に起動（隔離ポート 8099 / 8098 と一時ディレクトリ、手動・ブラウザ確認用）
