@@ -9,7 +9,7 @@ JobContext は JobManager だけが生成するため、合成ジョブを manag
 - machine は選択マシンの設定、artifacts_dir は data/webui/<job_id>/（作成済み）
 - log / progress は record へ反映、frame はカメラ（CameraFeed）のオーバーライドスロットへ
 - next_command は timeout 超過で None
-- confirm / require / choose / ask_positive は prompt の定型（ボタンの文言・中止・正数の再入力）
+- confirm / require / choose / choose_button / ask_positive は prompt の定型（ボタンの文言・中止・正数の再入力）
 
 prompt / abort 経由の挙動は test_manager.py（respond_prompt / request_abort
 側の契約）で検証する。
@@ -461,6 +461,49 @@ class TestChoose:
             ("top", "bottom"),
             "bottom",
         )
+
+
+class TestChooseButton:
+    """choose_button: 選択肢をボタンで並べ、別段のボタン（other）も選べる."""
+
+    @pytest.mark.parametrize("answer", ["top", "もう一度"])
+    def test_returns_the_pressed_button(
+        self, manager: JobManager, catalog: JobCatalog, answer: str
+    ):
+        chosen: list[str] = []
+
+        def run(ctx: JobContext) -> None:
+            chosen.append(
+                ctx.choose_button(
+                    "層?", ("top", "bottom"), default="bottom", other="もう一度"
+                )
+            )
+
+        _register(catalog, run)
+        record = manager.start("synthetic", {})
+        [spec] = _prompts_of(manager, record, [answer])
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert chosen == [answer]
+        assert (spec.kind, spec.choices, spec.default, spec.false_label) == (
+            "buttons",
+            ("top", "bottom"),
+            "bottom",
+            "もう一度",
+        )
+
+    def test_without_other_has_no_separate_button(
+        self, manager: JobManager, catalog: JobCatalog
+    ):
+        def run(ctx: JobContext) -> None:
+            ctx.choose_button("層?", ("top", "bottom"), default="top")
+
+        _register(catalog, run)
+        record = manager.start("synthetic", {})
+        [spec] = _prompts_of(manager, record, ["bottom"])
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert spec.false_label is None
 
 
 class TestAskPositive:

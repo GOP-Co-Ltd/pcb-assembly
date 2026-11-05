@@ -11,9 +11,16 @@ import httpx
 import pytest
 from shapely import Point
 
+from pcbasm.config import ConfigError
 from pcbasm.config.klipper import KlipperConfig
-from pcbasm.hal import FrameHub, XYZStage
-from pcbasm.hal.fake import FAKE_MACHINE_PRINTER_CONFIG, FakeCamera, FakeKlipper
+from pcbasm.hal import FrameHub, ServoMode, XYZStage
+from pcbasm.hal.fake import (
+    FAKE_MACHINE_PRINTER_CONFIG,
+    FakeCamera,
+    FakeKlipper,
+    FakeServoBus,
+    ServoCommand,
+)
 from pcbasm.machine.devices import Devices, open_devices
 from pcbasm.machine.journal import Journal
 from pcbasm.vision import Image
@@ -266,3 +273,206 @@ class TestCamera:
 
         assert camera.info.name == "FakeCamera"
         assert camera.resolution.width == Image.load(FAKE_CAMERA_IMAGE).width
+
+
+_SERVO_ROLES = {
+    "rotation_id": 1,
+    "open_close_id": 2,
+    "closed_position": 2048,
+    "open_position": 2560,
+}
+
+
+def _write_servo(config_path: Path, **values: object) -> None:
+    """machine.toml の末尾に [pnp.servo] を足す（port は /dev/ttyACM0）."""
+    lines = ['port = "/dev/ttyACM0"'] + [
+        f"{key} = {value}" for key, value in values.items()
+    ]
+    with config_path.open("a", encoding="utf-8") as f:
+        f.write("\n[pnp.servo]\n" + "\n".join(lines) + "\n")
+
+
+def _servo_bus() -> FakeServoBus:
+    return FakeServoBus({1: ServoMode.STEP, 2: ServoMode.POSITION})
+
+
+class TestServoBus:
+    """サーボのバスは初回の呼び出しで machine.toml の [pnp.servo] から開き、後始末で閉じる."""
+
+    def test_uses_the_given_fake_bus(self, config_path: Path, journal_dir: Path):
+        _write_servo(config_path)
+        bus = _servo_bus()
+        devices = Devices(config_path, journal_dir, servo_bus=bus)
+
+        assert devices.servo_bus() is bus
+
+    def test_opens_the_configured_port_once_on_first_use(
+        self,
+        config_path: Path,
+        journal_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        _write_servo(config_path, baudrate=500000)
+        opened: list[tuple[str, int]] = []
+        bus = _servo_bus()
+
+        def open_servo_bus(port: str, baudrate: int = 1_000_000) -> FakeServoBus:
+            opened.append((port, baudrate))
+            return bus
+
+        monkeypatch.setattr("pcbasm.hal.open_servo_bus", open_servo_bus)
+        devices = Devices(config_path, journal_dir)
+
+        assert devices.servo_bus() is bus
+        assert devices.servo_bus() is bus
+        assert opened == [("/dev/ttyACM0", 500000)]
+
+    def test_without_pnp_section_is_a_config_error(
+        self, config_path: Path, journal_dir: Path
+    ):
+        devices = Devices(config_path, journal_dir)
+
+        with pytest.raises(ConfigError):
+            devices.servo_bus()
+
+    def test_without_servo_table_is_a_config_error(
+        self, config_path: Path, journal_dir: Path
+    ):
+        with config_path.open("a", encoding="utf-8") as f:
+            f.write("\n[pnp]\n")
+        devices = Devices(config_path, journal_dir)
+
+        with pytest.raises(ConfigError):
+            devices.servo_bus()
+
+    def test_reopens_when_the_port_changes(
+        self,
+        config_path: Path,
+        journal_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        _write_servo(config_path)
+        opened: list[tuple[str, int]] = []
+        buses: list[FakeServoBus] = []
+
+        def open_servo_bus(port: str, baudrate: int = 1_000_000) -> FakeServoBus:
+            opened.append((port, baudrate))
+            buses.append(_servo_bus())
+            return buses[-1]
+
+        monkeypatch.setattr("pcbasm.hal.open_servo_bus", open_servo_bus)
+        devices = Devices(config_path, journal_dir)
+        first = devices.servo_bus()
+        config_path.write_text(
+            config_path.read_text(encoding="utf-8").replace(
+                'port = "/dev/ttyACM0"', 'port = "/dev/ttyACM1"\nbaudrate = 500000'
+            ),
+            encoding="utf-8",
+        )
+
+        second = devices.servo_bus()
+
+        assert opened == [("/dev/ttyACM0", 1_000_000), ("/dev/ttyACM1", 500000)]
+        assert second is not first
+        assert first is buses[0] and buses[0].closed
+        assert not buses[1].closed
+
+    def test_close_closes_the_opened_bus(
+        self,
+        config_path: Path,
+        journal_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        _write_servo(config_path)
+        bus = _servo_bus()
+        monkeypatch.setattr(
+            "pcbasm.hal.open_servo_bus", lambda port, baudrate=1_000_000: bus
+        )
+        devices = Devices(config_path, journal_dir)
+        devices.servo_bus()
+
+        devices.close()
+
+        assert bus.closed
+
+    def test_close_closes_the_bus(self, config_path: Path, journal_dir: Path):
+        _write_servo(config_path)
+        bus = _servo_bus()
+        devices = Devices(config_path, journal_dir, servo_bus=bus)
+        devices.servo_bus()
+
+        devices.close()
+
+        assert bus.closed
+
+
+class TestTweezer:
+    """ピンセットは呼ぶたびに machine.toml の [pnp.servo] の役割で組む."""
+
+    def test_tweezer_drives_the_configured_roles(
+        self, config_path: Path, journal_dir: Path
+    ):
+        _write_servo(config_path, **_SERVO_ROLES)
+        bus = _servo_bus()
+        devices = Devices(config_path, journal_dir, servo_bus=bus)
+
+        tweezer = devices.tweezer()
+        tweezer.rotate_by(90.0)
+        tweezer.open_by(10.0)
+
+        assert [c for c in bus.commands if c.kind != "torque"] == [
+            ServoCommand(2, "goto", 2048),  # トルクを入れる前に goal を今の位置にする
+            ServoCommand(1, "step", 1024),
+            ServoCommand(2, "goto", 2048 + 114),
+        ]
+
+    @pytest.mark.parametrize("missing", list(_SERVO_ROLES))
+    def test_unset_role_is_a_config_error_naming_the_key(
+        self, config_path: Path, journal_dir: Path, missing: str
+    ):
+        _write_servo(
+            config_path,
+            **{key: value for key, value in _SERVO_ROLES.items() if key != missing},
+        )
+        bus = _servo_bus()
+        devices = Devices(config_path, journal_dir, servo_bus=bus)
+
+        with pytest.raises(ConfigError) as raised:
+            devices.tweezer()
+
+        assert missing in str(raised.value)
+        assert bus.commands == []
+
+    def test_reads_machine_toml_on_each_call(
+        self, config_path: Path, journal_dir: Path
+    ):
+        """役割を判別して machine.toml に保存したら、作り直さずに次の呼び出しから使える."""
+        _write_servo(config_path)
+        bus = _servo_bus()
+        devices = Devices(config_path, journal_dir, servo_bus=bus)
+        with pytest.raises(ConfigError):
+            devices.tweezer()
+
+        text = config_path.read_text(encoding="utf-8")
+        roles = "".join(f"{key} = {value}\n" for key, value in _SERVO_ROLES.items())
+        config_path.write_text(
+            text.replace('port = "/dev/ttyACM0"\n', f'port = "/dev/ttyACM0"\n{roles}'),
+            encoding="utf-8",
+        )
+
+        assert devices.tweezer().opening() == 0.0
+
+    def test_open_devices_fake_has_a_tweezer_on_ids_1_and_2(
+        self, config_path: Path, journal_dir: Path
+    ):
+        # open_servo_bus は root conftest が塞いでいるので、呼べばテストが落ちる
+        _write_servo(config_path, **_SERVO_ROLES)
+        devices = open_devices(config_path, journal_dir, fake=True)
+
+        tweezer = devices.tweezer()
+        tweezer.rotate_by(90.0)
+
+        bus = devices.servo_bus()
+        assert bus.mode(1) == ServoMode.STEP
+        assert bus.mode(2) == ServoMode.POSITION
+        assert bus.position(1) == (2048 + 1024) % 4096

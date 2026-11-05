@@ -44,13 +44,22 @@ class TestCapabilitySections:
     ):
         keys = {field.key for field in machine_config.fields(machine_config.machine())}
 
-        assert {field.key for field in setting_fields()} == keys
+        assert {
+            field.key for field in setting_fields() if field.section != "pnp"
+        } == keys
 
     def test_a_pnp_machine_has_no_solder_settings(self, pnp_machine: MachineConfigFile):
         fields = pnp_machine.fields(pnp_machine.machine())
 
         assert fields
         assert all(field.section != "solder" for field in fields)
+        assert "pnp.servo.port" in {field.key for field in fields}
+
+    def test_writing_a_pnp_setting_to_a_solder_machine_is_rejected(
+        self, machine_config: MachineConfigFile
+    ):
+        with pytest.raises(InvalidSettingError, match="未知のマシン設定キー"):
+            machine_config.write({"pnp.servo.port": "/dev/ttyUSB0"})
 
     def test_writing_a_solder_setting_to_a_pnp_machine_is_rejected(
         self, pnp_machine: MachineConfigFile
@@ -137,7 +146,10 @@ class TestMachineSettings:
     def test_read_covers_every_setting_field(self, machine_config: MachineConfigFile):
         values = machine_config.values()
 
-        assert set(values) == {field.key for field in setting_fields()}
+        # テストの機体ははんだ塗布機なので、部品実装（[pnp]）の項目は読まない
+        assert set(values) == {
+            field.key for field in setting_fields() if field.section != "pnp"
+        }
 
     def test_missing_keys_read_as_none(self, machine_config: MachineConfigFile):
         values = machine_config.values()

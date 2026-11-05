@@ -315,6 +315,37 @@ class TestFiniteFloatParams:
         assert catalog.filter_persisted_defaults(definition, {"amount": value}) == {}
 
 
+class TestNumberBounds:
+    @pytest.mark.parametrize(
+        ("value", "message"), [(0, "1 以上"), (11, "10 以下")], ids=["below", "above"]
+    )
+    def test_out_of_bounds_is_rejected(self, value: int, message: str):
+        definition = JobDefinition(
+            name="bounded",
+            label="範囲",
+            run=_noop,
+            uses_machine=False,
+            params=(ParamSpec("count", "数", "int", 5, minimum=1, maximum=10),),
+        )
+
+        with pytest.raises(ValueError, match=message):
+            JobCatalog().validate_params(definition, {"count": value})
+
+    @pytest.mark.parametrize("value", [1, 10])
+    def test_bounds_are_inclusive(self, value: int):
+        definition = JobDefinition(
+            name="bounded",
+            label="範囲",
+            run=_noop,
+            uses_machine=False,
+            params=(ParamSpec("count", "数", "int", 5, minimum=1, maximum=10),),
+        )
+
+        assert JobCatalog().validate_params(definition, {"count": value}) == {
+            "count": value
+        }
+
+
 class TestFilterPersistedDefaults:
     """保存済みのフォーム既定値の読み込み（フォームに出す前に通す）."""
 

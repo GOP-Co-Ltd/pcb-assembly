@@ -114,6 +114,7 @@ FEATURES: tuple[Feature, ...] = (
         "align/copper_detection.html",
         label="銅箔検出調整",
     ),
+    Feature("servo_setup", "calibration", "ピンセット", "job.html", capability="pnp"),
     Feature(
         "nozzle_cap",
         "calibration",

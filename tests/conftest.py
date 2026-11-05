@@ -48,6 +48,24 @@ def forbid_real_klipper(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(hal, "open_klipper", refuse)
 
 
+@pytest.fixture(autouse=True)
+def forbid_real_servo(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`open_servo_bus` を呼ぶとテストが落ちるようにし、実機のサーボのシリアルを開かせない.
+
+    テストは本番機の上でも走るので、取りこぼした経路があっても実機のピンセットは動かない。
+    サーボが要るテストは `FakeServoBus` を使う。
+    """
+    try:
+        from pcbasm import hal
+    except ImportError:
+        return  # hal を読めない環境では、どの src も open_servo_bus に届かない
+
+    def refuse(*args: object, **kwargs: object) -> NoReturn:
+        pytest.fail("テストから open_servo_bus が呼ばれました")
+
+    monkeypatch.setattr(hal, "open_servo_bus", refuse)
+
+
 @pytest.fixture
 def unreachable_klipper(monkeypatch: pytest.MonkeyPatch) -> None:
     """`open_klipper` が接続先の無い Klipper を返すようにする（送信は httpx の接続エラーになる）.

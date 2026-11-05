@@ -36,7 +36,9 @@ Usage: $(basename "$0") [--ui-only] [<段> [引数]]
   klipper            KIAUH で Klipper を入れ（導入済みなら飛ばす）、独自 kinematics を symlink する
   hardware           boot overlay（カメラ・スピーカー）と MCU firmware（deploy/hardware.sh）
   machine            deploy/templates/ から config/machine.toml と printer.cfg を置く
-  services [対象]    systemd unit（api / ui / all。既定 all）と更新用 sudoers を設置して起動する
+  services [対象] [restart]
+                     systemd unit（api / ui / all。既定 all）と更新用 sudoers を設置して起動する。
+                     unit が変わらなければ再起動しない。restart を付けると変わらなくても再起動する
   render <対象>      api / ui の unit、または sudoers を標準出力に描く（systemd に触らない）
 EOF
 }
@@ -255,13 +257,19 @@ render_sudoers() {
     fill "${DEPLOY_DIR}/sudoers" "USER=$(id -un)"
 }
 
-# unit が変わったときだけ再起動する（同じなら起動を確かめるだけ）
+# unit が変わったとき、または restart を指定したときだけ再起動する（どちらでもなければ起動を確かめるだけ）
 install_unit() {
-    local target="$1" name="pcbasm-$1.service" tmp
+    local target="$1" restart="$2" name="pcbasm-$1.service" tmp
     tmp="$(mktemp)"
     render_unit "${target}" >"${tmp}"
     if cmp -s "${tmp}" "${SYSTEMD_UNIT_DIR}/${name}"; then
         rm -f "${tmp}"
+        if [ "${restart}" = true ]; then
+            ${SUDO} systemctl enable "${name}"
+            ${SUDO} systemctl restart "${name}"
+            echo "${name} は最新です。再起動しました。"
+            return
+        fi
         ${SUDO} systemctl enable --now "${name}"
         echo "${name} は最新です。"
         return
@@ -308,15 +316,24 @@ install_sudoers() {
 }
 
 stage_services() {
-    local default=all targets target
+    local default=all targets target restart=false
     [ "${UI_ONLY}" = false ] || default=ui
+    # 引数は [対象] [restart]。restart だけでも受け付ける（対象は既定）
+    if [ "${1:-}" = restart ]; then
+        set -- "${default}" restart
+    fi
+    case "${2:-}" in
+        "") ;;
+        restart) restart=true ;;
+        *) die "不正な引数: $2（restart のみ）" ;;
+    esac
     targets="$(resolve_targets "${1:-${default}}")"
     require_non_root
     require_command systemctl
     require_command make
     require_command uv
     for target in ${targets}; do
-        install_unit "${target}"
+        install_unit "${target}" "${restart}"
     done
     install_sudoers
 }

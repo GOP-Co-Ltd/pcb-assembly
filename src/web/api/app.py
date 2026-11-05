@@ -27,6 +27,7 @@ from web.api.routers import (
     update,
 )
 from web.api.routers.pasting import board, calibration, nozzle, test_board
+from web.api.routers.pnp import servo
 from web.selfupdate.runner import UpdateRunner
 
 
@@ -109,4 +110,7 @@ def create_app(
             test_board.router,
         ):
             app.include_router(router)
+    # 部品実装の API は、部品実装のジョブと同じく pnp 機能の機体にだけ置く
+    if "pnp" in backend.machine_config.capabilities:
+        app.include_router(servo.router)
     return app

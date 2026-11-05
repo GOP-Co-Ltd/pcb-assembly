@@ -163,6 +163,8 @@ sudo systemctl restart pcbasm-ui        # 起動・停止・状態は systemctl 
 ```
 
 - 再実行しても、unit が変わっていなければ再起動しない（変わっていれば置き換えて再起動する）
+- 変わっていなくても再起動するには、対象の後に `restart` を付ける（`./install.sh services all restart`。対象を省いて `./install.sh services restart` でもよい）。
+    ssh でブランチを切り替えたときなど、作業ツリーの変更を読み込ませるのに使う
 - `render` は読み取り専用で、`sudo` も systemctl も要らない。設置済みの unit との差分の確認に使う
 - 起動順の依存は付けていない。frontend が backend より先に起動してよい（まだ起動していない backend を選んだページが 503 になるだけ）
 - 通知音を使うなら、backend の実行ユーザーから ALSA の出力デバイスを鳴らせることも確かめる

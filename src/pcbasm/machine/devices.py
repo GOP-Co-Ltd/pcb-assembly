@@ -1,4 +1,4 @@
-"""機体 1 台の装置（Klipper、カメラ、通知音）.
+"""機体 1 台の装置（Klipper、カメラ、通知音、ピンセットのサーボ）.
 
 装置を組み立てる場所はここだけで、fake への切替もここで行う。
 """
@@ -13,8 +13,9 @@ from pathlib import Path
 from shapely import Polygon
 
 from pcbasm import hal
-from pcbasm.config import load_klipper, load_machine
+from pcbasm.config import ConfigError, load_klipper, load_machine
 from pcbasm.config.klipper import KlipperConfig
+from pcbasm.config.pnp import ServoConfig
 from pcbasm.geometry import Point2d
 from pcbasm.hal import (
     AlsaAudioPlayer,
@@ -23,11 +24,15 @@ from pcbasm.hal import (
     FrameHub,
     KlipperClient,
     MoonrakerKlipper,
+    ServoBus,
+    ServoMode,
+    Tweezer,
 )
 from pcbasm.hal.fake import (
     FAKE_MACHINE_PRINTER_CONFIG,
     FakeCamera,
     FakeKlipper,
+    FakeServoBus,
     SceneCamera,
 )
 from pcbasm.machine.journal import Journal
@@ -40,7 +45,8 @@ class Devices:
     """機体 1 台の装置.
 
     作っただけでは外部装置へ接続しない。
-    Moonraker へは最初の送信か問い合わせで、カメラへは最初に :meth:`frame_hub` を呼んだときに接続する。
+    Moonraker へは最初の送信か問い合わせで、カメラへは最初に :meth:`frame_hub` を呼んだときに、
+    サーボへは最初に :meth:`servo_bus` を呼んだときに接続する。
     Moonraker が起動していなくても作れ、起動した後は作り直さずにそのまま使える。
     """
 
@@ -52,6 +58,7 @@ class Devices:
         klipper: FakeKlipper | None = None,
         camera: Callable[[], Camera] | None = None,
         audio: AudioPlayer | None = None,
+        servo_bus: FakeServoBus | None = None,
     ) -> None:
         """Devices を初期化する.
 
@@ -61,6 +68,7 @@ class Devices:
             klipper: Moonraker の代わりに使う fake 機体（None は [klipper] の Moonraker）
             camera: カメラを開く関数（None は [camera] のカメラを開く）
             audio: 通知音のプレイヤー（None は ALSA で鳴らす）
+            servo_bus: 実機のサーボの代わりに使う fake のバス（None は [pnp.servo] のポートを開く）
         """
         self._config_path = config_path
         self._journal_dir = journal_dir
@@ -72,6 +80,10 @@ class Devices:
         self._camera_lock = threading.Lock()
         self._frame_hub: FrameHub | None = None
         self._audio = audio if audio is not None else AlsaAudioPlayer()
+        self._fake_servo_bus = servo_bus
+        self._servo_lock = threading.Lock()
+        self._servo_bus: ServoBus | None = None
+        self._servo_port: tuple[str, int] | None = None
 
     @property
     def audio(self) -> AudioPlayer:
@@ -144,8 +156,71 @@ class Devices:
         if hub is not None:
             hub.stop()
 
+    def servo_bus(self) -> ServoBus:
+        """ピンセットのサーボのバスを返す（初回に [pnp.servo] のポートを開く）.
+
+        port か baudrate が前に開いたときと変わっていれば、古いバスを閉じて開き直す。
+
+        Raises:
+            ConfigError: machine.toml が読めないか、[pnp] / [pnp.servo] が無い場合
+            ServoError: ポートを開けない場合
+        """
+        servo = self._servo_config()
+        with self._servo_lock:
+            if self._fake_servo_bus is not None:
+                return self._fake_servo_bus
+            port = (servo.port, servo.baudrate)
+            if self._servo_bus is None or port != self._servo_port:
+                if self._servo_bus is not None:
+                    self._servo_bus.close()
+                    self._servo_bus = None
+                self._servo_bus = hal.open_servo_bus(servo.port, servo.baudrate)
+                self._servo_port = port
+            return self._servo_bus
+
+    def tweezer(self) -> Tweezer:
+        """ピンセットを返す（呼ぶたびに machine.toml の [pnp.servo] を読む）.
+
+        Raises:
+            ConfigError: machine.toml が読めない、[pnp.servo] が無い、または役割と開閉の位置が未設定の場合
+            ServoError: サーボが応答しないか、モードが役割と合わない場合
+        """
+        servo = self._servo_config()
+        match (
+            servo.rotation_id,
+            servo.open_close_id,
+            servo.closed_position,
+            servo.open_position,
+        ):
+            case (
+                int() as rotation,
+                int() as open_close,
+                int() as closed,
+                int() as opened,
+            ):
+                return Tweezer(
+                    self.servo_bus(),
+                    rotation_id=rotation,
+                    open_close_id=open_close,
+                    closed_position=closed,
+                    open_position=opened,
+                )
+            case values:
+                names = (
+                    "rotation_id",
+                    "open_close_id",
+                    "closed_position",
+                    "open_position",
+                )
+                missing = [name for name, value in zip(names, values) if value is None]
+                raise ConfigError(
+                    f"machine.toml の [pnp.servo] に {', '.join(missing)} がありません"
+                    "（サーボの役割を判別して書く）",
+                    frozenset({"pnp"}),
+                )
+
     def close(self) -> None:
-        """後始末（通知音を閉じ、FrameHub を止め、Moonraker への HTTP クライアントを閉じる）.
+        """後始末（通知音を閉じ、FrameHub を止め、Moonraker への HTTP クライアントとサーボのバスを閉じる）.
 
         実行中のジョブの完了音を捨てないよう、ジョブを止めてから呼ぶ。
         """
@@ -156,6 +231,12 @@ class Devices:
             self._moonraker = None
         if moonraker is not None:
             moonraker.close()
+        with self._servo_lock:
+            servo_bus = self._fake_servo_bus or self._servo_bus
+            self._servo_bus = None
+            self._servo_port = None
+        if servo_bus is not None:
+            servo_bus.close()
 
     def _klipper(
         self, endpoint: KlipperConfig | None
@@ -170,6 +251,14 @@ class Devices:
                 self._moonraker = hal.open_klipper(endpoint.host, endpoint.port)
                 self._endpoint = endpoint
             return self._moonraker
+
+    def _servo_config(self) -> ServoConfig:
+        pnp = load_machine(self._config_path).pnp
+        if pnp is None or pnp.servo is None:
+            raise ConfigError(
+                "machine.toml に [pnp.servo] がありません", frozenset({"pnp"})
+            )
+        return pnp.servo
 
     def _camera(self) -> Camera:
         if self._open_camera is not None:
@@ -199,7 +288,8 @@ def open_devices(
     Args:
         config_path: machine.toml
         journal_dir: G-code ジャーナルの置き場所
-        fake: Klipper を実機と同じ printer.cfg の FakeKlipper にし、カメラをその位置から scene を描く SceneCamera にする
+        fake: Klipper を実機と同じ printer.cfg の FakeKlipper にし、カメラをその位置から scene を描く SceneCamera にする。
+            サーボは ID 1 がステップモード、ID 2 が位置モードの FakeServoBus にする
         scene: fake のカメラに映す図形（機械座標 [mm]）を返す関数（カメラを開くたびに呼ぶ）
         camera_image: 与えると、カメラをこの画像を返し続ける FakeCamera にする（fake より優先する）
         audio: 通知音のプレイヤー（None は ALSA で鳴らす。テストは FakeAudioPlayer を渡す）
@@ -210,8 +300,16 @@ def open_devices(
         camera = functools.partial(_still, camera_image)
     elif klipper is not None:
         camera = functools.partial(_scene_camera, klipper, config_path, scene)
+    servo_bus = (
+        FakeServoBus({1: ServoMode.STEP, 2: ServoMode.POSITION}) if fake else None
+    )
     return Devices(
-        config_path, journal_dir, klipper=klipper, camera=camera, audio=audio
+        config_path,
+        journal_dir,
+        klipper=klipper,
+        camera=camera,
+        audio=audio,
+        servo_bus=servo_bus,
     )
 
 

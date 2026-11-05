@@ -73,5 +73,17 @@ board_edge_margin = 1.0
 converge_tolerance = 0.015
 region_overlap = 0.2
 
-# この節があれば、部品実装（Pick and Place）機として使える。中身は PnP の実装時に足す
+# この節があれば、部品実装（Pick and Place）機として使える。いまの中身はピンセットのサーボだけ
 [pnp]
+
+# ピンセットのサーボ（Feetech STS3032 ×2。Rotation はステップモード、Open Close は位置モード）。
+# port を書くと使える。役割（rotation_id / open_close_id）と Open Close の閉じ・開きの位置は、
+# WebUI の校正タブの「ピンセットのサーボ設定」ジョブでサーボを動かして判別し、Apply で書く
+# （書くまでピンセットは使えない）
+# [pnp.servo]
+# port = "/dev/ttyUSB0"   # FEETECH URT-2 のシリアルポート（/dev/serial/by-id/... で固定するとよい）
+# baudrate = 1000000
+# rotation_id = 1         # Rotation のサーボ ID（0〜253）
+# open_close_id = 2       # Open Close のサーボ ID（0〜253）
+# closed_position = 2048  # Open Close の閉じた位置（raw 0〜4095）
+# open_position = 2300    # Open Close の開いた位置（raw 0〜4095。閉じとの差は 2048 以下）
