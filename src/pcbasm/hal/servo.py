@@ -26,6 +26,7 @@ from scservo_sdk import COMM_SUCCESS, PacketHandler, PortHandler
 from pcbasm.errors import DeviceError
 
 STEPS_PER_REV = 4096
+BROADCAST_ID = 254  # 全サーボ宛て（応答は返らない）
 
 # STS シリーズのコントロールテーブル
 _ADDR_MODE = 33  # EEPROM（書くときは LOCK を外す）
@@ -103,6 +104,14 @@ class ServoBus(Protocol):
 
         Raises:
             ServoError: 通信に失敗した場合
+        """
+        ...
+
+    def release_all(self) -> None:
+        """バスにつながる全サーボのトルクを切る（ID を知らなくても届くブロードキャスト。応答は待たない）.
+
+        Raises:
+            ServoError: 送信に失敗した場合
         """
         ...
 
@@ -186,6 +195,16 @@ class FeetechBus:
     def set_torque(self, servo_id: int, on: bool) -> None:
         """トルクを入れる・切る."""
         self._write1(servo_id, _ADDR_TORQUE_ENABLE, int(on))
+
+    def release_all(self) -> None:
+        """ブロードキャストで TORQUE_ENABLE に 0 を書く（サーボは応答しない）."""
+        result = self._transact(
+            BROADCAST_ID,
+            lambda: self._packet.write1ByteTxOnly(
+                self._port, BROADCAST_ID, _ADDR_TORQUE_ENABLE, 0
+            ),
+        )
+        self._check(BROADCAST_ID, result, 0)
 
     def set_mode(self, servo_id: int, mode: ServoMode) -> None:
         """EEPROM のロックを外して動作モードを書き、ロックを戻す（失敗してもロックは戻す）."""

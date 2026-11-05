@@ -82,7 +82,7 @@ backend は起動したときの節で機能を決め（`MachineConfigFile.capab
 節を足したり外したりしたら backend を再起動する。
 
 - ジョブ: `src/web/api/jobs/catalog.py` の `default_catalog` が、塗布のジョブを solder 機能の機体にだけ、部品実装のジョブを pnp 機能の機体にだけ登録する
-- API: `src/web/api/app.py` が、`routers/pasting/` を solder 機能の機体にだけ置く
+- API: `src/web/api/app.py` が、`routers/pasting/` を solder 機能の機体にだけ、`routers/pnp/` を pnp 機能の機体にだけ置く
 - 申告: `GET /api/session/machine-info` の `capabilities` と、mDNS の TXT の `caps`
 - 画面: `src/web/ui/features.py` の各ページの `capability` で、タブ・サイドバー・着地点を絞る。機体に無い機能のページはその機体の着地点へ 307 する
 - 立ち上げ: `pcbasm.commissioning` の共通の段（`COMMON_STEPS`）に、機能ごとの段（`CAPABILITY_STEPS`）を続ける

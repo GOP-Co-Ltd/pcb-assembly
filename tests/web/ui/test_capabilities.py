@@ -41,6 +41,12 @@ class TestSolderMachine:
 
         assert _tabs(text) == ["塗布", "校正", "基板", "機体", "機体一覧"]
 
+    def test_machine_control_has_no_servo_relax_button(self, client: TestClient):
+        text = client.get(f"{BASE}/klipper_status").text
+
+        assert "mc-move-to-cap" in text
+        assert "mc-servo-relax" not in text
+
     @pytest.mark.parametrize("slug", ["placement", "servo_setup"])
     def test_pnp_pages_lead_to_the_landing(self, client: TestClient, slug: str):
         response = client.get(f"{BASE}/{slug}", follow_redirects=False)
@@ -85,10 +91,13 @@ class TestPnpMachine:
         assert f'href="{BASE}/nozzle_cap"' not in sidebar
         assert f'href="{BASE}/dispense_calibration"' not in sidebar
 
-    def test_machine_control_has_no_cap_button(self, client: TestClient):
+    def test_machine_control_has_the_servo_relax_button_instead_of_the_cap_button(
+        self, client: TestClient
+    ):
         text = client.get(f"{BASE}/klipper_status").text
 
         assert 'id="mc-focus-z"' in text
+        assert 'id="mc-servo-relax"' in text
         assert "mc-move-to-cap" not in text
 
     def test_common_pages_render(self, client: TestClient):

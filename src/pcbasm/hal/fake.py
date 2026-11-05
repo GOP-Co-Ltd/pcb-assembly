@@ -27,7 +27,7 @@ from pcbasm.vision.image import Image, ImageArray
 from .audio import AudioDevice, AudioPlayer, Sound
 from .camera import Camera, CameraInfo, Resolution
 from .klipper import GCodeJournal, KlipperError
-from .servo import STEPS_PER_REV, ServoError, ServoMode
+from .servo import BROADCAST_ID, STEPS_PER_REV, ServoError, ServoMode
 
 # FakeKlipper が既定で返す printer.cfg。XYZStage / PasteDispenser / ProbeExecutor と所要時間の予測が読むセクションだけを持つ
 FAKE_PRINTER_CONFIG: dict[str, dict[str, Any]] = {
@@ -673,6 +673,11 @@ class FakeServoBus:
         with self._lock:
             self._commands.append(ServoCommand(servo_id, "torque", int(on)))
             self._torque[servo_id] = on
+
+    def release_all(self) -> None:
+        with self._lock:
+            self._commands.append(ServoCommand(BROADCAST_ID, "torque", 0))
+            self._torque = dict.fromkeys(self._modes, False)
 
     def set_mode(self, servo_id: int, mode: ServoMode) -> None:
         self._mode(servo_id)

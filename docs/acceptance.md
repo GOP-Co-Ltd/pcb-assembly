@@ -87,7 +87,7 @@
 | `web.api`、`web.ui`                                   | A1, A8, A12, A17, A18 の画面操作             |
 | `web.selfupdate`、`install.sh`、unit                  | A11                                          |
 | `tests/golden` の更新                                 | A8 と、差分が出たジョブ・route の項目        |
-| `pcbasm.pnp`、`pcbasm.hal.servo`                      | A23                                          |
+| `pcbasm.pnp`、`pcbasm.hal.servo`                      | A23, A24                                     |
 
 ## 項目
 
@@ -261,6 +261,13 @@
     - Apply の後、`[pnp.servo]` の `rotation_id` / `open_close_id` / `closed_position` / `open_position` が summary の 4 値と一致する
     - 役割を選ぶと、役割とモードが合わないサーボにジョブがモードを書き（Rotation は 3、Open Close は 0）、ログに出る。電源を入れ直してもモードが残る
     - Rotation（ステップモード）の振りの向きと量が指令どおり（既定の 5° なら + で一方へ 5°、- で逆へ 10°、+ で戻る。負の step の sign-magnitude を確かめる）
+
+### A24 サーボ脱力
+
+- 画面: マシン操作パネル（PnP 機）
+- 前提: `machine.toml` の `[pnp.servo]` に `port` を書いてある。サーボのトルクが入っている（A23 の後など）
+- 操作: 操作権を取り、パネルの「サーボ脱力」を押す
+- 合格条件: 2 台ともトルクが切れて手で回せる（`[pnp.servo]` の役割を設定する前でも切れる）。塗布機のパネルには「サーボ脱力」が出ない。ジョブの実行中は押せない
 
 ## 未確認の項目（実機で確かめる）
 

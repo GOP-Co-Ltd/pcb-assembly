@@ -446,6 +446,17 @@ class TestFakeServoBus:
         assert bus.mode(2) == ServoMode.STEP
         assert bus.commands == [ServoCommand(2, "mode", 3)]
 
+    def test_release_all_turns_every_torque_off(self, bus: FakeServoBus):
+        bus.set_torque(1, True)
+        bus.set_torque(2, True)
+
+        bus.release_all()
+
+        assert bus.commands[-1] == ServoCommand(254, "torque", 0)
+        bus.turn_by_hand(1, 100)  # トルクが切れているので手で回せる
+        bus.turn_by_hand(2, 200)
+        assert (bus.position(1), bus.position(2)) == (100, 200)
+
     def test_commands_is_a_snapshot(self, bus: FakeServoBus):
         commands = bus.commands
         bus.set_torque(1, True)

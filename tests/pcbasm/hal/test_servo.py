@@ -63,6 +63,7 @@ def _moves_since(bus: FakeServoBus, sent: int) -> list[ServoCommand]:
 
 _INSTRUCTION_WRITE = 0x03
 _INSTRUCTION_READ = 0x02
+_BROADCAST = 0xFE
 
 
 class _WireServo:
@@ -113,6 +114,8 @@ class _WireServo:
                 size = buffer[3] + 4
                 packet, buffer = buffer[:size], buffer[size:]
                 self.packets.append(packet)
+                if packet[2] == _BROADCAST:
+                    continue  # ブロードキャストには応答しない
                 if packet[4] == _INSTRUCTION_WRITE:
                     time.sleep(self._reply_delays.get(packet[5], 0.0))
                 data = bytes(packet[6]) if packet[4] == _INSTRUCTION_READ else b""
@@ -517,6 +520,14 @@ class TestFeetechBus:
             (1, 33, bytes([mode.value])),
             (1, 55, b"\x01"),
         ]
+
+    def test_release_all_broadcasts_torque_off_without_waiting_for_a_reply(
+        self, wire: _WireServo, feetech: FeetechBus
+    ):
+        feetech.release_all()
+        feetech.set_torque(1, True)  # 応答の無い送信の後も、次のやり取りが乱れない
+
+        assert wire.writes() == [(_BROADCAST, 40, b"\x00"), (1, 40, b"\x01")]
 
     def test_set_mode_waits_for_the_late_reply_of_a_mode_change(self):
         # 実機は MODE が変わると応答まで約 40 ms かかる
