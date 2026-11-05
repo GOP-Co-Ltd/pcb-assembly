@@ -85,7 +85,7 @@
 | 描画（`pcbasm.plotting` と `render_*`）               | A7, A9, A17                                  |
 | `pcbasm.config`、`web.api.machine_config`、設定の移行 | A10, A13, A18, A19, A22 と、全項目の起動確認 |
 | `web.api`、`web.ui`                                   | A1, A8, A12, A17, A18 の画面操作             |
-| `web.selfupdate`、`scripts/`、unit                    | A11                                          |
+| `web.selfupdate`、`install.sh`、unit                  | A11                                          |
 | `tests/golden` の更新                                 | A8 と、差分が出たジョブ・route の項目        |
 | `pcbasm.pnp`、`pcbasm.hal.servo`                      | A23                                          |
 
