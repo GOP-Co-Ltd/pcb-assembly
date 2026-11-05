@@ -192,7 +192,7 @@ JS に `fetch()` や `new WebSocket()` を直接書かない。機体の prefix 
 | `pcbasm.machine` | `src/web/api/jobs/machine/` |
 | `pcbasm.pnp`     | `src/web/api/jobs/pnp/`     |
 
-1. ジョブのモジュールを作り、ジョブ関数と `register` を書く。関数は `JobContext` を受け取り、`pcbasm` を呼ぶ。ログ・進捗は `log` / `progress`、質問は `confirm` / `require` / `choose` / `ask_positive` で出す。
+1. ジョブのモジュールを作り、ジョブ関数と `register` を書く。関数は `JobContext` を受け取り、`pcbasm` を呼ぶ。ログ・進捗は `log` / `progress`、質問は `confirm` / `require` / `choose`（ドロップダウン）/ `choose_button`（ボタン）/ `ask_positive` で出す。
 2. `register` で `JobDefinition` を登録する。`name` はファイル名と同じ文字列にする。装置を動かさないジョブは `uses_machine=False` にする。塗布の永続データ（基板ごとの塗布設定、dataset、塗布量校正）を使うジョブは `register` で `PasteStores` を受け取る。
 3. `src/web/api/jobs/catalog.py` の `default_catalog` から `register` を呼ぶ。ここがジョブの一覧になる。機能の要るジョブは、その機能の条件の下で呼ぶ。
 4. 次節「ページを足す」の手順で、ジョブのページを足す。ページに載っていないジョブがあるとテストが失敗する。

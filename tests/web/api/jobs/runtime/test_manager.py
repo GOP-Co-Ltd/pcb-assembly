@@ -289,6 +289,22 @@ class TestPrompt:
                 "bottom",
                 "bottom",
             ),
+            (
+                PromptSpec(kind="buttons", message="層?", choices=("top", "bottom")),
+                "top",
+                "top",
+            ),
+            # false_label 付き buttons は別段のボタンのラベルをそのまま受け取れる
+            (
+                PromptSpec(
+                    kind="buttons",
+                    message="層?",
+                    choices=("top", "bottom"),
+                    false_label="もう一度",
+                ),
+                "もう一度",
+                "もう一度",
+            ),
         ],
     )
     def test_each_kind_round_trips_answer(
@@ -330,6 +346,15 @@ class TestPrompt:
                 PromptSpec(kind="choice", message="層?", choices=("top", "bottom")),
                 "middle",
             ),
+            (
+                PromptSpec(kind="buttons", message="層?", choices=("top", "bottom")),
+                "middle",
+            ),
+            # false_label の無い buttons は bool False も受け付けない
+            (
+                PromptSpec(kind="buttons", message="層?", choices=("top", "bottom")),
+                False,
+            ),
         ],
     )
     def test_mismatched_answer_raises_and_prompt_stays_pending(
@@ -354,7 +379,13 @@ class TestPrompt:
         assert record.pending_prompt is not None
 
         # 正しい応答で復帰できる（後始末を兼ねる）
-        good = {"confirm": True, "number": 1.0, "text": "ok", "choice": "top"}
+        good = {
+            "confirm": True,
+            "number": 1.0,
+            "text": "ok",
+            "choice": "top",
+            "buttons": "top",
+        }
         manager.respond_prompt(prompt_id, good[spec.kind])
         wait_until(lambda: record.status.terminal)
 

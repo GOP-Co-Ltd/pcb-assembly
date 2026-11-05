@@ -1160,6 +1160,24 @@ h2 {
   width: 100%;
 }
 
+/* buttons の選択肢。下の段（.jc-prompt-actions）の副ボタンと分けて、本文の直下に大きく並べる */
+.jc-prompt-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.jc-prompt-choice {
+  flex: 1 1 0;
+  min-height: 3rem;
+  font-weight: 600;
+}
+
+.jc-prompt-field:has(.jc-prompt-choices) + .jc-prompt-actions {
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--line);
+}
+
 .jc-prompt-actions {
   display: flex;
   justify-content: flex-end;

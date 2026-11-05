@@ -13,7 +13,7 @@ import attrs
 
 type Answer = bool | float | str
 type ParamValue = bool | float | int | str
-type PromptKind = Literal["confirm", "number", "text", "choice"]
+type PromptKind = Literal["confirm", "number", "text", "choice", "buttons"]
 
 
 @attrs.frozen
@@ -21,12 +21,14 @@ class PromptSpec:
     """ユーザーへの問い合わせ 1 件の仕様.
 
     Attributes:
-        kind: 入力種別（confirm / number / text / choice）
+        kind: 入力種別（confirm / number / text / choice / buttons）。
+            choice はドロップダウン、buttons は選択肢をボタンで並べる
         message: 表示メッセージ
         default: 既定値（UI の初期値。None は既定値なし）
-        choices: kind="choice" の選択肢（choice のみ必須）
+        choices: kind="choice" / "buttons" の選択肢（この 2 つでは必須）
         true_label: kind="confirm" の true 側ボタンラベル
-        false_label: kind="confirm" の false 側ボタンラベル（kind="number" では中止ボタン）
+        false_label: kind="confirm" の false 側ボタンラベル（kind="number" では中止ボタン、
+            kind="buttons" では選択肢とは別段に置くボタン。押すとこのラベルが応答になる）
 
     応答待ちに入ると機体のスピーカーが入力待ち音を鳴らす（:meth:`JobContext.prompt`
     が常に行う。ジョブ側の指定は不要）。

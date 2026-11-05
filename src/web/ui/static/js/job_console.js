@@ -420,10 +420,12 @@
     const noButton = el("jc-prompt-no");
     const okButton = el("jc-prompt-ok");
     const isConfirm = prompt.kind === "confirm";
-    // confirm は常に 2 ボタン。number は false_label があるときだけ中止ボタンを出す。
-    const cancelable = prompt.kind === "number" && prompt.false_label != null;
-    noButton.hidden = !(isConfirm || cancelable);
+    // confirm は常に 2 ボタン。number と buttons は false_label があるときだけ下の段にボタンを出す。
+    const hasOther = (prompt.kind === "number" || prompt.kind === "buttons") && prompt.false_label != null;
+    noButton.hidden = !(isConfirm || hasOther);
     noButton.textContent = prompt.false_label ?? "いいえ";
+    // buttons は選択肢のボタンそのものが送信するので OK を出さない
+    okButton.hidden = prompt.kind === "buttons";
     okButton.textContent = isConfirm ? (prompt.true_label ?? "はい") : "OK";
   }
 
@@ -455,12 +457,33 @@
         select.appendChild(option);
       }
       field.appendChild(select);
+    } else if (prompt.kind === "buttons") {
+      const group = document.createElement("div");
+      group.className = "jc-prompt-choices";
+      group.setAttribute("role", "group");
+      group.setAttribute("aria-labelledby", "jc-prompt-message");
+      for (const choice of prompt.choices) {
+        const button = document.createElement("button");
+        button.type = "submit";
+        button.className = "jc-prompt-choice";
+        button.dataset.testid = "jc-prompt-choice";
+        button.value = choice;
+        button.textContent = choice;
+        if (choice === prompt.default) button.dataset.default = "";
+        group.appendChild(button);
+      }
+      field.appendChild(group);
     }
   }
 
   function answerFromPromptSubmit(prompt, event) {
     if (prompt.kind === "confirm") {
       return event.submitter?.id !== "jc-prompt-no";
+    }
+    if (prompt.kind === "buttons") {
+      // 下の段のボタン（false_label）はそのラベルを、選択肢のボタンはその値を返す。
+      if (event.submitter?.id === "jc-prompt-no") return prompt.false_label;
+      return event.submitter?.value;
     }
     if (prompt.kind === "number") {
       // 中止ボタン（false_label 付き number のみ表示）は false を返す。
@@ -484,7 +507,11 @@
       // 中央寄せは CSS の .jc-prompt[open] が持つ。
       dialog.show();
       // 非モーダルは自動でフォーカスが移らないので、Enter の暗黙送信のために自前で移す
-      (el("jc-prompt-input") ?? el("jc-prompt-ok")).focus();
+      (
+        el("jc-prompt-input") ??
+        el("jc-prompt-field").querySelector(".jc-prompt-choice[data-default]") ??
+        el("jc-prompt-ok")
+      ).focus();
     }
   }
 
