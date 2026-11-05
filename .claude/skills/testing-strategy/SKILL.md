@@ -14,15 +14,15 @@ pytest は実機に触れない。テストは本番機の上でも走るので�
 
 ## 5 区分
 
-| 区分                | 配置                              | 検証対象                                                      | 実行                     |
-| ------------------- | --------------------------------- | ------------------------------------------------------------- | ------------------------ |
-| **unit**            | `tests/pcbasm/**`、`tests/web/**` | 計算、ファイル、SSR / JSON などの振る舞い                     | `make check`             |
-| **fake を使う結合** | 同上（`pcbasm.hal.fake` を使う）  | モジュール間の結合、ジョブの流れ                              | `make check`             |
-| **golden**          | `tests/golden/`                   | ジョブが送る G-code 列と実効 timeout、成果物 JSON、基板の署名 | `make check`             |
-| **e2e**             | `tests/e2e/`                      | 実 uvicorn の backend + frontend と Chromium の通し動作       | `make test-e2e`          |
-| **受け入れ試験**    | `docs/acceptance.md`              | 実機での機構・カメラ・音・画面                                | merge 前に人が実機で行う |
+| 区分                | 配置                              | 検証対象                                                      | 実行                                       |
+| ------------------- | --------------------------------- | ------------------------------------------------------------- | ------------------------------------------ |
+| **unit**            | `tests/pcbasm/**`、`tests/web/**` | 計算、ファイル、SSR / JSON などの振る舞い                     | `make check`                               |
+| **fake を使う結合** | 同上（`pcbasm.hal.fake` を使う）  | モジュール間の結合、ジョブの流れ                              | `make check`                               |
+| **golden**          | `tests/golden/`                   | ジョブが送る G-code 列と実効 timeout、成果物 JSON、基板の署名 | `make check`（重いシナリオは `make test`） |
+| **e2e**             | `tests/e2e/`                      | 実 uvicorn の backend + frontend と Chromium の通し動作       | `make test-e2e`                            |
+| **受け入れ試験**    | `docs/acceptance.md`              | 実機での機構・カメラ・音・画面                                | merge 前に人が実機で行う                   |
 
-`make check` は `make format`、`make type`、`make test` を順に流す。テンプレートや JS に触れたら `make test-e2e` も流す（skill [webui-e2e](../webui-e2e/SKILL.md)）。
+`make check` は `make format`、`make type`、`make test-short`（`slow` と E2E を除いて並列）を順に流す。フルテスト（`make test` と `make test-e2e`）は CI が流す。golden の重いシナリオは `slow` なので、送信列に関わる変更では `uv run pytest tests/golden` を流す。テンプレートや JS に触れたら `make test-e2e` も流す（skill [webui-e2e](../webui-e2e/SKILL.md)）。
 
 ## モックと fake
 
@@ -109,8 +109,10 @@ mDNS の広告・探索テストは実 `zeroconf` を起動して実マルチキ
 
 ## pytest 設定
 
-- `pyproject.toml` の `--strict-markers` が有効。登録済みのマーカーは `e2e` / `browser` だけ。新しいマーカーは同じ節の `markers` に登録してから使う
+- `pyproject.toml` の `--strict-markers` が有効。登録済みのマーカーは `e2e` / `browser` / `slow` だけ。新しいマーカーは同じ節の `markers` に登録してから使う
 - `tests/e2e/` には conftest が `e2e` を自動で付け、`make test` は `-m "not e2e"` で除外する
+- 1 件 1 秒を超えるテストには `slow` を付ける。`make test-short` が除外し、`make test` は流す
+- `make test-short` は pytest-xdist で並列に走る。テスト間で固定ポートやファイルを共有しない
 
 ## 関連 skill / memory
 
