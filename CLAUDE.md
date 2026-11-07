@@ -67,8 +67,7 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 - `src/web/contract/`、`src/web/selfupdate/`: backend・frontend・自己更新の契約と、Git 追従の自己更新
 
 ブラウザ操作 UI は上記 2 プロセスに分かれる。開発・運用の操作は WebUI のジョブとして
-提供する。ホストの導入は `install.sh`（雛形は `deploy/`）で行い、`scripts/` には
-旧版の自己更新向けの互換スクリプトを置く。
+提供する。ホストの導入は `install.sh`（雛形は `deploy/`）で行う。
 
 ## 開発コマンド
 
