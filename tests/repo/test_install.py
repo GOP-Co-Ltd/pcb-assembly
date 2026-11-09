@@ -21,7 +21,6 @@ from pcbasm.paths import PROJECT_ROOT
 from web.selfupdate.settings import UpdateSettings
 
 INSTALL = PROJECT_ROOT / "install.sh"
-SHIM = PROJECT_ROOT / "scripts" / "web-service.sh"
 TEMPLATES = PROJECT_ROOT / "deploy" / "templates"
 
 UNIT = """\
@@ -217,6 +216,38 @@ class TestServices:
             "enable --now pcbasm-ui.service",
         ]
 
+    @pytest.mark.parametrize(
+        ("args", "units"),
+        [
+            (("all", "restart"), ["pcbasm-api.service", "pcbasm-ui.service"]),
+            (("restart",), ["pcbasm-api.service", "pcbasm-ui.service"]),
+            (("ui", "restart"), ["pcbasm-ui.service"]),
+        ],
+    )
+    def test_restart_restarts_unchanged_units(
+        self, host: Host, args: tuple[str, ...], units: list[str]
+    ):
+        env = host.env()
+        run(INSTALL, "services", env=env)
+        installed = host.files()
+        host.log.unlink()
+
+        result = run(INSTALL, "services", *args, env=env)
+
+        assert result.returncode == 0, result.stderr
+        assert host.files() == installed
+        assert host.calls() == [
+            call for unit in units for call in (f"enable {unit}", f"restart {unit}")
+        ]
+
+    def test_unknown_option_touches_nothing(self, host: Host):
+        result = run(INSTALL, "services", "all", "reload", env=host.env())
+
+        assert result.returncode != 0
+        assert "restart" in result.stderr
+        assert host.files() == {}
+        assert host.calls() == []
+
     def test_changed_unit_is_replaced_and_restarted(self, host: Host):
         env = host.env()
         (host.units / "pcbasm-api.service").write_text("[Service]\n")
@@ -396,24 +427,3 @@ class TestMachine:
             TEMPLATES / "kurousagi" / "machine.toml"
         ).read_text()
         assert machine_host.backups() == []
-
-
-class TestWebServiceShim:
-    """旧版の自己更新が呼ぶ `scripts/web-service.sh` は install.sh に委譲する."""
-
-    @pytest.mark.parametrize("target", ["api", "ui"])
-    def test_render_draws_the_same_unit(self, target: str):
-        result = run(SHIM, "render", target)
-
-        assert result.returncode == 0, result.stderr
-        assert result.stdout == expected_unit(target)
-
-    def test_install_installs_through_install_sh(self, host: Host):
-        result = run(SHIM, "install", "all", env=host.env())
-
-        assert result.returncode == 0, result.stderr
-        assert sorted(host.files()) == [
-            "pcbasm-api.service",
-            "pcbasm-ui.service",
-            "pcbasm-update",
-        ]
