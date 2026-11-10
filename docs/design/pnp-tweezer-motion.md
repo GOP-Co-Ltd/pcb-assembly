@@ -202,11 +202,13 @@ src/firmware/pnp-motion/
   build.sh          Klipper を取得して patch を当て、module を写して .uf2 を作る
 ```
 
-- **Klipper は submodule にしない。** `build.sh` が upstream の Klipper を、固定した commit で `src/` の外
-    （バージョン管理外のビルド用ディレクトリ）へ取得する。
-    `src/` の下に Klipper を置くと、その `*.py` と `README.md` が、`src` を走査するテスト（`tests/repo`）と pyright の対象に入ってしまう
-- **Python のツールとぶつからない。** wheel に入るのは `pcbasm` と `web` だけ（`[tool.uv.build-backend]`）なので、ファームは含まれない。
-    ファームの下に `*.py` を置かなければ、`src` を走査するテストと pyright の対象にも入らない
+- **Klipper は submodule にしない。** `build.sh` が upstream の Klipper を、固定した commit でビルド用のディレクトリ
+    （バージョン管理の外）へ取得する。理由は 2 つある
+    - 機体の自己更新（`web.selfupdate`）は `fetch` → `merge --ff-only` で進み、submodule を更新しない。
+        submodule にすると、自己更新のあとに Klipper の中身が古いまま残る
+    - Klipper のソースが要るのはファームをビルドするときだけで、塗布機を含むすべての機体に持たせる必要はない
+- **Python のツールの対象から外す。** ビルド用のディレクトリを `src/` の下に置くなら、Klipper の `*.py` と `README.md` が、
+    `src` を走査するテスト（`tests/repo`）、pyright、ruff の対象に入る。これらの除外にファームのディレクトリを足す
 - **`src/` の規約はファームにも効く。** pre-commit の `no-plan-references` は `src/` の下のテキストを検査する
 - Klipper を fork したリポジトリを別に持つより、upstream の commit を固定して差分を patch で持つ方が、
     差分の大きさが一目で分かり、upstream に追従しやすい
