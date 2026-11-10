@@ -223,15 +223,70 @@
     });
   }
 
+  // ---- ピンセット（部品実装機だけ。テンプレート側で欄を出さなければ何もしない） ----
+  // Rotation は相対角、Open Close は開き具合（0=閉じ切り、1=開き切り）を送る。
+  // 欄の値は、ステータスのポーリングで backend が返す今の開き具合を表示する
+
+  const openSlider = document.getElementById("mc-open-slider");
+  const openField = document.getElementById("mc-open");
+
+  async function sendTweezer(path, body) {
+    try {
+      await api("POST", `/api/pnp/servo/${path}`, body);
+    } catch (err) {
+      toast(err.message, false);
+    }
+  }
+
+  for (const button of panel.querySelectorAll("[data-mc-rotate]")) {
+    button.addEventListener("click", () => {
+      sendTweezer("rotate", { degrees: Number(button.dataset.mcRotate) });
+    });
+  }
+
+  if (openSlider && openField) {
+    openSlider.addEventListener("change", () => {
+      sendTweezer("open", { fraction: Number(openSlider.value) });
+    });
+    openField.addEventListener("change", () => {
+      const text = openField.value.trim();
+      if (text === "") return;
+      sendTweezer("open", { fraction: Number(text) });
+      openField.blur();
+    });
+  }
+
+  async function pollTweezer() {
+    if (!openSlider || !openField) return;
+    try {
+      const status = await api("GET", "/api/pnp/servo/status");
+      // 操作中の欄（ドラッグ中のスライダー・編集中の数値欄）は上書きしない
+      if (!openSlider.matches(":active")) {
+        openSlider.value = String(status.open_fraction);
+      }
+      if (document.activeElement !== openField) {
+        openField.value = status.open_fraction.toFixed(2);
+      }
+    } catch (err) {
+      // 役割の設定前などは表示できない。ポーリングのたびに通知しない
+      if (document.activeElement !== openField) openField.value = "";
+    }
+  }
+
   // ---- サイドバーの開閉とポーリング ----
 
   let timer = null;
   const toggle = document.getElementById("mc-toggle");
 
+  function pollAll() {
+    pollStatus();
+    pollTweezer();
+  }
+
   function startPolling() {
     if (timer !== null) return;
-    pollStatus();
-    timer = setInterval(pollStatus, 2000);
+    pollAll();
+    timer = setInterval(pollAll, 2000);
   }
 
   function stopPolling() {

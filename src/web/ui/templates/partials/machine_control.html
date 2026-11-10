@@ -37,6 +37,24 @@
       {% endfor %}
     </div>
     <p class="mc-abs-hint">座標欄は現在位置を表示。入力確定で移動します</p>
+    {% if "pnp" in capabilities %}
+    {# ピンセットのサーボ。Rotation は相対に回し、Open Close は開き具合（0=閉じ切り、1=開き切り）へ動かす #}
+    <div class="mc-tweezer" data-testid="mc-tweezer">
+      <span class="mc-tweezer-label">Rotation</span>
+      <div class="mc-group">
+        {% for degrees in [-90, -10, -1, 1, 10, 90] %}
+        <button data-mc-rotate="{{ degrees }}" title="ピンセットを {{ '%+d' | format(degrees) }}° 回す">{{ "%+d" | format(degrees) }}°</button>
+        {% endfor %}
+      </div>
+      <span class="mc-tweezer-label">Open Close</span>
+      <div class="mc-tweezer-open">
+        <input id="mc-open-slider" type="range" min="0" max="1" step="0.01"
+               title="0=閉じ切り、1=開き切り。離した位置へ動かす">
+        <input id="mc-open" type="number" min="0" max="1" step="0.01" placeholder="---"
+               title="開き具合（0=閉じ切り、1=開き切り）。入力確定（Enter / フォーカスアウト）で動かす">
+      </div>
+    </div>
+    {% endif %}
     <div class="mc-group">
       <button id="mc-relax" title="全モーターを脱力する（M84）。脱力後はホーミングし直す">Relax</button>
       <button id="mc-focus-z" title="カメラキャリブレーションで記録した Z へ移動する（その結果を「設定に反映」するまで押せない）"

@@ -7,6 +7,13 @@ POST /api/pnp/servo/relax（マシン操作パネルの「サーボ脱力」）:
 - 503: [pnp.servo] が無い
 - 404: 塗布機（pnp の機能が無い機体）には置かない
 - 実機のサーボが脱力することは受け入れ試験（docs/acceptance.md の A24）
+
+POST /api/pnp/servo/rotate・open、GET /api/pnp/servo/status（マシン操作パネルのピンセット欄）:
+
+- rotate は Rotation を degrees だけ相対に、[pnp.servo] の rotation_speed で回す
+- open は Open Close を開き具合 fraction（0=閉じ切り、1=開き切り）へ動かす
+- status は今の開き具合を返し、トルクには触れない（脱力したサーボを保持しない）
+- 409: 使用中は送らない / 422: 範囲外 / 503: [pnp.servo] か役割・角度が未設定
 """
 
 from collections.abc import Iterator
@@ -26,13 +33,27 @@ from web.api.env import Env
 from web.api.machine_config import MachineConfigFile
 
 RELAX = "/api/pnp/servo/relax"
+ROTATE = "/api/pnp/servo/rotate"
+OPEN = "/api/pnp/servo/open"
+STATUS = "/api/pnp/servo/status"
+
+# 閉じ切り 180° = raw 2048、開き切り 225° = raw 2560
+_ROLES = {
+    "rotation_id": 1,
+    "open_close_id": 2,
+    "closed_angle": 180.0,
+    "open_angle": 225.0,
+    "rotation_speed": 90.0,
+}
 
 
-def _pnp_machine(path: Path, *, servo: bool) -> None:
+def _pnp_machine(path: Path, *, servo: bool, roles: bool = False) -> None:
     document = tomlkit.parse(pnp_only(path.read_text()))
     if servo:
         table = tomlkit.table()
         table["port"] = "/dev/ttyUSB0"
+        if roles:
+            table.update(_ROLES)
         document["pnp"]["servo"] = table  # type: ignore[index]
     path.write_text(tomlkit.dumps(document))
 
@@ -51,11 +72,16 @@ def servo_section() -> bool:
 
 
 @pytest.fixture
+def roles() -> bool:
+    return False
+
+
+@pytest.fixture
 def pnp_client(
-    webui_settings: Env, bus: FakeServoBus, servo_section: bool
+    webui_settings: Env, bus: FakeServoBus, servo_section: bool, roles: bool
 ) -> Iterator[TestClient]:
     path = MachineConfigFile(webui_settings.config_dir).path
-    _pnp_machine(path, servo=servo_section)
+    _pnp_machine(path, servo=servo_section, roles=roles)
     devices = Devices(
         path, webui_settings.journal_dir, audio=FakeAudioPlayer(), servo_bus=bus
     )
@@ -93,6 +119,147 @@ class TestServoRelax:
         assert "pnp" in response.json()["detail"]
 
 
+@pytest.mark.parametrize("roles", [True])
+class TestTweezerPanel:
+    def test_rotate_turns_by_the_degrees_at_the_rotation_speed(
+        self, pnp_client: TestClient, bus: FakeServoBus
+    ):
+        response = pnp_client.post(ROTATE, json={"degrees": -90})
+
+        assert response.status_code == 200
+        assert bus.commands[-1] == ServoCommand(1, "step", -1024)
+        assert bus.speed(1) == 1024
+
+    @pytest.mark.parametrize(
+        ("fraction", "target"), [(0, 2048), (0.5, 2304), (1, 2560)]
+    )
+    def test_open_goes_to_the_fraction_between_closed_and_open(
+        self, pnp_client: TestClient, bus: FakeServoBus, fraction: float, target: int
+    ):
+        response = pnp_client.post(OPEN, json={"fraction": fraction})
+
+        assert response.status_code == 200
+        assert bus.commands[-2:] == [
+            ServoCommand(2, "goto", target),
+            ServoCommand(2, "torque", 1),
+        ]
+
+    def test_status_reports_the_open_fraction_after_open(self, pnp_client: TestClient):
+        pnp_client.post(OPEN, json={"fraction": 0.25})
+
+        response = pnp_client.get(STATUS)
+
+        assert response.status_code == 200
+        assert response.json() == {"open_fraction": pytest.approx(0.25)}
+
+    def test_status_leaves_relaxed_servos_relaxed(
+        self, pnp_client: TestClient, bus: FakeServoBus
+    ):
+        pnp_client.post(RELAX)
+        sent = len(bus.commands)
+
+        assert pnp_client.get(STATUS).status_code == 200
+
+        assert len(bus.commands) == sent
+        bus.turn_by_hand(2, 2100)  # 脱力したままなので手で回せる
+
+    def test_rotating_while_gripping_leaves_the_open_close_alone(
+        self, pnp_client: TestClient, bus: FakeServoBus
+    ):
+        """つまんで向きを変えても、Open Close の goal を書き換えない（把持力が抜けない）."""
+        pnp_client.post(OPEN, json={"fraction": 0})
+        sent = len(bus.commands)
+
+        pnp_client.post(ROTATE, json={"degrees": 10})
+
+        assert [c for c in bus.commands[sent:] if c.servo_id == 2] == []
+
+    def test_status_is_readable_while_the_machine_is_busy(self, pnp_client: TestClient):
+        backend: Backend = pnp_client.app.state.backend  # type: ignore[attr-defined]
+        with backend.lock.hold("pytest-job"):
+            response = pnp_client.get(STATUS)
+
+        assert response.status_code == 200
+
+    @pytest.mark.parametrize(
+        ("method", "url", "body"),
+        [
+            ("POST", ROTATE, {"degrees": 10}),
+            ("POST", OPEN, {"fraction": 1}),
+            ("GET", STATUS, None),
+        ],
+    )
+    def test_servo_in_the_wrong_mode_is_502(
+        self,
+        pnp_client: TestClient,
+        bus: FakeServoBus,
+        method: str,
+        url: str,
+        body: dict | None,
+    ):
+        bus.set_mode(2, ServoMode.STEP)
+
+        response = pnp_client.request(method, url, json=body)
+
+        assert response.status_code == 502
+        assert "open_close" in response.json()["detail"]
+
+    @pytest.mark.parametrize(
+        ("url", "body"),
+        [
+            (OPEN, {"fraction": -0.01}),
+            (OPEN, {"fraction": 1.01}),
+            (OPEN, {}),
+            (ROTATE, {"degrees": 360.5}),
+            (ROTATE, {"degrees": -361}),
+            (ROTATE, {}),
+        ],
+    )
+    def test_out_of_range_is_422_without_sending(
+        self, pnp_client: TestClient, bus: FakeServoBus, url: str, body: dict
+    ):
+        sent = len(bus.commands)
+
+        assert pnp_client.post(url, json=body).status_code == 422
+        assert len(bus.commands) == sent
+
+    @pytest.mark.parametrize(
+        ("url", "body"), [(ROTATE, {"degrees": 10}), (OPEN, {"fraction": 1})]
+    )
+    def test_busy_machine_is_409_without_sending(
+        self, pnp_client: TestClient, bus: FakeServoBus, url: str, body: dict
+    ):
+        backend: Backend = pnp_client.app.state.backend  # type: ignore[attr-defined]
+        sent = len(bus.commands)
+        with backend.lock.hold("pytest-job"):
+            response = pnp_client.post(url, json=body)
+
+        assert response.status_code == 409
+        assert len(bus.commands) == sent
+
+
+class TestTweezerPanelWithoutRoles:
+    @pytest.mark.parametrize(
+        ("method", "url", "body"),
+        [
+            ("POST", ROTATE, {"degrees": 10}),
+            ("POST", OPEN, {"fraction": 1}),
+            ("GET", STATUS, None),
+        ],
+    )
+    def test_unset_roles_are_503_naming_pnp(
+        self, pnp_client: TestClient, method: str, url: str, body: dict | None
+    ):
+        response = pnp_client.request(method, url, json=body)
+
+        assert response.status_code == 503
+        assert "pnp" in response.json()["detail"]
+
+
 class TestSolderMachine:
-    def test_has_no_servo_api(self, client: TestClient):
-        assert client.post(RELAX).status_code == 404
+    @pytest.mark.parametrize(
+        ("method", "url"),
+        [("POST", RELAX), ("POST", ROTATE), ("POST", OPEN), ("GET", STATUS)],
+    )
+    def test_has_no_servo_api(self, client: TestClient, method: str, url: str):
+        assert client.request(method, url).status_code == 404

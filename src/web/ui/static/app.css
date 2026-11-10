@@ -536,6 +536,27 @@ h2 {
   font-size: 0.76rem;
 }
 
+.mc-tweezer {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.mc-tweezer-label {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.mc-tweezer-open {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 4.5rem;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.mc-tweezer-open input[type="number"] {
+  width: 100%;
+}
+
 /* ---- settings ---- */
 .settings {
   width: min(100%, 78rem);
