@@ -5,7 +5,8 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-FIRMWARE_FILE="${PROJECT_ROOT}/deploy/firmware/btt-skr-pico-v1-usb.klipper.uf2"
+FIRMWARE_CONFIG="${PROJECT_ROOT}/deploy/firmware/btt-skr-pico-v1-usb.config"
+KLIPPER_DIR="${HOME}/klipper"
 CAMERA_BLOCK_BEGIN="# BEGIN pcb-assembly camera"
 CAMERA_BLOCK_END="# END pcb-assembly camera"
 SPEAKER_BLOCK_BEGIN="# BEGIN pcb-assembly speaker"
@@ -248,11 +249,37 @@ wait_for_klipper_serial() {
     return 1
 }
 
+build_klipper_firmware() {
+    # KIAUH が入れた ~/klipper で、ホストの Klippy と同じ版の firmware を $1 へビルドする。
+    # ~/klipper の .config と out/ は使わない（KIAUH の操作と混ざらないようにするため）。
+    local build_dir="$1"
+    local tool
+
+    [ -d "$KLIPPER_DIR" ] || die "${KLIPPER_DIR} がありません（先に klipper 段を実行してください）"
+    [ -f "$FIRMWARE_CONFIG" ] || die "firmware の設定が見つかりません: ${FIRMWARE_CONFIG}"
+    # Klipper の導入スクリプトの依存（KIAUH が入れる）に含まれる
+    for tool in arm-none-eabi-gcc g++ make; do
+        command -v "$tool" >/dev/null || die "${tool} がありません（KIAUH で Klipper を入れ直してください）"
+    done
+
+    cp "$FIRMWARE_CONFIG" "${build_dir}/.config"
+    echo "Klipper firmware をビルドします（${KLIPPER_DIR}）..."
+    make -s -C "$KLIPPER_DIR" KCONFIG_CONFIG="${build_dir}/.config" OUT="${build_dir}/out/" olddefconfig
+    make -s -C "$KLIPPER_DIR" KCONFIG_CONFIG="${build_dir}/.config" OUT="${build_dir}/out/" \
+        -j"$(nproc)" >"${build_dir}/build.log" 2>&1 ||
+        die "ビルドに失敗しました。ログ: ${build_dir}/build.log"
+    echo "ビルド: ${build_dir}/out/klipper.uf2"
+}
+
 flash_btt_skr_pico() {
+    local build_dir
+    local firmware_file
     local volume
     local serial_path
 
-    [ -f "$FIRMWARE_FILE" ] || die "firmware が見つかりません: ${FIRMWARE_FILE}"
+    build_dir="$(mktemp -d)"
+    build_klipper_firmware "$build_dir"
+    firmware_file="${build_dir}/out/klipper.uf2"
 
     echo ""
     echo "BTT SKR Pico v1.0 を bootloader モードにします:"
@@ -266,9 +293,10 @@ flash_btt_skr_pico() {
     volume="$(wait_for_rpi_rp2_volume)" ||
         die "RPI-RP2 が見つかりません。接続とマウント状態を確認してください"
     echo "検出: ${volume}"
-    cp "$FIRMWARE_FILE" "${volume}/"
+    cp "$firmware_file" "${volume}/"
     sync
-    echo "書き込み: ${FIRMWARE_FILE} -> ${volume}/"
+    echo "書き込み: ${firmware_file} -> ${volume}/"
+    rm -rf "$build_dir"
 
     echo "BOOT ジャンパ pin を外してください。firmware の起動を待ちます。"
     serial_path="$(wait_for_klipper_serial)" ||
