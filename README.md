@@ -48,3 +48,13 @@ sudo reboot
 | 設計        | [ピンセット式 PnP の運動制御](docs/design/pnp-tweezer-motion.md)                          | XYZ のファーム（Klipper の MCU に速度指令を足す案）、サーボ、RL      |
 | 資産        | [マシン設定テンプレート](deploy/templates/README.md)                                      | 機種ごとの `machine.toml` と `printer.cfg` の初期値                  |
 | 資産        | [GitHub Actions Runner](github-runner/README.md)                                          | CI 用の専用 Raspberry Pi                                             |
+
+## ライセンス
+
+既定は [MIT](LICENSE)。次のものは、それぞれのライセンスに従う。
+
+| 対象                       | ライセンス                                        | 理由                                       |
+| -------------------------- | ------------------------------------------------- | ------------------------------------------ |
+| `src/firmware/pnp-motion/` | [GPLv3](src/firmware/pnp-motion/LICENSE)          | Klipper の MCU ファームを元にする          |
+| `klipper/`                 | [GPLv3](klipper/LICENSE)                          | Klipper のコードから派生した Klippy の拡張 |
+| `.claude/skills/yomiyasu/` | [MIT](.claude/skills/yomiyasu/LICENSE)（nanaism） | 外部から vendoring した skill              |
