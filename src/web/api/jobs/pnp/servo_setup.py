@@ -50,8 +50,18 @@ def register(catalog: JobCatalog) -> None:
 
 
 def _run_servo_setup(ctx: JobContext) -> JobResult:
-    """2 台の役割を判別し、Open Close の閉じ・開きの位置を [pnp.servo] への保存候補にする."""
+    """2 台の役割を判別し、Open Close の閉じ切り・開き切りを [pnp.servo] への保存候補にする.
+
+    終わったら（中止・失敗でも）バスの全サーボを脱力する。
+    """
     bus = ctx.devices.servo_bus()
+    try:
+        return _set_up(ctx, bus)
+    finally:
+        bus.release_all()
+
+
+def _set_up(ctx: JobContext, bus: ServoBus) -> JobResult:
     ctx.progress("サーボを探す")
     pair = find_pair(bus, range(int(ctx.params["max_id"]) + 1))
     ctx.log(f"応答したサーボ: ID {pair[0]}、ID {pair[1]}")

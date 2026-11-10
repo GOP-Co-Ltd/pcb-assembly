@@ -172,11 +172,12 @@ class TestServoSetupJob:
         for value in ("ID 1", "ID 2", "87.89°", "114.26°"):
             assert value in record.result.summary
         # 開き過ぎないよう、確認の開閉の前にサーボ自身の角度制限を閉じ切り〜開き切りにする
-        assert bus.commands[-4:] == [
+        assert bus.commands[-5:] == [
             ServoCommand(2, "min_angle", 1000),
             ServoCommand(2, "max_angle", 1300),
             ServoCommand(2, "goto", 1000),  # 確認の開閉は閉じ切り → 開き切り
             ServoCommand(2, "goto", 1300),
+            ServoCommand(254, "torque", 0),  # 終わったら全サーボを脱力する
         ]
         assert bus.angle_limits(1) == (0, 4095)  # Rotation には制限を残さない
         assert "87.89°〜114.26°" in "\n".join(record.log_lines)
@@ -392,12 +393,28 @@ class TestServoSetupJob:
         assert record.status == JobStatus.FAILED
         assert record.error is not None and "pnp.servo" in record.error
 
-    def test_other_than_two_servos_fails(self, manager: JobManager):
+    def test_other_than_two_servos_fails(self, manager: JobManager, bus: FakeServoBus):
         record = manager.start("servo_setup", {"max_id": 1})
         _finish(record)
 
         assert record.status == JobStatus.FAILED
         assert record.error is not None and "2 台" in record.error
+        assert bus.commands[-1] == ServoCommand(254, "torque", 0)  # 失敗でも脱力する
+
+    def test_aborted_job_leaves_both_servos_relaxed(
+        self, manager: JobManager, bus: FakeServoBus
+    ):
+        record = manager.start("servo_setup", PARAMS)
+        operator = _Operator(record, manager)
+
+        operator.start()
+        operator.wait()  # Rotation を振ってトルクが入った後の問い
+        manager.request_abort()
+        _finish(record)
+
+        assert record.status == JobStatus.ABORTED
+        bus.turn_by_hand(1, 100)  # 2 台ともトルクが切れていて手で回せる
+        bus.turn_by_hand(2, 200)
 
 
 class TestRegistration:
