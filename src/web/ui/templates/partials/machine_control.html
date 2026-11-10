@@ -46,6 +46,9 @@
       {% if "solder" in capabilities %}
       <button id="mc-move-to-cap" title="ノズルキャップ位置に移動（Z0 → XY → Z）">キャップ位置へ</button>
       {% endif %}
+      {% if "pnp" in capabilities %}
+      <button id="mc-servo-relax" title="ピンセットのサーボ（バスにつながる全台）のトルクを切る">サーボ脱力</button>
+      {% endif %}
     </div>
   </div>
 </aside>

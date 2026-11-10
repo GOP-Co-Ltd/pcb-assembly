@@ -12,6 +12,22 @@ from .framehub import FrameHub, FrameSource
 from .klipper import KlipperClient, KlipperError, MoonrakerKlipper, open_klipper
 from .manual_stepper import ManualStepper
 from .paste_dispenser import PasteDispenser
+from .servo import (
+    STEPS_PER_REV,
+    FeetechBus,
+    ServoBus,
+    ServoError,
+    ServoMode,
+    Tweezer,
+    degrees_to_position,
+    degrees_to_steps,
+    hold_position,
+    open_servo_bus,
+    position_to_degrees,
+    scan,
+    wait_stopped,
+    wiggle,
+)
 from .stage import Limits, ScalarLimits, Speed, XYZStage
 
 __all__ = [
@@ -47,4 +63,19 @@ __all__ = [
     "XYZStage",
     # dispenser
     "PasteDispenser",
+    # servo
+    "STEPS_PER_REV",
+    "FeetechBus",
+    "ServoBus",
+    "ServoError",
+    "ServoMode",
+    "Tweezer",
+    "degrees_to_position",
+    "degrees_to_steps",
+    "hold_position",
+    "open_servo_bus",
+    "scan",
+    "position_to_degrees",
+    "wait_stopped",
+    "wiggle",
 ]

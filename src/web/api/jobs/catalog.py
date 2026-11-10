@@ -29,6 +29,7 @@ from web.api.jobs.pasting import (
     paste_volume_refit,
     toolhead_offset,
 )
+from web.api.jobs.pnp import servo_setup
 from web.api.jobs.runtime.catalog import JobCatalog
 
 
@@ -37,7 +38,7 @@ def default_catalog(
 ) -> JobCatalog:
     """機体の機能に応じたジョブを登録したカタログを返す（これがジョブの一覧）.
 
-    位置合わせ・カメラ・基板生成・装置診断はどの機体にも登録し、塗布のジョブは solder 機能の機体にだけ登録する。
+    位置合わせ・カメラ・基板生成・装置診断はどの機体にも登録し、塗布のジョブは solder 機能の機体にだけ、部品実装のジョブは pnp 機能の機体にだけ登録する。
 
     Args:
         capabilities: 機体の機能
@@ -55,6 +56,8 @@ def default_catalog(
         paste_volume_calibration.register(catalog, stores)
         paste_volume_refit.register(catalog, stores)
         paste_dataset_finalize.register(catalog, stores)
+    if "pnp" in capabilities:
+        servo_setup.register(catalog)
     reference_point_setup.register(catalog)
     camera_calibration.register(catalog)
     board_tour.register(catalog)

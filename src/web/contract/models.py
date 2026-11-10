@@ -133,7 +133,7 @@ class PromptInfo(BaseModel):
     """応答待ちプロンプトの公開表現（REST / WS 共用）."""
 
     id: str
-    kind: Literal["confirm", "number", "text", "choice"]
+    kind: Literal["confirm", "number", "text", "choice", "buttons"]
     message: str
     default: bool | float | str | None = None
     true_label: str | None = None

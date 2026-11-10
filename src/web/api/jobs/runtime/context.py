@@ -438,6 +438,34 @@ class JobContext(ProcedureHooks):
         assert isinstance(answer, str)  # choice の応答は choices のどれか
         return answer
 
+    def choose_button(
+        self,
+        message: str,
+        choices: tuple[str, ...],
+        *,
+        default: str,
+        other: str | None = None,
+    ) -> str:
+        """選択肢をボタンで並べて 1 つ選ばせる（:meth:`choose` はドロップダウン）.
+
+        ``other`` を渡すと、選択肢とは別の段にそのボタンを置き、押されたらそのラベルを返す
+        （「もう一度動かす」のような、選択ではない操作に使う）。
+
+        Raises:
+            JobAborted: 待機中に abort された場合
+        """
+        answer = self.prompt(
+            PromptSpec(
+                kind="buttons",
+                message=message,
+                default=default,
+                choices=choices,
+                false_label=other,
+            )
+        )
+        assert isinstance(answer, str)  # buttons の応答は choices か other のラベル
+        return answer
+
     @overload
     def ask_positive(self, message: str, *, default: float | None = None) -> float: ...
 
@@ -535,8 +563,8 @@ def _coerce_answer(spec: PromptSpec, answer: object) -> Answer:
     """プロンプト応答を PromptSpec の型に合わせて検証・変換する.
 
     confirm→bool, number→有限な float（int は float 化）, text→str,
-    choice→choices 内の str。false_label 付き number の中止（bool False）は
-    そのまま False を返す。
+    choice→choices 内の str、buttons→choices 内か false_label の str。
+    false_label 付き number の中止（bool False）はそのまま False を返す。
 
     Raises:
         ValueError: 型不一致・choice 範囲外の場合
@@ -556,6 +584,11 @@ def _coerce_answer(spec: PromptSpec, answer: object) -> Answer:
                 return answer
         case "choice":
             if isinstance(answer, str) and answer in spec.choices:
+                return answer
+        case "buttons":
+            if isinstance(answer, str) and (
+                answer in spec.choices or answer == spec.false_label
+            ):
                 return answer
     raise ValueError(
         f"{spec.kind} プロンプトへの応答として不正です（与えられた値: {answer!r}）"

@@ -1,4 +1,4 @@
-"""実機の代わりに使う Klipper・カメラ・音声出力の fake.
+"""実機の代わりに使う Klipper・カメラ・音声出力・サーボの fake.
 
 テストと開発用のシミュレーション起動（``make dev``）が同じ実装を使う。
 機構の物理は模擬せず、送信した G-code から位置と押出量を追うところまでにとどめる。
@@ -13,7 +13,7 @@ import time
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import Future
-from typing import Any, override
+from typing import Any, Literal, override
 
 import attrs
 import cv2
@@ -28,6 +28,14 @@ from pcbasm.vision.image import Image, ImageArray
 from .audio import AudioDevice, AudioPlayer, Sound
 from .camera import Camera, CameraInfo, Resolution
 from .klipper import GCodeJournal, KlipperError
+from .servo import (
+    BROADCAST_ID,
+    STEPS_PER_REV,
+    ServoBus,
+    ServoError,
+    ServoMode,
+    check_angle_limits,
+)
 
 # FakeKlipper が既定で返す printer.cfg。XYZStage / PasteDispenser / ProbeExecutor と所要時間の予測が読むセクションだけを持つ
 FAKE_PRINTER_CONFIG: dict[str, dict[str, Any]] = {
@@ -586,3 +594,192 @@ class FakeAudioPlayer(AudioPlayer):
     @override
     def close(self) -> None:
         self._close_calls += 1
+
+
+@attrs.frozen
+class ServoCommand:
+    """FakeServoBus が受けた 1 回の指令.
+
+    Attributes:
+        servo_id: 送り先のサーボ ID
+        kind: 指令の種類（``goto`` は絶対位置、``step`` は相対 step、``torque`` はトルクの入切、
+            ``mode`` は動作モードの書き込み、``min_angle`` / ``max_angle`` は角度制限の書き込み）
+        value: goto は位置、step は step 数、torque は 1（入）か 0（切）、mode はモードの値、
+            min_angle / max_angle は制限の位置
+    """
+
+    servo_id: int
+    kind: Literal["goto", "step", "torque", "mode", "min_angle", "max_angle"]
+    value: int
+
+
+class FakeServoBus(ServoBus):
+    """指令を記録し、即座に位置へ反映する ``ServoBus``.
+
+    ``modes`` にある ID だけが応答する。位置モードの ID は goto だけ、ステップモードの ID は step だけを受け付ける。
+    goto / step の後は実機と同じく、``start_delay`` 回の :meth:`moving` が False（まだ動き出していない）、
+    次の 1 回が True（動いている途中）、その後は False（止まった）を返す。:meth:`jam` したサーボは True を返し続ける。
+    """
+
+    def __init__(
+        self,
+        modes: Mapping[int, ServoMode],
+        positions: Mapping[int, int] | None = None,
+        *,
+        start_delay: int = 0,
+    ) -> None:
+        """Fake のバスを作る.
+
+        Args:
+            modes: 応答するサーボの ID とモード
+            positions: 初期位置（raw 0〜4095。書かない ID は 2048）
+            start_delay: 指令の後、moving が True になるまでに False を返す読み出しの回数
+        """
+        self._modes = dict(modes)
+        self._positions = {servo_id: 2048 for servo_id in self._modes} | dict(
+            positions or {}
+        )
+        self._commands: list[ServoCommand] = []
+        self._torque = dict.fromkeys(self._modes, False)
+        self._jammed: set[int] = set()
+        self._start_delay = start_delay
+        self._limits: dict[int, tuple[int, int]] = dict.fromkeys(
+            self._modes, (0, STEPS_PER_REV - 1)
+        )
+        self._reads_until_start: dict[int, int] = {}
+        self._closed = False
+        self._lock = threading.Lock()
+
+    @property
+    def commands(self) -> list[ServoCommand]:
+        """受けた goto / step / torque / mode の指令（送った順）."""
+        with self._lock:
+            return list(self._commands)
+
+    @property
+    def closed(self) -> bool:
+        """Close() されたか."""
+        return self._closed
+
+    @override
+    def ping(self, servo_id: int) -> bool:
+        return servo_id in self._modes
+
+    @override
+    def mode(self, servo_id: int) -> ServoMode:
+        return self._mode(servo_id)
+
+    @override
+    def position(self, servo_id: int) -> int:
+        self._mode(servo_id)
+        with self._lock:
+            return self._positions[servo_id]
+
+    @override
+    def moving(self, servo_id: int) -> bool:
+        self._mode(servo_id)
+        if servo_id in self._jammed:
+            return True
+        with self._lock:
+            if (reads := self._reads_until_start.pop(servo_id, None)) is None:
+                return False
+            if reads > 0:
+                self._reads_until_start[servo_id] = reads - 1
+                return False
+            return True
+
+    @override
+    def set_torque(self, servo_id: int, on: bool) -> None:
+        self._mode(servo_id)
+        with self._lock:
+            self._commands.append(ServoCommand(servo_id, "torque", int(on)))
+            self._torque[servo_id] = on
+
+    @override
+    def release_all(self) -> None:
+        with self._lock:
+            self._commands.append(ServoCommand(BROADCAST_ID, "torque", 0))
+            self._torque = dict.fromkeys(self._modes, False)
+
+    @override
+    def set_angle_limits(self, servo_id: int, low: int, high: int) -> None:
+        check_angle_limits(low, high)
+        self._mode(servo_id)
+        with self._lock:
+            self._commands.append(ServoCommand(servo_id, "min_angle", low))
+            self._commands.append(ServoCommand(servo_id, "max_angle", high))
+            self._limits[servo_id] = (low, high)
+
+    def angle_limits(self, servo_id: int) -> tuple[int, int]:
+        """書かれた角度制限（下限、上限。書く前は 0〜4095）."""
+        self._mode(servo_id)
+        return self._limits[servo_id]
+
+    @override
+    def set_mode(self, servo_id: int, mode: ServoMode) -> None:
+        self._mode(servo_id)
+        with self._lock:
+            self._commands.append(ServoCommand(servo_id, "mode", int(mode)))
+            self._modes[servo_id] = mode
+
+    @override
+    def goto(self, servo_id: int, position: int) -> None:
+        if not 0 <= position < STEPS_PER_REV:
+            raise ValueError(
+                f"位置は 0〜{STEPS_PER_REV - 1} の範囲で送ります: {position}"
+            )
+        self._require(servo_id, ServoMode.POSITION)
+        with self._lock:
+            self._commands.append(ServoCommand(servo_id, "goto", position))
+            # 実機と同じく、角度制限の外への goal は制限の端で止まる
+            low, high = self._limits[servo_id]
+            self._positions[servo_id] = min(max(position, low), high)
+            self._reads_until_start[servo_id] = self._start_delay
+
+    @override
+    def step(self, servo_id: int, steps: int) -> None:
+        self._require(servo_id, ServoMode.STEP)
+        with self._lock:
+            self._commands.append(ServoCommand(servo_id, "step", steps))
+            self._positions[servo_id] = (
+                self._positions[servo_id] + steps
+            ) % STEPS_PER_REV
+            self._reads_until_start[servo_id] = self._start_delay
+
+    @override
+    def close(self) -> None:
+        self._closed = True
+
+    def jam(self, servo_id: int) -> None:
+        """以後そのサーボが動いている途中のまま止まらないことにする（当たって止まった模擬）.
+
+        Raises:
+            ServoError: 応答しない ID の場合
+        """
+        self._mode(servo_id)
+        self._jammed.add(servo_id)
+
+    def turn_by_hand(self, servo_id: int, position: int) -> None:
+        """トルクを切っている間に人が手で position まで回したことにする（指令には記録しない）.
+
+        Raises:
+            ServoError: 応答しない ID か、トルクが入っている場合
+        """
+        self._mode(servo_id)
+        with self._lock:
+            if self._torque[servo_id]:
+                raise ServoError(
+                    f"サーボ {servo_id} はトルクが入っていて手で回せません"
+                )
+            self._positions[servo_id] = position
+
+    def _mode(self, servo_id: int) -> ServoMode:
+        if servo_id not in self._modes:
+            raise ServoError(f"サーボ {servo_id} が応答しません")
+        return self._modes[servo_id]
+
+    def _require(self, servo_id: int, mode: ServoMode) -> None:
+        if (actual := self._mode(servo_id)) is not mode:
+            raise ServoError(
+                f"サーボ {servo_id} は {actual.name} モードなので受け付けません"
+            )

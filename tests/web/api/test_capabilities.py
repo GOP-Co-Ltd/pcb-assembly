@@ -31,10 +31,11 @@ class TestPnpMachine:
 
         assert info["capabilities"] == [{"name": "pnp", "label": "部品実装"}]
 
-    def test_registers_only_the_common_jobs(self, client: TestClient):
+    def test_registers_the_common_and_pnp_jobs(self, client: TestClient):
         names = {job["name"] for job in client.get("/api/jobs").json()["jobs"]}
 
         assert names == {
+            "servo_setup",
             "reference_point_setup",
             "camera_calibration",
             "board_tour",
@@ -67,3 +68,8 @@ class TestPnpMachine:
 
         assert fields
         assert "solder" not in {field["section"] for field in fields}
+
+    def test_settings_have_the_pnp_servo(self, client: TestClient):
+        fields = client.get("/api/machine_config").json()["fields"]
+
+        assert "pnp.servo.rotation_id" in {field["key"] for field in fields}

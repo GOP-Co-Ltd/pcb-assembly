@@ -209,6 +209,20 @@
     });
   }
 
+  // 部品実装機以外ではテンプレート側でボタンを出さない（null ガード）。
+  // サーボは Klipper の外なので、命令（REST / 対話ジョブの WS）とは別の API へ送る
+  const servoRelaxButton = document.getElementById("mc-servo-relax");
+  if (servoRelaxButton) {
+    servoRelaxButton.addEventListener("click", async () => {
+      try {
+        await api("POST", "/api/pnp/servo/relax");
+        toast("サーボを脱力しました");
+      } catch (err) {
+        toast(err.message, false);
+      }
+    });
+  }
+
   // ---- サイドバーの開閉とポーリング ----
 
   let timer = null;

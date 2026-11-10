@@ -15,6 +15,8 @@ from pcbasm.paths import PROJECT_ROOT
 _SECTIONS = "|".join(top.name for top in attrs.fields(MachineConfig) if top.metadata)
 # 引用符で囲んだ「<節>.<キー>…」（末尾が "." の接頭辞も含む）
 _KEY = re.compile(rf"[\"'`]((?:{_SECTIONS})\.[a-z_.]+)[\"'`]")
+# 節の名前で始まるが設定キーではない文字列（成果物のファイル名）
+_NOT_KEYS = frozenset({"pnp.csv"})
 
 
 def _written_keys() -> set[str]:
@@ -27,6 +29,7 @@ def _written_keys() -> set[str]:
         match.removesuffix(".")
         for path in sources
         for match in _KEY.findall(path.read_text(encoding="utf-8"))
+        if match not in _NOT_KEYS
     }
 
 

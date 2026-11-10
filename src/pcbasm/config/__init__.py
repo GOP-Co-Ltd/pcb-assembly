@@ -192,8 +192,9 @@ class MachineConfig:
     solder: SolderConfig | None = attrs.field(
         default=None, metadata=section(label=CAPABILITY_LABELS["solder"], order=1)
     )
-    # 設定の項目を足すときに section の metadata を付ける
-    pnp: PnpConfig | None = None
+    pnp: PnpConfig | None = attrs.field(
+        default=None, metadata=section(label=CAPABILITY_LABELS["pnp"], order=9)
+    )
 
     @property
     def cap_position(self) -> Point3d | None:

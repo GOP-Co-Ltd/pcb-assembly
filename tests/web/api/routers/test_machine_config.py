@@ -89,7 +89,10 @@ class TestMachineSettingsApi:
 
         assert response.status_code == 200
         keys = [field["key"] for field in response.json()["fields"]]
-        assert keys == [field.key for field in setting_fields()]
+        # テストの機体ははんだ塗布機なので、部品実装（[pnp]）の項目は出ない
+        assert keys == [
+            field.key for field in setting_fields() if field.section != "pnp"
+        ]
         fields = {field["key"]: field for field in response.json()["fields"]}
         assert all(field["label"] and field["group"] for field in fields.values())
 

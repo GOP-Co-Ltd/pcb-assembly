@@ -8,6 +8,7 @@ import attrs
 from pcbasm.config import MachineConfig, load_machine
 from pcbasm.config.fields import XYZ, setting_fields
 from pcbasm.pasting.params import DISPENSE_MODES, LINE_DIRECTIONS
+from pcbasm.pnp.servo_setup import OpenCloseRange, ServoRoles, servo_settings
 from tests.support.paths import MINIMAL_MACHINE_TOML
 
 
@@ -37,6 +38,7 @@ class TestSettingFields:
             "settle",
             "detection",
             "audio",
+            "pnp",
         ]
         assert sections == sorted(sections, key=sections.index)
 
@@ -71,6 +73,7 @@ class TestSettingFields:
         assert fields["solder.defaults.paste_height"].kind == "float_or_auto"
         assert fields["reference_point.offsets.top_left"].kind == "float_pair"
         assert fields["solder.defaults.dispense_mode"].kind == "choice"
+        assert fields["pnp.servo.rotation_id"].kind == "int"  # int | None
 
     def test_choices_cover_every_allowed_value(self):
         fields = _by_key()
@@ -106,3 +109,24 @@ class TestSettingFields:
         )
         # 未教示の座標は None
         assert fields["solder.nozzle.cap.position"].resolve(machine) is None
+
+    def test_optional_sub_table_is_followed(self):
+        """無ければ None の下位表（[pnp.servo]）の項目も出る."""
+        keys = [field.key for field in setting_fields() if field.section == "pnp"]
+
+        assert keys == [
+            "pnp.servo.port",
+            "pnp.servo.baudrate",
+            "pnp.servo.rotation_id",
+            "pnp.servo.open_close_id",
+            "pnp.servo.closed_angle",
+            "pnp.servo.open_angle",
+        ]
+
+    def test_servo_setup_writes_only_setting_keys(self):
+        """サーボ設定ジョブが Apply で書くキーは、どれも設定ページの項目."""
+        values = servo_settings(
+            ServoRoles(rotation_id=1, open_close_id=2), OpenCloseRange(1000, 1300)
+        )
+
+        assert set(values) <= set(_by_key())

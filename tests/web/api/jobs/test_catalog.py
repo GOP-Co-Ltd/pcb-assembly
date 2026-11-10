@@ -1,6 +1,6 @@
 """ジョブのカタログ（`web.api.jobs.catalog.default_catalog`）の登録内容.
 
-塗布のジョブは solder 機能の機体にだけ登録し、ほかのジョブはどの機体にも登録する。
+塗布のジョブは solder 機能の機体にだけ、部品実装のジョブは pnp 機能の機体にだけ登録し、ほかのジョブはどの機体にも登録する。
 
 ジョブ名・ファイル名・画面の feature slug は同じ語で、ジョブのディレクトリは呼ぶ pcbasm のドメインをミラーする。
 """
@@ -41,6 +41,7 @@ JOBS_BY_DOMAIN = {
         "make_fill_coverage_pcb",
     ),
     "machine": ("machine_check",),
+    "pnp": ("servo_setup",),
 }
 
 JOBS_DIR = Path(__file__).parents[4] / "src" / "web" / "api" / "jobs"
@@ -77,6 +78,7 @@ class TestJobList:
         names = [d.name for d in standalone_catalog(tmp_path, ("pnp",)).list()]
 
         assert names == [
+            *JOBS_BY_DOMAIN["pnp"],
             *JOBS_BY_DOMAIN["align"],
             *JOBS_BY_DOMAIN["kicad"],
             *JOBS_BY_DOMAIN["machine"],
