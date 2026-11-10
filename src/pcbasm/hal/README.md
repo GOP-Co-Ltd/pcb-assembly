@@ -1,6 +1,6 @@
 # HAL
 
-Hardware Abstraction Layer: カメラ・Klipper（Moonraker 経由）・音声出力・ピンセットのサーボを扱うクラスを置く。
+Hardware Abstraction Layer: カメラ・Klipper（Moonraker 経由）・音声出力・ピンセットのサーボ・Xbox コントローラを扱うクラスを置く。
 画像処理は `pcbasm.vision`、塗布や位置合わせの手順は `pcbasm.pasting` / `pcbasm.align` に置く。
 
 ## 構成
@@ -16,7 +16,8 @@ Hardware Abstraction Layer: カメラ・Klipper（Moonraker 経由）・音声�
 | `framehub.py`        | 専有スレッド 1 本で capture し、最新フレームを複数の消費者へ配る `FrameHub`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `audio.py`           | ALSA の通知音再生 `AlsaAudioPlayer`。音源は `sounds/` の WAV                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `servo.py`           | ピンセットのサーボ（Feetech STS3032）の差し替え口 `ServoBus`（ABC）と scservo_sdk 実装 `FeetechBus`、生成口 `open_servo_bus`、判別用の `scan` / `wiggle`、完了待ちの `wait_stopped`、今の位置でトルクを入れる `hold_position`、2 台を束ねる `Tweezer`（指令ごとに動かすサーボだけにトルクを入れる。Rotation は設定の速さ、Open Close は開き具合 0〜1 でも動かせる）、全台をブロードキャストで脱力する `release_all`。モードは `set_mode`、位置モードの角度制限は `set_angle_limits` で EEPROM に書ける（どちらも servo_setup が書く）。位置と絶対角の換算 `position_to_degrees` / `degrees_to_position` |
-| `fake.py`            | 実機の代わりの `FakeKlipper` / `FakeCamera` / `SceneCamera` / `FakeAudioPlayer` / `FakeServoBus`。テストと `make dev` が共用する。`SceneCamera` は `FakeKlipper` の位置から見える図形と塗布痕を描く                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `gamepad.py`         | Xbox コントローラ（ゲームパッド）の差し替え口 `Gamepad`（ABC）と evdev 実装 `EvdevGamepad`、生成口 `open_gamepad`、入力 `GamepadState`（LT を 0〜1、LB / RB を bool）。ドライバごとの割り当て（USB の xpad と Bluetooth の hid-microsoft で LT の軸が違う）は `open_gamepad` が capability から判別する                                                                                                                                                                                                                                                                                                 |
+| `fake.py`            | 実機の代わりの `FakeKlipper` / `FakeCamera` / `SceneCamera` / `FakeAudioPlayer` / `FakeServoBus` / `FakeGamepad`。テストと `make dev` が共用する。`SceneCamera` は `FakeKlipper` の位置から見える図形と塗布痕を描く                                                                                                                                                                                                                                                                                                                                                                                     |
 
 公開名は `pcbasm.hal` から re-export している（`from pcbasm.hal import KlipperClient, XYZStage`）。
 
@@ -35,4 +36,4 @@ Hardware Abstraction Layer: カメラ・Klipper（Moonraker 経由）・音声�
 - 新しいデバイスを足すときも、上の流れに合わせて「`KlipperClient` で設定を読み、`GCode` を返す」形にする
 - 機械設定（TOML）から Klipper とカメラを組み立てるのは `pcbasm.machine.devices` だけ。`open_klipper` と `open_servo_bus` を呼ぶのもそこだけにする。HAL は `pcbasm.config` を読まない（`open_klipper` の接続先、通知音の出力先と音量は値で受け取る）
 - fake は `fake.py` に 1 系統だけ置く。テスト用に別の fake を作らず、足りない模擬はここへ足す
-- テストは実機に触れない。実機での確認は [実機受け入れ試験](../../../docs/acceptance.md) に書く
+- テストは実機に触れない（`open_gamepad` もテストからは呼べない。`EvdevGamepad` は `/dev/uinput` の仮想デバイスで確かめ、書けない環境では skip する）。実機での確認は [実機受け入れ試験](../../../docs/acceptance.md) に書く

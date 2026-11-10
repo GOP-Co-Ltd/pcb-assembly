@@ -10,7 +10,7 @@ UV_VERSION="0.12.5"
 MACHINE_STAGES=(preflight packages python klipper hardware machine services)
 UI_ONLY_STAGES=(preflight packages python services)
 BASE_PACKAGES=(curl make git git-lfs)
-MACHINE_PACKAGES=(alsa-utils v4l-utils kicad python3-picamera2)
+MACHINE_PACKAGES=(alsa-utils v4l-utils kicad python3-picamera2 python3-evdev)
 # 以下はテスト用の継ぎ目。既定値は実機のもの
 SUDO="${SUDO:-sudo}"
 SYSTEMD_UNIT_DIR="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"

@@ -88,6 +88,7 @@
 | `web.selfupdate`、`install.sh`、unit                  | A11                                          |
 | `tests/golden` の更新                                 | A8 と、差分が出たジョブ・route の項目        |
 | `pcbasm.pnp`、`pcbasm.hal.servo`                      | A23, A24, A25                                |
+| `pcbasm.hal.gamepad`                                  | A26                                          |
 
 ## 項目
 
@@ -119,6 +120,7 @@
 | A23  | ピンセットのサーボ設定           | PnP 機                                 |
 | A24  | サーボ脱力                       | PnP 機                                 |
 | A25  | ピンセットのパネル操作           | PnP 機                                 |
+| A26  | Xbox コントローラの入力          | PnP 機                                 |
 
 ### A0 装置診断
 
@@ -290,6 +292,28 @@
     - 4: 回している間も部品を落とさない（つまむ力が抜けない）
     - 5: 2 台とも手で回せるまま（今の値の表示でトルクが入らない）
     - 塗布機のパネルにはピンセット欄が出ない
+
+### A26 Xbox コントローラの入力
+
+- 前提: Xbox コントローラを Pi に USB でつなぐ（Bluetooth でも試すなら、ペアリングしておく。Xbox コントローラは Bluetooth で使う前にファームウェアを最新にしておく）。実行するユーザーが `input` グループに入っている（`/dev/input/event*` を読むため。`id` で確かめる）。WebUI のサービスとは別のターミナルで行う
+
+- 操作: 次を実行し、LT をゆっくり押し込んで離す、LB と RB を 1 つずつ押して離す。Ctrl-C で止める。Bluetooth でつないだコントローラでも同じことをする
+
+    ```sh
+    uv run python -c "
+    import time
+    from pcbasm.hal.gamepad import open_gamepad
+    pad = open_gamepad()
+    while True:
+        print(pad.state(), end='\r'); time.sleep(0.02)
+    "
+    ```
+
+- 合格条件:
+
+    - LT が離すと 0.0、押し込むと 1.0 になり、途中は押し込みに応じて連続して変わる（USB と Bluetooth のどちらでも）
+    - LB を押している間だけ `left_bumper=True`、RB を押している間だけ `right_bumper=True` になる。スティック・RT・ほかのボタンでは変わらない
+    - 実行中にケーブルを抜く（Bluetooth なら電源を切る）と `GamepadError`（切断されました）で止まる
 
 ## 未確認の項目（実機で確かめる）
 
