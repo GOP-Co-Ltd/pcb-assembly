@@ -22,6 +22,14 @@
 #define AXES 3
 // 1 区間のステップ数は uint16_t に収める
 #define MAX_SEGMENT_STEPS 60000
+// 区間と先読みの範囲（短すぎる区間は task を詰まらせ、長すぎる先読みは move queue を使い切る）
+#define MIN_PERIOD (CONFIG_CLOCK_FREQ / 2000)  // 0.5 ms
+#define MAX_LEAD (CONFIG_CLOCK_FREQ / 10)  // 100 ms
+// 速度指令の有効期限の上限。ホストが固まってから止まり始めるまでの最大の時間
+#define MAX_TTL CONFIG_CLOCK_FREQ  // 1 s
+// ステップの間隔が区間の先頭の最小間隔を下回らない速さ、int64 があふれない加速度
+#define MAX_VELOCITY (CONFIG_CLOCK_FREQ / VS_MIN_GAP_TICKS(CONFIG_CLOCK_FREQ))
+#define MAX_ACCEL 1000000000
 
 DECL_CONSTANT("VELOCITY_STREAM_PROTOCOL", 1);
 DECL_CONSTANT_STR("PNP_MOTION_VERSION", PNP_MOTION_VERSION);
@@ -42,11 +50,13 @@ struct velocity_stream {
     // 計画の位置 = 向き × stepper の位置 + offset
     int32_t offset[AXES];
     int32_t target[AXES];
-    uint32_t period, lead, report_ticks;
+    uint32_t period, lead, report_ticks, ttl;
     uint32_t seg_clock;  // 次に計画する区間の開始時刻
     uint32_t expire_clock, next_report;
+    // STOPPING で全軸が止まったら、積んだステップが出尽くすこの時刻を待って IDLE にする
+    uint32_t drain_clock;
     uint16_t seq;
-    uint8_t invert_dir, state, limits_set;
+    uint8_t invert_dir, state, limits_set, draining;
     // VSF_TRIGGERED は trsync の割り込みから立つ
     volatile uint8_t flags;
 };
@@ -112,6 +122,12 @@ is_running(struct velocity_stream *vs)
     return vs->state == VS_STREAM || vs->state == VS_STOPPING;
 }
 
+static int
+in_limits(const struct vs_axis_config *c, int32_t pos)
+{
+    return pos >= c->min_pos && pos <= c->max_pos;
+}
+
 void
 command_velocity_stream_set_limits(uint32_t *args)
 {
@@ -119,7 +135,8 @@ command_velocity_stream_set_limits(uint32_t *args)
     uint8_t axis = args[1];
     int32_t min_pos = args[2], max_pos = args[3];
     uint32_t max_velocity = args[4], accel = args[5];
-    if (axis >= AXES || min_pos >= max_pos || !max_velocity || !accel)
+    if (axis >= AXES || min_pos >= max_pos || !max_velocity || !accel
+        || max_velocity > MAX_VELOCITY || accel > MAX_ACCEL)
         shutdown("Invalid velocity_stream limits");
     if (is_running(vs))
         shutdown("Can't set velocity_stream limits while running");
@@ -138,10 +155,12 @@ command_velocity_stream_set_position(uint32_t *args)
     struct velocity_stream *vs = velocity_stream_oid_lookup(args[0]);
     uint8_t axis = args[1];
     int32_t pos = args[2];
-    if (axis >= AXES)
+    if (axis >= AXES || !(vs->limits_set & (1 << axis)))
         shutdown("Invalid velocity_stream axis");
     if (is_running(vs))
         shutdown("Can't set velocity_stream position while running");
+    if (!in_limits(&vs->axes[axis].config, pos))
+        shutdown("velocity_stream position outside limits");
     vs->offset[axis] = pos
         - axis_sign(vs, axis) * stepper_position(vs->steppers[axis]);
     vs_axis_reset(&vs->axes[axis], pos, timer_read_time());
@@ -164,17 +183,20 @@ void
 command_velocity_stream_start(uint32_t *args)
 {
     struct velocity_stream *vs = velocity_stream_oid_lookup(args[0]);
-    uint32_t clock = args[1], period = args[2], lead = args[3];
+    uint32_t clock = args[1], period = args[2], lead = args[3], ttl = args[5];
     if (is_running(vs))
         shutdown("velocity_stream already running");
     if (vs->limits_set != (1 << AXES) - 1)
         shutdown("velocity_stream limits not set");
-    if (!period || period > CONFIG_CLOCK_FREQ / 10 || lead < period)
+    if (period < MIN_PERIOD || lead < period || lead > MAX_LEAD || !ttl
+        || ttl > MAX_TTL)
         shutdown("Invalid velocity_stream period");
     for (int i = 0; i < AXES; i++) {
         uint64_t steps = (uint64_t)vs->axes[i].config.max_velocity * period;
         if (steps / CONFIG_CLOCK_FREQ >= MAX_SEGMENT_STEPS)
             shutdown("velocity_stream period too long for max_velocity");
+        if (!in_limits(&vs->axes[i].config, actual_position(vs, i)))
+            shutdown("velocity_stream position outside limits");
     }
     uint32_t now = timer_read_time();
     if (timer_is_before(clock, now + lead))
@@ -183,6 +205,8 @@ command_velocity_stream_start(uint32_t *args)
     vs->period = period;
     vs->lead = lead;
     vs->report_ticks = args[4];
+    vs->ttl = ttl;
+    vs->draining = 0;
     vs->seg_clock = vs->expire_clock = vs->next_report = clock;
     for (int i = 0; i < AXES; i++) {
         stepper_reset_clock(vs->steppers[i], clock);
@@ -200,7 +224,7 @@ command_velocity_stream_start(uint32_t *args)
 }
 DECL_COMMAND(command_velocity_stream_start,
              "velocity_stream_start oid=%c clock=%u period_ticks=%u"
-             " lead_ticks=%u report_ticks=%u");
+             " lead_ticks=%u report_ticks=%u ttl_ticks=%u");
 
 void
 command_velocity_stream_set_velocity(uint32_t *args)
@@ -212,7 +236,10 @@ command_velocity_stream_set_velocity(uint32_t *args)
     vs->seq = args[1];
     for (int i = 0; i < AXES; i++)
         vs->target[i] = args[2 + i];
-    vs->expire_clock = args[5];
+    // 期限は受け取った時点から ttl までに切る（遠すぎる期限や、一周した古い期限で
+    // ウォッチドッグが効かなくならないように）
+    uint32_t expire = args[5], latest = timer_read_time() + vs->ttl;
+    vs->expire_clock = timer_is_before(latest, expire) ? latest : expire;
 }
 DECL_COMMAND(command_velocity_stream_set_velocity,
              "velocity_stream_set_velocity oid=%c seq=%hu vx=%i vy=%i vz=%i"
@@ -302,8 +329,17 @@ plan_segments(struct velocity_stream *vs, uint32_t now)
         }
         vs->seg_clock += vs->period;
     }
-    if (vs->state == VS_STOPPING && !vs->axes[0].velocity
-        && !vs->axes[1].velocity && !vs->axes[2].velocity)
+    if (vs->state != VS_STOPPING)
+        return;
+    // 全軸の速度が 0 になった区間より後にはステップを作らない。積んだステップが
+    // 出尽くしてから IDLE にする（その前の start は stepper_reset_clock で shutdown になり、
+    // set_position は動いている途中の位置を読んでしまう）
+    if (!vs->draining && !vs->axes[0].velocity && !vs->axes[1].velocity
+        && !vs->axes[2].velocity) {
+        vs->draining = 1;
+        vs->drain_clock = vs->seg_clock + vs->period;
+    }
+    if (vs->draining && !timer_is_before(now, vs->drain_clock))
         stop_timer(vs, VS_IDLE);
 }
 

@@ -51,6 +51,8 @@ vs_axis_reset(struct vs_axis *a, int32_t pos, uint32_t clock)
     a->pos = (int64_t)pos * ONE;
     a->velocity = 0;
     a->last_step_clock = clock;
+    // clock は基準の時刻で、実際のステップではない
+    a->rested = 1;
 }
 
 int32_t
@@ -81,6 +83,9 @@ vs_axis_plan(struct vs_axis *a, int32_t target_velocity, uint32_t seg_start,
              uint32_t period, uint32_t clock_freq, struct vs_segment *out)
 {
     const struct vs_axis_config *c = &a->config;
+    uint32_t min_gap = VS_MIN_GAP_TICKS(clock_freq);
+    if ((int32_t)(seg_start - a->last_step_clock) >= (int32_t)min_gap)
+        a->rested = 1;
 
     // 速度を目標へ、区間あたり dv だけ近づける
     int64_t target = limit_target(a, target_velocity, period, clock_freq);
@@ -88,10 +93,15 @@ vs_axis_plan(struct vs_axis *a, int32_t target_velocity, uint32_t seg_start,
     int64_t v0 = a->velocity;
     int64_t v1 = clamp64(target, v0 - dv, v0 + dv);
 
-    // 区間の中は平均速度の等速。可動域で打ち切ったら止める
+    // 区間の中は平均速度の等速。可動域で打ち切ったら止める。
+    // 位置が可動域の外なら、いまの位置を境界にする（外向きに動かさず、境界へも飛ばない）
     int64_t old_pos = a->pos;
     int64_t new_pos = old_pos + (v0 + v1) * period * ONE / (2 * (int64_t)clock_freq);
     int64_t low = (int64_t)c->min_pos * ONE, high = (int64_t)c->max_pos * ONE;
+    if (old_pos < low)
+        low = old_pos;
+    if (old_pos > high)
+        high = old_pos;
     if (new_pos <= low || new_pos >= high) {
         new_pos = clamp64(new_pos, low, high);
         v1 = 0;
@@ -113,9 +123,10 @@ vs_axis_plan(struct vs_axis *a, int32_t target_velocity, uint32_t seg_start,
     uint32_t first = seg_start + (uint32_t)(first_frac * period / travel);
     uint32_t span = (uint32_t)(last_frac * period / travel) - (first - seg_start);
     // 前の区間の最後のステップに近すぎるときは、最小の間隔だけ後ろへ回す（区間の中の間隔は保つ）
-    uint32_t min_first = a->last_step_clock + VS_MIN_GAP_TICKS(clock_freq);
-    if ((int32_t)(first - min_first) < 0)
+    uint32_t min_first = a->last_step_clock + min_gap;
+    if (!a->rested && (int32_t)(first - min_first) < 0)
         first = min_first;
+    a->rested = 0;
 
     out->first_interval = first - a->last_step_clock;
     out->count = count;

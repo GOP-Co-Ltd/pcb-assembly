@@ -37,6 +37,9 @@ struct vs_axis {
     int64_t pos;               // 位置（ステップ、小数部 VS_POS_SHIFT ビット）
     int32_t velocity;          // steps/s
     uint32_t last_step_clock;  // 最後のステップの時刻（stepper が計算するのと同じ値）
+    // 最後のステップが、計画中の区間の開始より最小間隔以上前にある。
+    // 32 bit の時刻の差は 2^31 tick で一周するので、止まっている間も区間ごとに判定して覚えておく
+    uint8_t rested;
 };
 
 // 位置を pos ステップに置き、速度を 0 にする。clock は次の区間の基準になる時刻。
@@ -46,6 +49,10 @@ void vs_axis_reset(struct vs_axis *a, int32_t pos, uint32_t clock);
 int32_t vs_axis_position(const struct vs_axis *a);
 
 // [seg_start, seg_start + period) の区間を進め、その区間のステップを out に返す。
+// 区間は途切れず順に渡す（止まっている間も呼ぶ）。前提:
+// - max_velocity * period / clock_freq < 60000（1 区間のステップ数が uint16_t に収まる）
+// - max_velocity <= clock_freq / VS_MIN_GAP_TICKS、accel <= 1e9（int64 があふれない）
+// 位置が可動域の外にあるときは、外向きには動かさず、内向きには加速度の範囲で戻す。
 void vs_axis_plan(struct vs_axis *a, int32_t target_velocity, uint32_t seg_start,
                   uint32_t period, uint32_t clock_freq, struct vs_segment *out);
 

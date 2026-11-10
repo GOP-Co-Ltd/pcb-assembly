@@ -8,7 +8,7 @@ index 90466f6b..47f24a69 100644
  src-y += sched.c command.c basecmd.c debugcmds.c
 +# pcb-assembly の PnP 機の速度指令（src/firmware/pnp-motion から build.sh が写す）
 +dirs-y += src/pnp
-+src-y += pnp/velocity_stream.c pnp/vs_planner.c
++src-y += $(patsubst src/%,%,$(wildcard src/pnp/*.c))
  src-$(CONFIG_HAVE_GPIO) += initial_pins.c gpiocmds.c stepper.c endstop.c \
      trsync.c
  src-$(CONFIG_WANT_ADC) += adccmds.c

@@ -15,6 +15,9 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${BUILD_DIR:-${XDG_CACHE_HOME:-${HOME}/.cache}/pcbasm/pnp-motion}"
+# make -C は作業ディレクトリを移すので、絶対パスにしておく
+mkdir -p "$BUILD_DIR"
+BUILD_DIR="$(cd "$BUILD_DIR" && pwd)"
 KLIPPER_REPO="${KLIPPER_REPO:-https://github.com/Klipper3d/klipper.git}"
 KLIPPER_COMMIT="$(tr -d '[:space:]' <"${HERE}/klipper.commit")"
 KLIPPER_DIR="${BUILD_DIR}/klipper"
@@ -35,11 +38,10 @@ check_tools() {
 # 固定した commit の Klipper を、前回の patch と生成物を捨てた状態で用意する
 fetch_klipper() {
     if [ ! -d "${KLIPPER_DIR}/.git" ]; then
-        mkdir -p "$BUILD_DIR"
         git clone --quiet --no-checkout "$KLIPPER_REPO" "$KLIPPER_DIR"
     fi
     if ! git -C "$KLIPPER_DIR" cat-file -e "${KLIPPER_COMMIT}^{commit}" 2>/dev/null; then
-        git -C "$KLIPPER_DIR" fetch --quiet "$KLIPPER_REPO"
+        git -C "$KLIPPER_DIR" fetch --quiet "$KLIPPER_REPO" "$KLIPPER_COMMIT"
     fi
     git -C "$KLIPPER_DIR" checkout --quiet --force --detach "$KLIPPER_COMMIT"
     git -C "$KLIPPER_DIR" clean --quiet -fdx
@@ -53,8 +55,12 @@ apply_sources() {
     done
     mkdir -p "${KLIPPER_DIR}/src/pnp"
     cp "${HERE}"/core/*.[ch] "${HERE}"/module/*.c "${KLIPPER_DIR}/src/pnp/"
-    # ファームが返す版。ホストが接続時に確かめる
-    version="$(git -C "$HERE" describe --always --dirty 2>/dev/null || echo unknown)"
+    # ファームが返す版（このディレクトリを最後に変えた commit）。ホストが接続時に確かめる。
+    # ファームに関係しない commit では変わらないので、書き込み直しが要らない
+    version="$(git -C "$HERE" log -1 --format=%h -- . 2>/dev/null)"
+    if [ -n "$(git -C "$HERE" status --porcelain -- . 2>/dev/null)" ]; then
+        version="${version}-dirty"
+    fi
     printf '#define PNP_MOTION_VERSION "%s"\n' "$version" >"${KLIPPER_DIR}/src/pnp/pnp_version.h"
 }
 

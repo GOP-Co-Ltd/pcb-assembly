@@ -36,14 +36,18 @@ static int failures;
         }                                                                   \
     } while (0)
 
-// Klipper の stepper を模す。ステップの時刻と位置を追う
+// Klipper の stepper を模す。時刻は 64 bit の絶対時刻で追う。
+// 実機では 32 bit の時刻を、いまから ±2^31 の範囲として解釈する（sched_add_timer）ので、
+// ステップの時刻も区間の開始から ±2^31 の範囲として解く
 struct sim {
     struct vs_axis axis;
-    uint32_t clock;       // 次の区間の開始時刻
-    uint32_t step_clock;  // 最後のステップの時刻
+    uint32_t period;
+    uint64_t clock;       // 次の区間の開始時刻
+    uint64_t step_clock;  // 最後のステップの時刻（ステップがなければ基準の時刻）
     int32_t position;     // dir=1 で増える
     int64_t steps;        // 打ったステップの総数
-    uint32_t min_gap;     // ステップの最小間隔
+    uint64_t min_gap;     // ステップの最小間隔
+    uint16_t max_count;   // 1 区間の最大のステップ数
     uint8_t has_step;
 };
 
@@ -53,20 +57,17 @@ sim_init(struct sim *s, int32_t pos, uint32_t clock)
     *s = (struct sim){
         .axis.config = {.min_pos = 0, .max_pos = MAX_POS,
                         .max_velocity = MAX_VELOCITY, .accel = ACCEL},
-        .clock = clock, .step_clock = clock, .position = pos,
-        .min_gap = UINT32_MAX,
+        .period = PERIOD, .clock = clock, .step_clock = clock, .position = pos,
+        .min_gap = UINT64_MAX,
     };
     vs_axis_reset(&s->axis, pos, clock);
 }
 
 static void
-sim_step(struct sim *s, uint32_t time, uint8_t dir)
+sim_step(struct sim *s, uint64_t time, uint8_t dir)
 {
-    if (s->has_step) {
-        uint32_t gap = time - s->step_clock;
-        if (gap < s->min_gap)
-            s->min_gap = gap;
-    }
+    if (s->has_step && time - s->step_clock < s->min_gap)
+        s->min_gap = time - s->step_clock;
     s->step_clock = time;
     s->position += dir ? 1 : -1;
     s->steps++;
@@ -78,17 +79,19 @@ static int
 sim_segment(struct sim *s, int32_t target)
 {
     struct vs_segment seg;
-    uint32_t start = s->clock;
-    vs_axis_plan(&s->axis, target, start, PERIOD, CLOCK_FREQ, &seg);
-    s->clock += PERIOD;
+    uint64_t start = s->clock;
+    vs_axis_plan(&s->axis, target, (uint32_t)start, s->period, CLOCK_FREQ, &seg);
+    s->clock += s->period;
     if (seg.count) {
-        uint32_t time = s->step_clock + seg.first_interval;
-        if ((int32_t)(time - s->step_clock) <= 0 && s->has_step) {
+        uint32_t time32 = (uint32_t)s->step_clock + seg.first_interval;
+        uint64_t time = start + (int32_t)(time32 - (uint32_t)start);
+        if (s->has_step && time <= s->step_clock) {
             printf("  ステップの時刻が戻った: first_interval=%u\n", seg.first_interval);
             return 0;
         }
-        if ((int32_t)(time - start) < 0) {
-            printf("  区間の開始より前のステップ: %d ticks\n", (int32_t)(time - start));
+        if (time < start) {
+            printf("  区間の開始より前のステップ: %lld ticks\n",
+                   (long long)(time - start));
             return 0;
         }
         sim_step(s, time, seg.dir);
@@ -97,15 +100,17 @@ sim_segment(struct sim *s, int32_t target)
             time += seg.interval + (i > short_count);
             sim_step(s, time, seg.dir);
         }
-        if ((int32_t)(time - (start + PERIOD)) > LATE_TOLERANCE) {
-            printf("  区間の終わりより後のステップ: %d ticks\n",
-                   (int32_t)(time - (start + PERIOD)));
+        if (time > start + s->period + LATE_TOLERANCE) {
+            printf("  区間の終わりより後のステップ: %lld ticks\n",
+                   (long long)(time - start - s->period));
             return 0;
         }
+        if (seg.count > s->max_count)
+            s->max_count = seg.count;
     }
-    if (s->axis.last_step_clock != s->step_clock) {
+    if (s->axis.last_step_clock != (uint32_t)s->step_clock) {
         printf("  last_step_clock=%u が stepper の %u と違う\n",
-               s->axis.last_step_clock, s->step_clock);
+               s->axis.last_step_clock, (uint32_t)s->step_clock);
         return 0;
     }
     if (vs_axis_position(&s->axis) != s->position) {
@@ -182,7 +187,8 @@ test_constant_velocity_spacing(void)
     CHECK(llabs(s.steps - before - expected) <= 1, "steps=%lld expected=%lld",
           (long long)(s.steps - before), (long long)expected);
     uint32_t ideal = CLOCK_FREQ / MAX_VELOCITY;
-    CHECK(s.min_gap + 2 >= ideal, "最小間隔 %u（理想 %u）", s.min_gap, ideal);
+    CHECK(s.min_gap + 2 >= ideal, "最小間隔 %llu（理想 %u）",
+          (unsigned long long)s.min_gap, ideal);
 }
 
 static void
@@ -214,12 +220,99 @@ test_stops_at_min_pos(void)
 static void
 test_brakes_when_moving_fast_toward_limit(void)
 {
-    // 最高速度で可動域の端へ向かっても、手前で減速して越えない
+    // 最高速度で可動域の端へ向かっても、加速度の範囲で手前から減速して越えない
+    // （端の打ち切りで急に止まらない）
     struct sim s;
     sim_init(&s, MAX_POS / 2, 0);
-    CHECK(sim_run(&s, MAX_VELOCITY, 3000), "展開がずれた");
+    int32_t prev = 0;
+    for (int i = 0; i < 3000; i++) {
+        CHECK(sim_segment(&s, MAX_VELOCITY), "展開がずれた（区間 %d）", i);
+        int32_t dv = s.axis.velocity - prev;
+        CHECK(dv >= -DV && dv <= DV, "区間 %d で dv=%d（上限 %d）", i, dv, DV);
+        prev = s.axis.velocity;
+    }
     CHECK(vs_axis_position(&s.axis) <= MAX_POS, "pos=%d", vs_axis_position(&s.axis));
     CHECK(s.axis.velocity == 0, "v=%d", s.axis.velocity);
+}
+
+static void
+test_negative_range(void)
+{
+    // 可動域が負の側にもあるとき、負の端で止まる
+    struct sim s;
+    sim_init(&s, -40000, 0);
+    s.axis.config.min_pos = -50000;
+    s.axis.config.max_pos = 50000;
+    CHECK(sim_run(&s, -(int32_t)MAX_VELOCITY, 2000), "展開がずれた");
+    CHECK(vs_axis_position(&s.axis) >= -50000, "pos=%d", vs_axis_position(&s.axis));
+    CHECK(vs_axis_position(&s.axis) <= -49999, "pos=%d", vs_axis_position(&s.axis));
+    CHECK(s.axis.velocity == 0, "v=%d", s.axis.velocity);
+}
+
+static void
+test_extreme_targets_are_clamped(void)
+{
+    struct sim s;
+    sim_init(&s, MAX_POS / 2, 0);
+    CHECK(sim_run(&s, INT32_MIN, 100), "展開がずれた");
+    CHECK(s.axis.velocity == -(int32_t)MAX_VELOCITY, "v=%d", s.axis.velocity);
+    CHECK(sim_run(&s, INT32_MAX, 300), "展開がずれた");
+    CHECK(s.axis.velocity == (int32_t)MAX_VELOCITY, "v=%d", s.axis.velocity);
+}
+
+static void
+test_outside_range_does_not_jump(void)
+{
+    // 位置が可動域の外にあっても境界へ飛ばない。外向きには動かず、内向きには加速度の範囲で戻る
+    struct sim s;
+    int32_t outside = MAX_POS + 100000;
+    sim_init(&s, outside, 0);
+    CHECK(sim_run(&s, 0, 10), "展開がずれた");
+    CHECK(s.steps == 0, "目標 0 で steps=%lld", (long long)s.steps);
+    CHECK(sim_run(&s, MAX_VELOCITY, 10), "展開がずれた");
+    CHECK(vs_axis_position(&s.axis) == outside, "外向きに動いた: pos=%d",
+          vs_axis_position(&s.axis));
+    for (int i = 0; i < 100; i++) {
+        int32_t prev = s.axis.velocity;
+        CHECK(sim_segment(&s, -(int32_t)MAX_VELOCITY), "展開がずれた（区間 %d）", i);
+        CHECK(prev - s.axis.velocity <= DV, "区間 %d で急に動いた: v=%d", i,
+              s.axis.velocity);
+    }
+    CHECK(s.max_count <= MAX_VELOCITY * (uint64_t)PERIOD / CLOCK_FREQ + 1,
+          "1 区間に %u 歩", s.max_count);
+    CHECK(vs_axis_position(&s.axis) < outside, "戻らない: pos=%d",
+          vs_axis_position(&s.axis));
+}
+
+static void
+test_long_idle_then_move(void)
+{
+    // 2^31 tick（12 MHz で約 179 秒）より長く止まってから動いても、ステップが区間の中に置かれる
+    struct sim s;
+    sim_init(&s, 1000, 0);
+    CHECK(sim_run(&s, MAX_VELOCITY, 50), "展開がずれた");
+    CHECK(sim_run(&s, 0, 100), "展開がずれた");
+    uint64_t idle_segments = ((uint64_t)1 << 31) / PERIOD + 1000;
+    for (uint64_t i = 0; i < idle_segments; i++)
+        CHECK(sim_segment(&s, 0), "展開がずれた（停止中の区間 %llu）",
+              (unsigned long long)i);
+    int64_t before = s.steps;
+    CHECK(sim_run(&s, MAX_VELOCITY, 50), "展開がずれた");
+    CHECK(s.steps > before, "動かない");
+}
+
+static void
+test_large_segment(void)
+{
+    // 長い区間（100 ms）と速い上限（500000 steps/s）で、1 区間に約 50000 歩
+    struct sim s;
+    sim_init(&s, 1000, 0);
+    s.period = CLOCK_FREQ / 10;
+    s.axis.config.max_pos = INT32_MAX;
+    s.axis.config.max_velocity = 500000;
+    s.axis.config.accel = 1000000000;
+    CHECK(sim_run(&s, 500000, 20), "展開がずれた");
+    CHECK(s.max_count >= 49999 && s.max_count <= 50001, "max_count=%u", s.max_count);
 }
 
 static void
@@ -250,7 +343,8 @@ test_rapid_reversals_keep_a_gap(void)
         CHECK(sim_segment(&s, target), "展開がずれた（区間 %d）", i);
     }
     CHECK(s.steps > 0, "steps=%lld", (long long)s.steps);
-    CHECK(s.min_gap >= VS_MIN_GAP_TICKS(CLOCK_FREQ), "最小間隔 %u", s.min_gap);
+    CHECK(s.min_gap >= VS_MIN_GAP_TICKS(CLOCK_FREQ), "最小間隔 %llu",
+          (unsigned long long)s.min_gap);
 }
 
 static void
@@ -263,7 +357,8 @@ test_slow_steps_span_segments(void)
     CHECK(sim_run(&s, 100, 500), "展開がずれた");
     // 500 区間 = 1 秒で約 100 歩
     CHECK(s.steps >= 99 && s.steps <= 101, "steps=%lld", (long long)s.steps);
-    CHECK(s.min_gap + 2 >= CLOCK_FREQ / 100, "最小間隔 %u", s.min_gap);
+    CHECK(s.min_gap + 2 >= CLOCK_FREQ / 100, "最小間隔 %llu",
+          (unsigned long long)s.min_gap);
 }
 
 static void
@@ -287,6 +382,11 @@ main(void)
     test_stops_at_max_pos();
     test_stops_at_min_pos();
     test_brakes_when_moving_fast_toward_limit();
+    test_negative_range();
+    test_extreme_targets_are_clamped();
+    test_outside_range_does_not_jump();
+    test_long_idle_then_move();
+    test_large_segment();
     test_reversal_keeps_steps_in_order();
     test_rapid_reversals_keep_a_gap();
     test_slow_steps_span_segments();
