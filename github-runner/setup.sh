@@ -15,7 +15,10 @@ readonly UV_VERSION="0.10.9"
 # ゲームパッドのテストが /dev/uinput で仮想デバイスを作る。装置の input group とは分ける
 readonly UINPUT_GROUP="uinput"
 readonly UINPUT_RULE_FILE="/etc/udev/rules.d/60-pcbasm-uinput.rules"
-readonly UINPUT_RULE='KERNEL=="uinput", GROUP="uinput", MODE="0660", OPTIONS+="static_node=uinput"'
+# 2 行目: テストが作る仮想デバイス（名前が pcbasm-test-）の event ノードだけを uinput group で読めるようにする。
+# runner を input group に入れずに済み、実機のコントローラやキーボードは読めないまま
+readonly UINPUT_RULE='KERNEL=="uinput", GROUP="uinput", MODE="0660", OPTIONS+="static_node=uinput"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="pcbasm-test-*", GROUP="uinput", MODE="0660"'
 
 usage() {
     cat <<EOF

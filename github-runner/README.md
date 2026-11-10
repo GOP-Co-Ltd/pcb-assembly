@@ -22,10 +22,12 @@ runner user を `video`、`gpio`、`dialout`、`input` group へ追加しない�
 例外として、runner user は専用の `uinput` group に入れる。ゲームパッドのテスト（`TestEvdevGamepad`）が
 `/dev/uinput` で仮想の入力デバイスを作るため。`input` group と違い、実機のコントローラやキーボード
 （`/dev/input/event*`）は読めない。`install` が次の udev 規則を `/etc/udev/rules.d/60-pcbasm-uinput.rules`
-に置く。
+に置く。1 行目で `/dev/uinput` に書けるようにし、2 行目でテストが作った仮想デバイス（名前が `pcbasm-test-` で
+始まる）の event ノードだけを読めるようにする。
 
 ```text
 KERNEL=="uinput", GROUP="uinput", MODE="0660", OPTIONS+="static_node=uinput"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="pcbasm-test-*", GROUP="uinput", MODE="0660"
 ```
 
 起動中の runner service は group を読み直さないので、初めて `uinput` group に入れた host では、job が

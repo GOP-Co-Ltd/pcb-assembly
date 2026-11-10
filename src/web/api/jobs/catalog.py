@@ -29,7 +29,7 @@ from web.api.jobs.pasting import (
     paste_volume_refit,
     toolhead_offset,
 )
-from web.api.jobs.pnp import servo_setup
+from web.api.jobs.pnp import gamepad_control, servo_setup
 from web.api.jobs.runtime.catalog import JobCatalog
 
 
@@ -58,6 +58,7 @@ def default_catalog(
         paste_dataset_finalize.register(catalog, stores)
     if "pnp" in capabilities:
         servo_setup.register(catalog)
+        gamepad_control.register(catalog)
     reference_point_setup.register(catalog)
     camera_calibration.register(catalog)
     board_tour.register(catalog)

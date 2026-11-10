@@ -22,6 +22,7 @@ from pcbasm.hal import (
     AudioPlayer,
     Camera,
     FrameHub,
+    Gamepad,
     KlipperClient,
     MoonrakerKlipper,
     ServoBus,
@@ -31,6 +32,7 @@ from pcbasm.hal import (
 from pcbasm.hal.fake import (
     FAKE_MACHINE_PRINTER_CONFIG,
     FakeCamera,
+    FakeGamepad,
     FakeKlipper,
     FakeServoBus,
     SceneCamera,
@@ -59,6 +61,7 @@ class Devices:
         camera: Callable[[], Camera] | None = None,
         audio: AudioPlayer | None = None,
         servo_bus: FakeServoBus | None = None,
+        gamepad: FakeGamepad | None = None,
     ) -> None:
         """Devices を初期化する.
 
@@ -69,6 +72,7 @@ class Devices:
             camera: カメラを開く関数（None は [camera] のカメラを開く）
             audio: 通知音のプレイヤー（None は ALSA で鳴らす）
             servo_bus: 実機のサーボの代わりに使う fake のバス（None は [pnp.servo] のポートを開く）
+            gamepad: 実機のコントローラの代わりに使う fake（None はつながっているコントローラを探して開く）
         """
         self._config_path = config_path
         self._journal_dir = journal_dir
@@ -84,6 +88,7 @@ class Devices:
         self._servo_lock = threading.Lock()
         self._servo_bus: ServoBus | None = None
         self._servo_port: tuple[str, int] | None = None
+        self._fake_gamepad = gamepad
 
     @property
     def audio(self) -> AudioPlayer:
@@ -155,6 +160,16 @@ class Devices:
             self._frame_hub = None
         if hub is not None:
             hub.stop()
+
+    def connect_gamepad(self) -> Gamepad:
+        """コントローラを開く（呼ぶたびに開き直す。閉じるのは呼んだ側）.
+
+        Raises:
+            GamepadError: コントローラが見つからない・開けない場合
+        """
+        if self._fake_gamepad is not None:
+            return self._fake_gamepad
+        return hal.open_gamepad()
 
     def servo_bus(self) -> ServoBus:
         """ピンセットのサーボのバスを返す（初回に [pnp.servo] のポートを開く）.
@@ -301,7 +316,8 @@ def open_devices(
         journal_dir: G-code ジャーナルの置き場所
         fake: Klipper を実機と同じ printer.cfg の FakeKlipper にし、カメラをその位置から scene を描く SceneCamera にする。
             サーボは ID 1 がステップモード、ID 2 が位置モードの FakeServoBus にし、サーボ設定ジョブを済ませた
-            角度制限（ID 1 は制限なし、ID 2 は [pnp.servo] の閉じ切り〜開き切り）を持たせる
+            角度制限（ID 1 は制限なし、ID 2 は [pnp.servo] の閉じ切り〜開き切り）を持たせる。
+            コントローラは何も押していない FakeGamepad にする
         scene: fake のカメラに映す図形（機械座標 [mm]）を返す関数（カメラを開くたびに呼ぶ）
         camera_image: 与えると、カメラをこの画像を返し続ける FakeCamera にする（fake より優先する）
         audio: 通知音のプレイヤー（None は ALSA で鳴らす。テストは FakeAudioPlayer を渡す）
@@ -313,6 +329,7 @@ def open_devices(
     elif klipper is not None:
         camera = functools.partial(_scene_camera, klipper, config_path, scene)
     servo_bus = _fake_servo_bus(config_path) if fake else None
+    gamepad = FakeGamepad() if fake else None
     return Devices(
         config_path,
         journal_dir,
@@ -320,6 +337,7 @@ def open_devices(
         camera=camera,
         audio=audio,
         servo_bus=servo_bus,
+        gamepad=gamepad,
     )
 
 
