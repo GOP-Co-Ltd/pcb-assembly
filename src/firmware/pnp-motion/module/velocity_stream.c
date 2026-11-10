@@ -267,11 +267,12 @@ command_velocity_stream_move(uint32_t *args)
         return;
     uint8_t axes = args[2] & ((1 << AXES) - 1);
     uint32_t speed = args[6];
+    // 軸のない移動も、受け取ったことは seq で返す
+    vs->seq = args[1];
     if (!axes)
         return;
     if (!speed)
         shutdown("Invalid velocity_stream move speed");
-    vs->seq = args[1];
     for (int i = 0; i < AXES; i++) {
         if (!(axes & (1 << i)))
             continue;

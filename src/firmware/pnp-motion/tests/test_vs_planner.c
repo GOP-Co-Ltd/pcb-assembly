@@ -457,6 +457,26 @@ test_move_arrives_with_the_minimum_accel(void)
 }
 
 static void
+test_move_with_the_largest_settings(void)
+{
+    // 受け付ける範囲の端（区間 100 ms、加速度 1e9、速さ 500000）で、速く動いている軸に前方の目標を指示しても、
+    // 計算があふれない（UBSan が検出する）
+    struct sim s;
+    sim_init(&s, 1000, 0);
+    s.period = CLOCK_FREQ / 10;
+    s.axis.config.max_pos = INT32_MAX;
+    s.axis.config.max_velocity = 500000;
+    s.axis.config.accel = 1000000000;
+    CHECK(sim_run(&s, 500000, 5), "展開がずれた");
+    s.moving = 1;
+    s.move_target = vs_axis_position(&s.axis) + 1000;
+    s.move_speed = 500000;
+    CHECK(sim_run(&s, 0, 20), "展開がずれた");
+    CHECK(vs_axis_arrived(&s.axis, s.move_target), "着かない: pos=%d target=%d",
+          vs_axis_position(&s.axis), s.move_target);
+}
+
+static void
 test_move_target_outside_range_while_moving_away(void)
 {
     // 負の向きに動いている最中に、可動域の外の正の目標を指示しても、反転して可動域の端で止まる
@@ -567,6 +587,7 @@ main(void)
     test_move_to_targets_while_moving_keeps_acceleration();
     test_move_target_outside_range_while_moving_away();
     test_move_arrives_with_the_minimum_accel();
+    test_move_with_the_largest_settings();
     test_move_target_outside_range_stops_at_the_limit();
     test_move_to_current_position_makes_no_steps();
     test_reversal_keeps_steps_in_order();

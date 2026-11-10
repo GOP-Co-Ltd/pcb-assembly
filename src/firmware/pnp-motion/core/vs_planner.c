@@ -170,8 +170,10 @@ vs_axis_plan_to(struct vs_axis *a, int32_t target_pos, uint32_t speed,
         // 加速度を破って急停止するため。行き過ぎて止まったら、次の区間から目標へ戻る
         int64_t dv = ((uint64_t)c->accel * period + clock_freq - 1) / clock_freq;
         int64_t speed = abs64(v) + dv;
-        int64_t stop = speed * speed * ONE / (2 * (int64_t)c->accel)
-            + speed * period * ONE / clock_freq;
+        // ステップ単位で割ってから小数部を付ける（先に ONE を掛けると、受け付ける範囲の端
+        // （accel 1e9、period 100 ms）で int64 があふれる）。切り捨てた端数は (+1) で補う
+        int64_t stop = (speed * speed / (2 * (int64_t)c->accel)
+                        + speed * period / clock_freq + 2) * ONE;
         if (stop >= abs64(dist)) {
             plan_within(a, 0, low, high, seg_start, period, clock_freq, out);
             return;
