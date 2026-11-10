@@ -300,7 +300,8 @@ def open_devices(
         config_path: machine.toml
         journal_dir: G-code ジャーナルの置き場所
         fake: Klipper を実機と同じ printer.cfg の FakeKlipper にし、カメラをその位置から scene を描く SceneCamera にする。
-            サーボは ID 1 がステップモード、ID 2 が位置モードの FakeServoBus にする
+            サーボは ID 1 がステップモード、ID 2 が位置モードの FakeServoBus にし、サーボ設定ジョブを済ませた
+            角度制限（ID 1 は制限なし、ID 2 は [pnp.servo] の閉じ切り〜開き切り）を持たせる
         scene: fake のカメラに映す図形（機械座標 [mm]）を返す関数（カメラを開くたびに呼ぶ）
         camera_image: 与えると、カメラをこの画像を返し続ける FakeCamera にする（fake より優先する）
         audio: 通知音のプレイヤー（None は ALSA で鳴らす。テストは FakeAudioPlayer を渡す）
@@ -311,9 +312,7 @@ def open_devices(
         camera = functools.partial(_still, camera_image)
     elif klipper is not None:
         camera = functools.partial(_scene_camera, klipper, config_path, scene)
-    servo_bus = (
-        FakeServoBus({1: ServoMode.STEP, 2: ServoMode.POSITION}) if fake else None
-    )
+    servo_bus = _fake_servo_bus(config_path) if fake else None
     return Devices(
         config_path,
         journal_dir,
@@ -322,6 +321,26 @@ def open_devices(
         audio=audio,
         servo_bus=servo_bus,
     )
+
+
+def _fake_servo_bus(config_path: Path) -> FakeServoBus:
+    limits = {1: (0, 0)}
+    try:
+        pnp = load_machine(config_path).pnp
+    except ConfigError:
+        pnp = None
+    servo = pnp.servo if pnp is not None else None
+    if (
+        servo is not None
+        and servo.closed_angle is not None
+        and servo.open_angle is not None
+    ):
+        low, high = sorted(
+            hal.degrees_to_position(angle)
+            for angle in (servo.closed_angle, servo.open_angle)
+        )
+        limits[2] = (low, high)
+    return FakeServoBus({1: ServoMode.STEP, 2: ServoMode.POSITION}, angle_limits=limits)
 
 
 def _still(image: Path) -> Camera:

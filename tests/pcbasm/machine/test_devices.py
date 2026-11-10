@@ -293,7 +293,11 @@ def _write_servo(config_path: Path, **values: object) -> None:
 
 
 def _servo_bus() -> FakeServoBus:
-    return FakeServoBus({1: ServoMode.STEP, 2: ServoMode.POSITION})
+    """サーボ設定ジョブを済ませた 2 台（角度制限は _SERVO_ROLES の閉じ切り 180° 〜 開き切り 225°）."""
+    return FakeServoBus(
+        {1: ServoMode.STEP, 2: ServoMode.POSITION},
+        angle_limits={1: (0, 0), 2: (2048, 2560)},
+    )
 
 
 class TestServoBus:
@@ -503,4 +507,6 @@ class TestTweezer:
         bus = devices.servo_bus()
         assert bus.mode(1) == ServoMode.STEP
         assert bus.mode(2) == ServoMode.POSITION
+        # サーボ設定ジョブを済ませた状態（Rotation は制限なし、Open Close は設定の閉じ切り〜開き切り）
+        assert (bus.angle_limits(1), bus.angle_limits(2)) == ((0, 0), (2048, 2560))
         assert bus.position(1) == (2048 + 1024) % 4096

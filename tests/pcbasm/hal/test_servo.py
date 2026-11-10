@@ -44,6 +44,20 @@ def _bus(open_close_position: int = 1000) -> FakeServoBus:
     )
 
 
+def _tweezer_bus(
+    open_close_position: int = 1000,
+    *,
+    open_close_limits: tuple[int, int] = (1000, 1500),
+    rotation_limits: tuple[int, int] = (0, 0),
+) -> FakeServoBus:
+    """サーボ設定ジョブを済ませた :func:`_bus`（Rotation は制限なし、Open Close は閉じ切り〜開き切り）."""
+    return FakeServoBus(
+        {ROTATION: ServoMode.STEP, OPEN_CLOSE: ServoMode.POSITION},
+        {OPEN_CLOSE: open_close_position},
+        angle_limits={ROTATION: rotation_limits, OPEN_CLOSE: open_close_limits},
+    )
+
+
 def _tweezer(
     bus: FakeServoBus,
     *,
@@ -325,7 +339,7 @@ class TestTweezerTorque:
     """指令ごとに、動かすサーボだけにトルクを入れる（もう一方の goal とトルクには触れない）."""
 
     def test_rotate_by_turns_on_only_the_rotation(self):
-        bus = _bus()
+        bus = _tweezer_bus()
 
         _tweezer(bus).rotate_by(90.0)
 
@@ -343,7 +357,7 @@ class TestTweezerTorque:
         self, command: Callable[[Tweezer], None], target: int
     ):
         """Goal を先に書くので、トルクを入れた瞬間に古い goal へ跳ばない."""
-        bus = _bus(open_close_position=1000)
+        bus = _tweezer_bus(open_close_position=1000)
 
         command(_tweezer(bus))
 
@@ -357,7 +371,7 @@ class TestTweezerTorque:
 
         Web の API は指令のたびにピンセットを組み直すので、組み直した後で確かめる。
         """
-        bus = _bus(open_close_position=1200)
+        bus = _tweezer_bus(open_close_position=1200)
         _tweezer(bus).open_to(0.0)
         sent = len(bus.commands)
 
@@ -366,7 +380,7 @@ class TestTweezerTorque:
         assert [c for c in bus.commands[sent:] if c.servo_id == OPEN_CLOSE] == []
 
     def test_relaxed_servo_gets_torque_again_on_the_next_command(self):
-        bus = _bus()
+        bus = _tweezer_bus()
         tweezer = _tweezer(bus)
         tweezer.rotate_by(90.0)
         bus.release_all()
@@ -382,7 +396,7 @@ class TestTweezerTorque:
 class TestTweezerInit:
     def test_makes_no_moves_and_leaves_the_torque_alone(self):
         """組むだけではトルクを入れない（パネルの現在値の取得で、脱力したサーボを保持しない）."""
-        bus = _bus()
+        bus = _tweezer_bus()
 
         _tweezer(bus)
 
@@ -392,7 +406,7 @@ class TestTweezerInit:
         ("rotation_id", "open_close_id"), [(9, OPEN_CLOSE), (ROTATION, 9)]
     )
     def test_unanswered_id_is_a_servo_error(self, rotation_id: int, open_close_id: int):
-        bus = _bus()
+        bus = _tweezer_bus()
 
         with pytest.raises(ServoError):
             Tweezer(
@@ -403,6 +417,33 @@ class TestTweezerInit:
                 open_position=1500,
                 rotation_speed=45.0,
             )
+
+    @pytest.mark.parametrize("limits", [(0, 4095), (0, 1)])
+    def test_rotation_with_angle_limits_is_a_servo_error_asking_for_the_setup(
+        self, limits: tuple[int, int]
+    ):
+        """ステップモードでも角度制限が効き、同じ向きに回し続けると端で止まる."""
+        bus = _tweezer_bus(rotation_limits=limits)
+
+        with pytest.raises(ServoError) as raised:
+            _tweezer(bus)
+
+        assert "rotation" in str(raised.value)
+        assert "サーボ設定" in str(raised.value)
+
+    @pytest.mark.parametrize("limits", [(0, 4095), (1000, 1501), (999, 1500)])
+    def test_open_close_limits_other_than_closed_to_open_are_a_servo_error(
+        self, limits: tuple[int, int]
+    ):
+        """開き切りの先へ回さない守り（サーボ自身の角度制限）が外れたままなら組まない."""
+        bus = _tweezer_bus(open_close_limits=limits)
+
+        with pytest.raises(ServoError) as raised:
+            _tweezer(bus)
+
+        assert "open_close" in str(raised.value)
+        assert "サーボ設定" in str(raised.value)
+        assert bus.commands == []
 
     def test_rotation_not_in_step_mode_is_a_servo_error_naming_the_role(self):
         bus = FakeServoBus(
@@ -423,7 +464,7 @@ class TestTweezerInit:
         assert "open_close" in str(raised.value)
 
     def test_swapped_roles_are_a_servo_error(self):
-        bus = _bus()
+        bus = _tweezer_bus()
 
         with pytest.raises(ServoError):
             Tweezer(
@@ -438,7 +479,7 @@ class TestTweezerInit:
 
 class TestTweezerRotate:
     def test_rotate_by_sends_relative_steps(self):
-        bus = _bus()
+        bus = _tweezer_bus()
         tweezer = _tweezer(bus)
         sent = len(bus.commands)
 
@@ -451,7 +492,7 @@ class TestTweezerRotate:
         ]
 
     def test_rotation_below_one_step_sends_nothing(self):
-        bus = _bus()
+        bus = _tweezer_bus()
         tweezer = _tweezer(bus)
         sent = len(bus.commands)
 
@@ -461,7 +502,7 @@ class TestTweezerRotate:
 
     @pytest.mark.parametrize(("dps", "speed"), [(45.0, 512), (90.0, 1024), (1.0, 11)])
     def test_rotate_by_turns_at_the_rotation_speed(self, dps: float, speed: int):
-        bus = _bus()
+        bus = _tweezer_bus()
         tweezer = _tweezer(bus, rotation_speed=dps)
 
         tweezer.rotate_by(90.0)
@@ -473,7 +514,7 @@ class TestTweezerOpen:
     """開閉は閉じ〜開きの raw 位置の間だけ動かし、開く向きを正とする."""
 
     def test_open_by_moves_toward_open(self):
-        bus = _bus(open_close_position=1000)
+        bus = _tweezer_bus(open_close_position=1000)
         tweezer = _tweezer(bus)
         sent = len(bus.commands)
 
@@ -482,7 +523,7 @@ class TestTweezerOpen:
         assert _moves_since(bus, sent) == [ServoCommand(OPEN_CLOSE, "goto", 1114)]
 
     def test_open_by_is_relative_to_the_current_position(self):
-        bus = _bus(open_close_position=1200)
+        bus = _tweezer_bus(open_close_position=1200)
         tweezer = _tweezer(bus)
         sent = len(bus.commands)
 
@@ -500,7 +541,7 @@ class TestTweezerOpen:
     def test_open_by_reaches_closed_and_open_inclusive(
         self, position: int, degrees: float, target: int
     ):
-        bus = _bus(open_close_position=position)
+        bus = _tweezer_bus(open_close_position=position)
         tweezer = _tweezer(bus)
 
         tweezer.open_by(degrees)
@@ -511,7 +552,7 @@ class TestTweezerOpen:
     def test_open_by_outside_closed_to_open_is_refused_without_sending(
         self, position: int, degrees: float
     ):
-        bus = _bus(open_close_position=position)
+        bus = _tweezer_bus(open_close_position=position)
         tweezer = _tweezer(bus)
         sent = len(bus.commands)
 
@@ -522,12 +563,12 @@ class TestTweezerOpen:
         assert bus.position(OPEN_CLOSE) == position
 
     def test_opening_is_zero_at_closed(self):
-        tweezer = _tweezer(_bus(open_close_position=1000))
+        tweezer = _tweezer(_tweezer_bus(open_close_position=1000))
 
         assert tweezer.opening() == 0.0
 
     def test_opening_is_the_angle_from_closed(self):
-        bus = _bus(open_close_position=1000)
+        bus = _tweezer_bus(open_close_position=1000)
         tweezer = _tweezer(bus)
 
         tweezer.open_by(10.0)
@@ -544,7 +585,7 @@ class TestTweezerOpenTo:
     def test_open_to_goes_to_the_fraction_between_closed_and_open(
         self, fraction: float, target: int
     ):
-        bus = _bus(open_close_position=1200)
+        bus = _tweezer_bus(open_close_position=1200)
         tweezer = _tweezer(bus)
         sent = len(bus.commands)
 
@@ -554,7 +595,7 @@ class TestTweezerOpenTo:
 
     @pytest.mark.parametrize("fraction", [-0.01, 1.01, float("nan")])
     def test_open_to_outside_0_to_1_is_refused_without_sending(self, fraction: float):
-        bus = _bus(open_close_position=1200)
+        bus = _tweezer_bus(open_close_position=1200)
         tweezer = _tweezer(bus)
 
         with pytest.raises(ValueError):
@@ -568,20 +609,31 @@ class TestTweezerOpenTo:
     def test_open_fraction_is_the_place_between_closed_and_open(
         self, position: int, fraction: float
     ):
-        tweezer = _tweezer(_bus(open_close_position=position))
+        tweezer = _tweezer(_tweezer_bus(open_close_position=position))
 
         assert tweezer.open_fraction() == pytest.approx(fraction)
 
     def test_open_close_keeps_the_default_speed(self):
-        bus = _bus()
+        bus = _tweezer_bus()
         tweezer = _tweezer(bus, rotation_speed=90.0)
 
         tweezer.open_to(1.0)
 
         assert bus.speed(OPEN_CLOSE) == DEFAULT_SPEED
 
+    def test_target_fraction_is_the_goal_even_when_the_position_differs(self):
+        """つまんで閉じ切りの手前で止まっていても、目標は送った開き具合のまま."""
+        bus = _tweezer_bus(open_close_position=1200)
+        tweezer = _tweezer(bus)
+        tweezer.open_to(0.0)
+        bus.set_torque(OPEN_CLOSE, False)
+        bus.turn_by_hand(OPEN_CLOSE, 1250)
+
+        assert tweezer.target_fraction() == 0.0
+        assert tweezer.open_fraction() == pytest.approx(0.5)
+
     def test_open_fraction_reads_without_sending(self):
-        bus = _bus(open_close_position=1250)
+        bus = _tweezer_bus(open_close_position=1250)
 
         _tweezer(bus).open_fraction()
 
@@ -592,7 +644,7 @@ class TestTweezerReversed:
     """開きの raw 値が閉じより小さい機体でも、開く向きが正."""
 
     def test_open_by_moves_toward_open(self):
-        bus = _bus(open_close_position=3000)
+        bus = _tweezer_bus(open_close_position=3000, open_close_limits=(2500, 3000))
         tweezer = _tweezer(bus, closed_position=3000, open_position=2500)
         sent = len(bus.commands)
 
@@ -605,7 +657,7 @@ class TestTweezerReversed:
         ("fraction", "target"), [(0.0, 3000), (0.2, 2900), (1.0, 2500)]
     )
     def test_open_to_and_open_fraction(self, fraction: float, target: int):
-        bus = _bus(open_close_position=2700)
+        bus = _tweezer_bus(open_close_position=2700, open_close_limits=(2500, 3000))
         tweezer = _tweezer(bus, closed_position=3000, open_position=2500)
 
         tweezer.open_to(fraction)
@@ -617,7 +669,7 @@ class TestTweezerReversed:
     def test_open_by_outside_closed_to_open_is_refused_without_sending(
         self, position: int, degrees: float
     ):
-        bus = _bus(open_close_position=position)
+        bus = _tweezer_bus(open_close_position=position, open_close_limits=(2500, 3000))
         tweezer = _tweezer(bus, closed_position=3000, open_position=2500)
         sent = len(bus.commands)
 
@@ -641,6 +693,16 @@ def _goal(goal_low: int, goal_high: int, speed: int = 500) -> bytes:
 
 
 _ADDR_ACC = 41
+_INSTRUCTION_READ = 2
+
+
+def _reads(wire: _WireServo) -> list[tuple[int, int, int]]:
+    """受けた READ の（ID、先頭アドレス、バイト数）."""
+    return [
+        (packet[2], packet[5], packet[6])
+        for packet in wire.packets
+        if packet[4] == _INSTRUCTION_READ
+    ]
 
 
 class TestFeetechBus:
@@ -695,6 +757,32 @@ class TestFeetechBus:
             feetech.goto(2, 1234, speed=speed)
 
         assert wire.packets == []
+
+    def test_goal_reads_two_bytes_at_the_goal_position(
+        self, wire: _WireServo, feetech: FeetechBus
+    ):
+        assert feetech.goal(2) == 0  # 疑似サーボは読み出しに 0 を返す
+
+        assert _reads(wire) == [(2, 42, 2)]
+
+    def test_angle_limits_reads_min_and_max(
+        self, wire: _WireServo, feetech: FeetechBus
+    ):
+        assert feetech.angle_limits(1) == (0, 0)
+
+        assert _reads(wire) == [(1, 9, 2), (1, 11, 2)]
+
+    def test_clear_angle_limits_writes_zero_and_zero_inside_the_eeprom_lock(
+        self, wire: _WireServo, feetech: FeetechBus
+    ):
+        feetech.clear_angle_limits(1)
+
+        assert wire.writes() == [
+            (1, 55, b"\x00"),
+            (1, 9, b"\x00\x00"),
+            (1, 11, b"\x00\x00"),
+            (1, 55, b"\x01"),
+        ]
 
     @pytest.mark.parametrize("mode", list(ServoMode))
     def test_set_mode_unlocks_the_eeprom_writes_the_mode_and_locks_it_again(

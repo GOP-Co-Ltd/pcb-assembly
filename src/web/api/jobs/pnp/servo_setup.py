@@ -86,8 +86,9 @@ def _set_up(ctx: JobContext, bus: ServoBus) -> JobResult:
     for servo_id in apply_modes(bus, roles):
         mode = bus.mode(servo_id)
         ctx.log(f"ID {servo_id} のモードを {mode.name}（{mode.value}）に書きました")
-    # 前回の設定で役割が逆だったサーボに、Open Close の狭い角度制限を残さない
-    release_angle_limits(bus, roles.rotation_id)
+    # Rotation は角度制限を外す。ステップモードでも制限は効き、同じ向きに回し続けると端で止まる。
+    # 前回の設定で役割が逆だったサーボに残る、Open Close の狭い制限もここで消える
+    bus.clear_angle_limits(roles.rotation_id)
 
     ctx.progress("開閉の範囲")
     while True:

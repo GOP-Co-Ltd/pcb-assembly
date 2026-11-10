@@ -492,6 +492,43 @@ class TestFakeServoBus:
             ServoCommand(2, "max_angle", 1200),
         ]
 
+    def test_initial_angle_limits_can_be_given(self):
+        bus = FakeServoBus(
+            {1: ServoMode.STEP, 2: ServoMode.POSITION}, angle_limits={2: (900, 1200)}
+        )
+
+        assert (bus.angle_limits(1), bus.angle_limits(2)) == ((0, 4095), (900, 1200))
+        assert bus.commands == []
+
+    def test_clear_angle_limits_writes_zero_and_zero(self, bus: FakeServoBus):
+        bus.clear_angle_limits(1)
+
+        assert bus.angle_limits(1) == (0, 0)
+        assert bus.commands == [
+            ServoCommand(1, "min_angle", 0),
+            ServoCommand(1, "max_angle", 0),
+        ]
+
+    def test_goto_without_angle_limits_is_not_clamped(self, bus: FakeServoBus):
+        bus.clear_angle_limits(2)
+
+        bus.goto(2, 3000)
+
+        assert bus.position(2) == 3000
+
+    def test_goal_is_the_last_goto_and_the_position_before_any(self, bus: FakeServoBus):
+        assert bus.goal(2) == 1000
+
+        bus.goto(2, 1100)
+        bus.set_torque(2, False)
+        bus.turn_by_hand(2, 1500)
+
+        assert (bus.goal(2), bus.position(2)) == (1100, 1500)
+
+    def test_goal_is_refused_in_step_mode(self, bus: FakeServoBus):
+        with pytest.raises(ServoError):
+            bus.goal(1)
+
     def test_unusable_angle_limits_are_refused(self, bus: FakeServoBus):
         with pytest.raises(ValueError):
             bus.set_angle_limits(2, 1200, 900)

@@ -630,6 +630,7 @@ class FakeServoBus(ServoBus):
         positions: Mapping[int, int] | None = None,
         *,
         start_delay: int = 0,
+        angle_limits: Mapping[int, tuple[int, int]] | None = None,
     ) -> None:
         """Fake のバスを作る.
 
@@ -637,6 +638,7 @@ class FakeServoBus(ServoBus):
             modes: 応答するサーボの ID とモード
             positions: 初期位置（raw 0〜4095。書かない ID は 2048）
             start_delay: 指令の後、moving が True になるまでに False を返す読み出しの回数
+            angle_limits: 角度制限の初期値（下限、上限。書かない ID は 0〜4095）
         """
         self._modes = dict(modes)
         self._positions = {servo_id: 2048 for servo_id in self._modes} | dict(
@@ -648,7 +650,8 @@ class FakeServoBus(ServoBus):
         self._start_delay = start_delay
         self._limits: dict[int, tuple[int, int]] = dict.fromkeys(
             self._modes, (0, STEPS_PER_REV - 1)
-        )
+        ) | dict(angle_limits or {})
+        self._goals = dict(self._positions)
         self._speeds = dict.fromkeys(self._modes, DEFAULT_SPEED)
         self._reads_until_start: dict[int, int] = {}
         self._closed = False
@@ -714,10 +717,24 @@ class FakeServoBus(ServoBus):
             self._commands.append(ServoCommand(servo_id, "max_angle", high))
             self._limits[servo_id] = (low, high)
 
+    @override
     def angle_limits(self, servo_id: int) -> tuple[int, int]:
-        """書かれた角度制限（下限、上限。書く前は 0〜4095）."""
         self._mode(servo_id)
         return self._limits[servo_id]
+
+    @override
+    def clear_angle_limits(self, servo_id: int) -> None:
+        self._mode(servo_id)
+        with self._lock:
+            self._commands.append(ServoCommand(servo_id, "min_angle", 0))
+            self._commands.append(ServoCommand(servo_id, "max_angle", 0))
+            self._limits[servo_id] = (0, 0)
+
+    @override
+    def goal(self, servo_id: int) -> int:
+        self._require(servo_id, ServoMode.POSITION)
+        with self._lock:
+            return self._goals[servo_id]
 
     @override
     def set_mode(self, servo_id: int, mode: ServoMode) -> None:
@@ -743,9 +760,12 @@ class FakeServoBus(ServoBus):
         with self._lock:
             self._commands.append(ServoCommand(servo_id, "goto", position))
             self._speeds[servo_id] = speed
-            # 実機と同じく、角度制限の外への goal は制限の端で止まる
+            self._goals[servo_id] = position
+            # 実機と同じく、角度制限の外への goal は制限の端で止まる（0 / 0 は制限なし）
             low, high = self._limits[servo_id]
-            self._positions[servo_id] = min(max(position, low), high)
+            if (low, high) != (0, 0):
+                position = min(max(position, low), high)
+            self._positions[servo_id] = position
             self._reads_until_start[servo_id] = self._start_delay
 
     @override
