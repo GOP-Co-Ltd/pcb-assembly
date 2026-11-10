@@ -12,6 +12,10 @@ readonly RUNNER_LABELS="rpi-ci"
 # 実行しない。Raspberry Pi を 4 台導入したので、1 台につき 1 instance 置く。
 readonly RUNNER_COUNT="1"
 readonly UV_VERSION="0.10.9"
+# ゲームパッドのテストが /dev/uinput で仮想デバイスを作る。装置の input group とは分ける
+readonly UINPUT_GROUP="uinput"
+readonly UINPUT_RULE_FILE="/etc/udev/rules.d/60-pcbasm-uinput.rules"
+readonly UINPUT_RULE='KERNEL=="uinput", GROUP="uinput", MODE="0660", OPTIONS+="static_node=uinput"'
 
 usage() {
     cat <<EOF
@@ -138,6 +142,31 @@ create_runner_user() {
     sudo useradd --system --create-home --shell /bin/bash "${RUNNER_USER}"
 }
 
+runner_in_uinput_group() {
+    # pipefail の下で grep -q が先に終わると前段が SIGPIPE で失敗するので、パイプを使わない
+    [[ " $(id -nG "${RUNNER_USER}") " == *" ${UINPUT_GROUP} "* ]]
+}
+
+allow_runner_uinput() {
+    # 専用の uinput group だけに入れる（input group だと実機のコントローラやキーボードも読めてしまう）
+    if ! getent group "${UINPUT_GROUP}" >/dev/null; then
+        sudo groupadd --system "${UINPUT_GROUP}"
+    fi
+    if ! runner_in_uinput_group; then
+        sudo usermod -aG "${UINPUT_GROUP}" "${RUNNER_USER}"
+        # 起動中の service は group を読み直さない。job を止めないよう、ここでは再起動しない
+        echo "${RUNNER_USER}を${UINPUT_GROUP} groupに追加しました。runner serviceの再起動（またはOSの再起動）後に有効になります。"
+    fi
+    if ! sudo test -f "${UINPUT_RULE_FILE}" ||
+        [ "$(sudo cat "${UINPUT_RULE_FILE}")" != "${UINPUT_RULE}" ]; then
+        echo "${UINPUT_RULE}" | sudo tee "${UINPUT_RULE_FILE}" >/dev/null
+        sudo udevadm control --reload-rules
+    fi
+    sudo modprobe uinput
+    sudo udevadm trigger --subsystem-match=misc --sysname-match=uinput
+    sudo udevadm settle
+}
+
 prepare_runner_cache() {
     local runner_group runner_home
 
@@ -202,6 +231,7 @@ install_dependencies() {
         libglib2.0-0t64 \
         make \
         python3 \
+        python3-evdev \
         python3-picamera2 \
         v4l-utils
     sudo git lfs install --system --skip-repo
@@ -211,6 +241,7 @@ install_dependencies() {
 
     install_uv
     create_runner_user
+    allow_runner_uinput
     prepare_runner_cache
     install_runner_instances
 
@@ -223,6 +254,21 @@ verify_git_lfs() {
     fi
     if ! git config --system --get filter.lfs.process >/dev/null; then
         die "Git LFSのsystem filter設定を確認できません"
+    fi
+}
+
+verify_evdev_import() {
+    if ! /usr/bin/python3 -c 'import evdev'; then
+        die "/usr/bin/python3からevdevをimportできません"
+    fi
+}
+
+verify_uinput() {
+    if [ "$(stat -c %G /dev/uinput 2>/dev/null)" != "${UINPUT_GROUP}" ]; then
+        die "/dev/uinputのgroupが${UINPUT_GROUP}ではありません"
+    fi
+    if ! runner_in_uinput_group; then
+        die "${RUNNER_USER}が${UINPUT_GROUP} groupに入っていません"
     fi
 }
 
@@ -384,6 +430,8 @@ verify_runner() {
 
     verify_git_lfs
     verify_pcbnew_import
+    verify_evdev_import
+    verify_uinput
 
     installed_version="$(/usr/local/bin/uv --version | awk '{print $2}')"
     if [ "${installed_version}" != "${UV_VERSION}" ]; then
