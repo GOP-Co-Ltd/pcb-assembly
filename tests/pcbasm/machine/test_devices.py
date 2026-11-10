@@ -421,10 +421,38 @@ class TestTweezer:
         tweezer.open_by(10.0)
 
         assert [c for c in bus.commands if c.kind != "torque"] == [
-            ServoCommand(2, "goto", 2048),  # トルクを入れる前に goal を今の位置にする
             ServoCommand(1, "step", 1024),
             ServoCommand(2, "goto", 2048 + 114),
         ]
+
+    def test_closed_and_open_on_the_same_raw_position_is_a_config_error(
+        self, config_path: Path, journal_dir: Path
+    ):
+        """角度は違っても raw に丸めると同じ位置なら、開閉できない（開き具合を割れない）."""
+        _write_servo(
+            config_path,
+            rotation_id=1,
+            open_close_id=2,
+            closed_angle=10.0,
+            open_angle=10.01,
+        )
+        devices = Devices(config_path, journal_dir, servo_bus=_servo_bus())
+
+        with pytest.raises(ConfigError) as raised:
+            devices.tweezer()
+
+        assert "closed_angle" in str(raised.value)
+
+    def test_tweezer_rotates_at_the_configured_speed(
+        self, config_path: Path, journal_dir: Path
+    ):
+        _write_servo(config_path, **_SERVO_ROLES, rotation_speed=90.0)
+        bus = _servo_bus()
+        devices = Devices(config_path, journal_dir, servo_bus=bus)
+
+        devices.tweezer().rotate_by(90.0)
+
+        assert bus.speed(1) == 1024
 
     @pytest.mark.parametrize("missing", list(_SERVO_ROLES))
     def test_unset_role_is_a_config_error_naming_the_key(

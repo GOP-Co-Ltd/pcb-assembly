@@ -144,11 +144,12 @@
 
 ## 部品実装（`[pnp]`）
 
-| カード             | キー                      | 表示名           | 単位 | 値             |
-| ------------------ | ------------------------- | ---------------- | ---- | -------------- |
-| ピンセットのサーボ | `pnp.servo.port`          | シリアルポート   |      | 文字列         |
-| ピンセットのサーボ | `pnp.servo.baudrate`      | 通信速度         | bps  | 整数           |
-| ピンセットのサーボ | `pnp.servo.rotation_id`   | Rotation の ID   |      | 整数（0 以上） |
-| ピンセットのサーボ | `pnp.servo.open_close_id` | Open Close の ID |      | 整数（0 以上） |
-| ピンセットのサーボ | `pnp.servo.closed_angle`  | 閉じ切りの角度   | °    | 数値（0 以上） |
-| ピンセットのサーボ | `pnp.servo.open_angle`    | 開き切りの角度   | °    | 数値（0 以上） |
+| カード             | キー                       | 表示名           | 単位 | 値             |
+| ------------------ | -------------------------- | ---------------- | ---- | -------------- |
+| ピンセットのサーボ | `pnp.servo.port`           | シリアルポート   |      | 文字列         |
+| ピンセットのサーボ | `pnp.servo.baudrate`       | 通信速度         | bps  | 整数           |
+| ピンセットのサーボ | `pnp.servo.rotation_id`    | Rotation の ID   |      | 整数（0 以上） |
+| ピンセットのサーボ | `pnp.servo.open_close_id`  | Open Close の ID |      | 整数（0 以上） |
+| ピンセットのサーボ | `pnp.servo.closed_angle`   | 閉じ切りの角度   | °    | 数値（0 以上） |
+| ピンセットのサーボ | `pnp.servo.open_angle`     | 開き切りの角度   | °    | 数値（0 以上） |
+| ピンセットのサーボ | `pnp.servo.rotation_speed` | Rotation の速さ  | °/s  | 数値（0 以上） |

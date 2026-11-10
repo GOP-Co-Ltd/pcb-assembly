@@ -9,6 +9,7 @@ from shapely import Point
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d, Point3d
 from pcbasm.hal import (
+    DEFAULT_SPEED,
     FrameHub,
     KlipperError,
     ManualStepper,
@@ -366,6 +367,24 @@ class TestFakeServoBus:
     ):
         with pytest.raises(ServoError):
             operate(bus)
+
+    def test_speed_is_the_last_one_sent_and_the_default_before_any(
+        self, bus: FakeServoBus
+    ):
+        assert bus.speed(1) == DEFAULT_SPEED
+
+        bus.step(1, 100, speed=1024)
+        bus.goto(2, 1100, speed=300)
+        bus.step(1, 100)
+
+        assert (bus.speed(1), bus.speed(2)) == (DEFAULT_SPEED, 300)
+
+    @pytest.mark.parametrize("speed", [0, 32768])
+    def test_speed_outside_1_to_32767_is_refused(self, bus: FakeServoBus, speed: int):
+        with pytest.raises(ValueError):
+            bus.step(1, 100, speed=speed)
+
+        assert bus.position(1) == 2048
 
     def test_goto_is_refused_in_step_mode(self, bus: FakeServoBus):
         with pytest.raises(ServoError):

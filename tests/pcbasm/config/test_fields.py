@@ -121,6 +121,7 @@ class TestSettingFields:
             "pnp.servo.open_close_id",
             "pnp.servo.closed_angle",
             "pnp.servo.open_angle",
+            "pnp.servo.rotation_speed",
         ]
 
     def test_servo_setup_writes_only_setting_keys(self):

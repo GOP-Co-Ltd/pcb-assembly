@@ -200,12 +200,21 @@ class Devices:
                 float()
                 | int() as opened,
             ):
+                closed_position = hal.degrees_to_position(closed)
+                open_position = hal.degrees_to_position(opened)
+                if closed_position == open_position:
+                    raise ConfigError(
+                        f"machine.toml の [pnp.servo] の closed_angle（{closed:g}°）と open_angle（{opened:g}°）が"
+                        "サーボの同じ位置になり、開閉できません（サーボ設定ジョブをやり直す）",
+                        frozenset({"pnp"}),
+                    )
                 return Tweezer(
                     self.servo_bus(),
                     rotation_id=rotation,
                     open_close_id=open_close,
-                    closed_position=hal.degrees_to_position(closed),
-                    open_position=hal.degrees_to_position(opened),
+                    closed_position=closed_position,
+                    open_position=open_position,
+                    rotation_speed=servo.rotation_speed,
                 )
             case values:
                 names = (

@@ -19,6 +19,8 @@ _MAX_SERVO_ID = 253
 _FULL_TURN = 360.0
 # 閉じ〜開きが半回転を超えるなら 360°/0° の境目をまたいでいる
 _MAX_OPEN_CLOSE_SPAN = 180.0
+# Rotation の速さの上限 [deg/s]（2 回転/秒。サーボはこれより遅い自身の上限で回る）
+_MAX_ROTATION_SPEED = 720.0
 
 
 def open_close_span_error(closed: float, opened: float) -> str | None:
@@ -59,6 +61,16 @@ def _validate_angle(name: str, value: object) -> str | None:
     return None
 
 
+def _validate_rotation_speed(name: str, value: object) -> str | None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int | float)
+        or not 0 < value <= _MAX_ROTATION_SPEED
+    ):
+        return f"{name}は0より大きく{_MAX_ROTATION_SPEED:g}以下の速さ[°/s]である必要があります: {value!r}"
+    return None
+
+
 _servo_id = attrs.validators.optional(as_validator(_validate_servo_id))
 _angle = attrs.validators.optional(as_validator(_validate_angle))
 
@@ -81,6 +93,7 @@ class ServoConfig:
         open_close_id: Open Close（位置モード）のサーボ ID
         closed_angle: Open Close の閉じ切りの角度（サーボの絶対角 [deg]、0〜360）
         open_angle: Open Close の開き切りの角度（サーボの絶対角 [deg]、0〜360。閉じ切りより小さくてもよい）
+        rotation_speed: Rotation を回す速さ [deg/s]（マシン操作パネルの ± とコントローラの両方）
     """
 
     port: str = attrs.field(
@@ -112,6 +125,13 @@ class ServoConfig:
         validator=_angle,
         metadata=setting(
             label="開き切りの角度", group=_SERVO, order=6, unit="°", minimum=0
+        ),
+    )
+    rotation_speed: float = attrs.field(
+        default=45.0,
+        validator=as_validator(_validate_rotation_speed),
+        metadata=setting(
+            label="Rotation の速さ", group=_SERVO, order=7, unit="°/s", minimum=0
         ),
     )
 

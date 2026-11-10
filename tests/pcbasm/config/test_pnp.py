@@ -136,6 +136,32 @@ class TestPnpServo:
 
         assert key in str(raised.value)
 
+    def test_rotation_speed_defaults_to_45_degrees_per_second(self, tmp_path: Path):
+        machine = load_machine(_pnp_machine(tmp_path, _servo()))
+
+        assert machine.pnp is not None
+        assert machine.pnp.servo is not None
+        assert machine.pnp.servo.rotation_speed == 45.0
+
+    @pytest.mark.parametrize("value", [0.1, 90, 720])
+    def test_rotation_speed_is_read(self, tmp_path: Path, value: float):
+        machine = load_machine(_pnp_machine(tmp_path, _servo(rotation_speed=value)))
+
+        assert machine.pnp is not None
+        assert machine.pnp.servo is not None
+        assert machine.pnp.servo.rotation_speed == value
+
+    @pytest.mark.parametrize("value", [0, -10, 720.5, '"fast"'])
+    def test_rotation_speed_outside_0_to_720_is_a_config_error(
+        self, tmp_path: Path, value: object
+    ):
+        path = _pnp_machine(tmp_path, _servo(rotation_speed=value))
+
+        with pytest.raises(ConfigError) as raised:
+            load_machine(path)
+
+        assert "rotation_speed" in str(raised.value)
+
     def test_same_closed_and_open_angle_is_a_config_error(self, tmp_path: Path):
         path = _pnp_machine(tmp_path, _servo(closed_angle=90.0, open_angle=90.0))
 
