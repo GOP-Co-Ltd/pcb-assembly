@@ -22,6 +22,7 @@ from shapely import Polygon
 
 from pcbasm.gcode import GCode, GCodeLike
 from pcbasm.geometry import Point2d
+from pcbasm.hal.klipper import KlipperClient
 from pcbasm.vision.image import Image, ImageArray
 
 from .audio import AudioDevice, AudioPlayer, Sound
@@ -83,7 +84,7 @@ class StepperMove:
     distance: float
 
 
-class FakeKlipper:
+class FakeKlipper(KlipperClient):
     """送信を記録し、位置と押出量を追う ``KlipperClient``.
 
     Moonraker には接続しない。
@@ -183,6 +184,7 @@ class FakeKlipper:
         """送信を実行し終えてから返るまでに wait を呼ぶ（実機の静定待ちの代わり）."""
         self._settles.append(wait)
 
+    @override
     def send_gcode(
         self, gcode: GCodeLike, *, timeout: float | None = None
     ) -> dict[str, Any]:
@@ -197,12 +199,15 @@ class FakeKlipper:
             wait()
         return {"result": "ok"}
 
+    @override
     def get_status(self, object: str, attribute: str) -> Any:
         return self._status[object][attribute]
 
+    @override
     def get_config(self) -> dict[str, dict[str, Any]]:
         return self._config
 
+    @override
     def emergency_stop(self) -> None:
         self._record(GCode("M112"), self._timeout)
 

@@ -17,6 +17,7 @@ pytest は実機に触れない（`@mark_hardware` のテストは無く、テ�
 - [private の直接テスト禁止](feedback_no_private_test.md) — `_` prefix の関数/メソッド/属性は直接テストせず公開 API 経由で検証する
 - [テストはクラスにまとめる](feedback_test_class.md) — pytest テストは関数ではなく `class TestXxx` 形式に集約する
 - [和欧文間の半角空白は必須](feedback_jp_en_spacing.md) — 日本語と英数字の間に半角空白を 1 つ入れる。yomiyasu には規約を追記済み
+- [差し替え口は Protocol ではなく ABC](feedback_abc_over_protocol.md) — `abc.ABC` + `@abstractmethod` で書き、実装は継承して `@override` を付ける
 
 ## プロジェクトの前提
 

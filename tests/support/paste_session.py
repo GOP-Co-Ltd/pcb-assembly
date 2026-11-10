@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from typing import override
+
 import attrs
 import numpy as np
 import shapely
@@ -21,6 +23,7 @@ from pcbasm.geometry import Identity, Point2d, Shift
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FakeCamera, FakeKlipper
 from pcbasm.kicad import load_board
+from pcbasm.pasting.hooks import ProcedureHooks
 from pcbasm.pasting.prepare import PasteCorrection
 from pcbasm.pasting.session import PasteSession
 from pcbasm.vision import Image, Offset
@@ -101,21 +104,25 @@ def full_board_correction() -> PasteCorrection:
 
 
 @attrs.define
-class RecordingHooks:
+class RecordingHooks(ProcedureHooks):
     """手順の経過（ログ・進捗・表示した画像の枚数）を記録する hooks."""
 
     logs: list[str] = attrs.Factory(list)
     stages: list[str] = attrs.Factory(list)
     frames: int = 0
 
+    @override
     def log(self, message: str) -> None:
         self.logs.append(message)
 
+    @override
     def progress(self, stage: str, percent: float | None = None) -> None:
         self.stages.append(stage)
 
+    @override
     def checkpoint(self) -> None:
         pass
 
+    @override
     def frame(self, image: Image) -> None:
         self.frames += 1

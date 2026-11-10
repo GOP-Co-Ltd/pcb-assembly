@@ -9,7 +9,7 @@ import uuid
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import AbstractContextManager
 from pathlib import Path
-from typing import Any, Literal, overload
+from typing import Any, Literal, overload, override
 
 from pcbasm.board import Board
 from pcbasm.config import MachineConfig
@@ -17,6 +17,7 @@ from pcbasm.config.solder import SolderConfig
 from pcbasm.hal import Camera, FrameHub, KlipperClient
 from pcbasm.machine.devices import Devices
 from pcbasm.machine.journal import Journal
+from pcbasm.pasting.hooks import ProcedureHooks
 from pcbasm.validators import is_finite_number
 from pcbasm.vision import Image
 from web.api.camera import CameraFeed
@@ -231,7 +232,7 @@ class JobChannel:
             self.publish_status()
 
 
-class JobContext:
+class JobContext(ProcedureHooks):
     """ワーカースレッド ↔ Web 層の橋。JobManager だけが生成する.
 
     ジョブ関数（``JobDefinition.run``）はこのオブジェクトを通じてログ・
@@ -349,14 +350,17 @@ class JobContext:
         """
         self._channel.apply_machine_settings(values)
 
+    @override
     def log(self, message: str) -> None:
         """ログのリングバッファへ追記し、WS "log" イベントを発行する."""
         self._channel.log(message)
 
+    @override
     def progress(self, stage: str, percent: float | None = None) -> None:
         """直近の進捗を record に保持し、WS "progress" イベントを発行する."""
         self._channel.progress(stage, percent)
 
+    @override
     def frame(self, image: Image, *, persist: bool = False) -> None:
         """プレビューのオーバーライドスロットへフレームを書き込む."""
         self._channel.frame(image, persist=persist)
@@ -518,6 +522,7 @@ class JobContext:
         """
         self._channel.notify_operator()
 
+    @override
     def checkpoint(self) -> None:
         """Abort 要求済みなら JobAborted を送出する（それ以外は no-op）.
 

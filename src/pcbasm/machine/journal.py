@@ -9,8 +9,10 @@ from __future__ import annotations
 import logging
 from datetime import date
 from pathlib import Path
+from typing import override
 
 from pcbasm.gcode import GCode
+from pcbasm.hal.klipper import GCodeJournal
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +25,7 @@ def format_block(gcode: GCode, timeout: float | None) -> str:
     return f"# send timeout={timeout}\n{gcode}\n"
 
 
-class Journal:
+class Journal(GCodeJournal):
     """1 つのファイルへ送信ブロックを追記する G-code ジャーナル.
 
     ファイルは最初の書き込みで作り、そのとき同じディレクトリの古いファイルを消して上限に収める。
@@ -46,6 +48,7 @@ class Journal:
     def path(self) -> Path:
         return self._path
 
+    @override
     def write(self, gcode: GCode, timeout: float | None) -> None:
         """送信ブロックを 1 つ追記する（書けなければ log に残し、送信は止めない）."""
         try:

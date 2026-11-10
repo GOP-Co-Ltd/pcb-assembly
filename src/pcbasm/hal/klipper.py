@@ -9,7 +9,8 @@ HAL の他のクラス（``XYZStage`` / ``ManualStepper`` / ``AirPump`` /
 from __future__ import annotations
 
 import copy
-from typing import Any, Protocol
+from abc import ABC, abstractmethod
+from typing import Any, override
 
 import httpx
 
@@ -21,15 +22,17 @@ class KlipperError(DeviceError):
     """Klipper が要求を断った（Moonraker の HTTP 400 以上。G-code エラー・Klipper 停止中など）."""
 
 
-class GCodeJournal(Protocol):
+class GCodeJournal(ABC):
     """送信ブロックの書き先（実装は ``pcbasm.machine.journal.Journal``）."""
 
+    @abstractmethod
     def write(self, gcode: GCode, timeout: float | None) -> None: ...
 
 
-class KlipperClient(Protocol):
+class KlipperClient(ABC):
     """Klipper への G-code 送信と、状態・printer.cfg の読み取り."""
 
+    @abstractmethod
     def send_gcode(
         self, gcode: GCodeLike, *, timeout: float | None = None
     ) -> dict[str, Any]:
@@ -45,26 +48,25 @@ class KlipperClient(Protocol):
         Raises:
             KlipperError: Klipper が送信を断った場合
         """
-        ...
 
+    @abstractmethod
     def get_status(self, object: str, attribute: str) -> Any:
         """オブジェクト（gcode_move, toolhead 等）の属性値を返す."""
-        ...
 
+    @abstractmethod
     def get_config(self) -> dict[str, dict[str, Any]]:
         """printer.cfg の内容（セクション名 → キーと値）を返す."""
-        ...
 
+    @abstractmethod
     def emergency_stop(self) -> None:
         """緊急停止を実行する.
 
         Raises:
             KlipperError: Klipper が要求を断った場合
         """
-        ...
 
 
-class MoonrakerKlipper:
+class MoonrakerKlipper(KlipperClient):
     """Moonraker REST API で Klipper と通信する :class:`KlipperClient`.
 
     接続できない・タイムアウトした場合は httpx.HTTPError を包まずに送出する。
@@ -113,6 +115,7 @@ class MoonrakerKlipper:
         connection._config = None
         return connection
 
+    @override
     def send_gcode(
         self, gcode: GCodeLike, *, timeout: float | None = None
     ) -> dict[str, Any]:
@@ -135,6 +138,7 @@ class MoonrakerKlipper:
         _raise_for_klipper(response)
         return response.json()
 
+    @override
     def get_status(self, object: str, attribute: str) -> Any:
         """オブジェクトの属性値を返す（HTTP エラー応答も httpx.HTTPError で送出する）."""
         response = self._client.get(
@@ -146,6 +150,7 @@ class MoonrakerKlipper:
         result = response.json()["result"]
         return result["status"][object][attribute]
 
+    @override
     def get_config(self) -> dict[str, dict[str, Any]]:
         """printer.cfg の内容を返す（この接続で最初の 1 回だけ読む。Mainsail での変更は次に開いた接続から見える）."""
         config = self._config
@@ -160,6 +165,7 @@ class MoonrakerKlipper:
             self._config = config
         return config
 
+    @override
     def emergency_stop(self) -> None:
         """緊急停止を実行する."""
         response = self._client.post(
