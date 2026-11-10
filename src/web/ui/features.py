@@ -81,6 +81,7 @@ FEATURES: tuple[Feature, ...] = (
         label="部品実装（準備中）",
         capability="pnp",
     ),
+    Feature("gamepad_control", "pnp", "コントローラ操作", "job.html", capability="pnp"),
     # 校正タブの入口（タブのリンク先）。段の表は pcbasm.commissioning が持つ
     Feature(
         "commissioning",

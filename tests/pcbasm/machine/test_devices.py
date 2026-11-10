@@ -13,10 +13,11 @@ from shapely import Point
 
 from pcbasm.config import ConfigError
 from pcbasm.config.klipper import KlipperConfig
-from pcbasm.hal import FrameHub, ServoMode, XYZStage
+from pcbasm.hal import FrameHub, GamepadState, ServoMode, XYZStage
 from pcbasm.hal.fake import (
     FAKE_MACHINE_PRINTER_CONFIG,
     FakeCamera,
+    FakeGamepad,
     FakeKlipper,
     FakeServoBus,
     ServoCommand,
@@ -298,6 +299,26 @@ def _servo_bus() -> FakeServoBus:
         {1: ServoMode.STEP, 2: ServoMode.POSITION},
         angle_limits={1: (0, 0), 2: (2048, 2560)},
     )
+
+
+class TestGamepad:
+    """コントローラは呼ぶたびに開く（呼んだ側が閉じる）."""
+
+    def test_connect_gamepad_returns_the_fake_given(
+        self, config_path: Path, journal_dir: Path
+    ):
+        pad = FakeGamepad()
+        devices = Devices(config_path, journal_dir, gamepad=pad)
+
+        assert devices.connect_gamepad() is pad
+
+    def test_open_devices_fake_has_a_released_gamepad(
+        self, config_path: Path, journal_dir: Path
+    ):
+        # open_gamepad は root conftest が塞いでいるので、呼べばテストが落ちる
+        devices = open_devices(config_path, journal_dir, fake=True)
+
+        assert devices.connect_gamepad().state() == GamepadState()
 
 
 class TestServoBus:

@@ -55,6 +55,18 @@ class TestGamepadFactory:
             ("src/pcbasm/hal/gamepad.py", "open_gamepad"),
         ]
 
+    def test_only_devices_calls_open_gamepad(self):
+        # gamepad.py の中の定義は除く（呼び出し元だけを見る）
+        callers = sorted(
+            {
+                str(path.relative_to(PROJECT_ROOT))
+                for path in sorted(SRC_DIR.rglob("*.py"))
+                if path.name != "gamepad.py" and constructions(path, {"open_gamepad"})
+            }
+        )
+
+        assert callers == ["src/pcbasm/machine/devices.py"]
+
     def test_open_gamepad_is_called_through_hal_module(self):
         # from-import は import 時点で実物に束縛され、テストの差し替えを迂回する
         importers = [

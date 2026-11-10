@@ -36,6 +36,7 @@ class TestPnpMachine:
 
         assert names == {
             "servo_setup",
+            "gamepad_control",
             "reference_point_setup",
             "camera_calibration",
             "board_tour",
