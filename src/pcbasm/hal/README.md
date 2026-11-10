@@ -7,7 +7,7 @@ Hardware Abstraction Layer: カメラ・Klipper（Moonraker 経由）・音声�
 
 | モジュール           | 役割                                                                                                                                                                               |
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `klipper.py`         | Klipper の差し替え口 `KlipperClient`（Protocol）と Moonraker 実装 `MoonrakerKlipper`、生成口 `open_klipper`、Klipper が断ったときの `KlipperError`（`RuntimeError` 派生）          |
+| `klipper.py`         | Klipper の差し替え口 `KlipperClient`（ABC）と Moonraker 実装 `MoonrakerKlipper`、生成口 `open_klipper`、Klipper が断ったときの `KlipperError`（`RuntimeError` 派生）               |
 | `stage.py`           | XYZ ステージ `XYZStage`（現在位置・可動域の取得、移動 G-code の生成と可動域検証。静定待ち付きの `move_settled`、Z を上げて近づく `travel_to`）、`Speed` / `Limits`                 |
 | `manual_stepper.py`  | Klipper `manual_stepper` の G-code 生成 `ManualStepper`                                                                                                                            |
 | `air_pump.py`        | エアポンプの ON/OFF G-code 生成 `AirPump`                                                                                                                                          |

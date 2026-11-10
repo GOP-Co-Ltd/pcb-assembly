@@ -85,7 +85,7 @@ web/api/jobs/pasting/*  →  pasting.{plan,purge_check,dispense_calibration.proc
 | 接頭辞         | `Paste*` = 塗布ドメイン名詞、`Dispense*` = 吐出ダイナミクス、`Fill*` = 経路と G-code、`Flow*` = 流量キャリブ                                                                       |
 | 単位           | μL は常に `_ul`（`amount_ul`, `volume_ul`）。密度は `density_mg_per_ul`（machine.toml では `solder.paste_density`）。mm は幾何値では無記、JSON DTO と KiCad 境界だけ `_mm`         |
 | 検証           | 検証関数 `validate_<対象>()` と検証メソッド `validate()` は、問題があればエラー文（`str`）、問題が無ければ `None` を返す。例外は投げない                                           |
-| 値オブジェクト | `attrs.frozen` + tuple。新規 ABC は作らない。Protocol は呼び出し側が満たす口（`ProcedureHooks` / `DotCaptureSink`）だけ                                                            |
+| 値オブジェクト | `attrs.frozen` + tuple。抽象基底は呼び出し側が実装する口（`ProcedureHooks` / `DotCaptureSink`）だけ。Protocol ではなく ABC で書く                                                  |
 | ログ           | モジュールごとの `logging.getLogger(__name__)`。運転者に見せる経過は `ProcedureHooks` で渡す。複数回機械を動かすメソッドだけ `checkpoint` コールバックか `ProcedureHooks` を受ける |
 
 位置合わせは `align` を利用する。

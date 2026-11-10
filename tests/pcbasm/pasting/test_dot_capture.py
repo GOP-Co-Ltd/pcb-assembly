@@ -9,6 +9,7 @@ applicator を開く文脈は塗布パスだけを包み、受け取り口が拒
 
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
+from typing import override
 
 import attrs
 import pytest
@@ -16,7 +17,12 @@ import pytest
 from pcbasm.geometry import Point2d
 from pcbasm.hal.fake import FakeCamera, FakeKlipper
 from pcbasm.pasting.applicator import PasteApplicationResult, PasteApplicator
-from pcbasm.pasting.dot_capture import PRIME_EXTRA_DELAY, DotCaptureRun, DotSpot
+from pcbasm.pasting.dot_capture import (
+    PRIME_EXTRA_DELAY,
+    DotCaptureRun,
+    DotCaptureSink,
+    DotSpot,
+)
 from pcbasm.pasting.paste_volume.dataset.metadata import DatasetView
 from pcbasm.pasting.session import PasteSession
 from pcbasm.vision.crop import RectCrop
@@ -31,18 +37,21 @@ POINTS = (Point2d(10.0, 6.0), Point2d(13.0, 6.0))
 
 
 @attrs.define
-class _Sink:
+class _Sink(DotCaptureSink):
     """受け取った結果と applicator の文脈の出入りを 1 本の列に記録する."""
 
     events: list[str] = attrs.Factory(list)
     post_error: str | None = None
 
+    @override
     def record_pre(self, index: int, view: DatasetView, crop: RectCrop) -> None:
         self.events.append(f"pre {index}")
 
+    @override
     def record_execution(self, index: int, result: PasteApplicationResult) -> None:
         self.events.append(f"deposit {index}")
 
+    @override
     def record_post(self, index: int, view: DatasetView, crop: RectCrop) -> str | None:
         self.events.append(f"post {index}")
         return self.post_error

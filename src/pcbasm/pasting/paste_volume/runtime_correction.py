@@ -20,6 +20,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from contextlib import nullcontext
 from pathlib import Path
+from typing import override
 
 import attrs
 from shapely import Point, Polygon
@@ -27,7 +28,7 @@ from shapely import Point, Polygon
 from pcbasm.config.solder import VolumeCorrectionConfig
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.applicator import PasteApplicationResult, PasteApplicator
-from pcbasm.pasting.dot_capture import DotCaptureRun, DotSpot
+from pcbasm.pasting.dot_capture import DotCaptureRun, DotCaptureSink, DotSpot
 from pcbasm.pasting.fill_path import paste_height_mm
 from pcbasm.pasting.hooks import ProcedureHooks
 from pcbasm.pasting.labels import fmt_xy
@@ -420,18 +421,21 @@ def run_flow_calibration(
 
 
 @attrs.define
-class _Crops:
+class _Crops(DotCaptureSink):
     """3 パス撮影の塗布前後の crop を点の順に集める."""
 
     pre: list[RectCrop] = attrs.Factory(list)
     post: list[RectCrop] = attrs.Factory(list)
 
+    @override
     def record_pre(self, index: int, view: DatasetView, crop: RectCrop) -> None:
         self.pre.append(crop)
 
+    @override
     def record_execution(self, index: int, result: PasteApplicationResult) -> None:
         pass
 
+    @override
     def record_post(self, index: int, view: DatasetView, crop: RectCrop) -> str | None:
         self.post.append(crop)
         return None

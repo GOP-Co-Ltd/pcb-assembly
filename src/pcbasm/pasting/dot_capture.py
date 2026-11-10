@@ -7,9 +7,9 @@
 from __future__ import annotations
 
 import time
+from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
-from typing import Protocol
 
 import attrs
 
@@ -52,13 +52,16 @@ class DotSpot:
     correction: Transform | None = None
 
 
-class DotCaptureSink(Protocol):
+class DotCaptureSink(ABC):
     """3 パス撮影の結果の受け取り口."""
 
+    @abstractmethod
     def record_pre(self, index: int, view: DatasetView, crop: RectCrop) -> None: ...
 
+    @abstractmethod
     def record_execution(self, index: int, result: PasteApplicationResult) -> None: ...
 
+    @abstractmethod
     def record_post(
         self, index: int, view: DatasetView, crop: RectCrop
     ) -> str | None: ...

@@ -5,11 +5,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
+from typing import override
 
 import attrs
 
 from pcbasm.config.solder import SolderConfig
 from pcbasm.pasting.applicator import PasteApplicationResult
+from pcbasm.pasting.dot_capture import DotCaptureSink
 from pcbasm.pasting.fill_path import paste_height_mm
 from pcbasm.pasting.params import PasteParams
 from pcbasm.pasting.paste_volume.dataset.metadata import (
@@ -91,7 +93,7 @@ def validate_dataset_run(
     return None
 
 
-class PasteDatasetRecorder:
+class PasteDatasetRecorder(DotCaptureSink):
     """撮影（pre/post）と塗布実績をセル単位で蓄積し、計量値から metadata を確定する."""
 
     def __init__(
@@ -121,16 +123,19 @@ class PasteDatasetRecorder:
         """:meth:`finalize` で確定した metadata（未確定なら ``None``）."""
         return self._metadata
 
+    @override
     def record_pre(self, index: int, view: DatasetView, crop: RectCrop) -> None:
         """Sample ``index`` の塗布前画像を書き、view 記述をセルと紐付けて保持する."""
         self._captured[(index, view.number)] = self._store.write_capture(
             index, view, "pre", crop
         )
 
+    @override
     def record_execution(self, index: int, result: PasteApplicationResult) -> None:
         """Sample ``index`` への点塗布実績を記録する."""
         self._executions[sample_key(index)] = result
 
+    @override
     def record_post(self, index: int, view: DatasetView, crop: RectCrop) -> str | None:
         """Sample ``index`` の塗布後画像を書き、pre と crop 矩形が一致しなければ理由を返す."""
         post_view = self._store.write_capture(index, view, "post", crop)
