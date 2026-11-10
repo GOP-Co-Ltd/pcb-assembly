@@ -217,7 +217,7 @@ src/firmware/pnp-motion/
 ## ビルドとデプロイ
 
 - **ビルド:** CI で `core/` のテストと `.uf2` のビルドを流す。Pi の上でも `build.sh` でビルドできる
-- **配布:** 今の `deploy/firmware/` と同じ形で `.uf2` を置く
+- **配布:** `.uf2` はリポジトリに置かない。塗布機の Klipper ファーム（`deploy/hardware.sh`）と同じく、導入時に Pi でビルドする
 - **書き込み:** 初回だけ、今の手順（BOOT ジャンパ）で書く。以降は 1200 baud で bootloader に入れ、
     Klipper の `rp2040_flash` で書き換える。WebUI のジョブにできる
 - **版の確認:** 接続時に、ファームの版（git hash とプロトコルの版）を確かめる。pcbasm と合わなければ動かさず、書き込みのジョブへ案内する
