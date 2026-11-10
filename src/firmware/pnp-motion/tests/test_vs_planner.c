@@ -49,6 +49,10 @@ struct sim {
     uint64_t min_gap;     // ステップの最小間隔
     uint16_t max_count;   // 1 区間の最大のステップ数
     uint8_t has_step;
+    // 立っていれば vs_axis_plan_to で move_target へ move_speed で向かう
+    uint8_t moving;
+    int32_t move_target;
+    uint32_t move_speed;
 };
 
 static void
@@ -80,7 +84,11 @@ sim_segment(struct sim *s, int32_t target)
 {
     struct vs_segment seg;
     uint64_t start = s->clock;
-    vs_axis_plan(&s->axis, target, (uint32_t)start, s->period, CLOCK_FREQ, &seg);
+    if (s->moving)
+        vs_axis_plan_to(&s->axis, s->move_target, s->move_speed, (uint32_t)start,
+                        s->period, CLOCK_FREQ, &seg);
+    else
+        vs_axis_plan(&s->axis, target, (uint32_t)start, s->period, CLOCK_FREQ, &seg);
     s->clock += s->period;
     if (seg.count) {
         uint32_t time32 = (uint32_t)s->step_clock + seg.first_interval;
@@ -127,6 +135,31 @@ sim_run(struct sim *s, int32_t target, int segments)
     for (int i = 0; i < segments; i++)
         if (!sim_segment(s, target))
             return 0;
+    return 1;
+}
+
+// 目標位置へ segments 区間だけ向かう。区間ごとに加速度と速さの上限も確かめる
+static int
+sim_move(struct sim *s, int32_t target_pos, uint32_t speed, int segments)
+{
+    s->moving = 1;
+    s->move_target = target_pos;
+    s->move_speed = speed;
+    for (int i = 0; i < segments; i++) {
+        int32_t prev = s->axis.velocity;
+        if (!sim_segment(s, 0))
+            return 0;
+        int32_t v = s->axis.velocity, dv = v - prev;
+        if (dv > DV || dv < -DV) {
+            printf("  区間 %d で dv=%d（上限 %d）\n", i, dv, DV);
+            return 0;
+        }
+        if (v > (int32_t)speed || v < -(int32_t)speed) {
+            printf("  区間 %d で v=%d が speed=%u を超えた\n", i, v, speed);
+            return 0;
+        }
+    }
+    s->moving = 0;
     return 1;
 }
 
@@ -316,6 +349,82 @@ test_large_segment(void)
 }
 
 static void
+test_move_stops_exactly_at_target(void)
+{
+    // 正の向きにも負の向きにも、目標位置でちょうど止まる（ジョグの 0.1 mm ≒ 853 歩、10 mm ≒ 85333 歩）
+    struct sim s;
+    sim_init(&s, MAX_POS / 2, 0);
+    int32_t targets[] = {MAX_POS / 2 + 853, MAX_POS / 2 + 853 + 85333, MAX_POS / 2 - 1, MAX_POS / 2 - 2};
+    for (unsigned i = 0; i < sizeof(targets) / sizeof(targets[0]); i++) {
+        CHECK(sim_move(&s, targets[i], MAX_VELOCITY, 2000), "展開がずれた（目標 %u）", i);
+        CHECK(vs_axis_position(&s.axis) == targets[i], "目標 %d に対して pos=%d",
+              targets[i], vs_axis_position(&s.axis));
+        CHECK(s.axis.velocity == 0, "v=%d", s.axis.velocity);
+        CHECK(vs_axis_arrived(&s.axis, targets[i]), "着いたと判定しない（目標 %u）", i);
+    }
+}
+
+static void
+test_arrived_needs_target_and_rest(void)
+{
+    struct sim s;
+    sim_init(&s, 5000, 0);
+    CHECK(vs_axis_arrived(&s.axis, 5000), "止まって目標にいる");
+    CHECK(!vs_axis_arrived(&s.axis, 5001), "目標にいない");
+    // 可動域の外の目標は、可動域の端に着いたら着いたとみなす
+    sim_init(&s, MAX_POS, 0);
+    CHECK(vs_axis_arrived(&s.axis, MAX_POS + 1000), "端に着いている");
+    sim_init(&s, 5000, 0);
+    CHECK(sim_run(&s, MAX_VELOCITY, 5), "展開がずれた");
+    CHECK(!vs_axis_arrived(&s.axis, vs_axis_position(&s.axis)), "動いている");
+}
+
+static void
+test_move_respects_speed(void)
+{
+    // 遅い speed では、その速さで頭打ちになる
+    struct sim s;
+    sim_init(&s, 1000, 0);
+    uint32_t slow = MAX_VELOCITY / 10;
+    CHECK(sim_move(&s, 1000 + 40000, slow, 300), "展開がずれた");
+    CHECK(s.axis.velocity == (int32_t)slow, "v=%d", s.axis.velocity);
+    CHECK(sim_move(&s, 1000 + 40000, slow, 3000), "展開がずれた");
+    CHECK(vs_axis_position(&s.axis) == 1000 + 40000, "pos=%d", vs_axis_position(&s.axis));
+}
+
+static void
+test_move_reverses_toward_a_target_behind(void)
+{
+    // 正の向きに最高速度で動いている最中に、後ろの目標を指示されても、減速・反転してちょうど止まる
+    struct sim s;
+    sim_init(&s, MAX_POS / 2, 0);
+    CHECK(sim_run(&s, MAX_VELOCITY, 150), "展開がずれた");
+    int32_t behind = MAX_POS / 2;
+    CHECK(sim_move(&s, behind, MAX_VELOCITY, 3000), "展開がずれた");
+    CHECK(vs_axis_position(&s.axis) == behind, "pos=%d", vs_axis_position(&s.axis));
+    CHECK(s.axis.velocity == 0, "v=%d", s.axis.velocity);
+}
+
+static void
+test_move_target_outside_range_stops_at_the_limit(void)
+{
+    struct sim s;
+    sim_init(&s, MAX_POS - 5000, 0);
+    CHECK(sim_move(&s, MAX_POS + 100000, MAX_VELOCITY, 2000), "展開がずれた");
+    CHECK(vs_axis_position(&s.axis) == MAX_POS, "pos=%d", vs_axis_position(&s.axis));
+    CHECK(s.axis.velocity == 0, "v=%d", s.axis.velocity);
+}
+
+static void
+test_move_to_current_position_makes_no_steps(void)
+{
+    struct sim s;
+    sim_init(&s, 12345, 0);
+    CHECK(sim_move(&s, 12345, MAX_VELOCITY, 100), "展開がずれた");
+    CHECK(s.steps == 0, "steps=%lld", (long long)s.steps);
+}
+
+static void
 test_reversal_keeps_steps_in_order(void)
 {
     struct sim s;
@@ -387,6 +496,12 @@ main(void)
     test_outside_range_does_not_jump();
     test_long_idle_then_move();
     test_large_segment();
+    test_move_stops_exactly_at_target();
+    test_arrived_needs_target_and_rest();
+    test_move_respects_speed();
+    test_move_reverses_toward_a_target_behind();
+    test_move_target_outside_range_stops_at_the_limit();
+    test_move_to_current_position_makes_no_steps();
     test_reversal_keeps_steps_in_order();
     test_rapid_reversals_keep_a_gap();
     test_slow_steps_span_segments();

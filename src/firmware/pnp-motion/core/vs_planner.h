@@ -56,4 +56,13 @@ int32_t vs_axis_position(const struct vs_axis *a);
 void vs_axis_plan(struct vs_axis *a, int32_t target_velocity, uint32_t seg_start,
                   uint32_t period, uint32_t clock_freq, struct vs_segment *out);
 
+// vs_axis_plan と同じだが、目標位置 target_pos（ステップ）へ速さ speed（steps/s）で向かい、
+// ちょうど止まる。目標が可動域の外なら可動域の端で止まる。前提は vs_axis_plan と同じ。
+void vs_axis_plan_to(struct vs_axis *a, int32_t target_pos, uint32_t speed,
+                     uint32_t seg_start, uint32_t period, uint32_t clock_freq,
+                     struct vs_segment *out);
+
+// vs_axis_plan_to の目標（可動域に切り詰めたもの）に着いて止まっているか。
+int vs_axis_arrived(const struct vs_axis *a, int32_t target_pos);
+
 #endif // vs_planner.h

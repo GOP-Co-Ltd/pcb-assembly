@@ -2,10 +2,10 @@
 //
 // PnP 機の XYZ を速度指令で動かす、Klipper の MCU ファームのモジュール。
 //
-// ホストは各軸の目標速度と有効期限を送り続ける。一定周期のタイマで task を起こし、
-// task が vs_planner で区間ごとのステップを作って stepper のキューへ積む。
-// 期限が切れたら目標を 0 にして減速する。trsync が引かれたら（接触）、stepper は
-// trsync の側で即時に止まり、このモジュールは CONTACT になって位置を stepper に合わせ直す。
+// ホストは各軸の目標速度と有効期限を送り続けるか、軸ごとに目標位置を送る。一定周期のタイマで
+// task を起こし、task が vs_planner で区間ごとのステップを作って stepper のキューへ積む。
+// 速度指令の期限が切れたら目標を 0 にして減速する。trsync が引かれたら（接触やリミットスイッチ）、
+// stepper は trsync の側で即時に止まり、このモジュールは TRIGGERED になって位置を stepper に合わせ直す。
 
 #include "autoconf.h"  // CONFIG_CLOCK_FREQ
 #include "basecmd.h"  // oid_alloc
@@ -33,14 +33,15 @@
 #define MAX_VELOCITY (CONFIG_CLOCK_FREQ / VS_MIN_GAP_TICKS(CONFIG_CLOCK_FREQ))
 #define MAX_ACCEL 1000000000
 
-DECL_CONSTANT("VELOCITY_STREAM_PROTOCOL", 1);
+// コマンドや応答の形を変えたら上げる（ホストが接続時に確かめる）
+DECL_CONSTANT("VELOCITY_STREAM_PROTOCOL", 2);
 DECL_CONSTANT_STR("PNP_MOTION_VERSION", PNP_MOTION_VERSION);
 
-enum { VS_IDLE, VS_STREAM, VS_STOPPING, VS_CONTACT };
+enum { VS_IDLE, VS_STREAM, VS_STOPPING, VS_TRIGGERED };
 DECL_ENUMERATION("velocity_stream_state", "idle", VS_IDLE);
 DECL_ENUMERATION("velocity_stream_state", "stream", VS_STREAM);
 DECL_ENUMERATION("velocity_stream_state", "stopping", VS_STOPPING);
-DECL_ENUMERATION("velocity_stream_state", "contact", VS_CONTACT);
+DECL_ENUMERATION("velocity_stream_state", "triggered", VS_TRIGGERED);
 
 enum { VSF_TRIGGERED = 1<<0 };
 
@@ -51,16 +52,20 @@ struct velocity_stream {
     struct vs_axis axes[AXES];
     // 計画の位置 = 向き × stepper の位置 + offset
     int32_t offset[AXES];
-    int32_t target[AXES];
+    int32_t target[AXES];  // 速度指令の目標速度
+    // moving の bit が立った軸は、速度指令ではなく move_target へ move_speed で向かう
+    int32_t move_target[AXES];
+    uint32_t move_speed;
     uint32_t period, lead, report_ticks, ttl;
     uint32_t seg_clock;  // 次に計画する区間の開始時刻
     uint32_t expire_clock, next_report;
     // STOPPING で全軸が止まったら、積んだステップが出尽くすこの時刻を待って IDLE にする
     uint32_t drain_clock;
     uint16_t seq;
-    uint8_t invert_dir, state, limits_set, draining;
-    // VSF_TRIGGERED は trsync の割り込みから立つ
-    volatile uint8_t flags;
+    uint8_t invert_dir, state, limits_set, draining, moving;
+    // VSF_TRIGGERED と trigger_reason は trsync の割り込みから書く。
+    // trigger_reason はホストが trsync を張るときに決めた値（接触かリミットかを区別する）
+    volatile uint8_t flags, trigger_reason;
 };
 
 static struct task_wake velocity_stream_wake;
@@ -94,6 +99,7 @@ velocity_stream_stop_signal(struct trsync_signal *tss, uint8_t reason)
 {
     struct velocity_stream *vs = container_of(
         tss, struct velocity_stream, stop_signal);
+    vs->trigger_reason = reason;
     vs->flags |= VSF_TRIGGERED;
     sched_wake_task(&velocity_stream_wake);
 }
@@ -175,9 +181,9 @@ DECL_COMMAND(command_velocity_stream_set_position,
 static void
 send_state(uint8_t oid, struct velocity_stream *vs, uint32_t clock)
 {
-    sendf("velocity_stream_state oid=%c clock=%u seq=%hu state=%c"
-          " x=%i y=%i z=%i vx=%i vy=%i vz=%i"
-          , oid, clock, vs->seq, vs->state
+    sendf("velocity_stream_state oid=%c clock=%u seq=%hu state=%c reason=%c"
+          " moving=%c x=%i y=%i z=%i vx=%i vy=%i vz=%i"
+          , oid, clock, vs->seq, vs->state, vs->trigger_reason, vs->moving
           , actual_position(vs, 0), actual_position(vs, 1)
           , actual_position(vs, 2)
           , vs->axes[0].velocity, vs->axes[1].velocity, vs->axes[2].velocity);
@@ -211,7 +217,7 @@ command_velocity_stream_start(uint32_t *args)
     vs->lead = lead;
     vs->report_ticks = args[4];
     vs->ttl = ttl;
-    vs->draining = 0;
+    vs->draining = vs->moving = 0;
     vs->seg_clock = vs->expire_clock = vs->next_report = clock;
     for (int i = 0; i < AXES; i++) {
         stepper_reset_clock(vs->steppers[i], clock);
@@ -220,6 +226,7 @@ command_velocity_stream_start(uint32_t *args)
     }
     irq_disable();
     vs->flags &= ~VSF_TRIGGERED;
+    vs->trigger_reason = 0;
     vs->state = VS_STREAM;
     sched_del_timer(&vs->timer);
     // すぐに最初の計画を走らせ、以降は period ごと
@@ -235,12 +242,14 @@ void
 command_velocity_stream_set_velocity(uint32_t *args)
 {
     struct velocity_stream *vs = velocity_stream_oid_lookup(args[0]);
-    // CONTACT のあとは velocity_stream_start で明示に再開するまで受け付けない
+    // TRIGGERED のあとは velocity_stream_start で明示に再開するまで受け付けない
     if (vs->state != VS_STREAM)
         return;
     vs->seq = args[1];
     for (int i = 0; i < AXES; i++)
         vs->target[i] = args[2 + i];
+    // 速度指令は、目標位置への移動を取り消す
+    vs->moving = 0;
     // 期限は受け取った時点から ttl までに切る（遠すぎる期限や、一周した古い期限で
     // ウォッチドッグが効かなくならないように）
     uint32_t expire = args[5], latest = timer_read_time() + vs->ttl;
@@ -249,6 +258,32 @@ command_velocity_stream_set_velocity(uint32_t *args)
 DECL_COMMAND(command_velocity_stream_set_velocity,
              "velocity_stream_set_velocity oid=%c seq=%hu vx=%i vy=%i vz=%i"
              " expire_clock=%u");
+
+void
+command_velocity_stream_move(uint32_t *args)
+{
+    struct velocity_stream *vs = velocity_stream_oid_lookup(args[0]);
+    if (vs->state != VS_STREAM)
+        return;
+    uint8_t axes = args[2] & ((1 << AXES) - 1);
+    uint32_t speed = args[6];
+    if (!speed)
+        shutdown("Invalid velocity_stream move speed");
+    vs->seq = args[1];
+    vs->move_speed = speed;
+    for (int i = 0; i < AXES; i++) {
+        if (!(axes & (1 << i)))
+            continue;
+        // 可動域の外の目標は、可動域の端で止まる（vs_axis_plan_to が切り詰める）
+        vs->move_target[i] = args[3 + i];
+        vs->target[i] = 0;
+    }
+    // 移動しない軸の速度指令はそのまま。移動には期限がない（有限の距離で止まるため）
+    vs->moving |= axes;
+}
+DECL_COMMAND(command_velocity_stream_move,
+             "velocity_stream_move oid=%c seq=%hu axes=%c x=%i y=%i z=%i"
+             " speed=%u");
 
 void
 command_velocity_stream_stop(uint32_t *args)
@@ -302,11 +337,12 @@ queue_segment(struct velocity_stream *vs, int axis, struct vs_segment *seg)
         stepper_queue_move(s, seg->interval + 1, seg->long_count, 0);
 }
 
-// 接触で止まった。stepper は trsync の側で止まっているので、位置を合わせ直す
+// trsync で止まった。stepper は trsync の側で止まっているので、位置を合わせ直す
 static void
-handle_contact(uint8_t oid, struct velocity_stream *vs, uint32_t now)
+handle_trigger(uint8_t oid, struct velocity_stream *vs, uint32_t now)
 {
-    stop_timer(vs, VS_CONTACT);
+    stop_timer(vs, VS_TRIGGERED);
+    vs->moving = 0;
     for (int i = 0; i < AXES; i++) {
         vs_axis_reset(&vs->axes[i], actual_position(vs, i), now);
         vs->target[i] = 0;
@@ -326,10 +362,22 @@ plan_segments(struct velocity_stream *vs, uint32_t now)
         if (expired || vs->state == VS_STOPPING)
             for (int i = 0; i < AXES; i++)
                 vs->target[i] = 0;
+        // 停止の指示は、目標位置への移動も取り消して減速させる
+        if (vs->state == VS_STOPPING)
+            vs->moving = 0;
         for (int i = 0; i < AXES; i++) {
+            struct vs_axis *a = &vs->axes[i];
             struct vs_segment seg;
-            vs_axis_plan(&vs->axes[i], vs->target[i], vs->seg_clock
-                         , vs->period, CONFIG_CLOCK_FREQ, &seg);
+            if (vs->moving & (1 << i)) {
+                vs_axis_plan_to(a, vs->move_target[i], vs->move_speed
+                                , vs->seg_clock, vs->period, CONFIG_CLOCK_FREQ
+                                , &seg);
+                if (vs_axis_arrived(a, vs->move_target[i]))
+                    vs->moving &= ~(1 << i);
+            } else {
+                vs_axis_plan(a, vs->target[i], vs->seg_clock
+                             , vs->period, CONFIG_CLOCK_FREQ, &seg);
+            }
             queue_segment(vs, i, &seg);
         }
         vs->seg_clock += vs->period;
@@ -364,7 +412,7 @@ velocity_stream_task(void)
         vs->flags = flags & ~VSF_TRIGGERED;
         irq_enable();
         if (flags & VSF_TRIGGERED) {
-            handle_contact(oid, vs, now);
+            handle_trigger(oid, vs, now);
             continue;
         }
         plan_segments(vs, now);
