@@ -406,6 +406,69 @@ test_move_reverses_toward_a_target_behind(void)
 }
 
 static void
+test_move_to_a_near_target_ahead_while_moving(void)
+{
+    // 最高速度で動いている最中に、制動距離（約 8533 歩）より近い前方の目標（0.1 mm = 853 歩）を指示しても、
+    // 加速度の範囲で減速し、行き過ぎてから戻って目標にちょうど止まる
+    struct sim s;
+    sim_init(&s, MAX_POS / 2, 0);
+    CHECK(sim_run(&s, MAX_VELOCITY, 150), "展開がずれた");
+    int32_t target = vs_axis_position(&s.axis) + 853;
+    CHECK(sim_move(&s, target, MAX_VELOCITY, 3000), "展開がずれた");
+    CHECK(vs_axis_position(&s.axis) == target, "pos=%d target=%d",
+          vs_axis_position(&s.axis), target);
+    CHECK(vs_axis_arrived(&s.axis, target), "着いたと判定しない");
+}
+
+static void
+test_move_to_targets_while_moving_keeps_acceleration(void)
+{
+    // 動いている最中に、いろいろな近さ・向きの目標を指示しても、加速度を守って目標に止まる（決まった乱数列）
+    uint32_t seed = 777;
+    for (int trial = 0; trial < 300; trial++) {
+        struct sim s;
+        sim_init(&s, MAX_POS / 2, 0);
+        seed = seed * 1103515245 + 12345;
+        int32_t v = (int32_t)(seed >> 8) % (2 * (int32_t)MAX_VELOCITY) - (int32_t)MAX_VELOCITY;
+        CHECK(sim_run(&s, v, 100), "展開がずれた（試行 %d）", trial);
+        seed = seed * 1103515245 + 12345;
+        int32_t target = vs_axis_position(&s.axis) + (int32_t)(seed >> 8) % 40000 - 20000;
+        CHECK(sim_move(&s, target, MAX_VELOCITY, 3000), "展開がずれた（試行 %d）", trial);
+        CHECK(vs_axis_arrived(&s.axis, target), "試行 %d で着かない: pos=%d target=%d",
+              trial, vs_axis_position(&s.axis), target);
+    }
+}
+
+static void
+test_move_arrives_with_the_minimum_accel(void)
+{
+    // 加速度が下限（VS_MIN_ACCEL）でも、1 歩未満の端数を詰め切って目標に着く
+    uint32_t seed = 4242;
+    for (int trial = 0; trial < 100; trial++) {
+        struct sim s;
+        sim_init(&s, MAX_POS / 2, 0);
+        s.axis.config.accel = VS_MIN_ACCEL;
+        seed = seed * 1103515245 + 12345;
+        int32_t target = MAX_POS / 2 + (int32_t)(seed >> 8) % 4000 - 2000;
+        CHECK(sim_move(&s, target, MAX_VELOCITY / 20, 20000), "展開がずれた（試行 %d）", trial);
+        CHECK(vs_axis_arrived(&s.axis, target), "試行 %d で着かない: pos=%d target=%d",
+              trial, vs_axis_position(&s.axis), target);
+    }
+}
+
+static void
+test_move_target_outside_range_while_moving_away(void)
+{
+    // 負の向きに動いている最中に、可動域の外の正の目標を指示しても、反転して可動域の端で止まる
+    struct sim s;
+    sim_init(&s, MAX_POS - 50000, 0);
+    CHECK(sim_run(&s, -(int32_t)MAX_VELOCITY, 150), "展開がずれた");
+    CHECK(sim_move(&s, MAX_POS + 100000, MAX_VELOCITY, 3000), "展開がずれた");
+    CHECK(vs_axis_position(&s.axis) == MAX_POS, "pos=%d", vs_axis_position(&s.axis));
+    CHECK(vs_axis_arrived(&s.axis, MAX_POS + 100000), "着いたと判定しない");
+}
+
+static void
 test_move_target_outside_range_stops_at_the_limit(void)
 {
     struct sim s;
@@ -500,6 +563,10 @@ main(void)
     test_arrived_needs_target_and_rest();
     test_move_respects_speed();
     test_move_reverses_toward_a_target_behind();
+    test_move_to_a_near_target_ahead_while_moving();
+    test_move_to_targets_while_moving_keeps_acceleration();
+    test_move_target_outside_range_while_moving_away();
+    test_move_arrives_with_the_minimum_accel();
     test_move_target_outside_range_stops_at_the_limit();
     test_move_to_current_position_makes_no_steps();
     test_reversal_keeps_steps_in_order();

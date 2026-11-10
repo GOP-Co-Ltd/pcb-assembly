@@ -55,7 +55,7 @@ struct velocity_stream {
     int32_t target[AXES];  // 速度指令の目標速度
     // moving の bit が立った軸は、速度指令ではなく move_target へ move_speed で向かう
     int32_t move_target[AXES];
-    uint32_t move_speed;
+    uint32_t move_speed[AXES];
     uint32_t period, lead, report_ticks, ttl;
     uint32_t seg_clock;  // 次に計画する区間の開始時刻
     uint32_t expire_clock, next_report;
@@ -143,7 +143,7 @@ command_velocity_stream_set_limits(uint32_t *args)
     uint8_t axis = args[1];
     int32_t min_pos = args[2], max_pos = args[3];
     uint32_t max_velocity = args[4], accel = args[5];
-    if (axis >= AXES || min_pos >= max_pos || !max_velocity || !accel
+    if (axis >= AXES || min_pos >= max_pos || !max_velocity || accel < VS_MIN_ACCEL
         || max_velocity > MAX_VELOCITY || accel > MAX_ACCEL)
         shutdown("Invalid velocity_stream limits");
     if (is_running(vs))
@@ -267,18 +267,21 @@ command_velocity_stream_move(uint32_t *args)
         return;
     uint8_t axes = args[2] & ((1 << AXES) - 1);
     uint32_t speed = args[6];
+    if (!axes)
+        return;
     if (!speed)
         shutdown("Invalid velocity_stream move speed");
     vs->seq = args[1];
-    vs->move_speed = speed;
     for (int i = 0; i < AXES; i++) {
         if (!(axes & (1 << i)))
             continue;
-        // 可動域の外の目標は、可動域の端で止まる（vs_axis_plan_to が切り詰める）
+        // 可動域の外の目標は、可動域の端で止まる（vs_axis_plan_to が切り詰める）。
+        // 速さは軸ごとに持つので、ほかの軸の進行中の移動は変わらない
         vs->move_target[i] = args[3 + i];
+        vs->move_speed[i] = speed;
         vs->target[i] = 0;
     }
-    // 移動しない軸の速度指令はそのまま。移動には期限がない（有限の距離で止まるため）
+    // 移動しない軸の速度指令はそのまま（期限で止まる）。移動には期限がない（有限の距離で止まるため）
     vs->moving |= axes;
 }
 DECL_COMMAND(command_velocity_stream_move,
@@ -369,7 +372,7 @@ plan_segments(struct velocity_stream *vs, uint32_t now)
             struct vs_axis *a = &vs->axes[i];
             struct vs_segment seg;
             if (vs->moving & (1 << i)) {
-                vs_axis_plan_to(a, vs->move_target[i], vs->move_speed
+                vs_axis_plan_to(a, vs->move_target[i], vs->move_speed[i]
                                 , vs->seg_clock, vs->period, CONFIG_CLOCK_FREQ
                                 , &seg);
                 if (vs_axis_arrived(a, vs->move_target[i]))

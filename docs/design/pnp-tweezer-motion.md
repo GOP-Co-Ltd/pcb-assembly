@@ -138,7 +138,7 @@ patch（`stepper_oid_lookup`・`stepper_queue_move`・`stepper_set_next_dir`・`
 - **接触停止:** HX711 → `trigger_analog` → `trsync` → `stepper_stop`。`velocity_stream` も同じ `trsync` に
     シグナルを登録し、トリガで目標速度を 0 に戻す。止め方は homing と同じで、減速を挟まない
     （台形ネジで最大 10 mm/s と遅いので、即時に止めてよい）
-- **原点出し:** Klippy と同じく、Pi が `endstop`・`trsync`・`queue_step` で行う。遅延の要件がないので、MCU 側に新しく書かない
+- **原点出し:** Pi が Klipper の `endstop_home`・`trsync` と速度指令・目標位置への移動で行う（原点出しの間だけ可動域を広げる）。MCU 側に専用の状態は持たない
 
 ### 状態
 
@@ -173,7 +173,7 @@ Klipper のプロトコル（`docs/Protocol.md`）をそのまま使い、コマ
 - **ウォッチドッグ:** 速度指令は有効期限を持つ。期限内に次の指令が来なければ、減速して止まる。
     ポリシーや Python が固まったときの安全装置。最後の砦として `trsync` の期限も張り、Pi が延長しなければ即時に止まる
 - **可動域と速度上限は MCU が持つ。** 速度指令と位置指令は、可動域の手前で止まるよう MCU が制限する。
-    原点出し以外では、Pi は生の `queue_step` を使わない
+    Pi は生の `queue_step` を使わない（原点出しも速度指令で行う）。リミットスイッチは通常の可動域の少し外に置き、運転中も trsync に張って即時に止める
 - **接触停止は MCU の中で完結させる。** Pi の Python で見張ると、Linux のスケジューリングで数十 ms の遅れが出得る
 
 ## ライセンスとリポジトリの構成

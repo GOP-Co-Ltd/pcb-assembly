@@ -67,7 +67,8 @@ pytest（`tests/firmware/`）からも流れ、CI に載る。`module/` は実�
 | `velocity_stream_stop_on_trigger` | `trsync_oid`                                                       | 開始の前                 |
 | `velocity_stream_query`           |                                                                    | いつでも                 |
 
-`velocity_stream_set_velocity` は全軸を速度指令にする（移動を取り消す）。
+`velocity_stream_set_velocity` は全軸を速度指令にする（進行中の移動をすべて取り消す）。そのため、ある軸を移動させながら
+別の軸を連続でジョグすることはできない（速度指令は期限ごとに送り直すので、そのたびに移動が消える）。
 `velocity_stream_move` は `axes` の軸を目標位置へ `speed` で動かし、ちょうど止める（各軸は独立に動き、直線にはならない）。
 目標が可動域の外なら可動域の端で止まる。移動には期限がない。ほかの軸の速度指令はそのまま続く。
 
@@ -77,7 +78,8 @@ pytest（`tests/firmware/`）からも流れ、CI に載る。`module/` は実�
 - `x`・`y`・`z` は報告時刻の stepper の位置、`vx`・`vy`・`vz` は先読み（`lead_ticks`）の分だけ先の計画の速度
 - `seq` は最後に受け取った速度指令か移動の連番（実行中の指令の連番ではない）
 - `state` は `velocity_stream_state` の列挙（`idle`・`stream`・`stopping`・`triggered`）
-- `reason` は `triggered` にした trsync の理由（ホストが `endstop_home` などに渡した値。開始で 0 に戻る）
+- `reason` は `triggered` にした trsync の理由。ホストが `endstop_home`・`trigger_analog` に渡した値のほか、
+    ホストの `trsync_trigger` の値や、trsync の期限切れの理由（`trsync_set_timeout` の `expire_reason`）も入る。開始で 0 に戻る
 - `moving` は目標位置へ移動中の軸の bit。計画が目標に着くと落ちる。stepper が実際に着くのは先読みの分だけ後なので、
     完了は `moving` が 0 で、かつ位置が目標になったことで判断する
 
@@ -91,14 +93,22 @@ pytest（`tests/firmware/`）からも流れ、CI に載る。`module/` は実�
     `velocity_stream` は stepper を止めない。止めるのは trsync の stepper の側で、`velocity_stream` は `TRIGGERED` になって位置を合わせ直すだけ。
     登録しない軸は、先読みの分だけ動き続け、位置がずれる
 - **トリガの元:** ロードセル（`trigger_analog`）と、3 軸のリミットスイッチ（Klipper の `endstop_home`）を、同じ trsync に張る。
-    理由（`reason`）を元ごとに変えておけば、`velocity_stream_state` で区別できる
+    理由（`reason`）を元ごとに変えておけば、`velocity_stream_state` で区別できる。
+    `endstop_home` は端ではなくピンの値を見るので、押されたままのスイッチを張ると、開始した直後に止まる
+- **スイッチの位置:** リミットスイッチは、通常の可動域（`set_limits`）の少し外で押されるように置く。
+    可動域の端まで動いてもスイッチを押さず、押されたら位置を見失ったか可動域の設定が誤っていることになる
 - **再開:** `TRIGGERED` のあとの速度指令と移動は無視する。ホストが向きを決め、`velocity_stream_start` で開始し直す。
     リミットスイッチで止まったときは、スイッチが押されたままなので、その軸を原点出しし直す
-- **原点出し:** MCU に専用の状態はない。ホストが次の順で行う
-    1. その軸の可動域を、スイッチを越えて届く広さに `velocity_stream_set_limits` で一時的に広げ、`velocity_stream_set_position` で仮の位置を置く
-    2. その軸のスイッチの `endstop_home` を trsync に張って開始し、スイッチへ向かう速度指令を送り続ける
-    3. `triggered` になったら、報告の位置とスイッチの位置から `velocity_stream_set_position` で位置を決め、可動域を戻す
-    4. 開始し直し、`velocity_stream_move` でスイッチから離れる
+- **原点出し:** MCU に専用の状態はない。1 軸ずつ、ホストが次の順で行う
+    1. その軸の可動域を、スイッチを越えて届く広さに `velocity_stream_set_limits` で一時的に広げ、
+        `velocity_stream_set_position` で仮の位置を置く
+    2. その軸のスイッチの `endstop_home` を trsync に張って開始し、スイッチへ向かう一定の速さの速度指令を送り続ける
+        （止まる位置には検出の遅れの分の行き過ぎが入る。速さを一定にすれば、行き過ぎも一定になる）
+    3. `triggered` になったら、`velocity_stream_set_position` でスイッチの位置を設定する（可動域は広げたまま）
+    4. その軸のスイッチは張らずに開始し直し、`velocity_stream_move` で通常の可動域の中の退避位置へ動く。
+        着いたら `velocity_stream_stop` で `idle` になるのを待つ
+    5. `velocity_stream_set_limits` で通常の可動域に戻す。全軸が済んだら、3 軸のスイッチとロードセルを張って開始する。
+        `endstop_query_state` でスイッチが離れていることを確かめてから張る
 - **期限:** 速度指令の `expire_clock` を過ぎると、目標を 0 にして減速する。期限は受け取った時点から `ttl_ticks` までに切られる。
     期限は先読みの分だけ先の区間と比べるので、ホストが固まってから減速し始めるまでの時間は `ttl_ticks` − `lead_ticks` ほど
 - **向き:** `invert_dir` の bit が立った軸は、正の速度で dir ピンを 0 にする（Klippy の `!dir_pin` に当たる）
@@ -107,7 +117,7 @@ pytest（`tests/firmware/`）からも流れ、CI に載る。`module/` は実�
     - `lead_ticks` は `period_ticks` 以上、100 ms 以下、`period_ticks` の 64 倍以下
         （先読みで積む move を、Klipper の move のプール（最大 1024、全 stepper で共有）に収める）
     - `ttl_ticks` は `lead_ticks` + `period_ticks` より長く、1 秒以下
-    - `max_velocity` は 500000 steps/s 以下、`accel` は 10⁹ steps/s² 以下
+    - `max_velocity` は 500000 steps/s 以下、`accel` は 65536 以上、10⁹ steps/s² 以下
     - 開始時と位置の設定時に、位置が可動域の中にあること
     - 開始の `clock` は、いまから `lead_ticks` 以上先
 - **遅れ:** task が遅れて、計画する区間の開始が過ぎていたら `velocity_stream fell behind` で shutdown する

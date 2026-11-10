@@ -163,6 +163,20 @@ vs_axis_plan_to(struct vs_axis *a, int32_t target_pos, uint32_t speed,
     int32_t low = c->min_pos, high = c->max_pos;
     int32_t target = (int32_t)clamp64(target_pos, low, high);
     int64_t goal = (int64_t)target * ONE;
+    int64_t dist = goal - a->pos, v = a->velocity;
+    if ((dist > 0 && v > 0) || (dist < 0 && v < 0)) {
+        // 目標へ向かって動いていて、目標の手前で止まりきれない（制動距離に 1 区間の先読みと
+        // 1 区間ぶんの速度の余裕を足す）なら、境界を縮めずに 0 まで減速する。目標で打ち切ると
+        // 加速度を破って急停止するため。行き過ぎて止まったら、次の区間から目標へ戻る
+        int64_t dv = ((uint64_t)c->accel * period + clock_freq - 1) / clock_freq;
+        int64_t speed = abs64(v) + dv;
+        int64_t stop = speed * speed * ONE / (2 * (int64_t)c->accel)
+            + speed * period * ONE / clock_freq;
+        if (stop >= abs64(dist)) {
+            plan_within(a, 0, low, high, seg_start, period, clock_freq, out);
+            return;
+        }
+    }
     int32_t velocity = 0;
     if (a->pos < goal) {
         high = target;

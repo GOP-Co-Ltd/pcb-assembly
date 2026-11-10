@@ -12,6 +12,9 @@
 
 // 位置の固定小数点の小数部のビット数
 #define VS_POS_SHIFT 16
+// 加速度の下限（steps/s^2）。1 歩未満の残りの制動の速さ sqrt(2·a·r) が 0 に丸まらず、
+// 目標位置への移動が端数を詰め切れる
+#define VS_MIN_ACCEL 65536
 // 区間の先頭のステップを、直前のステップからあける最小の時間（2 µs）。
 // 区間の境目で向きが変わっても、ドライバが方向を取り込む時間を残す
 #define VS_MIN_GAP_TICKS(clock_freq) ((clock_freq) / 500000)
@@ -51,7 +54,7 @@ int32_t vs_axis_position(const struct vs_axis *a);
 // [seg_start, seg_start + period) の区間を進め、その区間のステップを out に返す。
 // 区間は途切れず順に渡す（止まっている間も呼ぶ）。前提:
 // - max_velocity * period / clock_freq < 60000（1 区間のステップ数が uint16_t に収まる）
-// - max_velocity <= clock_freq / VS_MIN_GAP_TICKS、accel <= 1e9（int64 があふれない）
+// - max_velocity <= clock_freq / VS_MIN_GAP_TICKS、VS_MIN_ACCEL <= accel <= 1e9（int64 があふれない）
 // 位置が可動域の外にあるときは、外向きには動かさず、内向きには加速度の範囲で戻す。
 void vs_axis_plan(struct vs_axis *a, int32_t target_velocity, uint32_t seg_start,
                   uint32_t period, uint32_t clock_freq, struct vs_segment *out);
