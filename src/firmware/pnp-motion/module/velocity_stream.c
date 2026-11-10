@@ -20,11 +20,13 @@
 #include "vs_planner.h"  // vs_axis_plan
 
 #define AXES 3
-// 1 区間のステップ数は uint16_t に収める
-#define MAX_SEGMENT_STEPS 60000
-// 区間と先読みの範囲（短すぎる区間は task を詰まらせ、長すぎる先読みは move queue を使い切る）
+// 区間と先読みの範囲（短すぎる区間は task を詰まらせる）。
+// MAX_VELOCITY と合わせて、1 区間のステップ数は 50000 以下（uint16_t に収まる）
 #define MIN_PERIOD (CONFIG_CLOCK_FREQ / 2000)  // 0.5 ms
 #define MAX_LEAD (CONFIG_CLOCK_FREQ / 10)  // 100 ms
+// 先読みする区間の数の上限。1 区間・1 軸あたり最大 3 つの move を積むので、
+// 3 軸で 9 × (64 + 1) = 585 個。Klipper の move のプール（最大 1024、全 stepper で共有）に収める
+#define MAX_SEGMENTS_AHEAD 64
 // 速度指令の有効期限の上限。ホストが固まってから止まり始めるまでの最大の時間
 #define MAX_TTL CONFIG_CLOCK_FREQ  // 1 s
 // ステップの間隔が区間の先頭の最小間隔を下回らない速さ、int64 があふれない加速度
@@ -155,8 +157,10 @@ command_velocity_stream_set_position(uint32_t *args)
     struct velocity_stream *vs = velocity_stream_oid_lookup(args[0]);
     uint8_t axis = args[1];
     int32_t pos = args[2];
-    if (axis >= AXES || !(vs->limits_set & (1 << axis)))
+    if (axis >= AXES)
         shutdown("Invalid velocity_stream axis");
+    if (!(vs->limits_set & (1 << axis)))
+        shutdown("velocity_stream limits not set");
     if (is_running(vs))
         shutdown("Can't set velocity_stream position while running");
     if (!in_limits(&vs->axes[axis].config, pos))
@@ -188,13 +192,14 @@ command_velocity_stream_start(uint32_t *args)
         shutdown("velocity_stream already running");
     if (vs->limits_set != (1 << AXES) - 1)
         shutdown("velocity_stream limits not set");
-    if (period < MIN_PERIOD || lead < period || lead > MAX_LEAD || !ttl
-        || ttl > MAX_TTL)
+    if (period < MIN_PERIOD || lead < period || lead > MAX_LEAD
+        || lead / period > MAX_SEGMENTS_AHEAD)
         shutdown("Invalid velocity_stream period");
+    // 期限は「受け取った時刻 + ttl」で切り、先読みの分だけ先の区間と比べるので、
+    // ttl が lead + period 以下だとどの指令も当てる前に切れる
+    if (ttl <= lead + period || ttl > MAX_TTL)
+        shutdown("Invalid velocity_stream ttl");
     for (int i = 0; i < AXES; i++) {
-        uint64_t steps = (uint64_t)vs->axes[i].config.max_velocity * period;
-        if (steps / CONFIG_CLOCK_FREQ >= MAX_SEGMENT_STEPS)
-            shutdown("velocity_stream period too long for max_velocity");
         if (!in_limits(&vs->axes[i].config, actual_position(vs, i)))
             shutdown("velocity_stream position outside limits");
     }

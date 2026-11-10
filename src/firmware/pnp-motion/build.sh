@@ -57,8 +57,11 @@ apply_sources() {
     cp "${HERE}"/core/*.[ch] "${HERE}"/module/*.c "${KLIPPER_DIR}/src/pnp/"
     # ファームが返す版（このディレクトリを最後に変えた commit）。ホストが接続時に確かめる。
     # ファームに関係しない commit では変わらないので、書き込み直しが要らない
-    version="$(git -C "$HERE" log -1 --format=%h -- . 2>/dev/null)"
-    if [ -n "$(git -C "$HERE" status --porcelain -- . 2>/dev/null)" ]; then
+    # Git の外（ソースだけを写した場合）では unknown
+    version="$(git -C "$HERE" log -1 --format=%h -- . 2>/dev/null || true)"
+    if [ -z "$version" ]; then
+        version="unknown"
+    elif [ -n "$(git -C "$HERE" status --porcelain -- . 2>/dev/null)" ]; then
         version="${version}-dirty"
     fi
     printf '#define PNP_MOTION_VERSION "%s"\n' "$version" >"${KLIPPER_DIR}/src/pnp/pnp_version.h"

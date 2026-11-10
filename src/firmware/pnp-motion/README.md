@@ -81,14 +81,15 @@ pytest（`tests/firmware/`）からも流れ、CI に載る。`module/` は実�
     `velocity_stream` は stepper を止めない。止めるのは trsync の stepper の側で、`velocity_stream` は `CONTACT` になって位置を合わせ直すだけ。
     登録しない軸は、先読みの分だけ動き続け、位置がずれる
 - **再開:** `CONTACT` のあとの速度指令は無視する。ホストが離れる向きを決め、`velocity_stream_start` で開始し直す
-- **期限:** 速度指令の `expire_clock` を過ぎると、目標を 0 にして減速する。期限は受け取った時点から `ttl_ticks` までに切られる
+- **期限:** 速度指令の `expire_clock` を過ぎると、目標を 0 にして減速する。期限は受け取った時点から `ttl_ticks` までに切られる。
+    期限は先読みの分だけ先の区間と比べるので、ホストが固まってから減速し始めるまでの時間は `ttl_ticks` − `lead_ticks` ほど
 - **向き:** `invert_dir` の bit が立った軸は、正の速度で dir ピンを 0 にする（Klippy の `!dir_pin` に当たる）
 - **範囲:** 次を外れると shutdown になる
     - `period_ticks` は 0.5 ms 以上
-    - `lead_ticks` は `period_ticks` 以上、100 ms 以下
-    - `ttl_ticks` は 1 秒以下
+    - `lead_ticks` は `period_ticks` 以上、100 ms 以下、`period_ticks` の 64 倍以下
+        （先読みで積む move を、Klipper の move のプール（最大 1024、全 stepper で共有）に収める）
+    - `ttl_ticks` は `lead_ticks` + `period_ticks` より長く、1 秒以下
     - `max_velocity` は 500000 steps/s 以下、`accel` は 10⁹ steps/s² 以下
-    - 1 区間のステップ数（`max_velocity × period_ticks / CLOCK_FREQ`）は 60000 未満
     - 開始時と位置の設定時に、位置が可動域の中にあること
     - 開始の `clock` は、いまから `lead_ticks` 以上先
 - **遅れ:** task が遅れて、計画する区間の開始が過ぎていたら `velocity_stream fell behind` で shutdown する
