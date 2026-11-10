@@ -27,7 +27,7 @@ from pcbasm.vision.image import Image, ImageArray
 from .audio import AudioDevice, AudioPlayer, Sound
 from .camera import Camera, CameraInfo, Resolution
 from .klipper import GCodeJournal, KlipperError
-from .servo import BROADCAST_ID, STEPS_PER_REV, ServoError, ServoMode
+from .servo import BROADCAST_ID, STEPS_PER_REV, ServoBus, ServoError, ServoMode
 
 # FakeKlipper が既定で返す printer.cfg。XYZStage / PasteDispenser / ProbeExecutor と所要時間の予測が読むセクションだけを持つ
 FAKE_PRINTER_CONFIG: dict[str, dict[str, Any]] = {
@@ -600,7 +600,7 @@ class ServoCommand:
     value: int
 
 
-class FakeServoBus:
+class FakeServoBus(ServoBus):
     """指令を記録し、即座に位置へ反映する ``ServoBus``.
 
     ``modes`` にある ID だけが応答する。位置モードの ID は goto だけ、ステップモードの ID は step だけを受け付ける。
@@ -645,17 +645,21 @@ class FakeServoBus:
         """Close() されたか."""
         return self._closed
 
+    @override
     def ping(self, servo_id: int) -> bool:
         return servo_id in self._modes
 
+    @override
     def mode(self, servo_id: int) -> ServoMode:
         return self._mode(servo_id)
 
+    @override
     def position(self, servo_id: int) -> int:
         self._mode(servo_id)
         with self._lock:
             return self._positions[servo_id]
 
+    @override
     def moving(self, servo_id: int) -> bool:
         self._mode(servo_id)
         if servo_id in self._jammed:
@@ -668,23 +672,27 @@ class FakeServoBus:
                 return False
             return True
 
+    @override
     def set_torque(self, servo_id: int, on: bool) -> None:
         self._mode(servo_id)
         with self._lock:
             self._commands.append(ServoCommand(servo_id, "torque", int(on)))
             self._torque[servo_id] = on
 
+    @override
     def release_all(self) -> None:
         with self._lock:
             self._commands.append(ServoCommand(BROADCAST_ID, "torque", 0))
             self._torque = dict.fromkeys(self._modes, False)
 
+    @override
     def set_mode(self, servo_id: int, mode: ServoMode) -> None:
         self._mode(servo_id)
         with self._lock:
             self._commands.append(ServoCommand(servo_id, "mode", int(mode)))
             self._modes[servo_id] = mode
 
+    @override
     def goto(self, servo_id: int, position: int) -> None:
         if not 0 <= position < STEPS_PER_REV:
             raise ValueError(
@@ -696,6 +704,7 @@ class FakeServoBus:
             self._positions[servo_id] = position
             self._reads_until_start[servo_id] = self._start_delay
 
+    @override
     def step(self, servo_id: int, steps: int) -> None:
         self._require(servo_id, ServoMode.STEP)
         with self._lock:
@@ -705,6 +714,7 @@ class FakeServoBus:
             ) % STEPS_PER_REV
             self._reads_until_start[servo_id] = self._start_delay
 
+    @override
     def close(self) -> None:
         self._closed = True
 

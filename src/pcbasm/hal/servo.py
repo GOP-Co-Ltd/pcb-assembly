@@ -18,8 +18,9 @@ import math
 import termios
 import threading
 import time
+from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
-from typing import Protocol
+from typing import override
 
 from scservo_sdk import COMM_SUCCESS, PacketHandler, PortHandler
 
@@ -64,65 +65,66 @@ class ServoError(DeviceError):
     """サーボが応答しない・通信に失敗した・モードが役割と合わない."""
 
 
-class ServoBus(Protocol):
+class ServoBus(ABC):
     """サーボのバス 1 本（ID でサーボを選ぶ）."""
 
+    @abstractmethod
     def ping(self, servo_id: int) -> bool:
         """その ID のサーボが応答するか.
 
         Raises:
             ServoError: シリアルの I/O に失敗した場合
         """
-        ...
 
+    @abstractmethod
     def mode(self, servo_id: int) -> ServoMode:
         """動作モードを読む.
 
         Raises:
             ServoError: 通信に失敗した、または位置・ステップ以外のモードの場合
         """
-        ...
 
+    @abstractmethod
     def position(self, servo_id: int) -> int:
         """現在位置を読む（raw 0〜4095）.
 
         Raises:
             ServoError: 通信に失敗した場合
         """
-        ...
 
+    @abstractmethod
     def moving(self, servo_id: int) -> bool:
         """動いている途中か.
 
         Raises:
             ServoError: 通信に失敗した場合
         """
-        ...
 
+    @abstractmethod
     def set_torque(self, servo_id: int, on: bool) -> None:
         """トルクを入れる・切る.
 
         Raises:
             ServoError: 通信に失敗した場合
         """
-        ...
 
+    @abstractmethod
     def release_all(self) -> None:
         """バスにつながる全サーボのトルクを切る（ID を知らなくても届くブロードキャスト。応答は待たない）.
 
         Raises:
             ServoError: 送信に失敗した場合
         """
-        ...
 
+    @abstractmethod
     def set_mode(self, servo_id: int, mode: ServoMode) -> None:
         """動作モードを EEPROM に書く（電源を切っても残る。トルクは呼ぶ側が先に切る）.
 
         Raises:
             ServoError: 通信に失敗した場合
         """
-        ...
 
+    @abstractmethod
     def goto(self, servo_id: int, position: int) -> None:
         """位置モードのサーボを絶対位置（raw 0〜4095）へ動かす（完了は待たない）.
 
@@ -130,22 +132,21 @@ class ServoBus(Protocol):
             ValueError: position が 0〜4095 の外の場合
             ServoError: 通信に失敗した場合
         """
-        ...
 
+    @abstractmethod
     def step(self, servo_id: int, steps: int) -> None:
         """ステップモードのサーボを相対に steps だけ動かす（負は逆向き。完了は待たない）.
 
         Raises:
             ServoError: 通信に失敗した場合
         """
-        ...
 
+    @abstractmethod
     def close(self) -> None:
         """バスを閉じる."""
-        ...
 
 
-class FeetechBus:
+class FeetechBus(ServoBus):
     """scservo_sdk で STS シリーズのサーボと話す :class:`ServoBus`（:func:`open_servo_bus`
     で作る）.
 
@@ -160,6 +161,7 @@ class FeetechBus:
         self._lock = threading.Lock()
         self._closed = False
 
+    @override
     def ping(self, servo_id: int) -> bool:
         """その ID のサーボが応答するか."""
         _, result, _ = self._transact(
@@ -167,6 +169,7 @@ class FeetechBus:
         )
         return result == COMM_SUCCESS
 
+    @override
     def mode(self, servo_id: int) -> ServoMode:
         """動作モードを読む."""
         value = self._read1(servo_id, _ADDR_MODE)
@@ -177,6 +180,7 @@ class FeetechBus:
                 f"サーボ {servo_id} のモードが位置（0）でもステップ（3）でもありません: {value}"
             ) from None
 
+    @override
     def position(self, servo_id: int) -> int:
         """現在位置を読む（raw 0〜4095）."""
         value, result, error = self._transact(
@@ -188,14 +192,17 @@ class FeetechBus:
         self._check(servo_id, result, error)
         return value
 
+    @override
     def moving(self, servo_id: int) -> bool:
         """動いている途中か."""
         return self._read1(servo_id, _ADDR_MOVING) != 0
 
+    @override
     def set_torque(self, servo_id: int, on: bool) -> None:
         """トルクを入れる・切る."""
         self._write1(servo_id, _ADDR_TORQUE_ENABLE, int(on))
 
+    @override
     def release_all(self) -> None:
         """ブロードキャストで TORQUE_ENABLE に 0 を書く（サーボは応答しない）."""
         result = self._transact(
@@ -206,6 +213,7 @@ class FeetechBus:
         )
         self._check(BROADCAST_ID, result, 0)
 
+    @override
     def set_mode(self, servo_id: int, mode: ServoMode) -> None:
         """EEPROM のロックを外して動作モードを書き、ロックを戻す（失敗してもロックは戻す）."""
         self._write1(servo_id, _ADDR_LOCK, 0)
@@ -214,6 +222,7 @@ class FeetechBus:
         finally:
             self._write1(servo_id, _ADDR_LOCK, 1)
 
+    @override
     def goto(self, servo_id: int, position: int) -> None:
         """位置モードのサーボを絶対位置へ動かす.
 
@@ -226,6 +235,7 @@ class FeetechBus:
             )
         self._write_goal(servo_id, position)
 
+    @override
     def step(self, servo_id: int, steps: int) -> None:
         """ステップモードのサーボを相対に steps だけ動かす.
 
@@ -236,6 +246,7 @@ class FeetechBus:
             raise ValueError(f"1 回に送れる step は ±{_MAX_STEPS} までです: {steps}")
         self._write_goal(servo_id, steps if steps >= 0 else _STEP_SIGN | -steps)
 
+    @override
     def close(self) -> None:
         """ポートを閉じる."""
         with self._lock:
