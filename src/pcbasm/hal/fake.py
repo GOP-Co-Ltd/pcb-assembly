@@ -27,6 +27,7 @@ from pcbasm.vision.image import Image, ImageArray
 
 from .audio import AudioDevice, AudioPlayer, Sound
 from .camera import Camera, CameraInfo, Resolution
+from .gamepad import Gamepad, GamepadError, GamepadState
 from .klipper import GCodeJournal, KlipperError
 from .servo import (
     BROADCAST_ID,
@@ -783,3 +784,40 @@ class FakeServoBus(ServoBus):
             raise ServoError(
                 f"サーボ {servo_id} は {actual.name} モードなので受け付けません"
             )
+
+
+class FakeGamepad(Gamepad):
+    """テストが設定した入力を返す ``Gamepad``（:meth:`disconnect` で切断も模擬する）."""
+
+    def __init__(self, state: GamepadState | None = None) -> None:
+        """Fake のコントローラを作る.
+
+        Args:
+            state: 初めの入力（None なら何も押していない状態）
+        """
+        self._state = state or GamepadState()
+        self._connected = True
+        self._closed = False
+
+    @property
+    def closed(self) -> bool:
+        """Close() されたか."""
+        return self._closed
+
+    def set_state(self, state: GamepadState) -> None:
+        """以後の :meth:`state` が返す入力を設定する（人がコントローラを操作したことにする）."""
+        self._state = state
+
+    def disconnect(self) -> None:
+        """コントローラが外れたことにする（以後の :meth:`state` は ``GamepadError``）."""
+        self._connected = False
+
+    @override
+    def state(self) -> GamepadState:
+        if not self._connected:
+            raise GamepadError("ゲームパッドが切断されました")
+        return self._state
+
+    @override
+    def close(self) -> None:
+        self._closed = True

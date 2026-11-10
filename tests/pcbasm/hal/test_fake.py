@@ -10,6 +10,8 @@ from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d, Point3d
 from pcbasm.hal import (
     FrameHub,
+    GamepadError,
+    GamepadState,
     KlipperError,
     ManualStepper,
     ServoError,
@@ -21,6 +23,7 @@ from pcbasm.hal.fake import (
     Checkerboard,
     FakeAudioPlayer,
     FakeCamera,
+    FakeGamepad,
     FakeKlipper,
     FakeServoBus,
     SceneCamera,
@@ -519,3 +522,34 @@ class TestFakeServoBus:
         bus.close()
 
         assert bus.closed
+
+
+class TestFakeGamepad:
+    """テストが設定した入力を返し、切断も模擬する."""
+
+    def test_is_at_rest_until_set(self):
+        assert FakeGamepad().state() == GamepadState()
+
+    def test_returns_the_state_set_by_the_test(self):
+        gamepad = FakeGamepad()
+        pressed = GamepadState(left_trigger=0.3, left_bumper=True, right_bumper=False)
+
+        gamepad.set_state(pressed)
+
+        assert gamepad.state() == pressed
+
+    def test_disconnect_makes_state_raise(self):
+        gamepad = FakeGamepad(GamepadState(left_trigger=1.0))
+
+        gamepad.disconnect()
+
+        with pytest.raises(GamepadError, match="切断"):
+            gamepad.state()
+
+    def test_close_marks_the_gamepad_closed(self):
+        gamepad = FakeGamepad()
+        assert not gamepad.closed
+
+        gamepad.close()
+
+        assert gamepad.closed
