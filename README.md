@@ -45,6 +45,16 @@ sudo reboot
 | 開発        | [アーキテクチャ](docs/develop/architecture.md)                                            | 層と依存方向、機能からコードへの地図、機能を足すときの変更先         |
 | 設計        | [画像ベース吐出量キャリブレーション要件](docs/design/image-based-dispense-calibration.md) | 運転時の流量補正と、塗布量校正のデータ収集の要件                     |
 | 設計        | [直径ベースの塗布量校正](docs/design/paste-volume-diameter-calibration.md)                | 塗布量の推定モデルと実測記録                                         |
-| 設計        | [ピンセット式 PnP の運動制御](docs/design/pnp-tweezer-motion.md)                          | XYZ の制御方式（自作ファーム案）、ピンセットのサーボ、RL の置き場所  |
+| 設計        | [ピンセット式 PnP の運動制御](docs/design/pnp-tweezer-motion.md)                          | XYZ のファーム（Klipper の MCU に速度指令を足す案）、サーボ、RL      |
 | 資産        | [マシン設定テンプレート](deploy/templates/README.md)                                      | 機種ごとの `machine.toml` と `printer.cfg` の初期値                  |
 | 資産        | [GitHub Actions Runner](github-runner/README.md)                                          | CI 用の専用 Raspberry Pi                                             |
+
+## ライセンス
+
+既定は [MIT](LICENSE)。次のものは、それぞれのライセンスに従う。
+
+| 対象                       | ライセンス                                        | 理由                                       |
+| -------------------------- | ------------------------------------------------- | ------------------------------------------ |
+| `src/firmware/pnp-motion/` | [GPLv3](src/firmware/pnp-motion/LICENSE)          | Klipper の MCU ファームを元にする          |
+| `klipper/`                 | [GPLv3](klipper/LICENSE)                          | Klipper のコードから派生した Klippy の拡張 |
+| `.claude/skills/yomiyasu/` | [MIT](.claude/skills/yomiyasu/LICENSE)（nanaism） | 外部から vendoring した skill              |
