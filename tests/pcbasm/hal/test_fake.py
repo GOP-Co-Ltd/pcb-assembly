@@ -437,6 +437,14 @@ class TestFakeServoBus:
 
         assert bus.remaining_steps(1) == 0
 
+    def test_torque_enabled_follows_set_torque_and_release_all(self, bus: FakeServoBus):
+        assert not bus.torque_enabled(1)
+
+        bus.set_torque(1, True)
+        assert bus.torque_enabled(1)
+        bus.release_all()
+        assert not bus.torque_enabled(1)
+
     def test_goto_is_refused_in_step_mode(self, bus: FakeServoBus):
         with pytest.raises(ServoError):
             bus.goto(1, 100)

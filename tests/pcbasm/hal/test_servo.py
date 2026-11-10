@@ -76,6 +76,12 @@ def _tweezer(
     )
 
 
+def _hold(bus: FakeServoBus) -> None:
+    """両方のサーボにトルクを入れておく（操作中の状態。指令はトルクを書かずに goal だけを送る）."""
+    bus.set_torque(ROTATION, True)
+    bus.set_torque(OPEN_CLOSE, True)
+
+
 def _moves(commands: list[ServoCommand]) -> list[ServoCommand]:
     """指令のうち、サーボを動かすもの（goto / step）."""
     return [command for command in commands if command.kind in {"goto", "step"}]
@@ -344,9 +350,12 @@ class TestWaitStopped:
 
 
 class TestTweezerTorque:
-    """指令ごとに、動かすサーボだけにトルクを入れる（もう一方の goal とトルクには触れない）."""
+    """動かすサーボのトルクが切れているときだけ入れる（もう一方の goal とトルクには触れない）.
 
-    def test_rotate_by_turns_on_only_the_rotation(self):
+    実機では、トルクが入っていても TORQUE_ENABLE に 1 を書くと、サーボは goal へ動かずにその場で止まる。
+    """
+
+    def test_rotate_by_turns_on_a_relaxed_rotation_first(self):
         bus = _tweezer_bus()
 
         _tweezer(bus).rotate_by(90.0)
@@ -361,18 +370,42 @@ class TestTweezerTorque:
         [(lambda t: t.open_by(10.0), 1114), (lambda t: t.open_to(0.5), 1250)],
         ids=["open_by", "open_to"],
     )
-    def test_open_writes_the_goal_before_the_torque(
+    def test_relaxed_open_close_holds_where_it_is_and_then_moves(
         self, command: Callable[[Tweezer], None], target: int
     ):
-        """Goal を先に書くので、トルクを入れた瞬間に古い goal へ跳ばない."""
+        """トルクを入れると goal へは動かずその場で止まるので、goal を今の位置にしてから入れ、それから送る."""
         bus = _tweezer_bus(open_close_position=1000)
 
         command(_tweezer(bus))
 
         assert bus.commands == [
-            ServoCommand(OPEN_CLOSE, "goto", target),
+            ServoCommand(OPEN_CLOSE, "goto", 1000),
             ServoCommand(OPEN_CLOSE, "torque", 1),
+            ServoCommand(OPEN_CLOSE, "goto", target),
         ]
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            lambda t: t.rotate_by(90.0),
+            lambda t: t.open_to(0.5),
+            lambda t: t.keep_rotating(1),
+            lambda t: t.stop_rotation(),
+        ],
+        ids=["rotate_by", "open_to", "keep_rotating", "stop_rotation"],
+    )
+    def test_commands_to_a_held_servo_do_not_write_the_torque(
+        self, command: Callable[[Tweezer], None]
+    ):
+        bus = _tweezer_bus()
+        tweezer = _tweezer(bus)
+        tweezer.rotate_by(90.0)  # 両方にトルクを入れ、回転の残りも作る
+        tweezer.open_to(1.0)
+        sent = len(bus.commands)
+
+        command(tweezer)
+
+        assert [c for c in bus.commands[sent:] if c.kind == "torque"] == []
 
     def test_rotating_while_gripping_leaves_the_open_close_goal(self):
         """つまんだまま回しても Open Close の goal を今の位置で上書きしない（把持力が抜けない）.
@@ -631,6 +664,7 @@ class TestTweezerOpen:
 
     def test_open_by_moves_toward_open(self):
         bus = _tweezer_bus(open_close_position=1000)
+        _hold(bus)
         tweezer = _tweezer(bus)
         sent = len(bus.commands)
 
@@ -640,6 +674,7 @@ class TestTweezerOpen:
 
     def test_open_by_is_relative_to_the_current_position(self):
         bus = _tweezer_bus(open_close_position=1200)
+        _hold(bus)
         tweezer = _tweezer(bus)
         sent = len(bus.commands)
 
@@ -658,6 +693,7 @@ class TestTweezerOpen:
         self, position: int, degrees: float, target: int
     ):
         bus = _tweezer_bus(open_close_position=position)
+        _hold(bus)
         tweezer = _tweezer(bus)
 
         tweezer.open_by(degrees)
@@ -669,6 +705,7 @@ class TestTweezerOpen:
         self, position: int, degrees: float
     ):
         bus = _tweezer_bus(open_close_position=position)
+        _hold(bus)
         tweezer = _tweezer(bus)
         sent = len(bus.commands)
 
@@ -685,6 +722,7 @@ class TestTweezerOpen:
 
     def test_opening_is_the_angle_from_closed(self):
         bus = _tweezer_bus(open_close_position=1000)
+        _hold(bus)
         tweezer = _tweezer(bus)
 
         tweezer.open_by(10.0)
@@ -702,6 +740,7 @@ class TestTweezerOpenTo:
         self, fraction: float, target: int
     ):
         bus = _tweezer_bus(open_close_position=1200)
+        _hold(bus)
         tweezer = _tweezer(bus)
         sent = len(bus.commands)
 
@@ -742,6 +781,7 @@ class TestTweezerOpenTo:
         既定（500 step/s、加速度 10）では約 0.5 秒遅れる.
         """
         bus = _tweezer_bus()
+        _hold(bus)
 
         command(_tweezer(bus, rotation_speed=90.0))
 
@@ -750,6 +790,7 @@ class TestTweezerOpenTo:
     def test_target_fraction_is_the_goal_even_when_the_position_differs(self):
         """つまんで閉じ切りの手前で止まっていても、目標は送った開き具合のまま."""
         bus = _tweezer_bus(open_close_position=1200)
+        _hold(bus)
         tweezer = _tweezer(bus)
         tweezer.open_to(0.0)
         bus.set_torque(OPEN_CLOSE, False)
@@ -771,6 +812,7 @@ class TestTweezerReversed:
 
     def test_open_by_moves_toward_open(self):
         bus = _tweezer_bus(open_close_position=3000, open_close_limits=(2500, 3000))
+        _hold(bus)
         tweezer = _tweezer(bus, closed_position=3000, open_position=2500)
         sent = len(bus.commands)
 
@@ -784,6 +826,7 @@ class TestTweezerReversed:
     )
     def test_open_to_and_open_fraction(self, fraction: float, target: int):
         bus = _tweezer_bus(open_close_position=2700, open_close_limits=(2500, 3000))
+        _hold(bus)
         tweezer = _tweezer(bus, closed_position=3000, open_position=2500)
 
         tweezer.open_to(fraction)
@@ -796,6 +839,7 @@ class TestTweezerReversed:
         self, position: int, degrees: float
     ):
         bus = _tweezer_bus(open_close_position=position, open_close_limits=(2500, 3000))
+        _hold(bus)
         tweezer = _tweezer(bus, closed_position=3000, open_position=2500)
         sent = len(bus.commands)
 
@@ -929,6 +973,17 @@ class TestFeetechBus:
             feetech.goto(2, 1234, speed=speed)
 
         assert wire.packets == []
+
+    @pytest.mark.parametrize(("raw", "enabled"), [(b"\x01", True), (b"\x00", False)])
+    def test_torque_enabled_reads_the_torque_enable(self, raw: bytes, enabled: bool):
+        wire = _WireServo(registers={40: raw})
+        bus = servo_module.open_servo_bus(wire.path)
+        try:
+            assert bus.torque_enabled(1) is enabled
+            assert _reads(wire) == [(1, 40, 1)]
+        finally:
+            bus.close()
+            wire.close()
 
     def test_goal_reads_two_bytes_at_the_goal_position(
         self, wire: _WireServo, feetech: FeetechBus

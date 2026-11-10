@@ -118,8 +118,19 @@ class ServoBus(ABC):
         """
 
     @abstractmethod
+    def torque_enabled(self, servo_id: int) -> bool:
+        """トルクが入っているか.
+
+        Raises:
+            ServoError: 通信に失敗した場合
+        """
+
+    @abstractmethod
     def set_torque(self, servo_id: int, on: bool) -> None:
         """トルクを入れる・切る.
+
+        入っているサーボに入れ直しても、サーボは goal へ動かずにその場で止まる（実機）。動かしている
+        サーボには書かない。
 
         Raises:
             ServoError: 通信に失敗した場合
@@ -284,6 +295,11 @@ class FeetechBus(ServoBus):
     def moving(self, servo_id: int) -> bool:
         """動いている途中か."""
         return self._read1(servo_id, _ADDR_MOVING) != 0
+
+    @override
+    def torque_enabled(self, servo_id: int) -> bool:
+        """TORQUE_ENABLE を読む."""
+        return self._read1(servo_id, _ADDR_TORQUE_ENABLE) == 1
 
     @override
     def set_torque(self, servo_id: int, on: bool) -> None:
@@ -667,9 +683,9 @@ class Tweezer:
     指令を送るだけで、動き終わるのは待たない。Open Close の角度から開き幅への換算（角度 → 直動 →
     開き）はモデル化せず、角度のまま扱う。
 
-    トルクは組んだときではなく、指令ごとに動かすサーボだけに入れる。今の開き具合を読むだけなら、
-    脱力したサーボを保持しない。Rotation を回しても Open Close の goal には触れないので、
-    つまんだまま向きを変えても把持力は抜けない。
+    トルクは組んだときではなく、指令のときに、動かすサーボのトルクが切れていれば入れる（入っている サーボに入れ直すと、サーボは goal
+    へ動かずにその場で止まるため書かない）。今の開き具合を読むだけ なら、脱力したサーボを保持しない。Rotation を回しても Open
+    Close の goal には触れないので、 つまんだまま向きを変えても把持力は抜けない。
     """
 
     def __init__(
@@ -780,7 +796,8 @@ class Tweezer:
         # パネルで大きく回している途中に逆向きを押すと、1 回に送れる step を超え得る。
         # 収めて送れば、残りは次の周期の送り足しで埋まる
         steps = max(-MAX_STEPS, min(steps, MAX_STEPS))
-        self._bus.set_torque(self._rotation_id, True)
+        if not self._bus.torque_enabled(self._rotation_id):
+            self._bus.set_torque(self._rotation_id, True)
         self._bus.step(
             self._rotation_id,
             steps,
@@ -831,14 +848,15 @@ class Tweezer:
         return (position - self._closed) / (self._open - self._closed)
 
     def _goto_open_close(self, target: int) -> None:
-        # goal を先に書くので、トルクを入れた瞬間に古い goal へ跳ばない
+        if not self._bus.torque_enabled(self._open_close_id):
+            # トルクを入れると goal へは動かずその場で止まる。goal を今の位置にして入れてから送る
+            hold_position(self._bus, self._open_close_id)
         self._bus.goto(
             self._open_close_id,
             target,
             speed=_OPEN_CLOSE_SPEED,
             acceleration=_OPEN_CLOSE_ACCELERATION,
         )
-        self._bus.set_torque(self._open_close_id, True)
 
     def opening(self) -> float:
         """閉じた位置から開く向きへの角度 [deg]."""

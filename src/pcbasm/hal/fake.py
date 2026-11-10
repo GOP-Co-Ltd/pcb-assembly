@@ -701,6 +701,12 @@ class FakeServoBus(ServoBus):
             return True
 
     @override
+    def torque_enabled(self, servo_id: int) -> bool:
+        self._mode(servo_id)
+        with self._lock:
+            return self._torque[servo_id]
+
+    @override
     def set_torque(self, servo_id: int, on: bool) -> None:
         self._mode(servo_id)
         with self._lock:

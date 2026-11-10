@@ -29,12 +29,14 @@ class _Stop(Exception):
 
 @pytest.fixture
 def bus() -> FakeServoBus:
-    # 閉じ切り 1000、開き切り 1500
-    return FakeServoBus(
+    # 閉じ切り 1000、開き切り 1500。Open Close はトルクが入っている（パネルなどで一度動かした後）
+    bus = FakeServoBus(
         {ROTATION: ServoMode.STEP, OPEN_CLOSE: ServoMode.POSITION},
         {OPEN_CLOSE: 1000},
         angle_limits={ROTATION: (0, 0), OPEN_CLOSE: (1000, 1500)},
     )
+    bus.set_torque(OPEN_CLOSE, True)
+    return bus
 
 
 @pytest.fixture

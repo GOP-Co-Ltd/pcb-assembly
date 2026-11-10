@@ -447,6 +447,7 @@ class TestTweezer:
 
         assert [c for c in bus.commands if c.kind != "torque"] == [
             ServoCommand(1, "step", 1024),
+            ServoCommand(2, "goto", 2048),  # 脱力していたので、今の位置で保持してから
             ServoCommand(2, "goto", 2048 + 114),
         ]
 
