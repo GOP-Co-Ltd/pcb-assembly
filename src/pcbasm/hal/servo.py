@@ -54,6 +54,10 @@ MAX_STEPS = _STEP_SIGN - 1  # 1 回に送れる step の大きさ
 _EEPROM_REPLY_TIMEOUT_MS = 200
 _PKT_ERROR = 4  # status packet の ERROR の位置（HEADER0 HEADER1 ID LENGTH ERROR ...）
 
+# Open Close は、コントローラの LT（50 Hz で目標が変わる）に遅れず付いていくよう速く動かす。
+# 既定（500 step/s、加速度 10）では約 0.5 秒遅れた（実機。2000 step/s、加速度 100 で 0.1 秒以内）
+_OPEN_CLOSE_SPEED = 2000  # [step/s]
+_OPEN_CLOSE_ACCELERATION = 100  # [100 step/s²]
 # Rotation は止めるときの行き過ぎを小さくするため速く加減速する（45°/s で減速距離 約 2°）
 _ROTATION_ACCELERATION = 50  # [100 step/s²]
 # 連続回転で残りを送り足す下限・上限（減速距離に足す、今の速さで進む秒数）
@@ -174,11 +178,24 @@ class ServoBus(ABC):
         """
 
     @abstractmethod
-    def goto(self, servo_id: int, position: int, *, speed: int = DEFAULT_SPEED) -> None:
-        """位置モードのサーボを絶対位置（raw 0〜4095）へ speed [step/s] で動かす（完了は待たない）.
+    def goto(
+        self,
+        servo_id: int,
+        position: int,
+        *,
+        speed: int = DEFAULT_SPEED,
+        acceleration: int = DEFAULT_ACCELERATION,
+    ) -> None:
+        """位置モードのサーボを絶対位置（raw 0〜4095）へ動かす（完了は待たない）.
+
+        Args:
+            servo_id: サーボ ID
+            position: 行き先
+            speed: 速さ [step/s]
+            acceleration: 加減速 [100 step/s²]
 
         Raises:
-            ValueError: position が 0〜4095 の外か、speed が 1〜32767 の外の場合（何も送らない）
+            ValueError: position が 0〜4095、speed が 1〜32767、acceleration が 1〜254 の外の場合（何も送らない）
             ServoError: 通信に失敗した場合
         """
 
@@ -325,18 +342,26 @@ class FeetechBus(ServoBus):
             self._write1(servo_id, _ADDR_LOCK, 1)
 
     @override
-    def goto(self, servo_id: int, position: int, *, speed: int = DEFAULT_SPEED) -> None:
+    def goto(
+        self,
+        servo_id: int,
+        position: int,
+        *,
+        speed: int = DEFAULT_SPEED,
+        acceleration: int = DEFAULT_ACCELERATION,
+    ) -> None:
         """位置モードのサーボを絶対位置へ動かす.
 
         Raises:
-            ValueError: position が 0〜4095 の外か、speed が 1〜32767 の外の場合
+            ValueError: position、speed、acceleration が範囲の外の場合
         """
         if not 0 <= position < STEPS_PER_REV:
             raise ValueError(
                 f"位置は 0〜{STEPS_PER_REV - 1} の範囲で送ります: {position}"
             )
         check_speed(speed)
-        self._write_goal(servo_id, position, speed, DEFAULT_ACCELERATION)
+        check_acceleration(acceleration)
+        self._write_goal(servo_id, position, speed, acceleration)
 
     @override
     def step(
@@ -807,7 +832,12 @@ class Tweezer:
 
     def _goto_open_close(self, target: int) -> None:
         # goal を先に書くので、トルクを入れた瞬間に古い goal へ跳ばない
-        self._bus.goto(self._open_close_id, target)
+        self._bus.goto(
+            self._open_close_id,
+            target,
+            speed=_OPEN_CLOSE_SPEED,
+            acceleration=_OPEN_CLOSE_ACCELERATION,
+        )
         self._bus.set_torque(self._open_close_id, True)
 
     def opening(self) -> float:

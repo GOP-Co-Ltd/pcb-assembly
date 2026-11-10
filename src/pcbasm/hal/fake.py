@@ -755,17 +755,25 @@ class FakeServoBus(ServoBus):
             return self._speeds[servo_id]
 
     @override
-    def goto(self, servo_id: int, position: int, *, speed: int = DEFAULT_SPEED) -> None:
+    def goto(
+        self,
+        servo_id: int,
+        position: int,
+        *,
+        speed: int = DEFAULT_SPEED,
+        acceleration: int = DEFAULT_ACCELERATION,
+    ) -> None:
         if not 0 <= position < STEPS_PER_REV:
             raise ValueError(
                 f"位置は 0〜{STEPS_PER_REV - 1} の範囲で送ります: {position}"
             )
         check_speed(speed)
+        check_acceleration(acceleration)
         self._require(servo_id, ServoMode.POSITION)
         with self._lock:
             self._commands.append(ServoCommand(servo_id, "goto", position))
             self._speeds[servo_id] = speed
-            self._accelerations[servo_id] = DEFAULT_ACCELERATION
+            self._accelerations[servo_id] = acceleration
             self._goals[servo_id] = position
             # 実機と同じく、角度制限の外への goal は制限の端で止まる（0 / 0 は制限なし）
             low, high = self._limits[servo_id]

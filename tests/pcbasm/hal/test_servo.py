@@ -508,15 +508,13 @@ class TestTweezerRotate:
 
         assert _moves_since(bus, sent) == []
 
-    def test_rotation_accelerates_faster_than_the_open_close(self):
+    def test_rotation_accelerates_fast_to_stop_short(self):
         bus = _tweezer_bus()
 
         _tweezer(bus).rotate_by(90.0)
-        _tweezer(bus).open_to(1.0)
 
-        # 回転は止めるときの行き過ぎを小さくするため速く加減速する
+        # 止めるときの行き過ぎを小さくするため速く加減速する
         assert bus.acceleration(ROTATION) == 50
-        assert bus.acceleration(OPEN_CLOSE) == DEFAULT_ACCELERATION
 
     @pytest.mark.parametrize(("dps", "speed"), [(45.0, 512), (90.0, 1024), (1.0, 11)])
     def test_rotate_by_turns_at_the_rotation_speed(self, dps: float, speed: int):
@@ -731,13 +729,23 @@ class TestTweezerOpenTo:
 
         assert tweezer.open_fraction() == pytest.approx(fraction)
 
-    def test_open_close_keeps_the_default_speed(self):
+    @pytest.mark.parametrize(
+        "command",
+        [lambda t: t.open_to(1.0), lambda t: t.open_by(10.0)],
+        ids=["open_to", "open_by"],
+    )
+    def test_open_close_moves_fast_to_follow_the_trigger(
+        self, command: Callable[[Tweezer], None]
+    ):
+        """コントローラの LT は 50 Hz で目標を変える.
+
+        既定（500 step/s、加速度 10）では約 0.5 秒遅れる.
+        """
         bus = _tweezer_bus()
-        tweezer = _tweezer(bus, rotation_speed=90.0)
 
-        tweezer.open_to(1.0)
+        command(_tweezer(bus, rotation_speed=90.0))
 
-        assert bus.speed(OPEN_CLOSE) == DEFAULT_SPEED
+        assert (bus.speed(OPEN_CLOSE), bus.acceleration(OPEN_CLOSE)) == (2000, 100)
 
     def test_target_fraction_is_the_goal_even_when_the_position_differs(self):
         """つまんで閉じ切りの手前で止まっていても、目標は送った開き具合のまま."""
@@ -872,12 +880,21 @@ class TestFeetechBus:
 
         assert wire.writes() == [(1, _ADDR_ACC, bytes([50]) + _goal(0x64, 0x00)[1:])]
 
+    def test_goto_writes_the_given_acceleration(
+        self, wire: _WireServo, feetech: FeetechBus
+    ):
+        feetech.goto(2, 1234, acceleration=100)
+
+        assert wire.writes() == [(2, _ADDR_ACC, bytes([100]) + _goal(0xD2, 0x04)[1:])]
+
     @pytest.mark.parametrize("acceleration", [0, 255])
     def test_acceleration_outside_1_to_254_is_refused_without_sending(
         self, wire: _WireServo, feetech: FeetechBus, acceleration: int
     ):
         with pytest.raises(ValueError):
             feetech.step(1, 100, acceleration=acceleration)
+        with pytest.raises(ValueError):
+            feetech.goto(2, 1234, acceleration=acceleration)
 
         assert wire.packets == []
 

@@ -424,8 +424,9 @@ class TestFakeServoBus:
         assert bus.acceleration(1) == DEFAULT_ACCELERATION
 
         bus.step(1, 100, acceleration=50)
+        bus.goto(2, 1100, acceleration=100)
 
-        assert bus.acceleration(1) == 50
+        assert (bus.acceleration(1), bus.acceleration(2)) == (50, 100)
 
     @pytest.mark.parametrize("acceleration", [0, 255])
     def test_acceleration_outside_1_to_254_is_refused(
