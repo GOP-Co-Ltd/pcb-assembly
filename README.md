@@ -57,5 +57,4 @@ sudo reboot
 | -------------------------- | ------------------------------------------------- | ------------------------------------------ |
 | `src/firmware/pnp-motion/` | [GPLv3](src/firmware/pnp-motion/LICENSE)          | Klipper の MCU ファームを元にする          |
 | `klipper/`                 | [GPLv3](klipper/LICENSE)                          | Klipper のコードから派生した Klippy の拡張 |
-| `deploy/firmware/*.uf2`    | GPLv3                                             | Klipper をビルドしたファーム               |
 | `.claude/skills/yomiyasu/` | [MIT](.claude/skills/yomiyasu/LICENSE)（nanaism） | 外部から vendoring した skill              |
