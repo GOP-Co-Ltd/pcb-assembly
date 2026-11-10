@@ -5,10 +5,10 @@
 線に出たパケットを確かめる（scservo_sdk と pyserial は実物）。
 """
 
+import json
 import os
-import select
-import threading
-import time
+import subprocess
+import sys
 import tty
 from pathlib import Path
 
@@ -26,6 +26,7 @@ from pcbasm.hal import (
 )
 from pcbasm.hal.fake import FakeServoBus, ServoCommand
 from pcbasm.hal.servo import FeetechBus
+from tests.support import wire_servo
 
 ROTATION = 1
 OPEN_CLOSE = 2
@@ -62,7 +63,7 @@ def _moves_since(bus: FakeServoBus, sent: int) -> list[ServoCommand]:
 
 
 _INSTRUCTION_WRITE = 0x03
-_INSTRUCTION_READ = 0x02
+WIRE_SERVO_SCRIPT = Path(wire_servo.__file__)
 _BROADCAST = 0xFE
 
 
@@ -70,20 +71,50 @@ class _WireServo:
     """疑似端末の master 側で STS のサーボを演じる（受けた instruction packet を記録し、status packet
     を返す）.
 
-    読み出しには 0 を並べて返す。slave 側のパス（:attr:`path`）をポートとして開かせる。
-    ``reply_delays`` にあるアドレスへの WRITE は、その秒数だけ遅れて応答する。
+    演じるのは別プロセス（``tests/support/wire_servo.py``）。読み出しには 0 を並べて返し、ブロードキャストには
+    応答しない。slave 側のパス（:attr:`path`）をポートとして開かせる。``reply_delays`` にあるアドレスへの
+    WRITE は、その秒数だけ遅れて応答する。
     """
 
     def __init__(self, reply_delays: dict[int, float] | None = None) -> None:
-        self._reply_delays = reply_delays or {}
         self._master, self._slave = os.openpty()
         tty.setraw(self._master)
         tty.setraw(self._slave)
         self.path = os.ttyname(self._slave)
-        self.packets: list[bytes] = []
-        self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._serve, daemon=True)
-        self._thread.start()
+        self._process = subprocess.Popen(
+            [
+                sys.executable,
+                "-I",
+                str(WIRE_SERVO_SCRIPT),
+                str(self._master),
+                json.dumps(reply_delays or {}),
+            ],
+            pass_fds=(self._master,),
+            stdout=subprocess.PIPE,
+        )
+        assert self._process.stdout is not None
+        self._stdout = self._process.stdout.fileno()
+        # 子が読み始める前に送ると、最初の応答が SDK の待ち時間を超える
+        assert self._process.stdout.readline() == b"ready\n"
+        os.set_blocking(self._stdout, False)
+        self._received = b""
+        self._packets: list[bytes] = []
+        self._unplugged = False
+
+    @property
+    def packets(self) -> list[bytes]:
+        """受けた instruction packet（受けた順）."""
+        while True:
+            try:
+                chunk = os.read(self._stdout, 4096)
+            except BlockingIOError:
+                break
+            if not chunk:
+                break
+            self._received += chunk
+        *lines, self._received = self._received.split(b"\n")
+        self._packets += [bytes.fromhex(line.decode()) for line in lines]
+        return list(self._packets)
 
     def writes(self) -> list[tuple[int, int, bytes]]:
         """受けた WRITE の（ID、先頭アドレス、データ）."""
@@ -95,32 +126,17 @@ class _WireServo:
 
     def unplug(self) -> None:
         """線を抜いたことにする（master を閉じ、slave 側の I/O を失敗させる）."""
-        self._stop.set()
-        self._thread.join()
+        self._unplugged = True
+        self._process.kill()
+        self._process.wait()
         os.close(self._master)
 
     def close(self) -> None:
-        if not self._stop.is_set():
+        if not self._unplugged:
             self.unplug()
+        assert self._process.stdout is not None
+        self._process.stdout.close()
         os.close(self._slave)
-
-    def _serve(self) -> None:
-        buffer = b""
-        while not self._stop.is_set():
-            if not select.select([self._master], [], [], 0.02)[0]:
-                continue
-            buffer += os.read(self._master, 256)
-            while len(buffer) >= 4 and len(buffer) >= buffer[3] + 4:
-                size = buffer[3] + 4
-                packet, buffer = buffer[:size], buffer[size:]
-                self.packets.append(packet)
-                if packet[2] == _BROADCAST:
-                    continue  # ブロードキャストには応答しない
-                if packet[4] == _INSTRUCTION_WRITE:
-                    time.sleep(self._reply_delays.get(packet[5], 0.0))
-                data = bytes(packet[6]) if packet[4] == _INSTRUCTION_READ else b""
-                body = bytes([packet[2], len(data) + 2, 0]) + data
-                os.write(self._master, b"\xff\xff" + body + bytes([~sum(body) & 0xFF]))
 
 
 @pytest.fixture
