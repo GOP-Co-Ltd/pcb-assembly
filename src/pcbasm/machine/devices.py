@@ -182,35 +182,37 @@ class Devices:
         """ピンセットを返す（呼ぶたびに machine.toml の [pnp.servo] を読む）.
 
         Raises:
-            ConfigError: machine.toml が読めない、[pnp.servo] が無い、または役割と開閉の位置が未設定の場合
+            ConfigError: machine.toml が読めない、[pnp.servo] が無い、または役割と開閉の角度が未設定の場合
             ServoError: サーボが応答しないか、モードが役割と合わない場合
         """
         servo = self._servo_config()
         match (
             servo.rotation_id,
             servo.open_close_id,
-            servo.closed_position,
-            servo.open_position,
+            servo.closed_angle,
+            servo.open_angle,
         ):
             case (
                 int() as rotation,
                 int() as open_close,
-                int() as closed,
-                int() as opened,
+                float()
+                | int() as closed,
+                float()
+                | int() as opened,
             ):
                 return Tweezer(
                     self.servo_bus(),
                     rotation_id=rotation,
                     open_close_id=open_close,
-                    closed_position=closed,
-                    open_position=opened,
+                    closed_position=hal.degrees_to_position(closed),
+                    open_position=hal.degrees_to_position(opened),
                 )
             case values:
                 names = (
                     "rotation_id",
                     "open_close_id",
-                    "closed_position",
-                    "open_position",
+                    "closed_angle",
+                    "open_angle",
                 )
                 missing = [name for name, value in zip(names, values) if value is None]
                 raise ConfigError(

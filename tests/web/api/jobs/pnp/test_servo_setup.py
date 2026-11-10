@@ -165,17 +165,21 @@ class TestServoSetupJob:
         assert payload.values == {
             "pnp.servo.rotation_id": 1,
             "pnp.servo.open_close_id": 2,
-            "pnp.servo.closed_position": 1000,
-            "pnp.servo.open_position": 1300,
+            "pnp.servo.closed_angle": 87.89,
+            "pnp.servo.open_angle": 114.26,
         }
         assert record.result is not None and record.result.summary is not None
-        for value in ("ID 1", "ID 2", "1000", "1300"):
+        for value in ("ID 1", "ID 2", "87.89°", "114.26°"):
             assert value in record.result.summary
-        # 確認の開閉は閉じ切り → 開き切り
-        assert bus.commands[-2:] == [
-            ServoCommand(2, "goto", 1000),
+        # 開き過ぎないよう、確認の開閉の前にサーボ自身の角度制限を閉じ切り〜開き切りにする
+        assert bus.commands[-4:] == [
+            ServoCommand(2, "min_angle", 1000),
+            ServoCommand(2, "max_angle", 1300),
+            ServoCommand(2, "goto", 1000),  # 確認の開閉は閉じ切り → 開き切り
             ServoCommand(2, "goto", 1300),
         ]
+        assert bus.angle_limits(1) == (0, 4095)  # Rotation には制限を残さない
+        assert "87.89°〜114.26°" in "\n".join(record.log_lines)
 
         backend.machine_config.write(payload.values)
         servo = backend.machine_config.machine().pnp.servo  # type: ignore[union-attr]
@@ -183,9 +187,9 @@ class TestServoSetupJob:
         assert (
             servo.rotation_id,
             servo.open_close_id,
-            servo.closed_position,
-            servo.open_position,
-        ) == (1, 2, 1000, 1300)
+            servo.closed_angle,
+            servo.open_angle,
+        ) == (1, 2, 87.89, 114.26)
         assert servo.port == "/dev/ttyUSB0"
 
     def test_same_role_twice_asks_again(self, manager: JobManager, bus: FakeServoBus):
@@ -287,7 +291,7 @@ class TestServoSetupJob:
 
         assert record.status == JobStatus.SUCCEEDED, record.error
         assert "開き量" in "\n".join(record.log_lines)
-        assert manager.apply_payload().values["pnp.servo.closed_position"] == 1300
+        assert manager.apply_payload().values["pnp.servo.closed_angle"] == 114.26
 
     def test_redo_on_the_check_reads_the_range_again(
         self, manager: JobManager, bus: FakeServoBus
@@ -305,7 +309,31 @@ class TestServoSetupJob:
         _finish(record)
 
         assert record.status == JobStatus.SUCCEEDED, record.error
-        assert manager.apply_payload().values["pnp.servo.open_position"] == 1200
+        assert manager.apply_payload().values["pnp.servo.open_angle"] == 105.47
+
+    def test_wider_range_on_redo_is_read_past_the_previous_limits(
+        self, manager: JobManager, bus: FakeServoBus
+    ):
+        record = manager.start("servo_setup", PARAMS)
+        operator = _Operator(record, manager)
+
+        operator.start()
+        operator.answer(ROTATION)
+        operator.answer(OPEN_CLOSE)
+        operator.read_and_move(bus, 1000, 1300)
+        operator.answer(False)  # やり直す（前回の制限 1000〜1300 が書かれている）
+        operator.read_range(bus, 900, 1500)
+        operator.wait()  # 「動かす」の問い（開き切りでトルクが入っている）
+
+        # 前回の制限の端（1300）へ引き戻されず、開き切りのまま保持している
+        assert bus.position(2) == 1500
+        assert bus.angle_limits(2) == (900, 1500)
+        operator.answer(True)
+        operator.answer(True)
+        _finish(record)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert manager.apply_payload().values["pnp.servo.open_angle"] == 131.84
 
     def test_torque_is_back_on_after_reading(
         self, manager: JobManager, bus: FakeServoBus

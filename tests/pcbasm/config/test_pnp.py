@@ -51,8 +51,8 @@ class TestPnpServo:
             baudrate=1_000_000,
             rotation_id=None,
             open_close_id=None,
-            closed_position=None,
-            open_position=None,
+            closed_angle=None,
+            open_angle=None,
         )
 
     def test_reads_every_key(self, tmp_path: Path):
@@ -60,8 +60,8 @@ class TestPnpServo:
             baudrate=500000,
             rotation_id=1,
             open_close_id=2,
-            closed_position=1000,
-            open_position=1500,
+            closed_angle=87.89,
+            open_angle=131.84,
         )
 
         machine = load_machine(_pnp_machine(tmp_path, text))
@@ -72,8 +72,20 @@ class TestPnpServo:
             baudrate=500000,
             rotation_id=1,
             open_close_id=2,
-            closed_position=1000,
-            open_position=1500,
+            closed_angle=87.89,
+            open_angle=131.84,
+        )
+
+    def test_integer_angles_are_read(self, tmp_path: Path):
+        machine = load_machine(
+            _pnp_machine(tmp_path, _servo(closed_angle=90, open_angle=120))
+        )
+
+        assert machine.pnp is not None
+        assert machine.pnp.servo is not None
+        assert (machine.pnp.servo.closed_angle, machine.pnp.servo.open_angle) == (
+            90,
+            120,
         )
 
     def test_port_is_required(self, tmp_path: Path):
@@ -112,10 +124,10 @@ class TestPnpServo:
 
         assert "pnp.servo" in str(raised.value)
 
-    @pytest.mark.parametrize("key", ["closed_position", "open_position"])
-    @pytest.mark.parametrize("value", [-1, 4096])
-    def test_position_outside_0_to_4095_is_a_config_error(
-        self, tmp_path: Path, key: str, value: int
+    @pytest.mark.parametrize("key", ["closed_angle", "open_angle"])
+    @pytest.mark.parametrize("value", [-1, -0.01, 360, 360.5])
+    def test_angle_outside_0_to_360_is_a_config_error(
+        self, tmp_path: Path, key: str, value: float
     ):
         path = _pnp_machine(tmp_path, _servo(**{key: value}))
 
@@ -124,56 +136,55 @@ class TestPnpServo:
 
         assert key in str(raised.value)
 
-    def test_same_closed_and_open_position_is_a_config_error(self, tmp_path: Path):
-        path = _pnp_machine(tmp_path, _servo(closed_position=1000, open_position=1000))
+    def test_same_closed_and_open_angle_is_a_config_error(self, tmp_path: Path):
+        path = _pnp_machine(tmp_path, _servo(closed_angle=90.0, open_angle=90.0))
 
         with pytest.raises(ConfigError) as raised:
             load_machine(path)
 
         assert "pnp.servo" in str(raised.value)
 
-    @pytest.mark.parametrize(("closed", "open_"), [(100, 2149), (4000, 1951)])
-    def test_closed_to_open_over_half_a_turn_is_crossing_the_raw_wrap(
-        self, tmp_path: Path, closed: int, open_: int
+    @pytest.mark.parametrize(("closed", "open_"), [(10.0, 190.5), (350.0, 169.5)])
+    def test_closed_to_open_over_half_a_turn_is_crossing_the_wrap(
+        self, tmp_path: Path, closed: float, open_: float
     ):
-        """4095 と 0 の境目をまたぐ開閉は、短い側が逆向きの長い経路に読まれる."""
-        path = _pnp_machine(
-            tmp_path, _servo(closed_position=closed, open_position=open_)
-        )
+        """360° と 0° の境目をまたぐ開閉は、短い側が逆向きの長い経路に読まれる."""
+        path = _pnp_machine(tmp_path, _servo(closed_angle=closed, open_angle=open_))
 
         with pytest.raises(ConfigError) as raised:
             load_machine(path)
 
         assert "境目" in str(raised.value)
 
-    @pytest.mark.parametrize(("closed", "open_"), [(100, 2148), (3000, 952)])
+    @pytest.mark.parametrize(("closed", "open_"), [(10.0, 190.0), (263.67, 83.67)])
     def test_closed_to_open_of_half_a_turn_is_accepted(
-        self, tmp_path: Path, closed: int, open_: int
+        self, tmp_path: Path, closed: float, open_: float
     ):
         machine = load_machine(
-            _pnp_machine(tmp_path, _servo(closed_position=closed, open_position=open_))
+            _pnp_machine(tmp_path, _servo(closed_angle=closed, open_angle=open_))
         )
 
         assert machine.pnp is not None
         assert machine.pnp.servo is not None
-        assert machine.pnp.servo.open_position == open_
+        assert machine.pnp.servo.open_angle == open_
 
 
 class TestOpenCloseSpanError:
-    """設定の読み込みとサーボ設定ジョブが共有する、閉じ・開きの位置の組の規則."""
+    """設定の読み込みとサーボ設定ジョブが共有する、閉じ切り・開き切りの角度の組の規則."""
 
     @pytest.mark.parametrize(
-        ("closed", "opened"), [(1000, 1001), (1300, 1000), (100, 2148), (3000, 952)]
+        ("closed", "opened"),
+        [(87.89, 87.98), (114.26, 87.89), (10.0, 190.0), (263.67, 83.67)],
     )
-    def test_usable_pair_is_none(self, closed: int, opened: int):
+    def test_usable_pair_is_none(self, closed: float, opened: float):
         assert open_close_span_error(closed, opened) is None
 
     @pytest.mark.parametrize(
         ("closed", "opened", "message"),
-        [(1000, 1000, "同じ"), (100, 2149, "境目"), (4000, 1951, "境目")],
+        [(87.89, 87.89, "同じ"), (10.0, 190.5, "境目"), (350.0, 169.5, "境目")],
         ids=["same", "wraps_up", "wraps_down"],
     )
-    def test_unusable_pair_tells_why(self, closed: int, opened: int, message: str):
+    def test_unusable_pair_tells_why(self, closed: float, opened: float, message: str):
         error = open_close_span_error(closed, opened)
 
         assert error is not None and message in error

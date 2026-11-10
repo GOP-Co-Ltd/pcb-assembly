@@ -16,6 +16,7 @@ from pcbasm.pnp.servo_setup import (
     apply_modes,
     exercise,
     find_pair,
+    release_angle_limits,
     role_of_mode,
     roles_from_answers,
     servo_settings,
@@ -131,11 +132,32 @@ class TestOpenCloseRange:
         assert span.validate() is None
         assert span.span_degrees >= MIN_SPAN_DEGREES
 
+    @pytest.mark.parametrize(("closed", "opened"), [(1000, 1300), (1300, 1000)])
+    def test_limits_are_low_then_high_in_either_direction(
+        self, closed: int, opened: int
+    ):
+        assert OpenCloseRange(closed, opened).limits == (1000, 1300)
+
+    def test_angles_are_absolute_degrees_to_two_decimals(self):
+        span = OpenCloseRange(1000, 1300)
+
+        assert (span.closed_angle, span.open_angle) == (87.89, 114.26)
+
     def test_half_turn_is_accepted(self):
         span = OpenCloseRange(0, 2048)
 
         assert span.validate() is None
         assert span.span_degrees == pytest.approx(180.0)
+
+
+class TestReleaseAngleLimits:
+    def test_limits_go_back_to_the_whole_turn(self):
+        bus = FakeServoBus({2: ServoMode.POSITION})
+        bus.set_angle_limits(2, 1000, 1300)
+
+        release_angle_limits(bus, 2)
+
+        assert bus.angle_limits(2) == (0, 4095)
 
 
 class TestExercise:
@@ -170,6 +192,6 @@ class TestServoSettings:
         assert settings == {
             "pnp.servo.rotation_id": 1,
             "pnp.servo.open_close_id": 2,
-            "pnp.servo.closed_position": 1000,
-            "pnp.servo.open_position": 1300,
+            "pnp.servo.closed_angle": 87.89,  # 1000 × 360 / 4096 を小数 2 桁に
+            "pnp.servo.open_angle": 114.26,
         }

@@ -27,7 +27,14 @@ from pcbasm.vision.image import Image, ImageArray
 from .audio import AudioDevice, AudioPlayer, Sound
 from .camera import Camera, CameraInfo, Resolution
 from .klipper import GCodeJournal, KlipperError
-from .servo import BROADCAST_ID, STEPS_PER_REV, ServoBus, ServoError, ServoMode
+from .servo import (
+    BROADCAST_ID,
+    STEPS_PER_REV,
+    ServoBus,
+    ServoError,
+    ServoMode,
+    check_angle_limits,
+)
 
 # FakeKlipper が既定で返す printer.cfg。XYZStage / PasteDispenser / ProbeExecutor と所要時間の予測が読むセクションだけを持つ
 FAKE_PRINTER_CONFIG: dict[str, dict[str, Any]] = {
@@ -591,12 +598,13 @@ class ServoCommand:
     Attributes:
         servo_id: 送り先のサーボ ID
         kind: 指令の種類（``goto`` は絶対位置、``step`` は相対 step、``torque`` はトルクの入切、
-            ``mode`` は動作モードの書き込み）
-        value: goto は位置、step は step 数、torque は 1（入）か 0（切）、mode はモードの値
+            ``mode`` は動作モードの書き込み、``min_angle`` / ``max_angle`` は角度制限の書き込み）
+        value: goto は位置、step は step 数、torque は 1（入）か 0（切）、mode はモードの値、
+            min_angle / max_angle は制限の位置
     """
 
     servo_id: int
-    kind: Literal["goto", "step", "torque", "mode"]
+    kind: Literal["goto", "step", "torque", "mode", "min_angle", "max_angle"]
     value: int
 
 
@@ -630,6 +638,9 @@ class FakeServoBus(ServoBus):
         self._torque = dict.fromkeys(self._modes, False)
         self._jammed: set[int] = set()
         self._start_delay = start_delay
+        self._limits: dict[int, tuple[int, int]] = dict.fromkeys(
+            self._modes, (0, STEPS_PER_REV - 1)
+        )
         self._reads_until_start: dict[int, int] = {}
         self._closed = False
         self._lock = threading.Lock()
@@ -686,6 +697,20 @@ class FakeServoBus(ServoBus):
             self._torque = dict.fromkeys(self._modes, False)
 
     @override
+    def set_angle_limits(self, servo_id: int, low: int, high: int) -> None:
+        check_angle_limits(low, high)
+        self._mode(servo_id)
+        with self._lock:
+            self._commands.append(ServoCommand(servo_id, "min_angle", low))
+            self._commands.append(ServoCommand(servo_id, "max_angle", high))
+            self._limits[servo_id] = (low, high)
+
+    def angle_limits(self, servo_id: int) -> tuple[int, int]:
+        """書かれた角度制限（下限、上限。書く前は 0〜4095）."""
+        self._mode(servo_id)
+        return self._limits[servo_id]
+
+    @override
     def set_mode(self, servo_id: int, mode: ServoMode) -> None:
         self._mode(servo_id)
         with self._lock:
@@ -701,7 +726,9 @@ class FakeServoBus(ServoBus):
         self._require(servo_id, ServoMode.POSITION)
         with self._lock:
             self._commands.append(ServoCommand(servo_id, "goto", position))
-            self._positions[servo_id] = position
+            # 実機と同じく、角度制限の外への goal は制限の端で止まる
+            low, high = self._limits[servo_id]
+            self._positions[servo_id] = min(max(position, low), high)
             self._reads_until_start[servo_id] = self._start_delay
 
     @override

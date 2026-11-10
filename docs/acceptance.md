@@ -258,7 +258,9 @@
     - 確認の開閉で、閉じ切り・開き切りの当たりで唸らない（唸るなら「やり直す」で読み直せる）
     - 確認の開閉が当たりに押し付けて止まりきらないときは、トルクが切れ、ログに出て閉じ切り・開き切りの読み直しに戻る
     - 閉じ切り・開き切りを読む間（トルクを切った後）に中止すると、Open Close のトルクは切れたまま終わる
-    - Apply の後、`[pnp.servo]` の `rotation_id` / `open_close_id` / `closed_position` / `open_position` が summary の 4 値と一致する
+    - Apply の後、`[pnp.servo]` の `rotation_id` / `open_close_id` / `closed_angle` / `open_angle`（角度 [°]） が summary の 4 値と一致する
+    - 確認の開閉の前に、Open Close の角度制限（EEPROM の MIN / MAX_ANGLE_LIMIT）が閉じ切り〜開き切りに書かれ、ログに出る。Apply の後、設定ページで開き切りの角度を広げても、サーボ（WebUI のピンセット操作や FD ツールの指令）は開き切りの外へ動かない
+    - 範囲を読み直す（「やり直す」）と、前回の制限を外してから読むので、前回より広い範囲も読める
     - 役割を選ぶと、役割とモードが合わないサーボにジョブがモードを書き（Rotation は 3、Open Close は 0）、ログに出る。電源を入れ直してもモードが残る
     - Rotation（ステップモード）の振りの向きと量が指令どおり（既定の 5° なら + で一方へ 5°、- で逆へ 10°、+ で戻る。負の step の sign-magnitude を確かめる）
 

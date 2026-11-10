@@ -17,10 +17,12 @@ import attrs
 
 from pcbasm.config.pnp import open_close_span_error
 from pcbasm.hal import ServoBus, ServoMode, scan, wait_stopped
-from pcbasm.hal.servo import STEPS_PER_REV
+from pcbasm.hal.servo import STEPS_PER_REV, position_to_degrees
 
 # 開き量がこれ未満なら、手で開き切りにし損ねたとみなす [deg]
 MIN_SPAN_DEGREES = 3.0
+# 設定に書く角度の小数の桁数（0.01° は 1 step = 0.088° より細かいので、読み戻すと同じ位置になる）
+_ANGLE_DIGITS = 2
 
 
 class ServoSetupError(ValueError):
@@ -146,11 +148,11 @@ class OpenCloseRange:
     def validate(self) -> str | None:
         """使えない範囲ならその理由（使えるなら None）.
 
-        設定と同じ規則（同じ位置は不可、4095/0 の境目をまたがない。
+        設定と同じ規則（同じ角度は不可、360°/0° の境目をまたがない。
         :func:`pcbasm.config.pnp.open_close_span_error`）に加え、開き量が
         :data:`MIN_SPAN_DEGREES` 未満なら開き切りにし損ねたとみなす。
         """
-        if error := open_close_span_error(self.closed_position, self.open_position):
+        if error := open_close_span_error(self.closed_angle, self.open_angle):
             return (
                 f"{error}。閉じ切り・開き切りまで動かしてから読み直すか、"
                 "境目をまたぐならホーンの付け位置を変えてください"
@@ -163,9 +165,34 @@ class OpenCloseRange:
         return None
 
     @property
+    def closed_angle(self) -> float:
+        """閉じ切りの角度（サーボの絶対角 [deg]。設定に書く小数 2 桁）."""
+        return round(position_to_degrees(self.closed_position), _ANGLE_DIGITS)
+
+    @property
+    def open_angle(self) -> float:
+        """開き切りの角度（サーボの絶対角 [deg]。設定に書く小数 2 桁）."""
+        return round(position_to_degrees(self.open_position), _ANGLE_DIGITS)
+
+    @property
     def span_degrees(self) -> float:
         """閉じ切りから開き切りまでの角度 [deg]."""
         return abs(self.open_position - self.closed_position) * 360 / STEPS_PER_REV
+
+    @property
+    def limits(self) -> tuple[int, int]:
+        """サーボの角度制限に書く（下限、上限）の位置（閉じ切り〜開き切り。逆向きでも下限 < 上限）."""
+        low, high = sorted((self.closed_position, self.open_position))
+        return low, high
+
+
+def release_angle_limits(bus: ServoBus, servo_id: int) -> None:
+    """サーボの角度制限を全域（0〜4095）に戻す（前回の設定の制限に引っ張られずに動かす・読むため）.
+
+    Raises:
+        ServoError: 通信に失敗した場合
+    """
+    bus.set_angle_limits(servo_id, 0, STEPS_PER_REV - 1)
 
 
 def exercise(
@@ -189,11 +216,11 @@ def exercise(
     return True
 
 
-def servo_settings(roles: ServoRoles, span: OpenCloseRange) -> dict[str, int]:
-    """machine.toml の [pnp.servo] に書く値（設定キー → 値）."""
+def servo_settings(roles: ServoRoles, span: OpenCloseRange) -> dict[str, int | float]:
+    """machine.toml の [pnp.servo] に書く値（設定キー → 値。開閉は角度 [deg]）."""
     return {
         "pnp.servo.rotation_id": roles.rotation_id,
         "pnp.servo.open_close_id": roles.open_close_id,
-        "pnp.servo.closed_position": span.closed_position,
-        "pnp.servo.open_position": span.open_position,
+        "pnp.servo.closed_angle": span.closed_angle,
+        "pnp.servo.open_angle": span.open_angle,
     }

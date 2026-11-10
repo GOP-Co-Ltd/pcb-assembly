@@ -9,6 +9,7 @@ from pcbasm.pnp.servo_setup import (
     apply_modes,
     exercise,
     find_pair,
+    release_angle_limits,
     role_of_mode,
     roles_from_answers,
     servo_settings,
@@ -75,12 +76,19 @@ def _run_servo_setup(ctx: JobContext) -> JobResult:
     for servo_id in apply_modes(bus, roles):
         mode = bus.mode(servo_id)
         ctx.log(f"ID {servo_id} のモードを {mode.name}（{mode.value}）に書きました")
+    # 前回の設定で役割が逆だったサーボに、Open Close の狭い角度制限を残さない
+    release_angle_limits(bus, roles.rotation_id)
 
     ctx.progress("開閉の範囲")
     while True:
         span = _read_range(ctx, bus, roles.open_close_id)
         if span is None:
             continue
+        # 逆作動式のピンセットは開き過ぎると壊れるので、サーボ自身にも閉じ切り〜開き切りの外へ動かさせない
+        bus.set_angle_limits(roles.open_close_id, *span.limits)
+        ctx.log(
+            f"Open Close の角度制限を {span.closed_angle:g}°〜{span.open_angle:g}° に書きました"
+        )
         ctx.require(
             "閉じ切り → 開き切りと動かして確かめます。ピンセットから手を離してから「動かす」を押してください",
             true_label="動かす",
@@ -102,7 +110,7 @@ def _run_servo_setup(ctx: JobContext) -> JobResult:
     return JobResult(
         summary=(
             f"Rotation: ID {roles.rotation_id} / Open Close: ID {roles.open_close_id}"
-            f" / 閉じ: {span.closed_position} / 開き: {span.open_position}"
+            f" / 閉じ切り: {span.closed_angle:g}° / 開き切り: {span.open_angle:g}°"
             f"（開き量 {span.span_degrees:.1f}°）"
         ),
         apply=ApplyPayload(
@@ -131,8 +139,12 @@ def _ask_role(
 
 
 def _read_range(ctx: JobContext, bus: ServoBus, servo_id: int) -> OpenCloseRange | None:
-    """トルクを切って人に閉じ切り・開き切りにしてもらい、その位置を読む（使えない範囲なら None）."""
+    """トルクを切って人に閉じ切り・開き切りにしてもらい、その位置を読む（使えない範囲なら None）.
+
+    前回書いた角度制限は外してから読む（制限の外で開き切りを読むと、トルクを入れた瞬間に制限の端へ動くため）。
+    """
     bus.set_torque(servo_id, False)
+    release_angle_limits(bus, servo_id)
     ctx.require(
         f"Open Close（ID {servo_id}）のトルクを切りました。手でピンセットを閉じ切りにして保持し、「読む」を押してください",
         true_label="読む",

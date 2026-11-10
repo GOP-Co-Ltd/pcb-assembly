@@ -18,7 +18,9 @@ from pcbasm.hal import (
     ServoError,
     ServoMode,
     Tweezer,
+    degrees_to_position,
     degrees_to_steps,
+    position_to_degrees,
     scan,
     servo as servo_module,
     wait_stopped,
@@ -175,6 +177,24 @@ class TestDegreesToSteps:
         degrees = half_steps / 2 * 360 / 4096  # ちょうど x.5 step（2 進で割り切れる）
 
         assert degrees_to_steps(degrees) == steps
+
+
+class TestAbsoluteAngle:
+    """位置（raw 0〜4095）とサーボの絶対角 [deg] の換算."""
+
+    @pytest.mark.parametrize(
+        ("position", "degrees"),
+        [(0, 0.0), (1024, 90.0), (2048, 180.0), (4095, 359.912109375)],
+    )
+    def test_position_to_degrees(self, position: int, degrees: float):
+        assert position_to_degrees(position) == degrees
+
+    @pytest.mark.parametrize("position", [0, 1, 2004, 2345, 4095])
+    def test_two_decimal_degrees_round_trip_to_the_same_position(self, position: int):
+        assert degrees_to_position(round(position_to_degrees(position), 2)) == position
+
+    def test_full_turn_wraps_to_zero(self):
+        assert degrees_to_position(359.99) == 0
 
 
 class TestScan:
@@ -536,6 +556,29 @@ class TestFeetechBus:
             (1, 33, bytes([mode.value])),
             (1, 55, b"\x01"),
         ]
+
+    def test_set_angle_limits_writes_min_and_max_inside_the_eeprom_lock(
+        self, wire: _WireServo, feetech: FeetechBus
+    ):
+        feetech.set_angle_limits(2, 2004, 2345)
+
+        assert wire.writes() == [
+            (2, 55, b"\x00"),
+            (2, 9, (2004).to_bytes(2, "little")),
+            (2, 11, (2345).to_bytes(2, "little")),
+            (2, 55, b"\x01"),
+        ]
+
+    @pytest.mark.parametrize(
+        ("low", "high"), [(100, 100), (200, 100), (-1, 100), (0, 4096)]
+    )
+    def test_unusable_angle_limits_are_refused_without_sending(
+        self, wire: _WireServo, feetech: FeetechBus, low: int, high: int
+    ):
+        with pytest.raises(ValueError):
+            feetech.set_angle_limits(2, low, high)
+
+        assert wire.packets == []
 
     def test_release_all_broadcasts_torque_off_without_waiting_for_a_reply(
         self, wire: _WireServo, feetech: FeetechBus

@@ -278,8 +278,8 @@ class TestCamera:
 _SERVO_ROLES = {
     "rotation_id": 1,
     "open_close_id": 2,
-    "closed_position": 2048,
-    "open_position": 2560,
+    "closed_angle": 180.0,
+    "open_angle": 225.0,
 }
 
 

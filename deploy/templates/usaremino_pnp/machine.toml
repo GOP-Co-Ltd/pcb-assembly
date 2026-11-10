@@ -77,13 +77,14 @@ region_overlap = 0.2
 [pnp]
 
 # ピンセットのサーボ（Feetech STS3032 ×2。Rotation はステップモード、Open Close は位置モード）。
-# port を書くと使える。役割（rotation_id / open_close_id）と Open Close の閉じ・開きの位置は、
+# port を書くと使える。役割（rotation_id / open_close_id）と Open Close の閉じ切り・開き切りの角度は、
 # WebUI の校正タブの「ピンセットのサーボ設定」ジョブでサーボを動かして判別し、Apply で書く
-# （書くまでピンセットは使えない）
+# （書くまでピンセットは使えない）。ジョブは閉じ切り〜開き切りをサーボ自身の角度制限にも書くので、
+# ここで範囲を広げてもサーボはその外へ動かない（逆作動式のピンセットを開き過ぎて壊さないため）
 # [pnp.servo]
 # port = "/dev/ttyUSB0"   # FEETECH URT-2 のシリアルポート（/dev/serial/by-id/... で固定するとよい）
 # baudrate = 1000000
 # rotation_id = 1         # Rotation のサーボ ID（0〜253）
 # open_close_id = 2       # Open Close のサーボ ID（0〜253）
-# closed_position = 2048  # Open Close の閉じた位置（raw 0〜4095）
-# open_position = 2300    # Open Close の開いた位置（raw 0〜4095。閉じとの差は 2048 以下）
+# closed_angle = 180.0   # Open Close の閉じ切りの角度（サーボの絶対角 0〜360°）
+# open_angle = 210.0     # Open Close の開き切りの角度（0〜360°。閉じ切りとの差は 180° 以下）

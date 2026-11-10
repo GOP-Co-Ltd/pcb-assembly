@@ -457,6 +457,25 @@ class TestFakeServoBus:
         bus.turn_by_hand(2, 200)
         assert (bus.position(1), bus.position(2)) == (100, 200)
 
+    def test_goto_stops_at_the_angle_limits(self, bus: FakeServoBus):
+        bus.set_angle_limits(2, 900, 1200)
+
+        bus.goto(2, 1500)
+        assert bus.position(2) == 1200
+        bus.goto(2, 100)
+        assert bus.position(2) == 900
+        assert bus.angle_limits(2) == (900, 1200)
+        assert bus.commands[:2] == [
+            ServoCommand(2, "min_angle", 900),
+            ServoCommand(2, "max_angle", 1200),
+        ]
+
+    def test_unusable_angle_limits_are_refused(self, bus: FakeServoBus):
+        with pytest.raises(ValueError):
+            bus.set_angle_limits(2, 1200, 900)
+
+        assert bus.angle_limits(2) == (0, 4095)
+
     def test_commands_is_a_snapshot(self, bus: FakeServoBus):
         commands = bus.commands
         bus.set_torque(1, True)

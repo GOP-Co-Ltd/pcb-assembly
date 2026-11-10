@@ -30,6 +30,8 @@ STEPS_PER_REV = 4096
 BROADCAST_ID = 254  # 全サーボ宛て（応答は返らない）
 
 # STS シリーズのコントロールテーブル
+_ADDR_MIN_ANGLE_LIMIT = 9  # EEPROM。位置モードの goal はこの範囲に収められる
+_ADDR_MAX_ANGLE_LIMIT = 11  # EEPROM
 _ADDR_MODE = 33  # EEPROM（書くときは LOCK を外す）
 _ADDR_TORQUE_ENABLE = 40
 _ADDR_ACC = 41  # ACC から 7 byte: ACC, GOAL_POSITION(42), GOAL_TIME(44), GOAL_SPEED(46)
@@ -45,8 +47,8 @@ _ACC = 10  # [100 step/s²]
 _STEP_SIGN = 1 << 15
 _MAX_STEPS = _STEP_SIGN - 1
 
-# MODE が実際に変わる書き込みは、応答まで約 40 ms かかる（SDK が書き込みの応答を待つのは約 34 ms）
-_MODE_REPLY_TIMEOUT_MS = 200
+# EEPROM の書き込みは応答が遅れることがある（MODE が実際に変わると約 40 ms。SDK が書き込みの応答を待つのは約 34 ms）
+_EEPROM_REPLY_TIMEOUT_MS = 200
 _PKT_ERROR = 4  # status packet の ERROR の位置（HEADER0 HEADER1 ID LENGTH ERROR ...）
 
 _POLL_INTERVAL = 0.02  # wait_stopped が moving を見る間隔 [sec]
@@ -114,6 +116,15 @@ class ServoBus(ABC):
 
         Raises:
             ServoError: 送信に失敗した場合
+        """
+
+    @abstractmethod
+    def set_angle_limits(self, servo_id: int, low: int, high: int) -> None:
+        """位置モードで動ける範囲（raw）を EEPROM に書く（サーボは goal をこの範囲に収める）.
+
+        Raises:
+            ValueError: 0 <= low < high <= 4095 でない場合（何も送らない）
+            ServoError: 通信に失敗した場合
         """
 
     @abstractmethod
@@ -216,9 +227,25 @@ class FeetechBus(ServoBus):
     @override
     def set_mode(self, servo_id: int, mode: ServoMode) -> None:
         """EEPROM のロックを外して動作モードを書き、ロックを戻す（失敗してもロックは戻す）."""
+        self._write_eeprom(servo_id, ((_ADDR_MODE, 1, int(mode)),))
+
+    @override
+    def set_angle_limits(self, servo_id: int, low: int, high: int) -> None:
+        """EEPROM のロックを外して MIN / MAX_ANGLE_LIMIT を書き、ロックを戻す."""
+        check_angle_limits(low, high)
+        self._write_eeprom(
+            servo_id,
+            ((_ADDR_MIN_ANGLE_LIMIT, 2, low), (_ADDR_MAX_ANGLE_LIMIT, 2, high)),
+        )
+
+    def _write_eeprom(
+        self, servo_id: int, writes: tuple[tuple[int, int, int], ...]
+    ) -> None:
+        """ロックを外して（アドレス、バイト数、値）を順に書き、ロックを戻す（失敗してもロックは戻す）."""
         self._write1(servo_id, _ADDR_LOCK, 0)
         try:
-            self._write_mode(servo_id, mode)
+            for address, length, value in writes:
+                self._write_slow(servo_id, address, length, value)
         finally:
             self._write1(servo_id, _ADDR_LOCK, 1)
 
@@ -269,16 +296,17 @@ class FeetechBus(ServoBus):
         )
         self._check(servo_id, result, error)
 
-    def _write_mode(self, servo_id: int, mode: ServoMode) -> None:
-        """MODE を書き、遅れて届く応答を長めに待つ（SDK の待ち時間で切ると、遅れた応答が次の読み出しに混ざる）."""
+    def _write_slow(self, servo_id: int, address: int, length: int, value: int) -> None:
+        """EEPROM を書き、遅れて届く応答を長めに待つ（SDK の待ち時間で切ると、遅れた応答が次の読み出しに混ざる）."""
 
         def call() -> tuple[list[int], int]:
-            result = self._packet.write1ByteTxOnly(
-                self._port, servo_id, _ADDR_MODE, int(mode)
+            data = [(value >> (8 * i)) & 0xFF for i in range(length)]
+            result = self._packet.writeTxOnly(
+                self._port, servo_id, address, length, data
             )
             if result != COMM_SUCCESS:
                 return [], result
-            self._port.setPacketTimeoutMillis(_MODE_REPLY_TIMEOUT_MS)
+            self._port.setPacketTimeoutMillis(_EEPROM_REPLY_TIMEOUT_MS)
             return self._packet.rxPacket(self._port)
 
         packet, result = self._transact(servo_id, call)
@@ -352,6 +380,28 @@ def open_servo_bus(port: str, baudrate: int = 1_000_000) -> FeetechBus:
     if not opened:
         raise ServoError(f"サーボのポート {port} を {baudrate} bps で開けません")
     return FeetechBus(handler)
+
+
+def check_angle_limits(low: int, high: int) -> None:
+    """位置モードの角度制限（raw）の組を確かめる.
+
+    Raises:
+        ValueError: 0 <= low < high <= 4095 でない場合
+    """
+    if not 0 <= low < high < STEPS_PER_REV:
+        raise ValueError(
+            f"角度制限は 0 <= 下限 < 上限 <= {STEPS_PER_REV - 1} で送ります: {low}, {high}"
+        )
+
+
+def position_to_degrees(position: int) -> float:
+    """位置（raw 0〜4095）をサーボの絶対角 [deg]（0〜360）にする."""
+    return position * 360 / STEPS_PER_REV
+
+
+def degrees_to_position(degrees: float) -> int:
+    """サーボの絶対角 [deg]（0〜360）を最も近い位置（raw 0〜4095）にする."""
+    return round(degrees * STEPS_PER_REV / 360) % STEPS_PER_REV
 
 
 def degrees_to_steps(degrees: float) -> int:

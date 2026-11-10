@@ -119,8 +119,8 @@ class TestSettingFields:
             "pnp.servo.baudrate",
             "pnp.servo.rotation_id",
             "pnp.servo.open_close_id",
-            "pnp.servo.closed_position",
-            "pnp.servo.open_position",
+            "pnp.servo.closed_angle",
+            "pnp.servo.open_angle",
         ]
 
     def test_servo_setup_writes_only_setting_keys(self):
