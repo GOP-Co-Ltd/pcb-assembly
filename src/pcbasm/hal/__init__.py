@@ -14,6 +14,7 @@ from .klipper import KlipperClient, KlipperError, MoonrakerKlipper, open_klipper
 from .manual_stepper import ManualStepper
 from .paste_dispenser import PasteDispenser
 from .servo import (
+    DEFAULT_ACCELERATION,
     DEFAULT_SPEED,
     STEPS_PER_REV,
     FeetechBus,
@@ -66,6 +67,7 @@ __all__ = [
     # dispenser
     "PasteDispenser",
     # servo
+    "DEFAULT_ACCELERATION",
     "DEFAULT_SPEED",
     "STEPS_PER_REV",
     "FeetechBus",

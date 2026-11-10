@@ -43,15 +43,22 @@ _GOAL_LENGTH = 7
 
 DEFAULT_SPEED = 500  # goal speed の既定値 [step/s]
 _MAX_SPEED = (1 << 15) - 1  # goal speed は 2 byte で、bit15 は使わない
-_ACC = 10  # [100 step/s²]
+DEFAULT_ACCELERATION = 10  # goal の加速度の既定値 [100 step/s²]
+_MAX_ACCELERATION = 254
 
 # ステップモードの goal は sign-magnitude（bit15 が負号、下位 15 bit が大きさ）
 _STEP_SIGN = 1 << 15
-_MAX_STEPS = _STEP_SIGN - 1
+MAX_STEPS = _STEP_SIGN - 1  # 1 回に送れる step の大きさ
 
 # EEPROM の書き込みは応答が遅れることがある（MODE が実際に変わると約 40 ms。SDK が書き込みの応答を待つのは約 34 ms）
 _EEPROM_REPLY_TIMEOUT_MS = 200
 _PKT_ERROR = 4  # status packet の ERROR の位置（HEADER0 HEADER1 ID LENGTH ERROR ...）
+
+# Rotation は止めるときの行き過ぎを小さくするため速く加減速する（45°/s で減速距離 約 2°）
+_ROTATION_ACCELERATION = 50  # [100 step/s²]
+# 連続回転で残りを送り足す下限・上限（減速距離に足す、今の速さで進む秒数）
+_KEEP_FLOOR_SECONDS = 0.1
+_KEEP_CEILING_SECONDS = 0.3
 
 _POLL_INTERVAL = 0.02  # wait_stopped が moving を見る間隔 [sec]
 # 指令の直後はまだ moving が立たない（実機で約 0.05 秒）。この間に立たなければ動かない指令とみなす
@@ -90,7 +97,9 @@ class ServoBus(ABC):
 
     @abstractmethod
     def position(self, servo_id: int) -> int:
-        """現在位置を読む（raw 0〜4095）.
+        """位置モードのサーボの現在位置を読む（raw 0〜4095）.
+
+        ステップモードでは、同じレジスタが goal までの残りの step を返す（:meth:`remaining_steps`）。
 
         Raises:
             ServoError: 通信に失敗した場合
@@ -174,11 +183,34 @@ class ServoBus(ABC):
         """
 
     @abstractmethod
-    def step(self, servo_id: int, steps: int, *, speed: int = DEFAULT_SPEED) -> None:
-        """ステップモードのサーボを相対に steps だけ speed [step/s] で動かす（負は逆向き。完了は待たない）.
+    def step(
+        self,
+        servo_id: int,
+        steps: int,
+        *,
+        speed: int = DEFAULT_SPEED,
+        acceleration: int = DEFAULT_ACCELERATION,
+    ) -> None:
+        """ステップモードのサーボを相対に steps だけ動かす（負は逆向き。完了は待たない）.
+
+        動いている途中に送ると、goal までの残りに足される（速さは途切れない）。
+
+        Args:
+            servo_id: サーボ ID
+            steps: 動かす step
+            speed: 速さ [step/s]
+            acceleration: 加減速 [100 step/s²]
 
         Raises:
-            ValueError: speed が 1〜32767 の外の場合（何も送らない）
+            ValueError: speed が 1〜32767、acceleration が 1〜254 の外の場合（何も送らない）
+            ServoError: 通信に失敗した場合
+        """
+
+    @abstractmethod
+    def remaining_steps(self, servo_id: int) -> int:
+        """角度制限を外したステップモードのサーボの、goal までの残りの step（符号つき）.
+
+        Raises:
             ServoError: 通信に失敗した場合
         """
 
@@ -304,19 +336,32 @@ class FeetechBus(ServoBus):
                 f"位置は 0〜{STEPS_PER_REV - 1} の範囲で送ります: {position}"
             )
         check_speed(speed)
-        self._write_goal(servo_id, position, speed)
+        self._write_goal(servo_id, position, speed, DEFAULT_ACCELERATION)
 
     @override
-    def step(self, servo_id: int, steps: int, *, speed: int = DEFAULT_SPEED) -> None:
+    def step(
+        self,
+        servo_id: int,
+        steps: int,
+        *,
+        speed: int = DEFAULT_SPEED,
+        acceleration: int = DEFAULT_ACCELERATION,
+    ) -> None:
         """ステップモードのサーボを相対に steps だけ動かす.
 
         Raises:
-            ValueError: |steps| が 32767 を超えるか、speed が 1〜32767 の外の場合
+            ValueError: |steps| が 32767 を超えるか、speed か acceleration が範囲の外の場合
         """
-        if abs(steps) > _MAX_STEPS:
-            raise ValueError(f"1 回に送れる step は ±{_MAX_STEPS} までです: {steps}")
+        if abs(steps) > MAX_STEPS:
+            raise ValueError(f"1 回に送れる step は ±{MAX_STEPS} までです: {steps}")
         check_speed(speed)
-        self._write_goal(servo_id, steps if steps >= 0 else _STEP_SIGN | -steps, speed)
+        check_acceleration(acceleration)
+        self._write_goal(servo_id, _to_sign_magnitude(steps), speed, acceleration)
+
+    @override
+    def remaining_steps(self, servo_id: int) -> int:
+        """PRESENT_POSITION（制限を外したステップモードでは残りの step）を符号つきで読む."""
+        return _from_sign_magnitude(self._read2(servo_id, _ADDR_PRESENT_POSITION))
 
     @override
     def close(self) -> None:
@@ -365,9 +410,11 @@ class FeetechBus(ServoBus):
         packet, result = self._transact(servo_id, call)
         self._check(servo_id, result, packet[_PKT_ERROR] if packet else 0)
 
-    def _write_goal(self, servo_id: int, goal: int, speed: int) -> None:
+    def _write_goal(
+        self, servo_id: int, goal: int, speed: int, acceleration: int
+    ) -> None:
         data = [
-            _ACC,
+            acceleration,
             goal & 0xFF,
             (goal >> 8) & 0xFF,
             0,
@@ -444,6 +491,26 @@ def check_angle_limits(low: int, high: int) -> None:
     if not 0 <= low < high < STEPS_PER_REV:
         raise ValueError(
             f"角度制限は 0 <= 下限 < 上限 <= {STEPS_PER_REV - 1} で送ります: {low}, {high}"
+        )
+
+
+def _to_sign_magnitude(value: int) -> int:
+    return value if value >= 0 else _STEP_SIGN | -value
+
+
+def _from_sign_magnitude(raw: int) -> int:
+    return -(raw & MAX_STEPS) if raw & _STEP_SIGN else raw
+
+
+def check_acceleration(acceleration: int) -> None:
+    """Goal の加速度 [100 step/s²] が送れる値か確かめる.
+
+    Raises:
+        ValueError: 1〜254 の外の場合
+    """
+    if not 0 < acceleration <= _MAX_ACCELERATION:
+        raise ValueError(
+            f"加速度は 1〜{_MAX_ACCELERATION}（100 step/s² 単位）で送ります: {acceleration}"
         )
 
 
@@ -645,13 +712,56 @@ class Tweezer:
         self._open = open_position
         self._direction = 1 if open_position > closed_position else -1
         self._rotation_speed = _degrees_per_second_to_speed(rotation_speed)
+        # 減速距離 v² / 2a（切り上げ）。止めるときはこれだけ残し、行き過ぎて戻らないようにする
+        self._stopping_steps = math.ceil(
+            self._rotation_speed**2 / (2 * _ROTATION_ACCELERATION * 100)
+        )
+        self._keep_floor = self._stopping_steps + int(
+            self._rotation_speed * _KEEP_FLOOR_SECONDS
+        )
+        self._keep_ceiling = self._stopping_steps + int(
+            self._rotation_speed * _KEEP_CEILING_SECONDS
+        )
 
     def rotate_by(self, degrees: float) -> None:
         """向きを degrees だけ回す（0 step に丸まれば何も送らない）."""
         steps = degrees_to_steps(degrees)
         if steps != 0:
-            self._bus.set_torque(self._rotation_id, True)
-            self._bus.step(self._rotation_id, steps, speed=self._rotation_speed)
+            self._step_rotation(steps)
+
+    def keep_rotating(self, direction: int) -> None:
+        """Direction（+1 か -1）の向きへ回り続ける（押している間、周期的に呼ぶ）.
+
+        goal までの残りが少なくなったら、同じ向きに送り足す（step は残りに足されるので途切れない）。
+        残りには上限があるので、呼ばれなくなれば短い間（今の速さで 0.3 秒と減速の分）で止まる。
+
+        Raises:
+            ValueError: direction が +1 / -1 でない場合（何も送らない）
+        """
+        if direction not in (1, -1):
+            raise ValueError(f"回る向きは +1 か -1 で指定します: {direction}")
+        remaining = self._bus.remaining_steps(self._rotation_id)
+        if direction * remaining < self._keep_floor:
+            self._step_rotation(direction * self._keep_ceiling - remaining)
+
+    def stop_rotation(self) -> None:
+        """回転を止める（残りを減速距離だけにする。残りを 0 にすると行き過ぎて戻る）."""
+        remaining = self._bus.remaining_steps(self._rotation_id)
+        if abs(remaining) > self._stopping_steps:
+            stop_at = int(math.copysign(self._stopping_steps, remaining))
+            self._step_rotation(stop_at - remaining)
+
+    def _step_rotation(self, steps: int) -> None:
+        # パネルで大きく回している途中に逆向きを押すと、1 回に送れる step を超え得る。
+        # 収めて送れば、残りは次の周期の送り足しで埋まる
+        steps = max(-MAX_STEPS, min(steps, MAX_STEPS))
+        self._bus.set_torque(self._rotation_id, True)
+        self._bus.step(
+            self._rotation_id,
+            steps,
+            speed=self._rotation_speed,
+            acceleration=_ROTATION_ACCELERATION,
+        )
 
     def open_by(self, degrees: float) -> None:
         """開く向きを正として、Open Close を今の位置から degrees だけ動かす.

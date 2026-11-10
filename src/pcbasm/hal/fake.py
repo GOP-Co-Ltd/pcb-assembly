@@ -31,11 +31,14 @@ from .gamepad import Gamepad, GamepadError, GamepadState
 from .klipper import GCodeJournal, KlipperError
 from .servo import (
     BROADCAST_ID,
+    DEFAULT_ACCELERATION,
     DEFAULT_SPEED,
+    MAX_STEPS,
     STEPS_PER_REV,
     ServoBus,
     ServoError,
     ServoMode,
+    check_acceleration,
     check_angle_limits,
     check_speed,
 )
@@ -653,6 +656,8 @@ class FakeServoBus(ServoBus):
         ) | dict(angle_limits or {})
         self._goals = dict(self._positions)
         self._speeds = dict.fromkeys(self._modes, DEFAULT_SPEED)
+        self._accelerations = dict.fromkeys(self._modes, DEFAULT_ACCELERATION)
+        self._remaining = dict.fromkeys(self._modes, 0)
         self._reads_until_start: dict[int, int] = {}
         self._closed = False
         self._lock = threading.Lock()
@@ -760,6 +765,7 @@ class FakeServoBus(ServoBus):
         with self._lock:
             self._commands.append(ServoCommand(servo_id, "goto", position))
             self._speeds[servo_id] = speed
+            self._accelerations[servo_id] = DEFAULT_ACCELERATION
             self._goals[servo_id] = position
             # 実機と同じく、角度制限の外への goal は制限の端で止まる（0 / 0 は制限なし）
             low, high = self._limits[servo_id]
@@ -768,13 +774,32 @@ class FakeServoBus(ServoBus):
             self._positions[servo_id] = position
             self._reads_until_start[servo_id] = self._start_delay
 
+    def acceleration(self, servo_id: int) -> int:
+        """最後の goto / step で送られた加速度 [100 step/s²]（送る前は既定値）."""
+        self._mode(servo_id)
+        with self._lock:
+            return self._accelerations[servo_id]
+
     @override
-    def step(self, servo_id: int, steps: int, *, speed: int = DEFAULT_SPEED) -> None:
+    def step(
+        self,
+        servo_id: int,
+        steps: int,
+        *,
+        speed: int = DEFAULT_SPEED,
+        acceleration: int = DEFAULT_ACCELERATION,
+    ) -> None:
+        if abs(steps) > MAX_STEPS:
+            raise ValueError(f"1 回に送れる step は ±{MAX_STEPS} までです: {steps}")
         check_speed(speed)
+        check_acceleration(acceleration)
         self._require(servo_id, ServoMode.STEP)
         with self._lock:
             self._commands.append(ServoCommand(servo_id, "step", steps))
             self._speeds[servo_id] = speed
+            self._accelerations[servo_id] = acceleration
+            # 実機と同じく、動いている途中に送った step は残りに足される
+            self._remaining[servo_id] += steps
             self._positions[servo_id] = (
                 self._positions[servo_id] + steps
             ) % STEPS_PER_REV
@@ -783,6 +808,29 @@ class FakeServoBus(ServoBus):
     @override
     def close(self) -> None:
         self._closed = True
+
+    @override
+    def remaining_steps(self, servo_id: int) -> int:
+        self._require(servo_id, ServoMode.STEP)
+        with self._lock:
+            return self._remaining[servo_id]
+
+    def advance(self, servo_id: int, steps: int) -> None:
+        """ステップモードのサーボが goal へ steps だけ進んだことにする（残りを減らす。goal を越えない）.
+
+        :meth:`step` は位置へ即座に反映するが、:meth:`remaining_steps` の残りは、これで進めるまで減らない。
+
+        Raises:
+            ValueError: steps が負の場合
+        """
+        if steps < 0:
+            raise ValueError(f"進める step は 0 以上です: {steps}")
+        self._require(servo_id, ServoMode.STEP)
+        with self._lock:
+            remaining = self._remaining[servo_id]
+            self._remaining[servo_id] = int(
+                math.copysign(max(abs(remaining) - steps, 0), remaining)
+            )
 
     def jam(self, servo_id: int) -> None:
         """以後そのサーボが動いている途中のまま止まらないことにする（当たって止まった模擬）.

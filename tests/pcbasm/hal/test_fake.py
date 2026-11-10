@@ -9,6 +9,7 @@ from shapely import Point
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d, Point3d
 from pcbasm.hal import (
+    DEFAULT_ACCELERATION,
     DEFAULT_SPEED,
     FrameHub,
     GamepadError,
@@ -388,6 +389,52 @@ class TestFakeServoBus:
             bus.step(1, 100, speed=speed)
 
         assert bus.position(1) == 2048
+
+    def test_remaining_steps_accumulate_and_advance_consumes_them(
+        self, bus: FakeServoBus
+    ):
+        """実機と同じく、動いている途中に送った step は残りに足される."""
+        assert bus.remaining_steps(1) == 0
+
+        bus.step(1, 300)
+        bus.step(1, 200)
+        assert bus.remaining_steps(1) == 500
+
+        bus.advance(1, 120)
+        assert bus.remaining_steps(1) == 380
+        bus.step(1, -1000)
+        bus.advance(1, 2000)  # 残りより多く進めても、goal で止まる
+        assert bus.remaining_steps(1) == 0
+
+    def test_step_beyond_15_bits_is_refused(self, bus: FakeServoBus):
+        with pytest.raises(ValueError):
+            bus.step(1, 32768)
+
+        assert bus.remaining_steps(1) == 0
+
+    def test_advance_refuses_negative_steps(self, bus: FakeServoBus):
+        bus.step(1, 100)
+
+        with pytest.raises(ValueError):
+            bus.advance(1, -10)
+
+        assert bus.remaining_steps(1) == 100
+
+    def test_acceleration_is_the_last_one_sent(self, bus: FakeServoBus):
+        assert bus.acceleration(1) == DEFAULT_ACCELERATION
+
+        bus.step(1, 100, acceleration=50)
+
+        assert bus.acceleration(1) == 50
+
+    @pytest.mark.parametrize("acceleration", [0, 255])
+    def test_acceleration_outside_1_to_254_is_refused(
+        self, bus: FakeServoBus, acceleration: int
+    ):
+        with pytest.raises(ValueError):
+            bus.step(1, 100, acceleration=acceleration)
+
+        assert bus.remaining_steps(1) == 0
 
     def test_goto_is_refused_in_step_mode(self, bus: FakeServoBus):
         with pytest.raises(ServoError):
