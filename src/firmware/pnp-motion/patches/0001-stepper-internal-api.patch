@@ -1,0 +1,149 @@
+diff --git a/src/Makefile b/src/Makefile
+index 90466f6b..47f24a69 100644
+--- a/src/Makefile
++++ b/src/Makefile
+@@ -1,6 +1,9 @@
+ # Main code build rules
+ 
+ src-y += sched.c command.c basecmd.c debugcmds.c
++# pcb-assembly の PnP 機の速度指令（src/firmware/pnp-motion から build.sh が写す）
++dirs-y += src/pnp
++src-y += pnp/velocity_stream.c pnp/vs_planner.c
+ src-$(CONFIG_HAVE_GPIO) += initial_pins.c gpiocmds.c stepper.c endstop.c \
+     trsync.c
+ src-$(CONFIG_WANT_ADC) += adccmds.c
+diff --git a/src/stepper.c b/src/stepper.c
+index 948605d8..9920b46d 100644
+--- a/src/stepper.c
++++ b/src/stepper.c
+@@ -248,7 +248,7 @@ DECL_COMMAND(command_config_stepper, "config_stepper oid=%c step_pin=%c"
+              " dir_pin=%c invert_step=%c step_pulse_ticks=%u");
+ 
+ // Return the 'struct stepper' for a given stepper oid
+-static struct stepper *
++struct stepper *
+ stepper_oid_lookup(uint8_t oid)
+ {
+     return oid_lookup(oid, command_config_stepper);
+@@ -256,15 +256,15 @@ stepper_oid_lookup(uint8_t oid)
+ 
+ // Schedule a set of steps with a given timing
+ void
+-command_queue_step(uint32_t *args)
++stepper_queue_move(struct stepper *s, uint32_t interval, uint16_t count
++                   , int16_t add)
+ {
+-    struct stepper *s = stepper_oid_lookup(args[0]);
+     struct stepper_move *m = move_alloc();
+-    m->interval = args[1];
+-    m->count = args[2];
++    m->interval = interval;
++    m->count = count;
+     if (!m->count)
+         shutdown("Invalid count parameter");
+-    m->add = args[3];
++    m->add = add;
+     m->flags = 0;
+ 
+     irq_disable();
+@@ -286,27 +286,36 @@ command_queue_step(uint32_t *args)
+     }
+     irq_enable();
+ }
++
++void
++command_queue_step(uint32_t *args)
++{
++    stepper_queue_move(stepper_oid_lookup(args[0]), args[1], args[2], args[3]);
++}
+ DECL_COMMAND(command_queue_step,
+              "queue_step oid=%c interval=%u count=%hu add=%hi");
+ 
+ // Set the direction of the next queued step
+ void
+-command_set_next_step_dir(uint32_t *args)
++stepper_set_next_dir(struct stepper *s, uint8_t dir)
+ {
+-    struct stepper *s = stepper_oid_lookup(args[0]);
+-    uint8_t nextdir = args[1] ? SF_NEXT_DIR : 0;
++    uint8_t nextdir = dir ? SF_NEXT_DIR : 0;
+     irq_disable();
+     s->flags = (s->flags & ~SF_NEXT_DIR) | nextdir;
+     irq_enable();
+ }
++
++void
++command_set_next_step_dir(uint32_t *args)
++{
++    stepper_set_next_dir(stepper_oid_lookup(args[0]), args[1]);
++}
+ DECL_COMMAND(command_set_next_step_dir, "set_next_step_dir oid=%c dir=%c");
+ 
+ // Set an absolute time that the next step will be relative to
+ void
+-command_reset_step_clock(uint32_t *args)
++stepper_reset_clock(struct stepper *s, uint32_t waketime)
+ {
+-    struct stepper *s = stepper_oid_lookup(args[0]);
+-    uint32_t waketime = args[1];
+     irq_disable();
+     if (s->count)
+         shutdown("Can't reset time when stepper active");
+@@ -314,6 +323,12 @@ command_reset_step_clock(uint32_t *args)
+     s->flags &= ~SF_NEED_RESET;
+     irq_enable();
+ }
++
++void
++command_reset_step_clock(uint32_t *args)
++{
++    stepper_reset_clock(stepper_oid_lookup(args[0]), args[1]);
++}
+ DECL_COMMAND(command_reset_step_clock, "reset_step_clock oid=%c clock=%u");
+ 
+ // Return the current stepper position.  Caller must disable irqs.
+@@ -332,16 +347,23 @@ stepper_get_position(struct stepper *s)
+     return position;
+ }
+ 
++// Return the current position of the stepper (steps with dir=1 count up)
++int32_t
++stepper_position(struct stepper *s)
++{
++    irq_disable();
++    uint32_t position = stepper_get_position(s);
++    irq_enable();
++    return position - POSITION_BIAS;
++}
++
+ // Report the current position of the stepper
+ void
+ command_stepper_get_position(uint32_t *args)
+ {
+     uint8_t oid = args[0];
+-    struct stepper *s = stepper_oid_lookup(oid);
+-    irq_disable();
+-    uint32_t position = stepper_get_position(s);
+-    irq_enable();
+-    sendf("stepper_position oid=%c pos=%i", oid, position - POSITION_BIAS);
++    sendf("stepper_position oid=%c pos=%i", oid
++          , stepper_position(stepper_oid_lookup(oid)));
+ }
+ DECL_COMMAND(command_stepper_get_position, "stepper_get_position oid=%c");
+ 
+diff --git a/src/stepper.h b/src/stepper.h
+index db29eed0..f815447d 100644
+--- a/src/stepper.h
++++ b/src/stepper.h
+@@ -4,5 +4,11 @@
+ #include <stdint.h> // uint8_t
+ 
+ uint_fast8_t stepper_event(struct timer *t);
++struct stepper *stepper_oid_lookup(uint8_t oid);
++void stepper_queue_move(struct stepper *s, uint32_t interval, uint16_t count
++                        , int16_t add);
++void stepper_set_next_dir(struct stepper *s, uint8_t dir);
++void stepper_reset_clock(struct stepper *s, uint32_t waketime);
++int32_t stepper_position(struct stepper *s);
+ 
+ #endif // stepper.h
