@@ -9,7 +9,10 @@ from shapely import Point
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d, Point3d
 from pcbasm.hal import (
+    DEFAULT_SPEED,
     FrameHub,
+    GamepadError,
+    GamepadState,
     KlipperError,
     ManualStepper,
     ServoError,
@@ -21,6 +24,7 @@ from pcbasm.hal.fake import (
     Checkerboard,
     FakeAudioPlayer,
     FakeCamera,
+    FakeGamepad,
     FakeKlipper,
     FakeServoBus,
     SceneCamera,
@@ -367,6 +371,24 @@ class TestFakeServoBus:
         with pytest.raises(ServoError):
             operate(bus)
 
+    def test_speed_is_the_last_one_sent_and_the_default_before_any(
+        self, bus: FakeServoBus
+    ):
+        assert bus.speed(1) == DEFAULT_SPEED
+
+        bus.step(1, 100, speed=1024)
+        bus.goto(2, 1100, speed=300)
+        bus.step(1, 100)
+
+        assert (bus.speed(1), bus.speed(2)) == (DEFAULT_SPEED, 300)
+
+    @pytest.mark.parametrize("speed", [0, 32768])
+    def test_speed_outside_1_to_32767_is_refused(self, bus: FakeServoBus, speed: int):
+        with pytest.raises(ValueError):
+            bus.step(1, 100, speed=speed)
+
+        assert bus.position(1) == 2048
+
     def test_goto_is_refused_in_step_mode(self, bus: FakeServoBus):
         with pytest.raises(ServoError):
             bus.goto(1, 100)
@@ -470,6 +492,43 @@ class TestFakeServoBus:
             ServoCommand(2, "max_angle", 1200),
         ]
 
+    def test_initial_angle_limits_can_be_given(self):
+        bus = FakeServoBus(
+            {1: ServoMode.STEP, 2: ServoMode.POSITION}, angle_limits={2: (900, 1200)}
+        )
+
+        assert (bus.angle_limits(1), bus.angle_limits(2)) == ((0, 4095), (900, 1200))
+        assert bus.commands == []
+
+    def test_clear_angle_limits_writes_zero_and_zero(self, bus: FakeServoBus):
+        bus.clear_angle_limits(1)
+
+        assert bus.angle_limits(1) == (0, 0)
+        assert bus.commands == [
+            ServoCommand(1, "min_angle", 0),
+            ServoCommand(1, "max_angle", 0),
+        ]
+
+    def test_goto_without_angle_limits_is_not_clamped(self, bus: FakeServoBus):
+        bus.clear_angle_limits(2)
+
+        bus.goto(2, 3000)
+
+        assert bus.position(2) == 3000
+
+    def test_goal_is_the_last_goto_and_the_position_before_any(self, bus: FakeServoBus):
+        assert bus.goal(2) == 1000
+
+        bus.goto(2, 1100)
+        bus.set_torque(2, False)
+        bus.turn_by_hand(2, 1500)
+
+        assert (bus.goal(2), bus.position(2)) == (1100, 1500)
+
+    def test_goal_is_refused_in_step_mode(self, bus: FakeServoBus):
+        with pytest.raises(ServoError):
+            bus.goal(1)
+
     def test_unusable_angle_limits_are_refused(self, bus: FakeServoBus):
         with pytest.raises(ValueError):
             bus.set_angle_limits(2, 1200, 900)
@@ -519,3 +578,34 @@ class TestFakeServoBus:
         bus.close()
 
         assert bus.closed
+
+
+class TestFakeGamepad:
+    """テストが設定した入力を返し、切断も模擬する."""
+
+    def test_is_at_rest_until_set(self):
+        assert FakeGamepad().state() == GamepadState()
+
+    def test_returns_the_state_set_by_the_test(self):
+        gamepad = FakeGamepad()
+        pressed = GamepadState(left_trigger=0.3, left_bumper=True, right_bumper=False)
+
+        gamepad.set_state(pressed)
+
+        assert gamepad.state() == pressed
+
+    def test_disconnect_makes_state_raise(self):
+        gamepad = FakeGamepad(GamepadState(left_trigger=1.0))
+
+        gamepad.disconnect()
+
+        with pytest.raises(GamepadError, match="切断"):
+            gamepad.state()
+
+    def test_close_marks_the_gamepad_closed(self):
+        gamepad = FakeGamepad()
+        assert not gamepad.closed
+
+        gamepad.close()
+
+        assert gamepad.closed

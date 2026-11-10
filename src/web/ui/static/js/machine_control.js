@@ -223,15 +223,104 @@
     });
   }
 
+  // ---- ピンセット（部品実装機だけ。テンプレート側で欄を出さなければ何もしない） ----
+  // 回転は相対角、開閉は開き具合（0=閉じ切り、1=開き切り）を送る。
+  // スライダーと数値欄は backend が返す目標（target_fraction）を、「現在」は実測（open_fraction）を表示する
+
+  const openSlider = document.getElementById("mc-open-slider");
+  const openField = document.getElementById("mc-open");
+  const openCurrent = document.getElementById("mc-open-current");
+
+  for (const button of panel.querySelectorAll("[data-mc-rotate]")) {
+    button.addEventListener("click", async () => {
+      try {
+        await api("POST", "/api/pnp/servo/rotate", {
+          degrees: Number(button.dataset.mcRotate),
+        });
+      } catch (err) {
+        toast(err.message, false);
+      }
+    });
+  }
+
+  // 開閉の指令は 1 本ずつ送る。送信中に来た値は最新の 1 つだけ保留し、応答が返ったら送る
+  // （サーバーの応答の速さで自然に間引かれ、最後の値は必ず届く）
+  let openSending = false;
+  let openPending = null;
+  let openRequests = 0; // 送信を始めた回数。送信をまたいだポーリングの結果を捨てるのに使う
+
+  async function sendOpen(fraction) {
+    if (openSending) {
+      openPending = fraction;
+      return;
+    }
+    openSending = true;
+    let next = fraction;
+    while (next !== null) {
+      openRequests += 1;
+      try {
+        await api("POST", "/api/pnp/servo/open", { fraction: next });
+      } catch (err) {
+        toast(err.message, false);
+      }
+      next = openPending;
+      openPending = null;
+    }
+    openSending = false;
+  }
+
+  function openBusy() {
+    return openSending || openSlider.matches(":active");
+  }
+
+  if (openSlider && openField) {
+    // 動かしている間の値（input）を送ってサーボを追従させる。離した位置は最後の input の値で、
+    // 保留の仕組みで必ず届くので change は聞かない
+    openSlider.addEventListener("input", () => {
+      openField.value = Number(openSlider.value).toFixed(2); // 数値欄も動かしている値に揃える
+      sendOpen(Number(openSlider.value));
+    });
+    openField.addEventListener("change", () => {
+      const text = openField.value.trim();
+      if (text === "") return;
+      sendOpen(Number(text));
+      openField.blur();
+    });
+  }
+
+  async function pollTweezer() {
+    if (!openSlider || !openField) return;
+    const requests = openRequests;
+    try {
+      const status = await api("GET", "/api/pnp/servo/status");
+      openCurrent.textContent = `現在 ${status.open_fraction.toFixed(2)}`;
+      // 取得中に指令を送っていたら、その結果は古い目標なので欄に出さない
+      if (requests !== openRequests || openBusy()) return;
+      openSlider.value = String(status.target_fraction);
+      if (document.activeElement !== openField) {
+        openField.value = status.target_fraction.toFixed(2);
+      }
+    } catch (err) {
+      // 役割の設定前などは表示できない。ポーリングのたびに通知しない
+      openCurrent.textContent = "現在 ---";
+      if (document.activeElement !== openField) openField.value = "";
+    }
+  }
+
   // ---- サイドバーの開閉とポーリング ----
 
   let timer = null;
   const toggle = document.getElementById("mc-toggle");
 
+  function pollAll() {
+    pollStatus();
+    pollTweezer();
+  }
+
   function startPolling() {
     if (timer !== null) return;
-    pollStatus();
-    timer = setInterval(pollStatus, 2000);
+    pollAll();
+    timer = setInterval(pollAll, 2000);
   }
 
   function stopPolling() {

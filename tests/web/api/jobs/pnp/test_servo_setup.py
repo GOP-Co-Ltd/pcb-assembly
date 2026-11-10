@@ -179,7 +179,8 @@ class TestServoSetupJob:
             ServoCommand(2, "goto", 1300),
             ServoCommand(254, "torque", 0),  # 終わったら全サーボを脱力する
         ]
-        assert bus.angle_limits(1) == (0, 4095)  # Rotation には制限を残さない
+        # Rotation は制限を外す（0 / 0）。ステップモードでも制限が効き、回し続けると端で止まるため
+        assert bus.angle_limits(1) == (0, 0)
         assert "87.89°〜114.26°" in "\n".join(record.log_lines)
 
         backend.machine_config.write(payload.values)

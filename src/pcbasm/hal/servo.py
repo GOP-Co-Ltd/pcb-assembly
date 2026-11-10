@@ -35,12 +35,14 @@ _ADDR_MAX_ANGLE_LIMIT = 11  # EEPROM
 _ADDR_MODE = 33  # EEPROM（書くときは LOCK を外す）
 _ADDR_TORQUE_ENABLE = 40
 _ADDR_ACC = 41  # ACC から 7 byte: ACC, GOAL_POSITION(42), GOAL_TIME(44), GOAL_SPEED(46)
+_ADDR_GOAL_POSITION = 42
 _ADDR_LOCK = 55  # EEPROM の書き込みロック（0 で外す、1 で戻す）
 _ADDR_PRESENT_POSITION = 56
 _ADDR_MOVING = 66
 _GOAL_LENGTH = 7
 
-_SPEED = 500  # [step/s]
+DEFAULT_SPEED = 500  # goal speed の既定値 [step/s]
+_MAX_SPEED = (1 << 15) - 1  # goal speed は 2 byte で、bit15 は使わない
 _ACC = 10  # [100 step/s²]
 
 # ステップモードの goal は sign-magnitude（bit15 が負号、下位 15 bit が大きさ）
@@ -119,6 +121,25 @@ class ServoBus(ABC):
         """
 
     @abstractmethod
+    def angle_limits(self, servo_id: int) -> tuple[int, int]:
+        """角度制限（下限、上限。raw）を EEPROM から読む（0 / 0 は制限なし）.
+
+        Raises:
+            ServoError: 通信に失敗した場合
+        """
+
+    @abstractmethod
+    def clear_angle_limits(self, servo_id: int) -> None:
+        """角度制限を外す（下限・上限とも 0 を EEPROM に書く）.
+
+        ステップモードでも角度制限は効き、同じ向きに回し続けると制限の端で止まる。多回転させるサーボは
+        制限を外す。外したステップモードのサーボでは、:meth:`position` は goal までの残りの step を返す。
+
+        Raises:
+            ServoError: 通信に失敗した場合
+        """
+
+    @abstractmethod
     def set_angle_limits(self, servo_id: int, low: int, high: int) -> None:
         """位置モードで動ける範囲（raw）を EEPROM に書く（サーボは goal をこの範囲に収める）.
 
@@ -136,19 +157,28 @@ class ServoBus(ABC):
         """
 
     @abstractmethod
-    def goto(self, servo_id: int, position: int) -> None:
-        """位置モードのサーボを絶対位置（raw 0〜4095）へ動かす（完了は待たない）.
+    def goal(self, servo_id: int) -> int:
+        """位置モードのサーボの goal（最後に送った行き先。raw 0〜4095）を読む.
 
         Raises:
-            ValueError: position が 0〜4095 の外の場合
             ServoError: 通信に失敗した場合
         """
 
     @abstractmethod
-    def step(self, servo_id: int, steps: int) -> None:
-        """ステップモードのサーボを相対に steps だけ動かす（負は逆向き。完了は待たない）.
+    def goto(self, servo_id: int, position: int, *, speed: int = DEFAULT_SPEED) -> None:
+        """位置モードのサーボを絶対位置（raw 0〜4095）へ speed [step/s] で動かす（完了は待たない）.
 
         Raises:
+            ValueError: position が 0〜4095 の外か、speed が 1〜32767 の外の場合（何も送らない）
+            ServoError: 通信に失敗した場合
+        """
+
+    @abstractmethod
+    def step(self, servo_id: int, steps: int, *, speed: int = DEFAULT_SPEED) -> None:
+        """ステップモードのサーボを相対に steps だけ speed [step/s] で動かす（負は逆向き。完了は待たない）.
+
+        Raises:
+            ValueError: speed が 1〜32767 の外の場合（何も送らない）
             ServoError: 通信に失敗した場合
         """
 
@@ -194,14 +224,12 @@ class FeetechBus(ServoBus):
     @override
     def position(self, servo_id: int) -> int:
         """現在位置を読む（raw 0〜4095）."""
-        value, result, error = self._transact(
-            servo_id,
-            lambda: self._packet.read2ByteTxRx(
-                self._port, servo_id, _ADDR_PRESENT_POSITION
-            ),
-        )
-        self._check(servo_id, result, error)
-        return value
+        return self._read2(servo_id, _ADDR_PRESENT_POSITION)
+
+    @override
+    def goal(self, servo_id: int) -> int:
+        """GOAL_POSITION を読む."""
+        return self._read2(servo_id, _ADDR_GOAL_POSITION)
 
     @override
     def moving(self, servo_id: int) -> bool:
@@ -230,6 +258,21 @@ class FeetechBus(ServoBus):
         self._write_eeprom(servo_id, ((_ADDR_MODE, 1, int(mode)),))
 
     @override
+    def angle_limits(self, servo_id: int) -> tuple[int, int]:
+        """MIN / MAX_ANGLE_LIMIT を読む."""
+        return (
+            self._read2(servo_id, _ADDR_MIN_ANGLE_LIMIT),
+            self._read2(servo_id, _ADDR_MAX_ANGLE_LIMIT),
+        )
+
+    @override
+    def clear_angle_limits(self, servo_id: int) -> None:
+        """EEPROM のロックを外して MIN / MAX_ANGLE_LIMIT に 0 を書き、ロックを戻す."""
+        self._write_eeprom(
+            servo_id, ((_ADDR_MIN_ANGLE_LIMIT, 2, 0), (_ADDR_MAX_ANGLE_LIMIT, 2, 0))
+        )
+
+    @override
     def set_angle_limits(self, servo_id: int, low: int, high: int) -> None:
         """EEPROM のロックを外して MIN / MAX_ANGLE_LIMIT を書き、ロックを戻す."""
         check_angle_limits(low, high)
@@ -250,28 +293,30 @@ class FeetechBus(ServoBus):
             self._write1(servo_id, _ADDR_LOCK, 1)
 
     @override
-    def goto(self, servo_id: int, position: int) -> None:
+    def goto(self, servo_id: int, position: int, *, speed: int = DEFAULT_SPEED) -> None:
         """位置モードのサーボを絶対位置へ動かす.
 
         Raises:
-            ValueError: position が 0〜4095 の外の場合
+            ValueError: position が 0〜4095 の外か、speed が 1〜32767 の外の場合
         """
         if not 0 <= position < STEPS_PER_REV:
             raise ValueError(
                 f"位置は 0〜{STEPS_PER_REV - 1} の範囲で送ります: {position}"
             )
-        self._write_goal(servo_id, position)
+        check_speed(speed)
+        self._write_goal(servo_id, position, speed)
 
     @override
-    def step(self, servo_id: int, steps: int) -> None:
+    def step(self, servo_id: int, steps: int, *, speed: int = DEFAULT_SPEED) -> None:
         """ステップモードのサーボを相対に steps だけ動かす.
 
         Raises:
-            ValueError: |steps| が 32767 を超える場合
+            ValueError: |steps| が 32767 を超えるか、speed が 1〜32767 の外の場合
         """
         if abs(steps) > _MAX_STEPS:
             raise ValueError(f"1 回に送れる step は ±{_MAX_STEPS} までです: {steps}")
-        self._write_goal(servo_id, steps if steps >= 0 else _STEP_SIGN | -steps)
+        check_speed(speed)
+        self._write_goal(servo_id, steps if steps >= 0 else _STEP_SIGN | -steps, speed)
 
     @override
     def close(self) -> None:
@@ -280,6 +325,14 @@ class FeetechBus(ServoBus):
             self._closed = True
             if self._port.is_open:
                 self._port.closePort()
+
+    def _read2(self, servo_id: int, address: int) -> int:
+        value, result, error = self._transact(
+            servo_id,
+            lambda: self._packet.read2ByteTxRx(self._port, servo_id, address),
+        )
+        self._check(servo_id, result, error)
+        return value
 
     def _read1(self, servo_id: int, address: int) -> int:
         value, result, error = self._transact(
@@ -312,15 +365,15 @@ class FeetechBus(ServoBus):
         packet, result = self._transact(servo_id, call)
         self._check(servo_id, result, packet[_PKT_ERROR] if packet else 0)
 
-    def _write_goal(self, servo_id: int, goal: int) -> None:
+    def _write_goal(self, servo_id: int, goal: int, speed: int) -> None:
         data = [
             _ACC,
             goal & 0xFF,
             (goal >> 8) & 0xFF,
             0,
             0,
-            _SPEED & 0xFF,
-            _SPEED >> 8,
+            speed & 0xFF,
+            speed >> 8,
         ]
         result, error = self._transact(
             servo_id,
@@ -392,6 +445,21 @@ def check_angle_limits(low: int, high: int) -> None:
         raise ValueError(
             f"角度制限は 0 <= 下限 < 上限 <= {STEPS_PER_REV - 1} で送ります: {low}, {high}"
         )
+
+
+def check_speed(speed: int) -> None:
+    """Goal speed [step/s] が送れる値か確かめる.
+
+    Raises:
+        ValueError: 1〜32767 の外の場合
+    """
+    if not 0 < speed <= _MAX_SPEED:
+        raise ValueError(f"速度は 1〜{_MAX_SPEED} step/s で送ります: {speed}")
+
+
+def _degrees_per_second_to_speed(degrees_per_second: float) -> int:
+    """角速度 [deg/s] を goal speed [step/s] にする（四捨五入、最低 1）."""
+    return max(1, round(degrees_per_second * STEPS_PER_REV / 360))
 
 
 def position_to_degrees(position: int) -> float:
@@ -506,6 +574,10 @@ class Tweezer:
 
     指令を送るだけで、動き終わるのは待たない。Open Close の角度から開き幅への換算（角度 → 直動 →
     開き）はモデル化せず、角度のまま扱う。
+
+    トルクは組んだときではなく、指令ごとに動かすサーボだけに入れる。今の開き具合を読むだけなら、
+    脱力したサーボを保持しない。Rotation を回しても Open Close の goal には触れないので、
+    つまんだまま向きを変えても把持力は抜けない。
     """
 
     def __init__(
@@ -516,10 +588,13 @@ class Tweezer:
         open_close_id: int,
         closed_position: int,
         open_position: int,
+        rotation_speed: float,
     ) -> None:
-        """両方のサーボの応答とモードを確かめ、トルクを入れる.
+        """両方のサーボの応答・モード・角度制限を確かめる.
 
-        Open Close は :func:`hold_position` で今の位置のままトルクを入れる。
+        角度制限はサーボ設定ジョブが書いた状態であることを確かめる。Rotation は制限なし（0 / 0。
+        制限があると回し続けたときに端で止まる）、Open Close は閉じ切り〜開き切り（開き過ぎて
+        逆作動式の機構を壊さない守り）。
 
         Args:
             bus: サーボのバス
@@ -527,9 +602,10 @@ class Tweezer:
             open_close_id: Open Close（位置モード）のサーボ ID
             closed_position: Open Close の閉じた位置（raw 0〜4095）
             open_position: Open Close の開いた位置（raw 0〜4095）
+            rotation_speed: Rotation を回す速さ [deg/s]
 
         Raises:
-            ServoError: どちらかが応答しないか、モードが役割と合わない場合
+            ServoError: どちらかが応答しないか、モードか角度制限が役割と合わない場合
         """
         roles = (
             ("rotation", rotation_id, ServoMode.STEP),
@@ -543,20 +619,39 @@ class Tweezer:
                 raise ServoError(
                     f"{role} のサーボ {servo_id} のモードが {expected.name} ではありません: {mode.name}"
                 )
-        bus.set_torque(rotation_id, True)
-        hold_position(bus, open_close_id)
+        limits = (
+            ("rotation", rotation_id, (0, 0), "制限なし（0 / 0）"),
+            (
+                "open_close",
+                open_close_id,
+                (
+                    min(closed_position, open_position),
+                    max(closed_position, open_position),
+                ),
+                "閉じ切り〜開き切り",
+            ),
+        )
+        for role, servo_id, expected_limits, meaning in limits:
+            if (actual := bus.angle_limits(servo_id)) != expected_limits:
+                raise ServoError(
+                    f"{role} のサーボ {servo_id} の角度制限が {actual[0]}〜{actual[1]} です"
+                    f"（{meaning}の {expected_limits[0]}〜{expected_limits[1]} が要ります）。"
+                    "サーボ設定ジョブをやり直してください"
+                )
         self._bus = bus
         self._rotation_id = rotation_id
         self._open_close_id = open_close_id
         self._closed = closed_position
         self._open = open_position
         self._direction = 1 if open_position > closed_position else -1
+        self._rotation_speed = _degrees_per_second_to_speed(rotation_speed)
 
     def rotate_by(self, degrees: float) -> None:
         """向きを degrees だけ回す（0 step に丸まれば何も送らない）."""
         steps = degrees_to_steps(degrees)
         if steps != 0:
-            self._bus.step(self._rotation_id, steps)
+            self._bus.set_torque(self._rotation_id, True)
+            self._bus.step(self._rotation_id, steps, speed=self._rotation_speed)
 
     def open_by(self, degrees: float) -> None:
         """開く向きを正として、Open Close を今の位置から degrees だけ動かす.
@@ -572,7 +667,38 @@ class Tweezer:
             raise ValueError(
                 f"開閉の行き先 {target} が閉じ（{self._closed}）〜開き（{self._open}）の外です"
             )
+        self._goto_open_close(target)
+
+    def open_to(self, fraction: float) -> None:
+        """Open Close を開き具合 fraction（0=閉じ切り、1=開き切り）の位置へ動かす.
+
+        Raises:
+            ValueError: fraction が 0〜1 の外の場合（何も送らない）
+        """
+        if not 0.0 <= fraction <= 1.0:
+            raise ValueError(f"開き具合は 0〜1 で指定します: {fraction}")
+        self._goto_open_close(
+            round(self._closed + (self._open - self._closed) * fraction)
+        )
+
+    def open_fraction(self) -> float:
+        """今の開き具合（0=閉じ切り、1=開き切り。範囲の外にいればその値のまま）."""
+        return self._fraction(self._bus.position(self._open_close_id))
+
+    def target_fraction(self) -> float:
+        """Open Close の goal（最後に送った行き先）の開き具合.
+
+        つまんで閉じ切りの手前で止まっていても、送った開き具合を返す。
+        """
+        return self._fraction(self._bus.goal(self._open_close_id))
+
+    def _fraction(self, position: int) -> float:
+        return (position - self._closed) / (self._open - self._closed)
+
+    def _goto_open_close(self, target: int) -> None:
+        # goal を先に書くので、トルクを入れた瞬間に古い goal へ跳ばない
         self._bus.goto(self._open_close_id, target)
+        self._bus.set_torque(self._open_close_id, True)
 
     def opening(self) -> float:
         """閉じた位置から開く向きへの角度 [deg]."""

@@ -16,8 +16,20 @@ self-hosted runner では CI job が host 上で直接コマンドを実行す�
 pcb-assembly repository 専用とし、信頼できる branch や pull request だけを実行すること。
 **public repository では絶対に使わない**（fork PR が任意のコードを host 上で実行できる）。
 
-runner user を `video`、`gpio`、`dialout` group へ追加しない。GitHub Actions では camera や
+runner user を `video`、`gpio`、`dialout`、`input` group へ追加しない。GitHub Actions では camera や
 装置を使う hardware test を実行しない。
+
+例外として、runner user は専用の `uinput` group に入れる。ゲームパッドのテスト（`TestEvdevGamepad`）が
+`/dev/uinput` で仮想の入力デバイスを作るため。`input` group と違い、実機のコントローラやキーボード
+（`/dev/input/event*`）は読めない。`install` が次の udev 規則を `/etc/udev/rules.d/60-pcbasm-uinput.rules`
+に置く。
+
+```text
+KERNEL=="uinput", GROUP="uinput", MODE="0660", OPTIONS+="static_node=uinput"
+```
+
+起動中の runner service は group を読み直さないので、初めて `uinput` group に入れた host では、job が
+走っていないときに runner service を再起動する（または OS を再起動する）。
 
 ## セットアップ
 
@@ -29,8 +41,8 @@ repository を checkout した Raspberry Pi 上で、`sudo` を付けずに実�
 
 次を一度に実行する。
 
-- CI に必要な OS package、Git LFS、KiCad（`pcbnew`）、Chromium、`uv 0.10.9` のインストール
-- `github-runner` user の作成と host cache directory の準備
+- CI に必要な OS package（`python3-picamera2`、`python3-evdev` を含む）、Git LFS、KiCad（`pcbnew`）、Chromium、`uv 0.10.9` のインストール
+- `github-runner` user の作成、`uinput` group と udev 規則の配置、host cache directory の準備
 - `actions/runner` の最新 release を `/opt/actions-runner/pcb-assembly-rpi-1` へ展開
 - registration token の取得（`gh`）または非表示入力による instance の登録
 - systemd service の作成・起動と、service・登録状態・GitHub 接続の検証
@@ -103,7 +115,8 @@ runs-on: [self-hosted, linux, ARM64, rpi-ci]
 `verify` は次を確認する。
 
 - instance が登録済みで、systemd service が有効かつ起動中
-- Git LFS の system filter 設定と `pcbnew` の import
+- Git LFS の system filter 設定と `pcbnew`、`evdev` の import
+- `/dev/uinput` の group が `uinput` で、runner user がその group に入っている
 - `uv` version
 - GitHub 側の runner 一覧（name / status / busy / label）
 - CPU、memory、disk 使用量

@@ -32,15 +32,15 @@ OS を入れ、ホスト名を機体ごとに一意な名前へ変える。ホ�
 
     段は次の順に進む。どの段も再実行してよく、`./install.sh <段>` で 1 段だけやり直せる。
 
-    | 段          | すること                                                                                                      |
-    | ----------- | ------------------------------------------------------------------------------------------------------------- |
-    | `preflight` | Debian 13 (trixie) aarch64、既定のままでないホスト名、clone の位置を確かめる                                  |
-    | `packages`  | apt で KiCad、`python3-picamera2`、`git-lfs`、`alsa-utils` などを入れ、Git LFS の実体を取得する               |
-    | `python`    | 版を固定した uv を入れ、`make setup` で `.venv` を作る（既にあれば作り直さず `uv sync` で同期だけする）       |
-    | `klipper`   | KIAUH を対話式で起動する（Klipper が入っていれば飛ばす）。独自 kinematics（`inversed_corexy`）を symlink する |
-    | `hardware`  | カメラ・スピーカーの boot overlay と Klipper MCU firmware を対話式で設定する（`deploy/hardware.sh`）          |
-    | `machine`   | `deploy/templates/` から機種を選び、`config/machine.toml` と `~/printer_data/config/printer.cfg` を置く       |
-    | `services`  | `pcbasm-api` / `pcbasm-ui` の systemd unit と、WebUI からの更新に使う sudoers を設置して起動する              |
+    | 段          | すること                                                                                                         |
+    | ----------- | ---------------------------------------------------------------------------------------------------------------- |
+    | `preflight` | Debian 13 (trixie) aarch64、既定のままでないホスト名、clone の位置を確かめる                                     |
+    | `packages`  | apt で KiCad、`python3-picamera2`、`python3-evdev`、`git-lfs`、`alsa-utils` などを入れ、Git LFS の実体を取得する |
+    | `python`    | 版を固定した uv を入れ、`make setup` で `.venv` を作る（既にあれば作り直さず `uv sync` で同期だけする）          |
+    | `klipper`   | KIAUH を対話式で起動する（Klipper が入っていれば飛ばす）。独自 kinematics（`inversed_corexy`）を symlink する    |
+    | `hardware`  | カメラ・スピーカーの boot overlay と Klipper MCU firmware を対話式で設定する（`deploy/hardware.sh`）             |
+    | `machine`   | `deploy/templates/` から機種を選び、`config/machine.toml` と `~/printer_data/config/printer.cfg` を置く          |
+    | `services`  | `pcbasm-api` / `pcbasm-ui` の systemd unit と、WebUI からの更新に使う sudoers を設置して起動する                 |
 
     - KIAUH では Klipper、Moonraker、Mainsail を選んで入れる
     - カメラは CAMERA port 0 / 1 と driver を選ぶ。driver は `ov9281`（標準構成）、`imx708`、

@@ -39,6 +39,7 @@ root conftest（`tests/conftest.py`）の autouse fixture が、テストから�
 
 - `forbid_real_klipper`：`open_klipper` を呼ぶとテストが落ちる。Klipper が要るテストは `moonraker`（`tests/support/moonraker.py` の FakeMoonraker）か `mount_klipper`（`FakeKlipper`）を使う
 - `forbid_real_servo`：`open_servo_bus` を呼ぶとテストが落ちる。サーボが要るテストは `FakeServoBus` を使う。`FeetechBus` のエンコードは疑似端末（`os.openpty()`）の slave をモジュールの実物 `pcbasm.hal.servo.open_servo_bus` で開いて確かめる
+- `forbid_real_gamepad`：`open_gamepad` を呼ぶとテストが落ちる（本番機にはコントローラがつながっていて、人の操作が結果を変えるため）。コントローラが要るテストは `FakeGamepad` を使う。`EvdevGamepad` は `/dev/uinput` で作った仮想デバイス（evdev の `UInput`）を、モジュールの実物 `pcbasm.hal.gamepad.open_gamepad` にパスを渡して開いて確かめる。ドライバごとの割り当ての判別と正規化も、軸を変えた仮想デバイスで確かめる。CI の runner は専用の `uinput` group で `/dev/uinput` に書ける（`github-runner/README.md`）。書けない環境（既定の権限の Raspberry Pi OS）では `UInput` の生成が失敗するので、失敗ではなく skip にする。パスを渡さない自動検出は実機のコントローラを開きうるので、pytest では確かめない（受け入れ試験 A26 で確かめる）
 - `forbid_real_systemctl`：自己更新の `sudo` と `systemctl` を、呼ばれたら失敗する stub に向ける
 - `fake_by_default`：`PCBASM_FAKE=1` にし、env から組む起動設定を fake の機体にする
 

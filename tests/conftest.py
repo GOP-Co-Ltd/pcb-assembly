@@ -66,6 +66,25 @@ def forbid_real_servo(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(hal, "open_servo_bus", refuse)
 
 
+@pytest.fixture(autouse=True)
+def forbid_real_gamepad(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`open_gamepad` を呼ぶとテストが落ちるようにし、実機のコントローラを読ませない.
+
+    テストは本番機の上でも走り、本番機にはコントローラがつながっている。人の操作がテストの結果を変えないようにする。
+    コントローラが要るテストは `FakeGamepad` を使う。`EvdevGamepad` は `/dev/uinput` の仮想デバイスを
+    モジュールの実物 `pcbasm.hal.gamepad.open_gamepad` で開いて確かめる。
+    """
+    try:
+        from pcbasm import hal
+    except ImportError:
+        return  # hal を読めない環境では、どの src も open_gamepad に届かない
+
+    def refuse(*args: object, **kwargs: object) -> NoReturn:
+        pytest.fail("テストから open_gamepad が呼ばれました")
+
+    monkeypatch.setattr(hal, "open_gamepad", refuse)
+
+
 @pytest.fixture
 def unreachable_klipper(monkeypatch: pytest.MonkeyPatch) -> None:
     """`open_klipper` が接続先の無い Klipper を返すようにする（送信は httpx の接続エラーになる）.

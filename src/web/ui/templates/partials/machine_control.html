@@ -37,6 +37,35 @@
       {% endfor %}
     </div>
     <p class="mc-abs-hint">座標欄は現在位置を表示。入力確定で移動します</p>
+    {% if "pnp" in capabilities %}
+    {# ピンセットのサーボ。回転は相対に回し、開閉は開き具合（0=閉じ切り、1=開き切り）へ動かす。
+       開閉のスライダーと数値欄は目標（backend の target_fraction）、「現在」は実測（open_fraction）を表示する #}
+    <section class="mc-tweezer" data-testid="mc-tweezer">
+      <h3 class="mc-tweezer-title">ピンセット</h3>
+      <span class="mc-tweezer-label">回転 (°)</span>
+      {# − 側と + 側を 3 個ずつの組に分け、組の間を空けて向きを見分けやすくする #}
+      <div class="mc-tweezer-rotate">
+        {% for side, group in [("neg", [-90, -10, -1]), ("pos", [1, 10, 90])] %}
+        <div class="mc-tweezer-{{ side }}">
+          {% for degrees in group %}
+          <button type="button" data-mc-rotate="{{ degrees }}"
+                  title="ピンセットを {{ '%+d' | format(degrees) }}° 回す">{{ ("%+d" | format(degrees)).replace("-", "−") }}</button>
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+      <span class="mc-tweezer-label">開閉</span>
+      <div class="mc-tweezer-open">
+        <span class="mc-tweezer-end" aria-hidden="true">閉</span>
+        <input id="mc-open-slider" type="range" min="0" max="1" step="0.01"
+               aria-label="開き具合" title="0=閉じ切り、1=開き切り。動かしている間、その位置へ追従する">
+        <span class="mc-tweezer-end" aria-hidden="true">開</span>
+        <input id="mc-open" type="number" min="0" max="1" step="0.01" placeholder="---"
+               aria-label="開き具合の目標" title="開き具合の目標（0=閉じ切り、1=開き切り）。入力確定（Enter / フォーカスアウト）で動かす">
+      </div>
+      <p id="mc-open-current" class="mc-tweezer-current" data-testid="mc-open-current">現在 ---</p>
+    </section>
+    {% endif %}
     <div class="mc-group">
       <button id="mc-relax" title="全モーターを脱力する（M84）。脱力後はホーミングし直す">Relax</button>
       <button id="mc-focus-z" title="カメラキャリブレーションで記録した Z へ移動する（その結果を「設定に反映」するまで押せない）"

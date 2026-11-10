@@ -27,14 +27,17 @@ from pcbasm.vision.image import Image, ImageArray
 
 from .audio import AudioDevice, AudioPlayer, Sound
 from .camera import Camera, CameraInfo, Resolution
+from .gamepad import Gamepad, GamepadError, GamepadState
 from .klipper import GCodeJournal, KlipperError
 from .servo import (
     BROADCAST_ID,
+    DEFAULT_SPEED,
     STEPS_PER_REV,
     ServoBus,
     ServoError,
     ServoMode,
     check_angle_limits,
+    check_speed,
 )
 
 # FakeKlipper が既定で返す printer.cfg。XYZStage / PasteDispenser / ProbeExecutor と所要時間の予測が読むセクションだけを持つ
@@ -627,6 +630,7 @@ class FakeServoBus(ServoBus):
         positions: Mapping[int, int] | None = None,
         *,
         start_delay: int = 0,
+        angle_limits: Mapping[int, tuple[int, int]] | None = None,
     ) -> None:
         """Fake のバスを作る.
 
@@ -634,6 +638,7 @@ class FakeServoBus(ServoBus):
             modes: 応答するサーボの ID とモード
             positions: 初期位置（raw 0〜4095。書かない ID は 2048）
             start_delay: 指令の後、moving が True になるまでに False を返す読み出しの回数
+            angle_limits: 角度制限の初期値（下限、上限。書かない ID は 0〜4095）
         """
         self._modes = dict(modes)
         self._positions = {servo_id: 2048 for servo_id in self._modes} | dict(
@@ -645,7 +650,9 @@ class FakeServoBus(ServoBus):
         self._start_delay = start_delay
         self._limits: dict[int, tuple[int, int]] = dict.fromkeys(
             self._modes, (0, STEPS_PER_REV - 1)
-        )
+        ) | dict(angle_limits or {})
+        self._goals = dict(self._positions)
+        self._speeds = dict.fromkeys(self._modes, DEFAULT_SPEED)
         self._reads_until_start: dict[int, int] = {}
         self._closed = False
         self._lock = threading.Lock()
@@ -710,10 +717,24 @@ class FakeServoBus(ServoBus):
             self._commands.append(ServoCommand(servo_id, "max_angle", high))
             self._limits[servo_id] = (low, high)
 
+    @override
     def angle_limits(self, servo_id: int) -> tuple[int, int]:
-        """書かれた角度制限（下限、上限。書く前は 0〜4095）."""
         self._mode(servo_id)
         return self._limits[servo_id]
+
+    @override
+    def clear_angle_limits(self, servo_id: int) -> None:
+        self._mode(servo_id)
+        with self._lock:
+            self._commands.append(ServoCommand(servo_id, "min_angle", 0))
+            self._commands.append(ServoCommand(servo_id, "max_angle", 0))
+            self._limits[servo_id] = (0, 0)
+
+    @override
+    def goal(self, servo_id: int) -> int:
+        self._require(servo_id, ServoMode.POSITION)
+        with self._lock:
+            return self._goals[servo_id]
 
     @override
     def set_mode(self, servo_id: int, mode: ServoMode) -> None:
@@ -722,25 +743,38 @@ class FakeServoBus(ServoBus):
             self._commands.append(ServoCommand(servo_id, "mode", int(mode)))
             self._modes[servo_id] = mode
 
+    def speed(self, servo_id: int) -> int:
+        """最後の goto / step で送られた goal speed [step/s]（送る前は既定値）."""
+        self._mode(servo_id)
+        with self._lock:
+            return self._speeds[servo_id]
+
     @override
-    def goto(self, servo_id: int, position: int) -> None:
+    def goto(self, servo_id: int, position: int, *, speed: int = DEFAULT_SPEED) -> None:
         if not 0 <= position < STEPS_PER_REV:
             raise ValueError(
                 f"位置は 0〜{STEPS_PER_REV - 1} の範囲で送ります: {position}"
             )
+        check_speed(speed)
         self._require(servo_id, ServoMode.POSITION)
         with self._lock:
             self._commands.append(ServoCommand(servo_id, "goto", position))
-            # 実機と同じく、角度制限の外への goal は制限の端で止まる
+            self._speeds[servo_id] = speed
+            self._goals[servo_id] = position
+            # 実機と同じく、角度制限の外への goal は制限の端で止まる（0 / 0 は制限なし）
             low, high = self._limits[servo_id]
-            self._positions[servo_id] = min(max(position, low), high)
+            if (low, high) != (0, 0):
+                position = min(max(position, low), high)
+            self._positions[servo_id] = position
             self._reads_until_start[servo_id] = self._start_delay
 
     @override
-    def step(self, servo_id: int, steps: int) -> None:
+    def step(self, servo_id: int, steps: int, *, speed: int = DEFAULT_SPEED) -> None:
+        check_speed(speed)
         self._require(servo_id, ServoMode.STEP)
         with self._lock:
             self._commands.append(ServoCommand(servo_id, "step", steps))
+            self._speeds[servo_id] = speed
             self._positions[servo_id] = (
                 self._positions[servo_id] + steps
             ) % STEPS_PER_REV
@@ -783,3 +817,40 @@ class FakeServoBus(ServoBus):
             raise ServoError(
                 f"サーボ {servo_id} は {actual.name} モードなので受け付けません"
             )
+
+
+class FakeGamepad(Gamepad):
+    """テストが設定した入力を返す ``Gamepad``（:meth:`disconnect` で切断も模擬する）."""
+
+    def __init__(self, state: GamepadState | None = None) -> None:
+        """Fake のコントローラを作る.
+
+        Args:
+            state: 初めの入力（None なら何も押していない状態）
+        """
+        self._state = state or GamepadState()
+        self._connected = True
+        self._closed = False
+
+    @property
+    def closed(self) -> bool:
+        """Close() されたか."""
+        return self._closed
+
+    def set_state(self, state: GamepadState) -> None:
+        """以後の :meth:`state` が返す入力を設定する（人がコントローラを操作したことにする）."""
+        self._state = state
+
+    def disconnect(self) -> None:
+        """コントローラが外れたことにする（以後の :meth:`state` は ``GamepadError``）."""
+        self._connected = False
+
+    @override
+    def state(self) -> GamepadState:
+        if not self._connected:
+            raise GamepadError("ゲームパッドが切断されました")
+        return self._state
+
+    @override
+    def close(self) -> None:
+        self._closed = True

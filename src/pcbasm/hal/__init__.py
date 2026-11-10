@@ -9,10 +9,12 @@ from .audio import (
 )
 from .camera import Camera, CameraInfo, Resolution, create_camera, get_camera_info
 from .framehub import FrameHub, FrameSource
+from .gamepad import EvdevGamepad, Gamepad, GamepadError, GamepadState, open_gamepad
 from .klipper import KlipperClient, KlipperError, MoonrakerKlipper, open_klipper
 from .manual_stepper import ManualStepper
 from .paste_dispenser import PasteDispenser
 from .servo import (
+    DEFAULT_SPEED,
     STEPS_PER_REV,
     FeetechBus,
     ServoBus,
@@ -64,6 +66,7 @@ __all__ = [
     # dispenser
     "PasteDispenser",
     # servo
+    "DEFAULT_SPEED",
     "STEPS_PER_REV",
     "FeetechBus",
     "ServoBus",
@@ -78,4 +81,10 @@ __all__ = [
     "position_to_degrees",
     "wait_stopped",
     "wiggle",
+    # gamepad
+    "EvdevGamepad",
+    "Gamepad",
+    "GamepadError",
+    "GamepadState",
+    "open_gamepad",
 ]
