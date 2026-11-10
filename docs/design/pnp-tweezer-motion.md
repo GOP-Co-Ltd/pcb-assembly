@@ -173,32 +173,44 @@ Klipper のプロトコル（`docs/Protocol.md`）をそのまま使い、コマ
 
 リポジトリは OSS で公開する。ハードウェアは CERN OHL で公開する予定。
 
-- **ファームは GPLv3。** Klipper（GPLv3）を元にするので、ビルドしたファーム全体は GPLv3 になる
-- **純粋なロジックは MIT にできる。** 自分たちで一から書き、Klipper のコードを写したり訳したりしていないファイルは、
-    ファイルごとに MIT を付けられる。MIT は GPLv3 と両立するので、GPLv3 のファームに組み込める。
-    ファイルの先頭に `SPDX-License-Identifier` を書き、ディレクトリにも LICENSE を置いて境界を示す
-- **境界の引き方:** 速度の更新、加速度の制限、可動域の手前での制動、ステップ区間（`interval`・`count`・`add`）の計算は、
-    Klipper のヘッダを include しない C（MIT）に置く。`DECL_COMMAND` やタイマ、`trsync` とつなぐ部分は
-    Klipper に依存する C（GPLv3）に置く。MIT の部分はホストでコンパイルして単体でテストする
-- **Pi 側（pcbasm）:** ファームとは USB 越しに話す別のプログラムなので、ファームの GPLv3 は及ばない。
-    ただし Klippy の `msgproto.py` などを取り込むと、その部分は GPLv3 になる（[未決定事項](#%E6%9C%AA%E6%B1%BA%E5%AE%9A%E4%BA%8B%E9%A0%85)）
+| 対象                                   | ライセンス | 理由                                                                  |
+| -------------------------------------- | ---------- | --------------------------------------------------------------------- |
+| リポジトリの既定（pcbasm、WebUI など） | MIT        |                                                                       |
+| `src/firmware/pnp-motion/`             | GPLv3      | Klipper（GPLv3）を元にするので、ビルドしたファーム全体が GPLv3 になる |
 
-置き場所の案:
+- **境界はディレクトリで示す。** ルートに MIT の `LICENSE` を置き、`src/firmware/pnp-motion/` には GPLv3 の `LICENSE` を置く。
+    ファームの各ファイルの先頭には `SPDX-License-Identifier: GPL-3.0-only` を書く
+- **pcbasm は Klipper のコードを取り込まない。** pcbasm とファームは USB 越しに話す別のプログラムなので、ファームの GPLv3 は及ばない。
+    Klipper のプロトコルのクライアントは、`docs/Protocol.md` を仕様として読み、pcbasm に自前で書く。
+    Klippy の `msgproto.py`・`serialhdl.py` は写さない
+- **pcbasm からファームのコードを呼ばない。** fake や RL のシミュレーションで同じ運動の計算が要るときも、
+    ファームの C を ctypes でリンクせず、Python で書く
+
+### 置き場所
+
+ファームは `src/` の下に置く。
 
 ```text
-firmware/
-  LICENSE                 GPLv3
-  klipper/                upstream の Klipper（submodule、commit を固定）
-  pnp-motion/
-    core/                 MIT。LICENSE を置く。純粋なロジックとホスト用のテスト
-    module/               GPLv3。Klipper とつなぐ部分（velocity_stream.c）
-    patches/              Klipper 本体への小さな patch（ビルドへの登録、stepper.c の関数）
-    skr-pico.config       Klipper の .config（menuconfig の結果）
-    build.sh              submodule に patch を当て、module を写して .uf2 を作る
+src/firmware/pnp-motion/
+  LICENSE           GPLv3
+  README.md         ビルドと書き込みの手順
+  core/             Klipper に依存しない純粋なロジック（速度の更新、加速度の制限、
+                    可動域の手前での制動、ステップ区間の計算）と、ホストで流すテスト
+  module/           Klipper とつなぐ部分（velocity_stream.c。DECL_COMMAND、タイマ、trsync）
+  patches/          Klipper 本体への小さな patch（ビルドへの登録、stepper.c の関数）
+  skr-pico.config   Klipper の .config（menuconfig の結果）
+  build.sh          Klipper を取得して patch を当て、module を写して .uf2 を作る
 ```
 
-Klipper を fork したリポジトリを別に持つより、upstream を submodule で固定し、差分を patch で持つ方が、
-差分の大きさが一目で分かり、upstream に追従しやすい。
+- **Klipper は submodule にしない。** `build.sh` が upstream の Klipper を、固定した commit で `src/` の外
+    （バージョン管理外のビルド用ディレクトリ）へ取得する。
+    `src/` の下に Klipper を置くと、その `*.py` と `README.md` が、`src` を走査するテスト（`tests/repo`）と pyright の対象に入ってしまう
+- **Python のツールとぶつからない。** wheel に入るのは `pcbasm` と `web` だけ（`[tool.uv.build-backend]`）なので、ファームは含まれない。
+    ファームの下に `*.py` を置かなければ、`src` を走査するテストと pyright の対象にも入らない
+- **`src/` の規約はファームにも効く。** pre-commit の `no-plan-references` は `src/` の下のテキストを検査する
+- Klipper を fork したリポジトリを別に持つより、upstream の commit を固定して差分を patch で持つ方が、
+    差分の大きさが一目で分かり、upstream に追従しやすい
+- 既存のトップレベルの `klipper/`（塗布機の Klippy に足す拡張）とは別物である
 
 ## ビルドとデプロイ
 
@@ -226,14 +238,15 @@ PnP 機には Klippy、Moonraker、Mainsail を入れない。`install.sh` で�
 
 - **ピンセットのサーボ:** URT-2 経由で Pi から直接制御する。ファームの方式と関係なく変わらない
 - **MCU との通信:** Klippy の代わりに、Klipper のプロトコルを話すクライアントを pcbasm に置く。
-    コマンドの辞書は接続時にファームから受け取る
+    コマンドの辞書は接続時にファームから受け取る。Klippy のコードは写さず、自前で書く
+    （[ライセンスとリポジトリの構成](#%E3%83%A9%E3%82%A4%E3%82%BB%E3%83%B3%E3%82%B9%E3%81%A8%E3%83%AA%E3%83%9D%E3%82%B8%E3%83%88%E3%83%AA%E3%81%AE%E6%A7%8B%E6%88%90)）
 - **ステージ:** 今の `XYZStage`（`pcbasm.hal.stage`）は Klipper と G-code を前提にしている。
     位置合わせ・駐機・立ち上げで使う「位置へ動く」操作と、R1 の速度指令を、新しいファームの上で提供し直す。
     どちらも HAL の境界に置き、`pcbasm.hal.fake` に fake を足す
 - **TMC2209 の設定と原点出し:** Klippy が担っていたものを pcbasm に移す。設定値は `machine.toml` に置く
 - **併存:** 塗布機は Klipper のまま変えない。PnP 機だけ、ステージの裏側を差し替える
 - **RL の環境:** HAL の上に、固定周期で行動を受け取り観測を返す環境を置く。fake の上でも動かせるようにし、
-    テストとシミュレーションに使う。fake の運動は、ファームの `core/`（MIT）を ctypes で呼んで同じ計算にできる
+    テストとシミュレーションに使う
 
 ## RL の方針
 
@@ -248,14 +261,14 @@ PnP 機には Klippy、Moonraker、Mainsail を入れない。`install.sh` で�
 
 各段階の確認のうち、実機を動かすものはユーザーが行う。
 
-| 段階 | 内容                                                                                                         | 確かめること                                         |
-| ---- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------- |
-| 0    | [数値で決める項目](#%E6%95%B0%E5%80%A4%E3%81%A7%E6%B1%BA%E3%82%81%E3%82%8B%E9%A0%85%E7%9B%AE)を決める        | 表の値がユーザーと合意できている                     |
-| 1    | Klippy を止め、無改造の MCU ファームに Pi から直接つなぐ（C0）。1 軸を速度指令で動かし、接触で止めて再開する | 接触から停止までの時間と、HX711 の 80 SPS で足りるか |
-| 2    | ピンセットのサーボの HAL と fake を作る                                                                      | fake でのテストと、実機での開閉・回転                |
-| 3    | `velocity_stream` を作る（`core/` とホストでのテストから）。`firmware/` の構成とビルドを整える               | 段階 0 の値を実機で満たす                            |
-| 4    | Pi 側のステージを新しいファームへ差し替え、原点出しと位置合わせを動かす                                      | 既存の位置合わせのジョブが PnP 機で通る              |
-| 5    | 遠隔操作でデータを集め、模倣学習と RL の環境を作る                                                           | つかむ・置くの成功率                                 |
+| 段階 | 内容                                                                                                          | 確かめること                                         |
+| ---- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| 0    | [数値で決める項目](#%E6%95%B0%E5%80%A4%E3%81%A7%E6%B1%BA%E3%82%81%E3%82%8B%E9%A0%85%E7%9B%AE)を決める         | 表の値がユーザーと合意できている                     |
+| 1    | Klippy を止め、無改造の MCU ファームに Pi から直接つなぐ（C0）。1 軸を速度指令で動かし、接触で止めて再開する  | 接触から停止までの時間と、HX711 の 80 SPS で足りるか |
+| 2    | ピンセットのサーボの HAL と fake を作る                                                                       | fake でのテストと、実機での開閉・回転                |
+| 3    | `velocity_stream` を作る（`core/` とホストでのテストから）。`src/firmware/pnp-motion/` の構成とビルドを整える | 段階 0 の値を実機で満たす                            |
+| 4    | Pi 側のステージを新しいファームへ差し替え、原点出しと位置合わせを動かす                                       | 既存の位置合わせのジョブが PnP 機で通る              |
+| 5    | 遠隔操作でデータを集め、模倣学習と RL の環境を作る                                                            | つかむ・置くの成功率                                 |
 
 段階 1 で作る Pi 側のクライアント（プロトコル、原点出し、`trsync` の扱い）は、段階 3 以降もそのまま使う。
 段階 2 は、ほかの段階と関係なく先に進められる。
@@ -265,7 +278,5 @@ PnP 機には Klippy、Moonraker、Mainsail を入れない。`install.sh` で�
 - [数値で決める項目](#%E6%95%B0%E5%80%A4%E3%81%A7%E6%B1%BA%E3%82%81%E3%82%8B%E9%A0%85%E7%9B%AE)の値
 - HX711（80 SPS、1 サンプル 12.5 ms）で、接触から停止までの要件を満たせるか。
     満たせなければ、より速い ADC（例: ADS1220。Klipper の `sensor_ads1220` がある）への交換を検討する
-- pcbasm（Pi 側）のライセンス。Klipper のプロトコルのクライアントを、`docs/Protocol.md` を元に自前で書くか、
-    Klippy の `msgproto.py` と `serialhdl.py` を流用するか（流用すると、その部分は GPLv3）
 - サーボを Pi 直結のままにするか、将来 MCU 側のバスへ移すか。
     Pi 直結では、ステージとサーボの同期は Pi の時刻で取ることになる
