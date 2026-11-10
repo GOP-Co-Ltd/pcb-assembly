@@ -23,9 +23,15 @@ class OpenRequest(BaseModel):
 
 
 class TweezerStatus(BaseModel):
-    """ピンセットの今の状態."""
+    """ピンセットの今の状態.
+
+    Attributes:
+        open_fraction: 今の位置の開き具合（実測）
+        target_fraction: Open Close の goal の開き具合（最後に送った目標。つまんで止まっていても変わらない）
+    """
 
     open_fraction: float
+    target_fraction: float
 
 
 @router.post("/relax")
@@ -48,7 +54,7 @@ def post_rotate(
 ) -> dict[str, bool]:
     """Rotation を degrees だけ相対に、[pnp.servo] の rotation_speed で回す（完了は待たない）.
 
-    409: 装置が使用中 / 422: 範囲外 / 423: 操作権が無い / 502: サーボが応答しない・モードが合わない /
+    409: 装置が使用中 / 422: 範囲外 / 423: 操作権が無い / 502: サーボが応答しない・モードか角度制限が合わない /
     503: [pnp.servo] か役割・開閉の角度が無い（設定エラー）。
     """
     with lock.hold("servo-rotate"):
@@ -71,8 +77,11 @@ def post_open(
 
 @router.get("/status")
 def get_status(devices: DevicesDep) -> TweezerStatus:
-    """今の開き具合を返す（トルクには触れない。ジョブの実行中も読める）.
+    """今の開き具合と目標の開き具合を返す（トルクには触れない。ジョブの実行中も読める）.
 
-    502: サーボが応答しない・モードが合わない / 503: [pnp.servo] か役割・開閉の角度が無い。
+    502: サーボが応答しない・モードか角度制限が合わない / 503: [pnp.servo] か役割・開閉の角度が無い。
     """
-    return TweezerStatus(open_fraction=devices.tweezer().open_fraction())
+    tweezer = devices.tweezer()
+    return TweezerStatus(
+        open_fraction=tweezer.open_fraction(), target_fraction=tweezer.target_fraction()
+    )

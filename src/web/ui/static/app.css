@@ -539,6 +539,14 @@ h2 {
 .mc-tweezer {
   display: grid;
   gap: 0.3rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line);
+}
+
+.mc-tweezer-title {
+  margin: 0;
+  font-size: 0.84rem;
+  font-weight: 700;
 }
 
 .mc-tweezer-label {
@@ -546,15 +554,63 @@ h2 {
   font-weight: 600;
 }
 
+/* 回転は幅の等しい 6 列。− 側と + 側の 3 個ずつの間を広く空け、色の縁で分ける */
+.mc-tweezer-rotate {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.mc-tweezer-neg,
+.mc-tweezer-pos {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.2rem;
+}
+
+.mc-tweezer-rotate button {
+  min-width: 0;
+  padding: 0.28rem 0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.mc-tweezer-neg button {
+  border-bottom: 2px solid var(--warn);
+}
+
+.mc-tweezer-pos button {
+  border-bottom: 2px solid var(--accent);
+}
+
 .mc-tweezer-open {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 4.5rem;
+  grid-template-columns: auto minmax(0, 1fr) auto 4.2rem;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.3rem;
+}
+
+.mc-tweezer-open input[type="range"] {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
 }
 
 .mc-tweezer-open input[type="number"] {
   width: 100%;
+}
+
+.mc-tweezer-end {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.mc-tweezer-current {
+  margin: 0;
+  color: var(--quiet);
+  font-size: 0.76rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---- settings ---- */

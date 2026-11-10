@@ -60,7 +60,11 @@ def _pnp_machine(path: Path, *, servo: bool, roles: bool = False) -> None:
 
 @pytest.fixture
 def bus() -> FakeServoBus:
-    bus = FakeServoBus({1: ServoMode.STEP, 2: ServoMode.POSITION})
+    # サーボ設定ジョブを済ませた状態（Rotation は制限なし、Open Close は閉じ切り〜開き切り）
+    bus = FakeServoBus(
+        {1: ServoMode.STEP, 2: ServoMode.POSITION},
+        angle_limits={1: (0, 0), 2: (2048, 2560)},
+    )
     bus.set_torque(1, True)
     bus.set_torque(2, True)
     return bus
@@ -150,7 +154,35 @@ class TestTweezerPanel:
         response = pnp_client.get(STATUS)
 
         assert response.status_code == 200
-        assert response.json() == {"open_fraction": pytest.approx(0.25)}
+        assert response.json() == {
+            "open_fraction": pytest.approx(0.25),
+            "target_fraction": pytest.approx(0.25),
+        }
+
+    def test_status_reports_the_target_apart_from_the_position(
+        self, pnp_client: TestClient, bus: FakeServoBus
+    ):
+        """つまんで閉じ切りの手前で止まっていても、目標は送った開き具合（0）."""
+        pnp_client.post(OPEN, json={"fraction": 0})
+        bus.set_torque(2, False)
+        bus.turn_by_hand(2, 2176)
+
+        response = pnp_client.get(STATUS)
+
+        assert response.json() == {
+            "open_fraction": pytest.approx(0.25),
+            "target_fraction": 0.0,
+        }
+
+    def test_angle_limits_left_by_an_old_setup_are_502_asking_for_the_setup(
+        self, pnp_client: TestClient, bus: FakeServoBus
+    ):
+        bus.set_angle_limits(1, 0, 4095)
+
+        response = pnp_client.post(ROTATE, json={"degrees": 90})
+
+        assert response.status_code == 502
+        assert "サーボ設定" in response.json()["detail"]
 
     def test_status_leaves_relaxed_servos_relaxed(
         self, pnp_client: TestClient, bus: FakeServoBus
