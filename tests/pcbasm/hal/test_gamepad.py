@@ -67,9 +67,17 @@ def _uinput(events: dict[int, Any]) -> UInput:
     events の軸は ``(code, AbsInfo)`` で渡す（evdev の型注釈は int の列だが、実装は軸の組を受け付ける）。
     """
     try:
-        return UInput(events, name="pcbasm-test-gamepad")
+        device = UInput(events, name="pcbasm-test-gamepad")
     except (OSError, UInputError) as exc:
         pytest.skip(f"/dev/uinput で仮想デバイスを作れません: {exc}")
+    if device.device is None:
+        # /dev/uinput には書けたのに、作ったデバイスの /dev/input/event* を読めない。CI の設定漏れなので落とす
+        device.close()
+        pytest.fail(
+            "仮想デバイスの /dev/input/event* を読めません。udev 規則を github-runner/README.md の"
+            "とおりに置いてください"
+        )
+    return device
 
 
 @pytest.fixture

@@ -20,13 +20,19 @@ runner user を `video`、`gpio`、`dialout`、`input` group へ追加しない�
 装置を使う hardware test を実行しない。
 
 例外として、runner user は専用の `uinput` group に入れる。ゲームパッドのテスト（`TestEvdevGamepad`）が
-`/dev/uinput` で仮想の入力デバイスを作るため。`input` group と違い、実機のコントローラやキーボード
-（`/dev/input/event*`）は読めない。`install` が次の udev 規則を `/etc/udev/rules.d/60-pcbasm-uinput.rules`
-に置く。
+`/dev/uinput` で仮想の入力デバイスを作り、その `/dev/input/event*` を読むため。`install` が次の udev 規則を
+`/etc/udev/rules.d/60-pcbasm-uinput.rules` に置く。1 行目で `/dev/uinput` に書け、2 行目でテストが作った
+仮想デバイス（名前が `pcbasm-test-gamepad`）だけを読める。`input` group と違い、実機のコントローラや
+キーボードは読めない。
 
 ```text
 KERNEL=="uinput", GROUP="uinput", MODE="0660", OPTIONS+="static_node=uinput"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="pcbasm-test-gamepad", GROUP="uinput", MODE="0660"
 ```
+
+2 行目が無いと、`/dev/uinput` には書けても作ったデバイスを読めず、`TestEvdevGamepad` が落ちる。
+規則を変えたあとは `./github-runner/setup.sh install` を runner の host で実行し直す（規則の置き直しと
+`udevadm control --reload-rules` をする）。
 
 起動中の runner service は group を読み直さないので、初めて `uinput` group に入れた host では、job が
 走っていないときに runner service を再起動する（または OS を再起動する）。
