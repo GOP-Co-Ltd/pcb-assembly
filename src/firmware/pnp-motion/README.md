@@ -58,22 +58,34 @@ pytest（`tests/firmware/`）からも流れ、CI に載る。`module/` は実�
     `git -C src/firmware/pnp-motion/klipper checkout .` で submodule を戻す
 3. データ辞書で、Klipper の既存のコマンドと `velocity_stream_*` が揃っていることを確かめる
 
+## 書き込み
+
+機体へは `install.sh` で書き込む。部品実装機（雛形の `machine.toml` に `[pnp]`）の機種を指定すると、
+Klipper の firmware の代わりに pnp-motion をビルドして書き込む（[導入](../../../docs/install.md)）。
+
+```sh
+./install.sh hardware usaremino_pnp
+```
+
+- カメラとスピーカーの選択と boot 設定の更新にも答える（いまの機体と同じものを選ぶ）。終わると再起動を求められる
+- 手で書き込むなら、`build.sh` でビルドし、電源を切って BOOT のジャンパ pin を挿し、USB をつないで RESET を押して起動する。
+    現れた `RPI-RP2` ボリュームへ `build/pnp-motion.uf2` をコピーし、ジャンパ pin を抜いて RESET を押す
+- pnp-motion は Klipper の firmware に、同じ `.config` でモジュールを足しただけのもの。
+    Klippy と固定した Klipper の版が同じなら、書き込んだあとも Klippy（`printer.cfg`）はそのまま動く
+
 ## 実機で試す
 
 Pi 側のクライアントができるまでは、`tools/bench.py` で MCU に直接つないで試す。
 Klippy は動かさず、submodule の Klipper（ファームと同じ commit）の klippy の部品（シリアルの通信、時刻の同期、TMC のレジスタの定義）を使う。
 ピンと値は PnP 機（`deploy/templates/usaremino/printer.cfg`）と同じものをファイルの先頭に持つ。違う機体で使うときはそこを直す。
 
-PnP 機の Pi で行う。書き込んでいる間、その機体は Klipper で動かせない（WebUI の Klipper の操作も使えない）。
+PnP 機の Pi で行う。bench と Klippy は同じ MCU を同時に使えないので、bench を使う間は Klipper を止める
+（その間は WebUI の Klipper の操作も使えない）。
 
-1. `src/firmware/pnp-motion/build.sh` でビルドする
+1. pnp-motion を書き込む（[書き込み](#%E6%9B%B8%E3%81%8D%E8%BE%BC%E3%81%BF)）
 2. `sudo systemctl stop klipper` で Klipper を止める（MCU のシリアルを空ける）
-3. SKR Pico に `pnp-motion.uf2` を書き込む。`./install.sh hardware usaremino_pnp` でビルドから書き込みまでできる
-    （カメラとスピーカーの選択と boot 設定の更新にも答える）。手で書き込むなら、電源を切り、BOOT のジャンパ pin を挿し、
-    USB をつないで RESET を押して起動し、現れた `RPI-RP2` ボリュームへ `src/firmware/pnp-motion/build/pnp-motion.uf2` をコピーして、
-    ジャンパ pin を抜いて RESET を押す
-4. モーターの電源（24 V）を入れる。TMC2209 は電源がないと UART に応答しない
-5. `~/klippy-env/bin/python src/firmware/pnp-motion/tools/bench.py` で起動する。
+3. モーターの電源（24 V）を入れる。TMC2209 は電源がないと UART に応答しない
+4. `~/klippy-env/bin/python src/firmware/pnp-motion/tools/bench.py` で起動する。
     MCU を設定し、TMC2209 に Klipper と同じレジスタ（電流 0.54 A、64 microsteps、stealthChop）を書いて確かめる
 
 | コマンド         | 動き                                                                                                   |
@@ -100,8 +112,7 @@ PnP 機の Pi で行う。書き込んでいる間、その機体は Klipper で
 - [ ] 動いている最中に bench を Ctrl-C で落とすと、期限が切れて減速して止まる（ホストが止まったときのウォッチドッグ）。
     Ctrl-C では止める命令を送らず、シリアルを切るだけにしている
 
-終わったら `sudo systemctl start klipper` で Klipper を起動する。pnp-motion は Klipper の firmware（同じ `.config`）に
-モジュールを足しただけなので、Klipper の firmware に書き戻さなくても Klippy はそのまま動く（Klippy と固定した Klipper の版が同じとき）。
+終わったら `sudo systemctl start klipper` で Klipper を起動する。Klipper の firmware に書き戻す必要はない（[書き込み](#%E6%9B%B8%E3%81%8D%E8%BE%BC%E3%81%BF)）。
 
 - [ ] Klipper を起動し直すと、WebUI から従来どおり原点出しと移動ができる
 
