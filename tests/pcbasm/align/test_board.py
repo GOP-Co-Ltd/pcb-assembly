@@ -31,10 +31,10 @@ from pcbasm.config import MachineConfig, load_machine
 from pcbasm.geometry import Identity, Point2d, Shift, Transform, transform_polygon
 from pcbasm.hal import Camera, KlipperError, XYZStage
 from pcbasm.hal.fake import FakeCamera, FakeKlipper, SceneCamera
-from pcbasm.kicad import load_board
 from pcbasm.vision import Image, Offset
+from tests.support.boards import led_blinker_board
 from tests.support.camera_model import make_camera_model
-from tests.support.paths import LED_BLINKER_PCB, TEST_CONFIG_DIR
+from tests.support.paths import TEST_CONFIG_DIR
 
 PPM = 10.0
 
@@ -302,7 +302,7 @@ class TestRegionAlignmentSessionKlipperRefusal:
     @pytest.fixture
     def session(self, klipper: FakeKlipper) -> RegionAlignmentSession:
         frame = Image(np.zeros((480, 640, 3), dtype=np.uint8))
-        return _session(klipper, FakeCamera([frame]), board=load_board(LED_BLINKER_PCB))
+        return _session(klipper, FakeCamera([frame]), board=led_blinker_board())
 
     def test_align_raises_klipper_error(
         self, klipper: FakeKlipper, session: RegionAlignmentSession
@@ -350,7 +350,7 @@ def _align_on_scene(
         fail_klipper: Klipper がすべての送信を Moonraker の 400 で断る
         max_passes: 1 領域の再計測の上限回数の上書き
     """
-    board = load_board(LED_BLINKER_PCB)
+    board = led_blinker_board()
     klipper = FakeKlipper()
     camera = SceneCamera(
         klipper,

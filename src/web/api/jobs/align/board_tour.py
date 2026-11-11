@@ -30,9 +30,6 @@ from web.api.jobs.runtime.context import JobContext
 from web.api.jobs.runtime.record import JobResult
 from web.api.jobs.steps import align_events, board_corners, move_to, setup_board
 
-# 巡回先 1 点あたりのフレーム配信時間 [sec]
-RESULT_DISPLAY_SEC = 1.0
-
 
 def register(catalog: JobCatalog) -> None:
     catalog.register(
@@ -66,14 +63,15 @@ def _stream_labeled_frames(
     ctx: JobContext,
     camera: Camera,
     label: str,
-    duration: float = RESULT_DISPLAY_SEC,
 ) -> None:
-    """ラベル付きフレームを duration 秒間プレビューへ配信する."""
+    """ラベル付きフレームを ctx.result_display_sec 秒間プレビューへ配信する（0 でも 1 枚は出す）."""
     crop_size = ctx.machine.camera.crop.size
-    deadline = time.monotonic() + duration
-    while time.monotonic() < deadline:
+    deadline = time.monotonic() + ctx.result_display_sec
+    while True:
         ctx.frame(render_label(camera.capture(), crop_size, label))
         ctx.checkpoint()
+        if time.monotonic() >= deadline:
+            return
 
 
 def _stream_pad_result(
@@ -81,13 +79,14 @@ def _stream_pad_result(
     camera: Camera,
     renderer: PadResultRenderer,
     lines: list[str],
-    duration: float = RESULT_DISPLAY_SEC,
 ) -> None:
-    """Pad 照合結果 overlay を duration 秒間プレビューへ配信する."""
-    deadline = time.monotonic() + duration
-    while time.monotonic() < deadline:
+    """Pad 照合結果 overlay を ctx.result_display_sec 秒間プレビューへ配信する（0 でも 1 枚は出す）."""
+    deadline = time.monotonic() + ctx.result_display_sec
+    while True:
         ctx.frame(renderer.render(camera.capture(), lines))
         ctx.checkpoint()
+        if time.monotonic() >= deadline:
+            return
 
 
 def _run_board_tour(ctx: JobContext) -> JobResult:

@@ -82,6 +82,8 @@ def job_settings(tmp_path: Path) -> Env:
         update_state_dir=tmp_path / "selfupdate",
         # 成果物に残る machine_id を、テストを走らせるホストに依らない値にする
         hostname="golden-machine",
+        # 比べるのは G-code 列と成果物なので、結果の表示を実時間で待たない
+        result_display_sec=0.0,
     )
 
 

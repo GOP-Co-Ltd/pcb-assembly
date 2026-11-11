@@ -90,6 +90,7 @@ def build_settings(
     uv_exit_code: int = 0,
     uv_fail_match: str | None = None,
     uv_sleep: float = 0.0,
+    uv_hold_until: Path | None = None,
     pid_file: Path | None = None,
     permitted: bool = True,
     enabled: bool = True,
@@ -103,6 +104,7 @@ def build_settings(
         uv_exit_code: `uv` スタブの終了コード
         uv_fail_match: この引数が渡されたときだけ `uv` を失敗させる（`sync` / `run`）
         uv_sleep: `uv` スタブが終了前に待つ秒数（タイムアウト検証用）
+        uv_hold_until: `uv` スタブはこのファイルが現れるまで終わらない（更新中の状態を保つ）
         pid_file: `uv` スタブが自身と子の PID を書き出す先
         permitted: `sudo -n -l` の下見を成功させるか（sudoers 未設置の再現）
         enabled: 自己更新機能の有効・無効
@@ -122,6 +124,7 @@ def build_settings(
             exit_code=uv_exit_code,
             log=log,
             sleep=uv_sleep,
+            hold_until=uv_hold_until,
             fail_match=uv_fail_match,
             pid_file=pid_file,
         ),
@@ -352,17 +355,20 @@ class TestStartIsRefused:
 class TestSingleFlight:
     """単一実行ロック（安全弁 2）。同居機の api / ui が同時に走るのも止める."""
 
-    @pytest.mark.slow
     def test_second_start_in_the_same_process_is_refused(
         self, clone: Path, tmp_path: Path, publisher: Path
     ):
         push_commit(publisher, body="second\n")
-        settings = build_settings(clone, tmp_path, uv_sleep=3.0)
+        release = tmp_path / "release-uv"
+        settings = build_settings(clone, tmp_path, uv_hold_until=release)
         runner = UpdateRunner(settings)
 
         first_id, first_reason = runner.start()
-        wait_until(lambda: call_log(log_path(settings)) != [])
-        second_id, second_reason = runner.start()
+        try:
+            wait_until(lambda: call_log(log_path(settings)) != [])
+            second_id, second_reason = runner.start()
+        finally:
+            release.touch()
 
         assert first_reason is None, first_reason
         assert first_id is not None
@@ -375,7 +381,8 @@ class TestSingleFlight:
     ):
         """Flock なのでプロセスを跨いで効く（`state_dir/update.lock`）."""
         push_commit(publisher, body="second\n")
-        settings = build_settings(clone, tmp_path, uv_sleep=5.0)
+        release = tmp_path / "release-uv"
+        settings = build_settings(clone, tmp_path, uv_hold_until=release)
         source = CHILD_PREAMBLE + (
             "run_id, reason = runner.start()\n"
             'print(f"{run_id}|{reason}", flush=True)\n'
@@ -397,6 +404,7 @@ class TestSingleFlight:
             assert run_id is None
             assert reason
         finally:
+            release.touch()
             child.kill()
             child.wait(timeout=10.0)
 
@@ -499,19 +507,26 @@ class TestRestartServices:
         assert reason is not None
         assert restart_calls(log_path(settings)) == []
 
-    @pytest.mark.slow
     def test_running_update_is_not_interrupted(
         self, clone: Path, tmp_path: Path, publisher: Path
     ):
         """`uv sync` の最中に unit を落とすと中途半端な依存で起動不能になる."""
         push_commit(publisher, body="second\n")
-        settings = build_settings(clone, tmp_path, uv_sleep=1.0)
+        release = tmp_path / "release-uv"
+        settings = build_settings(clone, tmp_path, uv_hold_until=release)
         runner = UpdateRunner(settings)
         run_id, reason = runner.start()
         assert reason is None and run_id is not None
 
-        wait_until(lambda: runner.running)
-        refusal = runner.restart_services()
+        try:
+            wait_until(
+                lambda: any(
+                    line.startswith("uv sync ") for line in call_log(log_path(settings))
+                )
+            )
+            refusal = runner.restart_services()
+        finally:
+            release.touch()
 
         assert refusal is not None
         assert before_deadline(lambda: runner.wait(30.0), what="更新の完了") is True

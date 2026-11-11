@@ -252,6 +252,7 @@ class JobContext(ProcedureHooks):
         machine_id: str,
         source_pcb: str | None,
         boards: BoardCache,
+        result_display_sec: float,
     ) -> None:
         # パラメータは保持しない（record から都度読む）
         self._channel = channel
@@ -263,6 +264,7 @@ class JobContext(ProcedureHooks):
         self._machine_id = machine_id
         self._source_pcb = source_pcb
         self._boards = boards
+        self._result_display_sec = result_display_sec
 
     @property
     def params(self) -> Mapping[str, ParamValue]:
@@ -291,6 +293,11 @@ class JobContext(ProcedureHooks):
     def devices(self) -> Devices:
         """機体の装置（Klipper、カメラ、通知音）."""
         return self._devices
+
+    @property
+    def result_display_sec(self) -> float:
+        """結果をプレビューへ出し続ける時間 [sec]（Env.result_display_sec）."""
+        return self._result_display_sec
 
     @property
     def artifacts_dir(self) -> Path:

@@ -15,12 +15,12 @@ from pcbasm.config import MachineConfig, load_machine
 from pcbasm.geometry import Identity, Point2d, Shift
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FakeCamera, FakeKlipper
-from pcbasm.kicad import load_board
 from pcbasm.pasting.capture import PointCapturer
 from pcbasm.pasting.session import PasteSession
 from pcbasm.vision import Image
+from tests.support.boards import led_blinker_board
 from tests.support.camera_model import make_camera_model
-from tests.support.paths import LED_BLINKER_PCB, TEST_CONFIG_DIR
+from tests.support.paths import TEST_CONFIG_DIR
 
 PPM = 10.0
 RESOLUTION = (640, 480)
@@ -46,7 +46,7 @@ def _session(
     camera: FakeCamera, klipper: FakeKlipper, machine: MachineConfig | None = None
 ) -> PasteSession:
     board_frame = BoardFrame(
-        board=load_board(LED_BLINKER_PCB),
+        board=led_blinker_board(),
         camera_model=make_camera_model(PPM, RESOLUTION, focus_z=FOCUS_Z),
         board_transform=Shift(BOARD_SHIFT.x, BOARD_SHIFT.y),
     )

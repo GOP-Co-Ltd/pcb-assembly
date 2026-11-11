@@ -42,6 +42,9 @@ class Env:
     fake: bool = False
     # 与えるとカメラをこの画像を返し続ける fake にする（テストの注入口。env には出さない）
     fake_camera_image: Path | None = None
+    # ボード巡回で巡回先 1 点ごとに結果をプレビューへ出し続ける時間 [sec]
+    # （テストの注入口。env には出さない。0 にすると表示を待たずに次へ進む）
+    result_display_sec: float = 1.0
     # mDNS でこの backend を広告するか（frontend の自動発見用）
     discovery_enabled: bool = True
     # 広告するアドレス。None なら実 IF から列挙する（discovery.local_ipv4_addresses）

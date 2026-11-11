@@ -12,17 +12,18 @@ def wait_until(
     *,
     timeout: float = 10.0,
     interval: float = 0.02,
+    what: str = "条件",
 ) -> None:
     """条件が成立するまでポーリングする（タイミングのアサートはしない）.
 
-    成立しないまま timeout を超えたら pytest.fail する。sleep 固定値依存のアサートを避けるための共有ポーラ。
+    成立しないまま timeout を超えたら、`what` を添えて pytest.fail する。sleep 固定値依存のアサートを避けるための共有ポーラ。
     """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if predicate():
             return
         time.sleep(interval)
-    pytest.fail(f"{timeout}s 以内に条件が成立しませんでした")
+    pytest.fail(f"{timeout}s 以内に{what}が成立しませんでした")
 
 
 def before_deadline[T](

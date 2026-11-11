@@ -51,6 +51,8 @@ class TestServoRelaxButton:
         self, live_ui: LiveUi, browser_page, bus: FakeServoBus
     ):
         page = browser_page
+        # 右下の toast（Klipper に繋がらない E2E では limits 取得失敗が出る）がボタンに重ならないよう、画面を縦に広げる
+        page.set_viewport_size({"width": 1280, "height": 1100})
         page.goto(f"{live_ui.base_url}/klipper_status")
         acquire_control(page)
         page.locator("#mc-servo-relax").click()

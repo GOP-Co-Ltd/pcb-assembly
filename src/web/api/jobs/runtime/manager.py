@@ -143,6 +143,7 @@ class JobManager:
                 machine_id=resolve_machine_id(self._env),
                 source_pcb=selected_pcb.as_posix() if selected_pcb else None,
                 boards=self._selection.boards,
+                result_display_sec=self._env.result_display_sec,
             )
             worker = threading.Thread(
                 target=self._run_worker,
