@@ -88,6 +88,8 @@ exclude = [
   "**/.venv",
   "./klipper",
   ".claude/worktrees",
+  # pnp-motion の実機の試験ツールは klippy-env と klippy の部品で動き、このリポジトリの環境では import できない。
+  "src/firmware",
   # 外部から vendoring した skill は upstream と同一に保つため型検査しない。
   ".claude/skills/yomiyasu"
 ]

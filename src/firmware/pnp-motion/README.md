@@ -8,15 +8,16 @@ Klipper の MCU ファームに、モジュール `velocity_stream` を足した
 
 ## 構成
 
-| パス                                      | 内容                                                                               |
-| ----------------------------------------- | ---------------------------------------------------------------------------------- |
-| `core/vs_planner.{h,c}`                   | Klipper に依存しない計算。1 軸の速度を目標へ近づけ、区間ごとのステップの時刻を作る |
-| `module/velocity_stream.c`                | Klipper とつなぐ部分。コマンド、タイマと task、trsync                              |
-| `patches/0001-stepper-internal-api.patch` | Klipper の `stepper.c` の内部関数を公開し、`src/pnp/*.c` をビルドに足す            |
-| `klipper.commit`                          | 元にする upstream の Klipper の commit                                             |
-| `skr-pico.config`                         | Klipper の `.config`（menuconfig の既定から変える項目だけ）                        |
-| `build.sh`                                | Klipper を取得して patch を当て、`.uf2` を作る                                     |
-| `tests/test_vs_planner.c`、`Makefile`     | `core/` のホストでのテスト                                                         |
+| パス                                      | 内容                                                                                   |
+| ----------------------------------------- | -------------------------------------------------------------------------------------- |
+| `core/vs_planner.{h,c}`                   | Klipper に依存しない計算。1 軸の速度を目標へ近づけ、区間ごとのステップの時刻を作る     |
+| `module/velocity_stream.c`                | Klipper とつなぐ部分。コマンド、タイマと task、trsync                                  |
+| `patches/0001-stepper-internal-api.patch` | Klipper の `stepper.c` の内部関数を公開し、`src/pnp/*.c` をビルドに足す                |
+| `klipper.commit`                          | 元にする upstream の Klipper の commit                                                 |
+| `skr-pico.config`                         | Klipper の `.config`（menuconfig の既定から変える項目だけ）                            |
+| `build.sh`                                | Klipper を取得して patch を当て、`.uf2` を作る                                         |
+| `tests/test_vs_planner.c`、`Makefile`     | `core/` のホストでのテスト                                                             |
+| `tools/bench.py`                          | 実機で試す対話のツール（[実機で試す](#%E5%AE%9F%E6%A9%9F%E3%81%A7%E8%A9%A6%E3%81%99)） |
 
 ## ビルド
 
@@ -50,6 +51,50 @@ pytest（`tests/firmware/`）からも流れ、CI に載る。`module/` は実�
 2. `build.sh` で patch が当たるか確かめる。当たらなければ、新しい commit の上で `stepper.c`・`stepper.h`・`src/Makefile` を直し、
     `git diff` で patch を作り直す
 3. データ辞書で、Klipper の既存のコマンドと `velocity_stream_*` が揃っていることを確かめる
+
+## 実機で試す
+
+Pi 側のクライアントができるまでは、`tools/bench.py` で MCU に直接つないで試す。
+Klippy は動かさず、ファームと同じ commit の Klipper の klippy の部品（シリアルの通信、時刻の同期、TMC のレジスタの定義）を使う。
+ピンと値は PnP 機（`deploy/templates/usaremino/printer.cfg`）と同じものをファイルの先頭に持つ。違う機体で使うときはそこを直す。
+
+PnP 機の Pi で行う。書き込んでいる間、その機体は Klipper で動かせない（WebUI の Klipper の操作も使えない）。
+
+1. `src/firmware/pnp-motion/build.sh` でビルドする
+2. `sudo systemctl stop klipper` で Klipper を止める（MCU のシリアルを空ける）
+3. SKR Pico に `pnp-motion.uf2` を書き込む。電源を切り、BOOT のジャンパ pin を挿し、USB をつないで RESET を押して起動し、
+    現れた `RPI-RP2` ボリュームへ `${XDG_CACHE_HOME:-~/.cache}/pcbasm/pnp-motion/pnp-motion.uf2` をコピーする。
+    ジャンパ pin を抜いて RESET を押す
+4. モーターの電源（24 V）を入れる。TMC2209 は電源がないと UART に応答しない
+5. `~/klippy-env/bin/python src/firmware/pnp-motion/tools/bench.py` で起動する。
+    MCU を設定し、TMC2209 に Klipper と同じレジスタ（電流 0.54 A、64 microsteps、stealthChop）を書いて確かめる
+
+| コマンド         | 動き                                                                                                   |
+| ---------------- | ------------------------------------------------------------------------------------------------------ |
+| `nudge AXIS MM`  | 軸を MM（10 mm まで）だけ 2 mm/s で動かす。時間で測る目安。向きの確認に使う                            |
+| `home [AXIS...]` | 原点出し（既定は z → x → y）。可動域を広げてスイッチへ向かい、広げたまま 1 mm 退避してから可動域を戻す |
+| `v VX VY VZ`     | 速度（mm/s）で動かし続ける。原点出しの前の軸は 0 だけ                                                  |
+| `s`              | 減速して止める。`home` などの実行中にも受け付ける                                                      |
+| `q`              | 状態、位置、速度、押されているスイッチを表示する                                                       |
+| `on`・`off`      | モーターの励磁を入れる・切る（`off` は原点を失う）                                                     |
+| `quit`           | 止めて励磁を切り、終わる                                                                               |
+
+流している間は、押されていない 3 軸のリミットスイッチを trsync に張る（`home` の退避中は、その軸のスイッチを除く）。どれかが押されると全軸が止まり、`[trsync]` に軸が出る。
+速度指令は 50 ms ごとに送り直し、期限（`ttl`）は 200 ms。
+
+確かめること:
+
+- [ ] 起動で、3 軸の TMC2209 の設定を確かめられる
+- [ ] `nudge` で、各軸が正の向きに指定の距離ほど動く（Z の正はスイッチの側）。
+    原点出しの前は可動域が分からず、スイッチのない端（X・Y の正、Z の負）では止まらないので、可動域の中ほどで 1 mm ほどから試す
+- [ ] `home` で 3 軸の原点が出て、繰り返しても位置がそろう
+- [ ] `v` で滑らかに動き、`s` で減速して止まる。可動域の端（X・Y は 0.5 mm、Z は −0.5 mm）の手前で減速して止まる
+- [ ] 動いている最中にリミットスイッチを手で押すと、即座に全軸が止まる。そのあと `v` で離れる向きに動かせる
+- [ ] 動いている最中に bench を Ctrl-C で落とすと、期限が切れて減速して止まる（ホストが止まったときのウォッチドッグ）。
+    Ctrl-C では止める命令を送らず、シリアルを切るだけにしている
+
+終わったら Klipper の firmware を書き戻し、`sudo systemctl start klipper` で Klipper を起動する。
+`./install.sh hardware` で書き戻す場合は、カメラとスピーカーの選択と boot 設定の更新にも答える（いまの機体と同じものを選ぶ）。終わると再起動を求められる。
 
 ## コマンド
 

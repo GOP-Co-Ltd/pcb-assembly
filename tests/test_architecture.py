@@ -87,7 +87,12 @@ def _module_name(path: Path) -> str:
     return ".".join(parts[:-1] if parts[-1] == "__init__" else parts)
 
 
-_MODULES = {_module_name(path): path for path in SRC.rglob("*.py")}
+# src/firmware はファームとその試験ツールで、Python のパッケージの層に入らない
+_MODULES = {
+    _module_name(path): path
+    for path in SRC.rglob("*.py")
+    if not path.is_relative_to(SRC / "firmware")
+}
 
 
 def _unit(module: str) -> str:
