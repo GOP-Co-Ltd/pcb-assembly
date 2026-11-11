@@ -354,6 +354,7 @@ class TestServoSetupJob:
         manager.request_abort()
         _finish(record)
 
+    @pytest.mark.slow
     def test_jammed_check_releases_the_torque_and_reads_again(
         self, manager: JobManager, bus: FakeServoBus
     ):
