@@ -21,6 +21,23 @@ Hardware Abstraction Layer: カメラ・Klipper（Moonraker 経由）・音声�
 
 公開名は `pcbasm.hal` から re-export している（`from pcbasm.hal import KlipperClient, XYZStage`）。
 
+## MCU プロトコルクライアント（`mcu/`）
+
+pnp-motion ファーム（Klipper の MCU のプロトコルで話す）とシリアルで直接話すクライアント。Klippy を介さない。
+公開名は `pcbasm.hal.mcu` から re-export している（`pcbasm.hal` からは出さない）。
+
+| モジュール      | 役割                                                                                                                                                                                                                                                |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `wire.py`       | CRC16、VLQ、メッセージブロックの組み立て `encode_block` と分解 `BlockReader`（純粋）                                                                                                                                                                |
+| `dictionary.py` | identify で読むデータ辞書 `DataDictionary`（メッセージの符号化・復号、列挙、定数）と、復号したメッセージ `Message`（純粋）                                                                                                                          |
+| `transport.py`  | シリアル通信 `McuTransport`。ブロックの送り直し、`identify`、`send`、応答を待つ `query`、受信スレッドで呼ぶ `subscribe`。shutdown の間は、shutdown 中も受け付けるコマンドだけを送り、ほかは `McuShutdown`。`clear_shutdown` に ack が来たら元に戻る |
+| `clock.py`      | MCU の clock とホストの時刻の対応。推定 `ClockEstimator`（純粋）と、`get_clock` を周期的に送る `ClockSync`                                                                                                                                          |
+| `tmc2209.py`    | TMC2209 のレジスタの値 `register_values`（`TmcSettings` から）と、UART の datagram の組み立て・復号（純粋）                                                                                                                                         |
+| `errors.py`     | `McuError`（`DeviceError` 派生）と `McuShutdown`                                                                                                                                                                                                    |
+
+- ファームの仕様（`Protocol.md`、`MCU_Commands.md`、C ソース）は GPLv3。pcbasm は MIT なので、Klippy（`klippy/`）のコードは読まず、構造も写さない。各モジュールの docstring に、仕様として読んだ出典を書く
+- テストは実機に触れない。`tests/support/wire_mcu.py` の MCU 役（子プロセス）と pty で話し、辞書は `tests/support/mcu_dictionary.py` で合成する（ファームのビルド出力はリポジトリに置かない）
+
 ## 機械を動かす流れ
 
 1. `XYZStage` / `ManualStepper` / `AirPump` / `PasteDispenser` は `KlipperClient` を受け取り、状態と printer.cfg を読む
