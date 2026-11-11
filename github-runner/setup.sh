@@ -12,6 +12,8 @@ readonly RUNNER_LABELS="rpi-ci"
 # 実行しない。Raspberry Pi を 4 台導入したので、1 台につき 1 instance 置く。
 readonly RUNNER_COUNT="1"
 readonly UV_VERSION="0.10.9"
+# rootless podman で container 内に割り当てる uid / gid の数
+readonly SUBID_COUNT="65536"
 # ゲームパッドのテストが /dev/uinput で仮想デバイスを作る。装置の input group とは分ける
 readonly UINPUT_GROUP="uinput"
 readonly UINPUT_RULE_FILE="/etc/udev/rules.d/60-pcbasm-uinput.rules"
@@ -146,6 +148,33 @@ create_runner_user() {
     sudo useradd --system --create-home --shell /bin/bash "${RUNNER_USER}"
 }
 
+add_runner_subids() {
+    local file option start
+
+    file="$1"
+    option="$2"
+    if grep -q "^${RUNNER_USER}:" "${file}"; then
+        return
+    fi
+    # 既存の割り当て（gop など）と重ならないよう、最後の範囲の後ろに足す
+    start="$(awk -F: 'BEGIN { end = 100000 } $2 + $3 > end { end = $2 + $3 } END { print end }' "${file}")"
+    sudo usermod "${option}" "${start}-$((start + SUBID_COUNT - 1))" "${RUNNER_USER}"
+}
+
+allow_runner_podman() {
+    # CI job を rootless の container で動かす。container 内の root は host では runner user になり、
+    # docker group（実質 root）を与えずに済む
+    sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes podman uidmap
+
+    # useradd --system は subuid / subgid を割り当てない。podman を初めて使う前に割り当てる
+    add_runner_subids /etc/subuid --add-subuids
+    add_runner_subids /etc/subgid --add-subgids
+
+    # runner は system service で login session が無い。linger で /run/user/<uid> と user の systemd を
+    # 常に用意し、podman の runtime directory と cgroup の管理に使う
+    sudo loginctl enable-linger "${RUNNER_USER}"
+}
+
 runner_in_uinput_group() {
     # pipefail の下で grep -q が先に終わると前段が SIGPIPE で失敗するので、パイプを使わない
     [[ " $(id -nG "${RUNNER_USER}") " == *" ${UINPUT_GROUP} "* ]]
@@ -245,6 +274,7 @@ install_dependencies() {
 
     install_uv
     create_runner_user
+    allow_runner_podman
     allow_runner_uinput
     prepare_runner_cache
     install_runner_instances
@@ -273,6 +303,20 @@ verify_uinput() {
     fi
     if ! runner_in_uinput_group; then
         die "${RUNNER_USER}が${UINPUT_GROUP} groupに入っていません"
+    fi
+}
+
+verify_podman() {
+    local mapped
+
+    # runner service と同じく XDG_RUNTIME_DIR を渡さずに確かめる。cwd は runner user が読める / にする
+    if [ "$(cd / && sudo -u "${RUNNER_USER}" -H podman info --format '{{.Host.Security.Rootless}}')" != "true" ]; then
+        die "${RUNNER_USER}でrootlessのpodmanを実行できません"
+    fi
+    mapped="$(cd / && sudo -u "${RUNNER_USER}" -H podman unshare cat /proc/self/uid_map |
+        awk '{ sum += $3 } END { print sum }')"
+    if [ "${mapped}" -le 1 ]; then
+        die "${RUNNER_USER}のsubuidがcontainerに割り当てられていません"
     fi
 }
 
@@ -436,6 +480,7 @@ verify_runner() {
     verify_pcbnew_import
     verify_evdev_import
     verify_uinput
+    verify_podman
 
     installed_version="$(/usr/local/bin/uv --version | awk '{print $2}')"
     if [ "${installed_version}" != "${UV_VERSION}" ]; then

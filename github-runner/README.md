@@ -34,6 +34,15 @@ SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="pcbasm-test-*", GROUP:="uinp
 起動中の runner service は group を読み直さないので、初めて `uinput` group に入れた host では、job が
 走っていないときに runner service を再起動する（または OS を再起動する）。
 
+CI job を container で動かすため、runner user は rootless の podman を使う。container 内の root は host では
+runner user になるので、`docker` group（実質 root）を与えずに済み、workspace に root 所有のファイルも残らない。
+`install` は次を行う。
+
+- `podman` と `uidmap` を導入する
+- runner user に subuid / subgid を 65536 個割り当てる（既存の割り当ての後ろに足す）
+- `loginctl enable-linger` で runner user の `/run/user/<uid>` と user の systemd を常に用意する
+    （system service の runner には login session が無いため）
+
 ## セットアップ
 
 repository を checkout した Raspberry Pi 上で、`sudo` を付けずに実行する。
@@ -120,6 +129,7 @@ runs-on: [self-hosted, linux, ARM64, rpi-ci]
 - instance が登録済みで、systemd service が有効かつ起動中
 - Git LFS の system filter 設定と `pcbnew`、`evdev` の import
 - `/dev/uinput` の group が `uinput` で、runner user がその group に入っている
+- runner user で rootless の podman が動き、subuid が container に割り当てられる
 - `uv` version
 - GitHub 側の runner 一覧（name / status / busy / label）
 - CPU、memory、disk 使用量
