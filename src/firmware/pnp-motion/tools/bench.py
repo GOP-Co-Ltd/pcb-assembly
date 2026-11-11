@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Pnp-motion ファームを実機で試す、対話の試験ツール.
 
-Klippy は動かさず、submodule の Klipper（ファームと同じ commit）の klippy
-の部品（serialhdl、clocksync、 TMC のレジスタ定義）で MCU に直接つなぐ。printer.cfg の代わりに、PnP
-機（usaremino_pnp）の ピンと値をこのファイルに持つ。Pi 側のクライアントができるまでの、ファームの確認用。
+Klippy は動かさず、submodule の Klipper（ファームと同じ commit）の klippy の部品で MCU
+に直接つなぐ。 ピン・ステップ数・電流・速度・可動域・原点出しは、機体の printer.cfg（既定は
+config/printer.cfg）から読む。 Pi 側のクライアントができるまでの、ファームの確認用。
 
 ~/klippy-env/bin/python src/firmware/pnp-motion/tools/bench.py
 
@@ -12,6 +12,7 @@ Klippy は動かさず、submodule の Klipper（ファームと同じ commit）
 """
 
 import argparse
+import configparser
 import glob
 import logging
 import os
@@ -23,89 +24,98 @@ reactor = serialhdl = clocksync = util = None
 tmc = tmc2208 = tmc2209 = tmc_uart = None
 
 PROTOCOL = 1  # VELOCITY_STREAM_PROTOCOL
+REPO_ROOT = os.path.dirname(
+    os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    )
+)
 
-# 機体（deploy/templates/usaremino/printer.cfg と同じ値）
-STEPS_PER_MM = (
-    200 * 64 / 1.5
-)  # 1.8° のモーター、64 microsteps、rotation_distance 1.5 mm
-RUN_CURRENT = 0.54  # A
-SENSE_RESISTOR = 0.110  # Ω（Klipper の既定）
-TMC_RX_PIN = "gpio9"
-TMC_TX_PIN = "gpio8"
+# 試験の速さの上限（mm/s）。printer.cfg の値がこれより速くても、ここで抑える
+BENCH_MAX_VELOCITY = 5.0
+BENCH_HOMING_SPEED = 2.0
+NUDGE_SPEED = 1.0
+# 原点出しのあとの可動域を、スイッチの側だけこの分だけ内側にする（端まで動いてもスイッチを押さない）
+SWITCH_MARGIN_MM = 0.5
+# ファームの受け付ける加速度の下限（core/vs_planner.h の VS_MIN_ACCEL）
+VS_MIN_ACCEL = 65536
 TMC_BAUD = 40000
+TMC_FREQUENCY = 12000000.0  # Klipper の tmc2209.TMC_FREQUENCY
+MICROSTEP_MRES = {256: 0, 128: 1, 64: 2, 32: 3, 16: 4, 8: 5, 4: 6, 2: 7, 1: 8}
+
+
+@dataclass(frozen=True)
+class Pin:
+    name: str
+    invert: bool  # !
+    pullup: bool  # ^
 
 
 @dataclass(frozen=True)
 class Axis:
     name: str
     step_pin: str
-    dir_pin: str
-    invert_dir: bool  # printer.cfg の dir_pin に ! がある
-    enable_pin: str  # 0 で有効（printer.cfg の !）
-    endstop_pin: str  # pull up。押されると 1
-    uart_address: int
-    endstop_mm: float  # スイッチが押される位置
-    min_mm: float  # 原点出しの後の可動域。スイッチより少し内側にする
-    max_mm: float
+    dir_pin: Pin
+    enable_pin: Pin
+    endstop_pin: Pin
+    steps_per_mm: float
+    microsteps: int
+    full_steps: int
+    rotation_distance: float
+    position_min: float
+    position_max: float
+    position_endstop: float
     home_dir: int  # スイッチの向き（-1 か +1）
-    max_velocity: float  # mm/s
+    homing_speed: float  # mm/s（試験の上限で抑えたもの）
+    retract_speed: float
+    retract_dist: float
+    max_velocity: float  # mm/s（試験の上限で抑えたもの）
     accel: float  # mm/s²
+    uart_address: int
+    run_current: float
+    hold_current: float
+    sense_resistor: float
+    stealthchop_threshold: float | None
+    interpolate: bool
+
+    def steps(self, mm):
+        return int(round(mm * self.steps_per_mm))
+
+    def mm(self, steps):
+        return steps / self.steps_per_mm
+
+    @property
+    def min_mm(self):
+        """原点出しのあとの可動域の下端（スイッチの側なら少し内側）."""
+        if self.home_dir < 0:
+            return max(self.position_min, self.position_endstop + SWITCH_MARGIN_MM)
+        return self.position_min
+
+    @property
+    def max_mm(self):
+        if self.home_dir > 0:
+            return min(self.position_max, self.position_endstop - SWITCH_MARGIN_MM)
+        return self.position_max
+
+    @property
+    def endstop_trigger_value(self):
+        """スイッチが押されたときのピンの値（printer.cfg の endstop_pin に !
+
+        があれば 0）.
+        """
+        return 0 if self.endstop_pin.invert else 1
 
 
-AXES = (
-    Axis(
-        "x",
-        "gpio11",
-        "gpio10",
-        False,
-        "gpio12",
-        "gpio4",
-        0,
-        0.0,
-        0.5,
-        70.0,
-        -1,
-        10.0,
-        50.0,
-    ),
-    Axis(
-        "y",
-        "gpio6",
-        "gpio5",
-        False,
-        "gpio7",
-        "gpio3",
-        2,
-        0.0,
-        0.5,
-        70.0,
-        -1,
-        10.0,
-        50.0,
-    ),
-    Axis(
-        "z",
-        "gpio19",
-        "gpio28",
-        True,
-        "gpio2",
-        "gpio25",
-        1,
-        0.0,
-        -45.0,
-        -0.5,
-        1,
-        5.0,
-        10.0,
-    ),
-)
+@dataclass(frozen=True)
+class Machine:
+    kinematics: str
+    axes: tuple
+    tmc_rx: Pin
+    tmc_tx: str
 
-# 原点出しの前の可動域（いまの位置を 0 として前後に）
-UNHOMED_RANGE_MM = 100.0
-HOMING_SPEED = 5.0  # mm/s
-RETRACT_SPEED = 2.0  # mm/s
-RETRACT_MM = 1.0
-NUDGE_SPEED = 2.0  # mm/s
+
+# 読み込んだ機体。main が load_machine の結果を置く
+AXES = ()
+TMC_RX = TMC_TX = None
 
 # 速度の流し方（秒）
 PERIOD = 0.002
@@ -156,15 +166,205 @@ def _load_klippy(klipper_dir):
     from extras import tmc, tmc2208, tmc2209, tmc_uart
 
 
-def _steps(mm):
-    return int(round(mm * STEPS_PER_MM))
+def _parse_pin(text):
+    """Klipper のピンの書き方（^ と !
+
+    の前置き）を読む.
+    """
+    name = text.strip()
+    invert = pullup = False
+    while name and name[0] in "^~!":
+        if name[0] == "!":
+            invert = True
+        elif name[0] == "^":
+            pullup = True
+        name = name[1:].strip()
+    if ":" in name:
+        raise BenchError(f"MCU 名つきのピンには対応していません: {text}")
+    return Pin(name, invert, pullup)
 
 
-def _mm(steps):
-    return steps / STEPS_PER_MM
+def _read_printer_cfg(path):
+    """printer.cfg を読む。末尾の SAVE_CONFIG（#*# の行）は Klipper と同じく上書きとして読む."""
+    text = open(path, encoding="utf-8").read()
+    marker = "#*# <---------------------- SAVE_CONFIG ---------------------->"
+    body, _, saved = text.partition(marker)
+    cfg = configparser.RawConfigParser(
+        strict=False, inline_comment_prefixes=("#", ";"), delimiters=(":", "=")
+    )
+    cfg.read_string(body)
+    lines = [line[3:].strip() for line in saved.splitlines() if line.startswith("#*#")]
+    # 見出し（DO NOT EDIT ... の行）を飛ばし、最初の節から読む
+    while lines and not lines[0].startswith("["):
+        lines.pop(0)
+    cfg.read_string("\n".join(lines))
+    return cfg
 
 
-def tmc_registers():
+def _home_dir(name, section, position_endstop, position_min, position_max):
+    """原点出しの向き。Klipper の stepper.PrinterRail と同じ規則で決める."""
+    if section.get("homing_positive_dir") is not None:
+        return 1 if section.getboolean("homing_positive_dir") else -1
+    if position_endstop <= position_min:
+        return -1
+    if position_endstop >= position_max:
+        return 1
+    raise BenchError(f"stepper_{name}: homing_positive_dir を決められません")
+
+
+def load_machine(path):
+    """printer.cfg から、bench が使う 3 軸と TMC の値を読む."""
+    if not os.path.exists(path):
+        raise BenchError(
+            f"printer.cfg が見つかりません: {path}（--printer-cfg で指定する）"
+        )
+    cfg = _read_printer_cfg(path)
+    printer = cfg["printer"]
+    kinematics = printer.get("kinematics")
+    if kinematics != "cartesian":
+        raise BenchError(
+            f"kinematics が cartesian ではありません（{kinematics}）。"
+            "pnp-motion はモーターごとに速度を出すので、corexy などでは X・Y が斜めに動き、"
+            "可動域も守れません"
+        )
+    axes = []
+    uart = set()
+    for name in "xyz":
+        st = cfg[f"stepper_{name}"]
+        drv_name = f"tmc2209 stepper_{name}"
+        if not cfg.has_section(drv_name):
+            raise BenchError(f"[{drv_name}] がありません（TMC2209 の UART だけに対応）")
+        drv = cfg[drv_name]
+        microsteps = st.getint("microsteps")
+        if microsteps not in MICROSTEP_MRES:
+            raise BenchError(f"stepper_{name}: microsteps が不正です: {microsteps}")
+        full_steps = st.getint("full_steps_per_rotation", 200)
+        rotation_distance = st.getfloat("rotation_distance")
+        if "gear_ratio" in st:
+            raise BenchError(f"stepper_{name}: gear_ratio には対応していません")
+        position_endstop = st.getfloat("position_endstop")
+        position_min = st.getfloat("position_min", 0.0)
+        position_max = st.getfloat("position_max")
+        home_dir = _home_dir(name, st, position_endstop, position_min, position_max)
+        homing_speed = min(st.getfloat("homing_speed", 5.0), BENCH_HOMING_SPEED)
+        retract_speed = min(
+            st.getfloat("homing_retract_speed", homing_speed), BENCH_HOMING_SPEED
+        )
+        if name == "z":
+            max_velocity = printer.getfloat(
+                "max_z_velocity", printer.getfloat("max_velocity")
+            )
+            accel = printer.getfloat("max_z_accel", printer.getfloat("max_accel"))
+        else:
+            max_velocity = printer.getfloat("max_velocity")
+            accel = printer.getfloat("max_accel")
+        steps_per_mm = full_steps * microsteps / rotation_distance
+        if accel * steps_per_mm < VS_MIN_ACCEL:
+            raise BenchError(
+                f"stepper_{name}: 加速度 {accel} mm/s² はファームの下限"
+                f"（{VS_MIN_ACCEL / steps_per_mm:.0f} mm/s²）より小さい"
+            )
+        run_current = drv.getfloat("run_current")
+        threshold = drv.get("stealthchop_threshold")
+        axes.append(
+            Axis(
+                name=name,
+                step_pin=_parse_pin(st.get("step_pin")).name,
+                dir_pin=_parse_pin(st.get("dir_pin")),
+                enable_pin=_parse_pin(st.get("enable_pin")),
+                endstop_pin=_parse_pin(st.get("endstop_pin")),
+                steps_per_mm=steps_per_mm,
+                microsteps=microsteps,
+                full_steps=full_steps,
+                rotation_distance=rotation_distance,
+                position_min=position_min,
+                position_max=position_max,
+                position_endstop=position_endstop,
+                home_dir=home_dir,
+                homing_speed=homing_speed,
+                retract_speed=retract_speed,
+                retract_dist=st.getfloat("homing_retract_dist", 5.0),
+                max_velocity=min(max_velocity, BENCH_MAX_VELOCITY),
+                accel=accel,
+                uart_address=drv.getint("uart_address", 0),
+                run_current=run_current,
+                hold_current=min(drv.getfloat("hold_current", 2.0), run_current),
+                sense_resistor=drv.getfloat("sense_resistor", 0.110),
+                stealthchop_threshold=None if threshold is None else float(threshold),
+                interpolate=drv.getboolean("interpolate", True),
+            )
+        )
+        uart.add((drv.get("uart_pin"), drv.get("tx_pin", drv.get("uart_pin"))))
+    if len(uart) != 1:
+        raise BenchError("3 軸の TMC2209 が同じ UART のピンを使っていません")
+    rx, tx = uart.pop()
+    for a in axes:
+        if a.retract_dist <= SWITCH_MARGIN_MM:
+            raise BenchError(
+                f"stepper_{a.name}: homing_retract_dist は {SWITCH_MARGIN_MM} mm より大きくする"
+            )
+    return Machine(kinematics, tuple(axes), _parse_pin(rx), _parse_pin(tx).name)
+
+
+def describe_machine(path, machine):
+    """読んだ値を、動かす前に確かめられるように並べる."""
+    lines = [f"printer.cfg: {path}（kinematics: {machine.kinematics}）"]
+    for a in machine.axes:
+        lines.append(
+            f"  {a.name}: {a.steps_per_mm:.3f} steps/mm（{a.full_steps}×{a.microsteps}/"
+            f"{a.rotation_distance} mm）、dir {'反転' if a.dir_pin.invert else 'そのまま'}、"
+            f"速さ ≤{a.max_velocity} mm/s、加速度 {a.accel} mm/s²"
+        )
+        lines.append(
+            f"     原点 {a.position_endstop} mm（{'+' if a.home_dir > 0 else '-'} 向き、"
+            f"{a.homing_speed} mm/s、退避 {a.retract_dist} mm）、可動域 {a.min_mm}〜{a.max_mm} mm、"
+            f"電流 {a.run_current} A（address {a.uart_address}）"
+        )
+    lines.append(
+        f"  試験の上限: 移動 {BENCH_MAX_VELOCITY} mm/s、原点出し {BENCH_HOMING_SPEED} mm/s、"
+        f"nudge {NUDGE_SPEED} mm/s"
+    )
+    return "\n".join(lines)
+
+
+def _current_bits(axis):
+    """Klipper の tmc2130.TMCCurrentHelper と同じ電流の計算（vsense, irun, ihold）."""
+
+    def bits(current, vsense):
+        vref = 0.18 if vsense else 0.32
+        cs = (
+            int(32.0 * (axis.sense_resistor + 0.020) * current * 2**0.5 / vref + 0.5)
+            - 1
+        )
+        return max(0, min(31, cs))
+
+    def current_from(cs, vsense):
+        vref = 0.18 if vsense else 0.32
+        return (cs + 1) * vref / (32.0 * (axis.sense_resistor + 0.020) * 2**0.5)
+
+    vsense = True
+    irun = bits(axis.run_current, True)
+    if irun == 31 and current_from(irun, True) < axis.run_current:
+        irun2 = bits(axis.run_current, False)
+        if abs(axis.run_current - current_from(irun2, False)) < abs(
+            axis.run_current - current_from(irun, True)
+        ):
+            vsense, irun = False, irun2
+    return vsense, irun, bits(axis.hold_current, vsense)
+
+
+def _tpwmthrs(axis):
+    """Klipper の tmc.TMCtstepHelper と同じ、stealthChop を切り替える速さの TSTEP."""
+    velocity = axis.stealthchop_threshold
+    if not velocity or velocity <= 0:
+        return 0xFFFFF
+    mres = MICROSTEP_MRES[axis.microsteps]
+    step_dist = axis.rotation_distance / (axis.full_steps * axis.microsteps)
+    threshold = int(TMC_FREQUENCY * step_dist / (1 << mres) / velocity + 0.5)
+    return max(0, min(0xFFFFF, threshold))
+
+
+def tmc_registers(axis):
     """Klipper の tmc2209 が printer.cfg の値で書くのと同じレジスタの値を返す.
 
     Klipper と同じく、ステップは両方のエッジで打つ（Klipper はこの MCU で invert_step=-1、
@@ -173,26 +373,20 @@ def tmc_registers():
     fields = tmc.FieldHelper(
         tmc2209.Fields, tmc2208.SignedFields, tmc2209.FieldFormatters
     )
-    # Klipper の tmc2130.TMCCurrentHelper と同じ計算（vsense=1、hold_current は run_current）
-    cs = int(32.0 * (SENSE_RESISTOR + 0.020) * RUN_CURRENT * 2**0.5 / 0.18 + 0.5) - 1
-    if not 0 <= cs < 31:
-        raise BenchError("RUN_CURRENT が vsense=1 の範囲を外れています")
+    vsense, irun, ihold = _current_bits(axis)
+    stealth = axis.stealthchop_threshold is not None
     values = [
         ("pdn_disable", 1),
         ("senddelay", 2),
-        ("vsense", 1),
-        ("ihold", cs),
-        ("irun", cs),
-        ("mres", 2),  # 64 microsteps
-        ("intpol", 1),
-        (
-            "dedge",
-            1,
-        ),  # ステップを両方のエッジで打つ（config_stepper の invert_step=-1）
+        ("vsense", int(vsense)),
+        ("ihold", ihold),
+        ("irun", irun),
+        ("mres", MICROSTEP_MRES[axis.microsteps]),
+        ("intpol", int(axis.interpolate)),
+        ("dedge", 1),
         ("mstep_reg_select", 1),
-        # stealthchop_threshold: 999999 → 常に stealthChop
-        ("tpwmthrs", 0),
-        ("en_spreadcycle", 0),
+        ("tpwmthrs", _tpwmthrs(axis) if stealth else 0xFFFFF),
+        ("en_spreadcycle", 0 if stealth else 1),
         ("tcoolthrs", 0),
         ("multistep_filt", 1),
         ("toff", 3),
@@ -290,16 +484,20 @@ class Bench:
         for i, a in enumerate(AXES):
             cmds += [
                 f"config_stepper oid={STEPPER + i} step_pin={a.step_pin}"
-                f" dir_pin={a.dir_pin} invert_step=-1 step_pulse_ticks={self._ticks(1e-7)}",
-                f"config_endstop oid={ENDSTOP + i} pin={a.endstop_pin} pull_up=1",
-                f"config_digital_out oid={ENABLE + i} pin={a.enable_pin}"
-                " value=1 default_value=1 max_duration=0",
+                f" dir_pin={a.dir_pin.name} invert_step=-1 step_pulse_ticks={self._ticks(1e-7)}",
+                f"config_endstop oid={ENDSTOP + i} pin={a.endstop_pin.name}"
+                f" pull_up={int(a.endstop_pin.pullup)}",
+                # 励磁を切った値で始め、shutdown でも切る
+                f"config_digital_out oid={ENABLE + i} pin={a.enable_pin.name}"
+                f" value={self._enable_value(a, False)}"
+                f" default_value={self._enable_value(a, False)} max_duration=0",
             ]
-        invert = sum(1 << i for i, a in enumerate(AXES) if a.invert_dir)
+        invert = sum(1 << i for i, a in enumerate(AXES) if a.dir_pin.invert)
         cmds += [
             f"config_trsync oid={TRSYNC}",
-            f"config_tmcuart oid={TMCUART} rx_pin={TMC_RX_PIN} pull_up=0"
-            f" tx_pin={TMC_TX_PIN} bit_time={self._ticks(1.0 / TMC_BAUD)}",
+            f"config_tmcuart oid={TMCUART} rx_pin={TMC_RX.name}"
+            f" pull_up={int(TMC_RX.pullup)} tx_pin={TMC_TX}"
+            f" bit_time={self._ticks(1.0 / TMC_BAUD)}",
             f"config_velocity_stream oid={VS} stepper_x_oid={STEPPER}"
             f" stepper_y_oid={STEPPER + 1} stepper_z_oid={STEPPER + 2} invert_dir={invert}",
             "finalize_config crc=0",
@@ -311,8 +509,8 @@ class Bench:
             raise BenchError("MCU の設定に失敗しました")
 
     def _init_tmc(self):
-        registers = tmc_registers()
         for a in AXES:
+            registers = tmc_registers(a)
             before = self._tmc_read(a.uart_address, "IFCNT")
             for name, value in registers.items():
                 self._tmc_write(a.uart_address, name, value)
@@ -320,7 +518,9 @@ class Bench:
             gconf = self._tmc_read(a.uart_address, "GCONF")
             if (after - before) & 0xFF != len(registers) or gconf != registers["GCONF"]:
                 raise BenchError(f"{a.name}: TMC2209 への書き込みを確かめられません")
-            print(f"{a.name}: TMC2209 を設定しました（{RUN_CURRENT} A、64 microsteps）")
+            print(
+                f"{a.name}: TMC2209 を設定しました（{a.run_current} A、{a.microsteps} microsteps）"
+            )
 
     def _tmc_send(self, data, read):
         cmd = self._ser.get_msgparser().lookup_command(
@@ -399,8 +599,8 @@ class Bench:
         s = self._state
         if s is None:
             return ""
-        pos = " ".join(f"{a.name}={_mm(s[a.name]):8.3f}" for a in AXES)
-        vel = " ".join(f"v{a.name}={_mm(s['v' + a.name]):6.2f}" for a in AXES)
+        pos = " ".join(f"{a.name}={a.mm(s[a.name]):8.3f}" for a in AXES)
+        vel = " ".join(f"v{a.name}={a.mm(s['v' + a.name]):6.2f}" for a in AXES)
         homed = "".join(a.name if h else "-" for a, h in zip(AXES, self._homed))
         return f"{pos} mm  {vel} mm/s  原点:{homed}"
 
@@ -421,7 +621,7 @@ class Bench:
             params = self._request(
                 f"endstop_query_state oid={oid}", "endstop_state", oid
             )
-            if params["pin_value"]:
+            if params["pin_value"] == AXES[i].endstop_trigger_value:
                 pressed.add(i)
         return pressed
 
@@ -430,17 +630,27 @@ class Bench:
         if homed:
             low, high = a.min_mm, a.max_mm
         else:
-            low, high = -UNHOMED_RANGE_MM, UNHOMED_RANGE_MM
+            # 原点出しの前は位置が分からないので、いまの位置を 0 として可動域の長さだけ前後に
+            span = a.position_max - a.position_min
+            low, high = -span, span
         self._ser.send(
-            f"velocity_stream_set_limits oid={VS} axis={i} min_pos={_steps(low)}"
-            f" max_pos={_steps(high)} max_velocity={_steps(a.max_velocity)}"
-            f" accel={_steps(a.accel)}"
+            f"velocity_stream_set_limits oid={VS} axis={i} min_pos={a.steps(low)}"
+            f" max_pos={a.steps(high)} max_velocity={a.steps(a.max_velocity)}"
+            f" accel={a.steps(a.accel)}"
         )
 
+    @staticmethod
+    def _enable_value(axis, on):
+        """励磁のピンの値（printer.cfg の enable_pin に !
+
+        があれば 0 で励磁）.
+        """
+        return int(on) ^ int(axis.enable_pin.invert)
+
     def _enable(self, on):
-        for i in range(3):
+        for i, a in enumerate(AXES):
             self._ser.send(
-                f"update_digital_out oid={ENABLE + i} value={0 if on else 1}"
+                f"update_digital_out oid={ENABLE + i} value={self._enable_value(a, on)}"
             )
 
     # ---- 流す・止める
@@ -465,7 +675,8 @@ class Bench:
                 f"endstop_home oid={ENDSTOP + i} clock={clock}"
                 f" sample_ticks={self._ticks(ENDSTOP_SAMPLE)}"
                 f" sample_count={ENDSTOP_SAMPLE_COUNT}"
-                f" rest_ticks={self._ticks(ENDSTOP_REST)} pin_value=1"
+                f" rest_ticks={self._ticks(ENDSTOP_REST)}"
+                f" pin_value={AXES[i].endstop_trigger_value}"
                 f" trsync_oid={TRSYNC} trigger_reason={REASON_ENDSTOP + i}"
             )
 
@@ -503,7 +714,7 @@ class Bench:
 
     def _send_velocity(self):
         self._seq = (self._seq + 1) & 0xFFFF
-        vx, vy, vz = (_steps(v) for v in self._velocity)
+        vx, vy, vz = (a.steps(v) for a, v in zip(AXES, self._velocity))
         expire = (self._now() + self._ticks(TTL)) & 0xFFFFFFFF
         self._ser.send(
             f"velocity_stream_set_velocity oid={VS} seq={self._seq}"
@@ -596,14 +807,14 @@ class Bench:
         self._ser.send(f"velocity_stream_set_position oid={VS} axis={i} pos=0")
         if i in self._pressed():
             print(f"{a.name}: スイッチが押されているので、先に離れます")
-            self._run_for(i, -a.home_dir * RETRACT_SPEED, 3 * RETRACT_MM, skip={i})
+            self._run_for(i, -a.home_dir * a.retract_speed, a.retract_dist, skip={i})
             if i in self._pressed():
                 raise BenchError(f"{a.name}: スイッチから離れられません")
-        print(f"{a.name}: スイッチへ向かいます（{HOMING_SPEED} mm/s）")
+        print(f"{a.name}: スイッチへ向かいます（{a.homing_speed} mm/s）")
         self._velocity = [0.0, 0.0, 0.0]
-        self._velocity[i] = a.home_dir * HOMING_SPEED
+        self._velocity[i] = a.home_dir * a.homing_speed
         self._start()
-        timeout = (abs(a.max_mm - a.min_mm) + 10) / HOMING_SPEED
+        timeout = (a.position_max - a.position_min + 10) / a.homing_speed
         if not self._wait(lambda: self._state_name() == "contact", timeout):
             self._stop()
             raise BenchError(f"{a.name}: スイッチに届きません（向きと配線を確かめる）")
@@ -613,12 +824,12 @@ class Bench:
         if self._last_trigger != i:
             raise BenchError(f"{a.name}: 別のスイッチで止まりました")
         self._ser.send(
-            f"velocity_stream_set_position oid={VS} axis={i} pos={_steps(a.endstop_mm)}"
+            f"velocity_stream_set_position oid={VS} axis={i} pos={a.steps(a.position_endstop)}"
         )
         # 可動域を広げたまま退避してから、可動域を戻す
-        self._run_for(i, -a.home_dir * RETRACT_SPEED, RETRACT_MM, skip={i})
+        self._run_for(i, -a.home_dir * a.retract_speed, a.retract_dist, skip={i})
         self._query()
-        pos = _mm(self._state[a.name])
+        pos = a.mm(self._state[a.name])
         if i in self._pressed() or not a.min_mm <= pos <= a.max_mm:
             raise BenchError(f"{a.name}: 退避が足りません（{pos:.3f} mm）")
         self._set_limits(i, homed=True)
@@ -758,9 +969,24 @@ def main():
     parser.add_argument(
         "--device", help="MCU のシリアル（既定: /dev/serial/by-id から探す）"
     )
+    config_dir = os.environ.get("PCBASM_CONFIG_DIR") or os.path.join(
+        REPO_ROOT, "config"
+    )
+    parser.add_argument(
+        "--printer-cfg",
+        default=os.path.join(config_dir, "printer.cfg"),
+        help="機体の printer.cfg（既定: config/printer.cfg）",
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.WARNING)
+    global AXES, TMC_RX, TMC_TX
     try:
+        machine = load_machine(args.printer_cfg)
+        print(describe_machine(args.printer_cfg, machine))
+        # 値を取り違えたまま動かさないように、目で確かめてから進める
+        if input("この値で動かしますか？（yes で続ける）: ").strip() != "yes":
+            sys.exit("中止しました")
+        AXES, TMC_RX, TMC_TX = machine.axes, machine.tmc_rx, machine.tmc_tx
         _load_klippy(args.klipper)
         react = reactor.Reactor()
         bench = Bench(react, args.device or _default_device())

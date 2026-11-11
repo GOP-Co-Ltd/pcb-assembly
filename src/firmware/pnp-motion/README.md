@@ -77,7 +77,11 @@ Klipper の firmware の代わりに pnp-motion をビルドして書き込む�
 
 Pi 側のクライアントができるまでは、`tools/bench.py` で MCU に直接つないで試す。
 Klippy は動かさず、submodule の Klipper（ファームと同じ commit）の klippy の部品（シリアルの通信、時刻の同期、TMC のレジスタの定義）を使う。
-ピンと値は PnP 機（`deploy/templates/usaremino/printer.cfg`）と同じものをファイルの先頭に持つ。違う機体で使うときはそこを直す。
+ピン（`!` と `^` を含む）、ステップ数、電流、速さ、加速度、可動域、原点出しの向きと速さは、機体の printer.cfg（既定は `config/printer.cfg`、`--printer-cfg` で変える）から読む。
+
+- 読んだ値を表示し、`yes` と入力するまで動かさない。1 mm あたりのステップ数と向きを、機体と照らして確かめる
+- kinematics が cartesian でなければ起動しない。pnp-motion は stepper ごとに速度を出すので、corexy では X・Y が斜めに動き、可動域も守れない
+- 速さは printer.cfg の値に、試験の上限（移動 5 mm/s、原点出し 2 mm/s、`nudge` 1 mm/s）をかける
 
 PnP 機の Pi で行う。bench と Klippy は同じ MCU を同時に使えないので、bench を使う間は Klipper を止める
 （その間は WebUI の Klipper の操作も使えない）。
@@ -86,11 +90,11 @@ PnP 機の Pi で行う。bench と Klippy は同じ MCU を同時に使えな�
 2. `sudo systemctl stop klipper` で Klipper を止める（MCU のシリアルを空ける）
 3. モーターの電源（24 V）を入れる。TMC2209 は電源がないと UART に応答しない
 4. `~/klippy-env/bin/python src/firmware/pnp-motion/tools/bench.py` で起動する。
-    MCU を設定し、TMC2209 に Klipper と同じレジスタ（電流 0.54 A、64 microsteps、stealthChop）を書いて確かめる
+    printer.cfg の値を確かめて `yes` と入力すると、MCU を設定し、TMC2209 に Klipper と同じレジスタ（printer.cfg の電流、microsteps、stealthChop）を書いて確かめる
 
 | コマンド         | 動き                                                                                                   |
 | ---------------- | ------------------------------------------------------------------------------------------------------ |
-| `nudge AXIS MM`  | 軸を MM（10 mm まで）だけ 2 mm/s で動かす。時間で測る目安。向きの確認に使う                            |
+| `nudge AXIS MM`  | 軸を MM（10 mm まで）だけ 1 mm/s で動かす。時間で測る目安。向きの確認に使う                            |
 | `home [AXIS...]` | 原点出し（既定は z → x → y）。可動域を広げてスイッチへ向かい、広げたまま 1 mm 退避してから可動域を戻す |
 | `v VX VY VZ`     | 速度（mm/s）で動かし続ける。原点出しの前の軸は 0 だけ                                                  |
 | `s`              | 減速して止める。`home` などの実行中にも受け付ける                                                      |
