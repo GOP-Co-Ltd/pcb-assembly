@@ -81,6 +81,11 @@ UI は fail-closed。ページを開いた直後は `body[data-control] = "viewe
 `el.hasAttribute('inert')` を `evaluate` で読む（`tests/e2e/test_multi_user_browser.py` の
 `_is_inert`）。
 
+### 時間で進む表示はブラウザの時計を進める
+
+経過時間のような時間で進む表示は、Playwright の `page.clock`（`install` / `run_for`）でブラウザの時計を進めて確かめてよい（例: `tests/e2e/test_job_elapsed_browser.py`）。
+検証対象の JS は実物のまま動き、ブラウザの時計を操作するだけなので、skill `testing-strategy` が禁じる `time` のモックには当たらない。
+
 ### WS イベントの形
 
 契約は `src/web/api/routers/jobs.py` / `src/web/api/jobs/runtime/manager.py` で定義されている。
