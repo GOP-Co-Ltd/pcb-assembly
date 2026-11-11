@@ -100,6 +100,8 @@ void vs_stage_set_position(struct vs_stage *s, const int32_t motors[VS_AXES],
                            uint8_t axis, int32_t pos);
 
 // モーターを stepper の位置に、軸をそこから求めた位置に置き、速度を 0 にする。
+// stepper の位置が計画の整数位置と同じモーターは、計画の小数部を引き継ぐ（止めて開始し直しても位置がずれない）。
+// vs_stage_set_position と vs_stage_position も、同じ規則でモーターの位置を読む。
 void vs_stage_reset(struct vs_stage *s, const int32_t motors[VS_AXES], uint32_t clock);
 
 // stepper の位置から求めた、軸 axis の直交座標の位置（整数ステップ、floor）。

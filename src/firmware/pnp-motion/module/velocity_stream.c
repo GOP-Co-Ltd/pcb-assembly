@@ -138,7 +138,9 @@ is_running(struct velocity_stream *vs)
 static int
 in_limits(const struct vs_axis_config *c, int32_t pos, int32_t slack)
 {
-    return pos >= c->min_pos - slack && pos <= c->max_pos + slack;
+    // ホストが送った境界が int32 の端でもあふれないよう int64 で比べる
+    return (int64_t)pos >= (int64_t)c->min_pos - slack
+        && (int64_t)pos <= (int64_t)c->max_pos + slack;
 }
 
 void

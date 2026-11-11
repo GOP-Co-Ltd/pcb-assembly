@@ -227,7 +227,7 @@ src/firmware/pnp-motion/
 
 ## ビルドとデプロイ
 
-- **ビルド:** CI で `core/` のテストと `.uf2` のビルドを流す。Pi の上でも `build.sh` でビルドできる
+- **ビルド:** CI では `core/` のテストを流す（`tests/firmware/`）。`.uf2` は Pi の上で `build.sh` でビルドする
 - **配布:** `.uf2` はリポジトリに置かない。塗布機の Klipper ファームと同じく、導入時に Pi でビルドして書き込む
     （`./install.sh firmware pnp-motion`。中身は `deploy/firmware.sh`）
 - **書き込み:** 初回だけ、今の手順（BOOT ジャンパ）で書く。以降は 1200 baud で bootloader に入れ、

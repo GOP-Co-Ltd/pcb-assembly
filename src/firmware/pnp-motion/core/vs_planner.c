@@ -187,6 +187,17 @@ vs_motor_plan(struct vs_motor *m, int64_t new_pos, uint32_t seg_start,
     m->last_step_clock = first + span;
 }
 
+// モーターの位置（小数部つき）。stepper の位置が計画の整数位置と同じなら、計画の小数部を引き継ぐ。
+// 整数の位置に丸めると、corexy では止めて開始し直すたびに直交座標が半歩ずつ一方へずれていく。
+// 違えば（接触で積んだステップの途中で止まったときなど）stepper の位置をそのまま使う
+static int64_t
+motor_pos(const struct vs_motor *m, int32_t stepper_pos)
+{
+    if (vs_motor_position(m) == stepper_pos)
+        return m->pos;
+    return (int64_t)stepper_pos * ONE;
+}
+
 // stepper の位置から求めた、直交座標の位置（小数部つき）
 static void
 stage_axes(const struct vs_stage *s, const int32_t motors[VS_AXES],
@@ -194,7 +205,7 @@ stage_axes(const struct vs_stage *s, const int32_t motors[VS_AXES],
 {
     int64_t m[VS_AXES];
     for (int i = 0; i < VS_AXES; i++)
-        m[i] = (int64_t)motors[i] * ONE;
+        m[i] = motor_pos(&s->motors[i], motors[i]);
     vs_kin_to_axes(s->kinematics, m, axes);
     for (int i = 0; i < VS_AXES; i++)
         axes[i] += s->offset[i];
@@ -215,9 +226,11 @@ vs_stage_reset(struct vs_stage *s, const int32_t motors[VS_AXES], uint32_t clock
     int64_t axes[VS_AXES];
     stage_axes(s, motors, axes);
     for (int i = 0; i < VS_AXES; i++) {
+        int64_t pos = motor_pos(&s->motors[i], motors[i]);
         s->axes[i].pos = axes[i];
         s->axes[i].velocity = 0;
         vs_motor_reset(&s->motors[i], motors[i], clock);
+        s->motors[i].pos = pos;
     }
 }
 

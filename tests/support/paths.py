@@ -1,4 +1,4 @@
-"""テストが読む入力ファイルの場所（tests/data）."""
+"""テストが読む入力ファイル（tests/data）と、走査するソースの場所."""
 
 from pathlib import Path
 

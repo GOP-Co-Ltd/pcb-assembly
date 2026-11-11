@@ -14,11 +14,11 @@
 
 #define CLOCK_FREQ 12000000
 #define PERIOD 24000  // 2 ms
-// 台形ネジ 1.5 mm/rev、200 steps/rev、64 マイクロステップ
-#define STEPS_PER_MM (200 * 64 / 1.5)
-#define MAX_POS ((int32_t)(70 * STEPS_PER_MM))
-#define MAX_VELOCITY ((uint32_t)(10 * STEPS_PER_MM))
-#define ACCEL ((uint32_t)(50 * STEPS_PER_MM))
+// kurousagi: GT2 16T（32 mm/rev）、200 steps/rev、64 マイクロステップ。速さと加速度は printer.cfg の値
+#define STEPS_PER_MM (200 * 64 / 32)
+#define MAX_POS ((int32_t)(68 * STEPS_PER_MM))
+#define MAX_VELOCITY ((uint32_t)(100 * STEPS_PER_MM))
+#define ACCEL ((uint32_t)(500 * STEPS_PER_MM))
 // 区間ごとの速度変化の上限（切り上げ）
 #define DV ((int32_t)(((uint64_t)ACCEL * PERIOD + CLOCK_FREQ - 1) / CLOCK_FREQ))
 // ステップが区間の終わりからはみ出してよい量（interval の丸めの累積）
@@ -584,6 +584,40 @@ test_reset_on_a_half_step_does_not_step(void)
     CHECK(sim_run3(&s, 3000, -2000, 0, 100), "展開がずれた");
 }
 
+// 止めて開始し直す。モジュールの start と同じく、stepper の時刻の基準を置き直し
+// （stepper_reset_clock）、stepper の位置から合わせ直す
+static void
+sim_restart(struct sim *s)
+{
+    int32_t motors[VS_AXES];
+    sim_motors(s, motors);
+    for (int i = 0; i < VS_AXES; i++)
+        s->m[i].step_clock = s->clock;
+    vs_stage_reset(&s->stage, motors, (uint32_t)s->clock);
+}
+
+static void
+test_restarts_do_not_drift(void)
+{
+    // corexy で Y だけを半端な位置まで動かして止め、開始し直すのを繰り返しても、
+    // 指令していない X はずれず、可動域の端に置いた X が外へ出ない
+    uint8_t kins[] = {VS_COREXY, VS_INVERSED_COREXY};
+    int32_t starts[] = {0, 10000};
+    for (unsigned k = 0; k < sizeof(kins); k++) {
+        for (unsigned j = 0; j < 2; j++) {
+            struct sim s;
+            sim_init_at(&s, kins[k], starts[j], MAX_POS / 2, MAX_POS / 2, 0);
+            for (int cycle = 0; cycle < 20; cycle++) {
+                CHECK(sim_run3(&s, 0, 1234, 0, 37), "展開がずれた");
+                CHECK(sim_run3(&s, 0, 0, 0, 40), "展開がずれた");
+                sim_restart(&s);
+                CHECK(sim_position(&s, 0) == starts[j], "kin=%u cycle=%d: x=%d（初め %d）",
+                      kins[k], cycle, sim_position(&s, 0), starts[j]);
+            }
+        }
+    }
+}
+
 int
 main(void)
 {
@@ -612,6 +646,7 @@ main(void)
     test_corexy_diagonal_moves_one_motor();
     test_set_position_changes_only_that_axis();
     test_reset_on_a_half_step_does_not_step();
+    test_restarts_do_not_drift();
     if (failures) {
         printf("%d failure(s)\n", failures);
         return 1;
