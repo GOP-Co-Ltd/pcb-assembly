@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from itertools import product
 
 import attrs
 import numpy as np
 import numpy.typing as npt
+import shapely
 from shapely import get_parts
 from shapely.geometry import MultiPoint, Point as ShapelyPoint, Polygon
 from shapely.geometry.base import BaseGeometry
@@ -171,8 +171,8 @@ def _collect_candidates(
     """
     step = min_radius / 2.0
     edge_inset = max(min_radius * _EDGE_INSET_RATIO, _BOUNDS_EPS)
-    points: list[tuple[float, float]] = []
-    clearances: list[float] = []
+    points: list[npt.NDArray[np.float64]] = []
+    clearances: list[npt.NDArray[np.float64]] = []
 
     for polygon in polygons:
         inner = polygon.buffer(-min_radius)
@@ -180,79 +180,96 @@ def _collect_candidates(
             inner = inner.intersection(allowed_region)
         if inner.is_empty:
             continue
-        boundary = polygon.boundary
 
         minx, miny, maxx, maxy = inner.bounds
         xs = np.arange(minx, maxx + _BOUNDS_EPS, step)
         ys = np.arange(miny, maxy + _BOUNDS_EPS, step)
-        for x, y in product(xs, ys):
-            pt = ShapelyPoint(float(x), float(y))
-            if inner.contains(pt):
-                points.append((pt.x, pt.y))
-                clearances.append(boundary.distance(pt))
+        grid_x, grid_y = (g.ravel() for g in np.meshgrid(xs, ys, indexing="ij"))
+        inside = shapely.contains_xy(inner, grid_x, grid_y)
+        polygon_points = [np.column_stack((grid_x[inside], grid_y[inside]))]
 
         # 各連結部分の中心を確実に候補へ含める (小島でグリッドが中心を逃すのを防ぐ)
         for part in get_parts(inner):
             if not isinstance(part, Polygon):
                 continue
             center = polylabel(part, tolerance=min_radius / 10.0)
-            points.append((center.x, center.y))
-            clearances.append(boundary.distance(center))
+            polygon_points.append(np.array([[center.x, center.y]], dtype=np.float64))
+            polygon_points.append(_boundary_nearby_points(part, step, edge_inset))
 
-            for pt in _boundary_nearby_points(part, step, edge_inset):
-                points.append((pt.x, pt.y))
-                clearances.append(boundary.distance(pt))
+        coords = np.concatenate(polygon_points)
+        points.append(coords)
+        clearances.append(
+            np.asarray(
+                shapely.distance(polygon.boundary, shapely.points(coords)),
+                dtype=np.float64,
+            )
+        )
 
     if not points:
         return (
             np.empty((0, 2), dtype=np.float64),
             np.empty((0,), dtype=np.float64),
         )
-    return _deduplicate_candidates(points, clearances)
+    return _deduplicate_candidates(np.concatenate(points), np.concatenate(clearances))
 
 
 def _boundary_nearby_points(
     polygon: Polygon, step: float, edge_inset: float
-) -> list[ShapelyPoint]:
+) -> npt.NDArray[np.float64]:
     """内側オフセット済み polygon の境界近傍から候補点を作る."""
-    inset = polygon.buffer(-edge_inset)
-    if inset.is_empty:
-        return []
-
-    points: list[ShapelyPoint] = []
-    for part in get_parts(inset):
-        if not isinstance(part, Polygon):
-            continue
-        rings = [part.exterior, *part.interiors]
-        for ring in rings:
-            if ring.length <= 0.0:
-                continue
-            for distance in np.arange(0.0, ring.length, step):
-                points.append(ring.interpolate(float(distance)))
-    return points
+    rings = [
+        ring
+        for part in get_parts(polygon.buffer(-edge_inset))
+        if isinstance(part, Polygon)
+        for ring in (part.exterior, *part.interiors)
+        if ring.length > 0.0
+    ]
+    if not rings:
+        return np.empty((0, 2), dtype=np.float64)
+    return np.concatenate(
+        [
+            shapely.get_coordinates(
+                shapely.line_interpolate_point(ring, np.arange(0.0, ring.length, step))
+            )
+            for ring in rings
+        ]
+    )
 
 
 def _deduplicate_candidates(
-    points: list[tuple[float, float]], clearances: list[float]
+    points: npt.NDArray[np.float64], clearances: npt.NDArray[np.float64]
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
-    """同一点候補をまとめ、同じ座標では大きい clearance を採用する."""
-    order: list[tuple[float, float]] = []
-    deduped: dict[tuple[float, float], tuple[float, float, float]] = {}
-    for (x, y), clearance in zip(points, clearances, strict=True):
-        key = (round(x, _DEDUP_DIGITS), round(y, _DEDUP_DIGITS))
-        if key not in deduped:
-            order.append(key)
-            deduped[key] = (x, y, clearance)
-            continue
-        if clearance > deduped[key][2]:
-            deduped[key] = (x, y, clearance)
+    """同一点候補をまとめ、同じ座標では大きい clearance を採用する.
 
-    unique_points = [(deduped[key][0], deduped[key][1]) for key in order]
-    unique_clearances = [deduped[key][2] for key in order]
-    return (
-        np.array(unique_points, dtype=np.float64),
-        np.array(unique_clearances, dtype=np.float64),
+    まとめた点は最初に現れた順に並べ、clearance が同じなら先に現れた点を残す。
+    """
+    _, first_index, inverse = np.unique(
+        _round_like_builtin(points, _DEDUP_DIGITS),
+        axis=0,
+        return_index=True,
+        return_inverse=True,
     )
+    groups = np.argsort(np.argsort(first_index))[inverse.ravel()]
+    order = np.lexsort((np.arange(len(groups)), -clearances, groups))
+    is_first = np.ones(len(order), dtype=bool)
+    is_first[1:] = groups[order[1:]] != groups[order[:-1]]
+    chosen = order[is_first]
+    return points[chosen], clearances[chosen]
+
+
+def _round_like_builtin(
+    values: npt.NDArray[np.float64], digits: int
+) -> npt.NDArray[np.float64]:
+    """組み込みの ``round(v, digits)`` と同じ値を要素ごとに返す.
+
+    ``np.round`` は ``10**digits`` 倍したときの丸め誤差で、端数が半分付近の値だけ組み込みと食い違う。
+    倍した値の端数が 0.5 から 1 ulp 以内の値だけ、組み込みの ``round`` で計算し直す。
+    """
+    rounded = np.round(values, digits)
+    scaled = values * 10.0**digits
+    near_half = np.abs(scaled - np.floor(scaled) - 0.5) <= np.spacing(np.abs(scaled))
+    rounded[near_half] = [round(v, digits) for v in values[near_half].tolist()]
+    return rounded
 
 
 def _coverage_fps_indices(
