@@ -8,6 +8,7 @@ import re
 import pytest
 
 from pcbasm.paths import PROJECT_ROOT
+from tests.support.paths import python_sources
 from web.api.env import Env
 from web.selfupdate.settings import UpdateSettings
 
@@ -24,7 +25,7 @@ class TestEnvVars:
     def test_src_reads_only_the_five_env_vars(self):
         names = {
             name
-            for path in (PROJECT_ROOT / "src").rglob("*.py")
+            for path in python_sources()
             for name in re.findall(r"""["'](PCBASM_\w+)["']""", path.read_text())
         }
 
