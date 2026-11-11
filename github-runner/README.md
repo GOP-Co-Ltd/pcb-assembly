@@ -35,7 +35,8 @@ SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="pcbasm-test-*", GROUP:="uinp
 走っていないときに runner service を再起動する（または OS を再起動する）。
 
 CI job を container で動かすため、runner user は rootless の podman を使う。container 内の root は host では
-runner user になるので、`docker` group（実質 root）を与えずに済み、workspace に root 所有のファイルも残らない。
+runner user になるので、`docker` group（実質 root）を与えずに済む。`ci/run.sh` は `--userns keep-id` で container の中も
+runner user の uid で動かし、workspace に root 所有のファイルを残さない。
 `install` は次を行う。
 
 - `podman` と `uidmap` を導入する
@@ -138,8 +139,16 @@ GitHub 側の一覧は Settings > Actions > Runners でも確認できる。
 
 ## 依存関係と cache
 
-OS package は job ごとにインストールしない。各 job は独立した `.venv` を作るが、package
-本体と pre-commit hook 環境は次の host cache を再利用する。
+workflow の各コマンドは `ci/run.sh` 経由で、`ci/Containerfile` の image から作った使い捨ての container で
+動かす。CI の OS package（kicad、chromium、picamera2 など）は `ci/Containerfile` に書く。
+
+- image は registry を使わず、各 runner で build する。tag は `ci/Containerfile` の hash で、その tag の image が
+  無いとき（Containerfile を変えた後の最初の job）だけ build し、前の image を消す
+- container は rootless の podman で動かす。workspace と host の `~/.cache` を mount し、network は host と共有する
+- `/dev/uinput` と `/dev/input` を渡し、ゲームパッドのテストが仮想デバイスを作って読めるようにする
+
+job ごとに OS package をインストールしない。各 job は独立した `.venv` を作るが、package
+本体と pre-commit hook 環境は次の host cache を再利用する（container にも同じパスで mount する）。
 
 ```text
 /home/github-runner/.cache/uv
@@ -152,18 +161,23 @@ lock で保護する。
 `pcbnew` Python module は Trixie の `kicad` package から導入する。CI では symbol、footprint、
 demo を使わないため、`kicad` の推奨 package はインストールしない。
 
-テスト画像・音声は Git LFS で管理する。`install` は Git LFS filter を system 設定し、pytest
-job は checkout 済み workspace に対して `git lfs pull` を実行する。
+テスト画像・音声は Git LFS で管理する。image は Git LFS filter を system 設定し、pytest
+job は checkout 済み workspace に対して container の中で `git lfs pull` を実行する。
 
 `pytest` job は非実機テストを、`e2e` job は fake カメラと隔離した backend・frontend を使う
 WebUI E2E を実行する。2 つは別 job で、別の runner に並列で割り当てられる。Chromium は
 headless で起動し、カメラや GPIO の権限は不要。JUnit レポートは `pytest-report` と
 `e2e-report` の artifact に 7 日間保存する。
 
-新しい runner には `install` で system Chromium を導入する。既存 runner に
-`/usr/bin/chromium` が無い場合、workflow は Playwright の headless shell をユーザー cache へ
-取得する。OS 依存ライブラリが不足するホストには、管理者が Chromium を導入する。
-job から OS package をインストールするための sudo 権限は与えない。
+Chromium は image の `/usr/bin/chromium` を使う。OS package を足すときは `ci/Containerfile` を
+変える。job に sudo 権限は与えない。
+
+image の容量確認と、使っていない image の削除は次のとおり（`ci/run.sh` は build のたびに前の image を消す）。
+
+```bash
+sudo -u github-runner -H podman images
+sudo -u github-runner -H podman image prune --all --force
+```
 
 容量確認と uv cache の安全な整理は次のとおり。
 

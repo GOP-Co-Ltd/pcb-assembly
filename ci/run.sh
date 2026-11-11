@@ -4,8 +4,8 @@
 #
 #   ci/run.sh <command> [args...]
 #
-# rootless の podman で動かすので、container 内の root は host では runner user になる。
-# workspace に書いたファイルは runner user の所有になる。
+# rootless の podman で、container の中も host と同じ uid（runner user）で動かす（--userns keep-id）。
+# workspace に書いたファイルは runner user の所有になり、root では動かない install.sh のテストも host と同じに動く。
 
 set -euo pipefail
 
@@ -34,17 +34,20 @@ for name in "${PASS_ENV[@]}"; do
     fi
 done
 
-# uv、pre-commit、pyright の node などの cache は host の runner user の ~/.cache に残し、job をまたいで使う。
+# uv、pre-commit、pyright の node などの cache は host の runner user の ~/.cache に残し、job をまたいで使う
+# （HOME も host と同じパスにする）。
 # ゲームパッドのテストは /dev/uinput で仮想デバイスを作り、その /dev/input/event* を読む（keep-groups で uinput group を引き継ぐ）。
 # network は host と共有する（E2E の server と mDNS のテストを host で動かしていたときと同じにする）
 mkdir -p "${HOME}/.cache"
 exec podman run --rm --init \
+    --userns keep-id \
+    --env HOME="${HOME}" \
     --network host \
     --shm-size 1g \
     --device /dev/uinput \
     --group-add keep-groups \
     --volume /dev/input:/dev/input \
-    --volume "${HOME}/.cache:/root/.cache" \
+    --volume "${HOME}/.cache:${HOME}/.cache" \
     --volume "${workspace}:${workspace}" \
     --workdir "${PWD}" \
     "${env_args[@]}" \
