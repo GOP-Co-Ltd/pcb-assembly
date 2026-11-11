@@ -1,5 +1,7 @@
 #!/bin/bash
-# Raspberry Pi のカメラ・スピーカーと Klipper MCU firmware を対話形式で設定する（install.sh hardware が呼ぶ）。
+# Raspberry Pi のカメラ・スピーカーと MCU firmware を対話形式で設定する（install.sh hardware <機種> が呼ぶ）。
+# MCU firmware は、機種の雛形（deploy/templates/<機種>/machine.toml）に [pnp] があれば pnp-motion、
+# なければ Klipper を書き込む。
 # 再実行すると、boot 設定の管理ブロックを置き換える。
 
 set -euo pipefail
@@ -7,6 +9,8 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FIRMWARE_CONFIG="${PROJECT_ROOT}/deploy/firmware/btt-skr-pico-v1-usb.config"
 KLIPPER_DIR="${HOME}/klipper"
+PNP_MOTION_DIR="${PROJECT_ROOT}/src/firmware/pnp-motion"
+TEMPLATES_DIR="${PROJECT_ROOT}/deploy/templates"
 CAMERA_BLOCK_BEGIN="# BEGIN pcb-assembly camera"
 CAMERA_BLOCK_END="# END pcb-assembly camera"
 SPEAKER_BLOCK_BEGIN="# BEGIN pcb-assembly speaker"
@@ -271,15 +275,61 @@ build_klipper_firmware() {
     echo "ビルド: ${build_dir}/out/klipper.uf2"
 }
 
+build_pnp_motion_firmware() {
+    # pnp-motion（Klipper の firmware に速度指令のモジュールを足したもの）をビルドする。
+    # 初回は submodule の Klipper を GitHub から取得する。出力は ${PNP_MOTION_DIR}/build/pnp-motion.uf2
+    local build_dir="$1"
+
+    echo "pnp-motion firmware をビルドします（${PNP_MOTION_DIR}）..."
+    "${PNP_MOTION_DIR}/build.sh" >"${build_dir}/build.log" 2>&1 ||
+        die "ビルドに失敗しました。ログ: ${build_dir}/build.log"
+    echo "ビルド: ${PNP_MOTION_DIR}/build/pnp-motion.uf2"
+}
+
+# 機種の雛形から、書き込む firmware（pnp-motion か klipper）を返す
+machine_firmware() {
+    local toml="${TEMPLATES_DIR}/$1/machine.toml"
+
+    [ -f "$toml" ] || die "機種の雛形が見つかりません: ${toml}"
+    if grep -Eq '^[[:space:]]*\[pnp[].]' "$toml"; then
+        echo "pnp-motion"
+    else
+        echo "klipper"
+    fi
+}
+
+# 機種の firmware を書き込むかを確かめる。書き込むなら firmware を、スキップなら空を返す
+choose_firmware() {
+    local machine_type="$1"
+    local firmware
+
+    firmware="$(machine_firmware "$machine_type")"
+    echo "MCU firmware（BTT SKR Pico v1.0）を設定します:" >&2
+    echo "  1. ${firmware} を書き込む（機種 ${machine_type}）" >&2
+    echo "  2. 今回はスキップ" >&2
+    [ "$(choose_number "番号を選択してください (1-2): " 1 2)" -eq 1 ] || firmware=""
+    printf '%s' "$firmware"
+}
+
 flash_btt_skr_pico() {
+    local firmware="$1"
     local build_dir
     local firmware_file
     local volume
     local serial_path
 
     build_dir="$(mktemp -d)"
-    build_klipper_firmware "$build_dir"
-    firmware_file="${build_dir}/out/klipper.uf2"
+    case "$firmware" in
+        klipper)
+            build_klipper_firmware "$build_dir"
+            firmware_file="${build_dir}/out/klipper.uf2"
+            ;;
+        pnp-motion)
+            build_pnp_motion_firmware "$build_dir"
+            firmware_file="${PNP_MOTION_DIR}/build/pnp-motion.uf2"
+            ;;
+        *) die "知らない firmware: ${firmware}" ;;
+    esac
 
     echo ""
     echo "BTT SKR Pico v1.0 を bootloader モードにします:"
@@ -307,6 +357,7 @@ flash_btt_skr_pico() {
 }
 
 main() {
+    local machine_type="${1:-}"
     local boot_config
     local camera_port
     local camera_driver
@@ -314,9 +365,11 @@ main() {
     local second_camera_port
     local second_camera_overlay=""
     local speaker_overlay
-    local klipper_choice
+    local firmware
     local answer
 
+    [ -n "$machine_type" ] || die "機種を指定してください（install.sh hardware <機種>）"
+    machine_firmware "$machine_type" >/dev/null
     boot_config="$(detect_boot_config)"
 
     echo "カメラを設定します。"
@@ -364,14 +417,11 @@ main() {
     esac
 
     echo ""
-    echo "Klipper firmware を設定します:"
-    echo "  1. BTT SKR Pico v1.0"
-    echo "  2. 今回はスキップ"
-    klipper_choice="$(choose_number "デバイスを選択してください (1-2): " 1 2)"
-    if [ "$klipper_choice" -eq 1 ]; then
-        flash_btt_skr_pico
+    firmware="$(choose_firmware "$machine_type")"
+    if [ -n "$firmware" ]; then
+        flash_btt_skr_pico "$firmware"
     else
-        echo "Klipper firmware の書き込みをスキップしました。"
+        echo "MCU firmware の書き込みをスキップしました。"
     fi
 
     echo ""

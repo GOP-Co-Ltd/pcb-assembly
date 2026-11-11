@@ -401,6 +401,28 @@ class TestMachine:
             "[printer]\nkinematics: cartesian" in machine_host.printer_cfg.read_text()
         )
 
+    @pytest.mark.parametrize(
+        "args",
+        [("machine", "usaremino_pnp"), ("--machine", "usaremino_pnp", "machine")],
+    )
+    def test_machine_type_from_arguments_does_not_ask(
+        self, machine_host: MachineHost, args
+    ):
+        result = run(INSTALL, *args, env=machine_host.env())
+
+        assert result.returncode == 0, result.stderr
+        assert "機種を選んでください" not in result.stderr
+        assert (machine_host.config / "machine.toml").read_text() == (
+            TEMPLATES / "usaremino_pnp" / "machine.toml"
+        ).read_text()
+
+    def test_unknown_machine_type_fails(self, machine_host: MachineHost):
+        result = run(INSTALL, "machine", "no_such_machine", env=machine_host.env())
+
+        assert result.returncode != 0
+        assert "知らない機種です: no_such_machine" in result.stderr
+        assert not (machine_host.config / "machine.toml").exists()
+
     def test_rerun_changes_nothing(self, machine_host: MachineHost):
         run(INSTALL, "machine", env=machine_host.env(), stdin="2\n")
         machine_toml = (machine_host.config / "machine.toml").read_text()

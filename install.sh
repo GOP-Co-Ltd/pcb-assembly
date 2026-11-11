@@ -18,24 +18,29 @@ SUDOERS_DIR="${SUDOERS_DIR:-/etc/sudoers.d}"
 VISUDO="${VISUDO:-/usr/sbin/visudo}"
 SERIAL_BY_ID_DIR="${SERIAL_BY_ID_DIR:-/dev/serial/by-id}"
 UI_ONLY=false
+# 機種（deploy/templates/ の名前）。--machine か段の引数で指定する。未指定なら要る段で一度だけ選んでもらう
+MACHINE_TYPE=""
 
 # パスに & を含めても置換で化けないようにする（bash 5.2 の既定は on）
 shopt -u patsub_replacement 2>/dev/null || true
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") [--ui-only] [<段> [引数]]
+Usage: $(basename "$0") [--ui-only] [--machine <機種>] [<段> [引数]]
 
 段を省くと全段を順に実行する（機体: ${MACHINE_STAGES[*]}）。
 --ui-only は frontend 専用ホスト向け（${UI_ONLY_STAGES[*]}。services は ui だけ）。
+--machine は機種（deploy/templates/ の名前: $(machine_types | paste -sd ' ' -)）。
+省くと、機種が要る段（hardware、machine）で一度だけ選んでもらう。
 
 段
   preflight          Debian 13 (trixie) aarch64、ホスト名、clone の位置を確かめる
   packages           apt のパッケージと Git LFS の実体
   python             版を固定した uv と venv（無ければ make setup、あれば uv sync で同期だけ）
   klipper            KIAUH で Klipper を入れ（導入済みなら飛ばす）、独自 kinematics を symlink する
-  hardware           boot overlay（カメラ・スピーカー）と MCU firmware（deploy/hardware.sh）
-  machine            deploy/templates/ から config/machine.toml と printer.cfg を置く
+  hardware [機種]    boot overlay（カメラ・スピーカー）と MCU firmware（deploy/hardware.sh）。
+                     部品実装機（雛形に [pnp]）は pnp-motion、それ以外は Klipper の firmware を書き込む
+  machine [機種]     deploy/templates/ から config/machine.toml と printer.cfg を置く
   services [対象] [restart]
                      systemd unit（api / ui / all。既定 all）と更新用 sudoers を設置して起動する。
                      unit が変わらなければ再起動しない。restart を付けると変わらなくても再起動する
@@ -136,7 +141,9 @@ stage_klipper() {
 # --- hardware ---
 
 stage_hardware() {
-    "${DEPLOY_DIR}/hardware.sh"
+    [ -z "${1:-}" ] || MACHINE_TYPE="$1"
+    resolve_machine_type
+    "${DEPLOY_DIR}/hardware.sh" "${MACHINE_TYPE}"
 }
 
 # --- machine ---
@@ -144,6 +151,27 @@ stage_hardware() {
 # KIAUH が置く printer.cfg（kinematics: none）か、まだ無いか
 is_klipper_stub() {
     [ ! -e "$1" ] || grep -Eq '^[[:space:]]*kinematics[[:space:]]*:[[:space:]]*none' "$1"
+}
+
+# 機種（machine.toml と printer.cfg の両方を持つ deploy/templates/ のディレクトリ）を名前順に並べる
+machine_types() {
+    local name
+    for name in "${DEPLOY_DIR}"/templates/*/; do
+        [ -f "${name}machine.toml" ] && [ -f "${name}printer.cfg" ] && basename "${name}"
+    done
+    return 0
+}
+
+# 機種を決めて MACHINE_TYPE に置く。指定があれば確かめ、なければ選んでもらう
+resolve_machine_type() {
+    local -a types=()
+    mapfile -t types < <(machine_types)
+    if [ -z "${MACHINE_TYPE}" ]; then
+        echo "機種:" >&2
+        MACHINE_TYPE="$(choose_from "機種を選んでください" "${types[@]}")"
+    fi
+    printf '%s\n' "${types[@]}" | grep -Fxq -- "${MACHINE_TYPE}" ||
+        die "知らない機種です: ${MACHINE_TYPE}（${types[*]}）"
 }
 
 choose_from() {
@@ -194,18 +222,16 @@ write_mcu_serial() {
 stage_machine() {
     local config_dir="${PCBASM_CONFIG_DIR:-${PROJECT_ROOT}/config}"
     local klipper_cfg="${HOME}/printer_data/config/printer.cfg"
-    local template="" name
-    local -a templates=()
+    local template=""
+    [ -z "${1:-}" ] || MACHINE_TYPE="$1"
+    [ -z "${MACHINE_TYPE}" ] || resolve_machine_type
     [ -d "$(dirname "${klipper_cfg}")" ] || die "$(dirname "${klipper_cfg}") がありません（先に klipper 段を実行してください）"
     [ ! -e "${config_dir}/printer.cfg" ] || [ -L "${config_dir}/printer.cfg" ] ||
         die "${config_dir}/printer.cfg が実ファイルです。退避してから再実行してください"
 
     if [ ! -e "${config_dir}/machine.toml" ] || is_klipper_stub "${klipper_cfg}"; then
-        for name in "${DEPLOY_DIR}"/templates/*/; do
-            [ -f "${name}machine.toml" ] && [ -f "${name}printer.cfg" ] && templates+=("$(basename "${name}")")
-        done
-        echo "機種:" >&2
-        template="${DEPLOY_DIR}/templates/$(choose_from "機種を選んでください" "${templates[@]}")"
+        resolve_machine_type
+        template="${DEPLOY_DIR}/templates/${MACHINE_TYPE}"
     fi
 
     mkdir -p "${config_dir}"
@@ -348,10 +374,20 @@ stage_render() {
 
 main() {
     local stage
-    if [ "${1:-}" = "--ui-only" ]; then
-        UI_ONLY=true
-        shift
-    fi
+    while true; do
+        case "${1:-}" in
+            --ui-only)
+                UI_ONLY=true
+                shift
+                ;;
+            --machine)
+                [ -n "${2:-}" ] || die "--machine に機種を指定してください"
+                MACHINE_TYPE="$2"
+                shift 2
+                ;;
+            *) break ;;
+        esac
+    done
     case "${1:-}" in
         "")
             if [ "${UI_ONLY}" = true ]; then

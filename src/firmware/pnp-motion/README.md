@@ -68,8 +68,9 @@ PnP 機の Pi で行う。書き込んでいる間、その機体は Klipper で
 
 1. `src/firmware/pnp-motion/build.sh` でビルドする
 2. `sudo systemctl stop klipper` で Klipper を止める（MCU のシリアルを空ける）
-3. SKR Pico に `pnp-motion.uf2` を書き込む。電源を切り、BOOT のジャンパ pin を挿し、USB をつないで RESET を押して起動し、
-    現れた `RPI-RP2` ボリュームへ `src/firmware/pnp-motion/build/pnp-motion.uf2` をコピーする。
+3. SKR Pico に `pnp-motion.uf2` を書き込む。`./install.sh hardware usaremino_pnp` でビルドから書き込みまでできる
+    （カメラとスピーカーの選択と boot 設定の更新にも答える）。手で書き込むなら、電源を切り、BOOT のジャンパ pin を挿し、
+    USB をつないで RESET を押して起動し、現れた `RPI-RP2` ボリュームへ `src/firmware/pnp-motion/build/pnp-motion.uf2` をコピーして、
     ジャンパ pin を抜いて RESET を押す
 4. モーターの電源（24 V）を入れる。TMC2209 は電源がないと UART に応答しない
 5. `~/klippy-env/bin/python src/firmware/pnp-motion/tools/bench.py` で起動する。
@@ -99,8 +100,10 @@ PnP 機の Pi で行う。書き込んでいる間、その機体は Klipper で
 - [ ] 動いている最中に bench を Ctrl-C で落とすと、期限が切れて減速して止まる（ホストが止まったときのウォッチドッグ）。
     Ctrl-C では止める命令を送らず、シリアルを切るだけにしている
 
-終わったら Klipper の firmware を書き戻し、`sudo systemctl start klipper` で Klipper を起動する。
-`./install.sh hardware` で書き戻す場合は、カメラとスピーカーの選択と boot 設定の更新にも答える（いまの機体と同じものを選ぶ）。終わると再起動を求められる。
+終わったら `sudo systemctl start klipper` で Klipper を起動する。pnp-motion は Klipper の firmware（同じ `.config`）に
+モジュールを足しただけなので、Klipper の firmware に書き戻さなくても Klippy はそのまま動く（Klippy と固定した Klipper の版が同じとき）。
+
+- [ ] Klipper を起動し直すと、WebUI から従来どおり原点出しと移動ができる
 
 ## コマンド
 

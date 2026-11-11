@@ -27,10 +27,14 @@ OS を入れ、ホスト名を機体ごとに一意な名前へ変える。ホ�
 2. 全段を順に実行する。sudo は付けない（必要な操作は段の中で sudo する）。
 
     ```sh
-    ./install.sh
+    ./install.sh --machine <機種>
     ```
 
+    機種は `deploy/templates/` の名前（`kurousagi`、`usaremino`、`usaremino_pnp`）。
+    `--machine` を省くと、機種が要る段（`hardware`、`machine`）で一度だけ選ぶ。
+
     段は次の順に進む。どの段も再実行してよく、`./install.sh <段>` で 1 段だけやり直せる。
+    `hardware` と `machine` は `./install.sh hardware <機種>` のように機種を渡せる。
 
     | 段          | すること                                                                                                         |
     | ----------- | ---------------------------------------------------------------------------------------------------------------- |
@@ -38,8 +42,8 @@ OS を入れ、ホスト名を機体ごとに一意な名前へ変える。ホ�
     | `packages`  | apt で KiCad、`python3-picamera2`、`python3-evdev`、`git-lfs`、`alsa-utils` などを入れ、Git LFS の実体を取得する |
     | `python`    | 版を固定した uv を入れ、`make setup` で `.venv` を作る（既にあれば作り直さず `uv sync` で同期だけする）          |
     | `klipper`   | KIAUH を対話式で起動する（Klipper が入っていれば飛ばす）。独自 kinematics（`inversed_corexy`）を symlink する    |
-    | `hardware`  | カメラ・スピーカーの boot overlay と Klipper MCU firmware を対話式で設定する（`deploy/hardware.sh`）             |
-    | `machine`   | `deploy/templates/` から機種を選び、`config/machine.toml` と `~/printer_data/config/printer.cfg` を置く          |
+    | `hardware`  | カメラ・スピーカーの boot overlay と、機種の MCU firmware を対話式で設定する（`deploy/hardware.sh`）             |
+    | `machine`   | 機種の雛形（`deploy/templates/`）から、`config/machine.toml` と `~/printer_data/config/printer.cfg` を置く       |
     | `services`  | `pcbasm-api` / `pcbasm-ui` の systemd unit と、WebUI からの更新に使う sudoers を設置して起動する                 |
 
     - KIAUH では Klipper、Moonraker、Mainsail を選んで入れる
@@ -48,9 +52,13 @@ OS を入れ、ホスト名を機体ごとに一意な名前へ変える。ホ�
         設定するか聞かれ、設定する場合は残りの port の driver を同じ候補から選ぶ
     - スピーカーは `max98357a`（標準構成）、`hifiberry-dac`、`hifiberry-dacplus`、
         `iqaudio-dacplus`、`googlevoicehat-soundcard`、overlay 名の手入力、未設定から選ぶ
-    - BTT SKR Pico v1.0 の firmware は、`~/klipper` と設定（`deploy/firmware/btt-skr-pico-v1-usb.config`）から
-        その場でビルドする。ホストの Klipper と同じ版になる。続けて画面の案内に従って BOOT jumper と RESET を操作し、
-        `/media/$USER/RPI-RP2` volume へ UF2 をコピーする。Klipper を更新したら、`./install.sh hardware` で書き込み直す
+    - BTT SKR Pico v1.0 の firmware は、機種で分かれる。どちらもその場でビルドし、画面の案内に従って BOOT jumper と RESET を操作して、
+        `/media/$USER/RPI-RP2` volume へ UF2 をコピーする
+        - 部品実装機（雛形の `machine.toml` に `[pnp]`）は pnp-motion（[README](../src/firmware/pnp-motion/README.md)）。
+            Klipper の firmware に速度指令のモジュールを足したもので、ホストの Klippy もそのまま使える。
+            Klipper は submodule で固定した版を使い、初回のビルドで GitHub から取得する
+        - それ以外は Klipper。`~/klipper` と設定（`deploy/firmware/btt-skr-pico-v1-usb.config`）からビルドし、ホストの Klipper と同じ版になる。
+            Klipper を更新したら、`./install.sh hardware` で書き込み直す
     - boot 設定は `/boot/firmware/config.txt`（旧 OS では `/boot/config.txt`）へ反映され、
         変更前の内容は同じ場所の `config.txt.pcbasm.bak` に保存される。管理する marker 内だけを再実行時に置換する
     - `machine` は、既にある `config/machine.toml` と、KIAUH が置いた stub（`kinematics: none`）でない
