@@ -19,6 +19,10 @@ backend は静的資産を配信しない（ブラウザキャッシュを 1 本
 装置への接続の契約:
 
 - 起動時には Moonraker へ接続しない。Moonraker が落ちていても起動し、起きた後は操作なしで使える
+
+複数 app の契約:
+
+- 同じプロセスで作った複数の app は、機能の出し分けも状態も独立している
 """
 
 from collections.abc import Callable
@@ -210,8 +214,29 @@ class TestReadsFromDiskEveryTime:
 class TestSeveralApps:
     """同じプロセスで同時に作った app は、機能の出し分けも状態も互いに独立している."""
 
-    def test_apps_keep_their_own_routes_and_state(
-        self, tmp_path: Path, client: TestClient, backend: Backend
+    def test_apps_with_the_same_capabilities_keep_their_own_state(
+        self,
+        tmp_path: Path,
+        client: TestClient,
+        backend: Backend,
+        paste_test_board_footprint_root: Path,
+    ):
+        """同じ機能の app は route を使い回すので、状態が route 越しに混ざらないことを確かめる."""
+        other_env = make_api_settings(tmp_path / "other", hostname="other-machine")
+        other_app = create_app(
+            other_env,
+            devices=devices_with_audio(other_env, FakeAudioPlayer()),
+            paste_test_board_footprint_root=paste_test_board_footprint_root,
+        )
+
+        with TestClient(other_app) as other_client, backend.lock.hold("pytest-job"):
+            assert client.get("/api/session/state").json()["busy_owner"] == "pytest-job"
+            other_state = other_client.get("/api/session/state").json()
+            assert other_state["busy"] is False
+            assert other_state["busy_owner"] is None
+
+    def test_apps_serve_only_their_own_capabilities(
+        self, tmp_path: Path, client: TestClient
     ):
         pnp_env = make_api_settings(tmp_path / "pnp", hostname="pnp-machine")
         path = pnp_env.config_dir / "machine.toml"
@@ -220,7 +245,7 @@ class TestSeveralApps:
             pnp_env, devices=devices_with_audio(pnp_env, FakeAudioPlayer())
         )
 
-        with TestClient(pnp_app) as pnp_client, backend.lock.hold("pytest-job"):
+        with TestClient(pnp_app) as pnp_client:
             assert [
                 info["name"]
                 for info in pnp_client.get("/api/session/machine-info").json()[
@@ -229,5 +254,3 @@ class TestSeveralApps:
             ] == ["pnp"]
             assert pnp_client.get("/api/pasting/board").status_code == 404
             assert client.get("/api/pnp/servo/status").status_code == 404
-            assert client.get("/api/session/state").json()["busy_owner"] == "pytest-job"
-            assert pnp_client.get("/api/session/state").json()["busy"] is False
