@@ -516,7 +516,7 @@ class TestRestartServices:
         run_id, reason = runner.start()
         assert reason is None and run_id is not None
 
-        wait_until(lambda: runner.running)
+        wait_until(lambda: call_log(log_path(settings)) != [])
         refusal = runner.restart_services()
         release.touch()
 
