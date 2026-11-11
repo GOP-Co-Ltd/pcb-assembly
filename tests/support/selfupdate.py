@@ -24,6 +24,9 @@ from web.selfupdate.settings import UpdateSettings
 
 ALL_UNITS: tuple[str, ...] = (UNIT_NAMES["api"], UNIT_NAMES["ui"])
 
+# `write_stub(hold_until=...)` が合図を待つ上限（合図を出し損ねたテストを固めない）
+HOLD_LIMIT_SECONDS = 30
+
 # 利用者の ~/.gitconfig に左右されないよう、global / system の config を切る
 GIT_ENV = {
     "GIT_CONFIG_GLOBAL": "/dev/null",
@@ -109,6 +112,7 @@ def write_stub(
     exit_code: int = 0,
     log: Path | None = None,
     sleep: float = 0.0,
+    hold_until: Path | None = None,
     fail_match: str | None = None,
     pid_file: Path | None = None,
 ) -> str:
@@ -123,6 +127,8 @@ def write_stub(
         exit_code: 既定の終了コード
         log: 追記先。`<コマンド名> <引数...>` の 1 行を追記する
         sleep: 終了前に待つ秒数（タイムアウト検証用）
+        hold_until: このファイルが現れるまで終了を待つ（テストが合図を出すまで「実行中」を保つ）。
+            合図が来なくても `HOLD_LIMIT_SECONDS` 秒で抜けるので、テストが失敗しても固まらない
         fail_match: 引数のどれかがこの文字列と一致したら 1 で終わる
             （`uv sync` は成功して `uv run` だけ失敗する、のような出し分け用）
         pid_file: 自身と `sleep` 子プロセスの PID を追記する先
@@ -143,6 +149,13 @@ def write_stub(
         if pid_file is not None:
             lines.append(f'printf "%s\\n" "$child" >> "{pid_file}"')
         lines.append('wait "$child"')
+    if hold_until is not None:
+        lines.append(f"deadline=$((SECONDS + {HOLD_LIMIT_SECONDS}))")
+        lines.append(
+            f'while [ ! -e "{hold_until}" ] && [ "$SECONDS" -lt "$deadline" ]; do\n'
+            "  sleep 0.02\n"
+            "done"
+        )
     if fail_match is not None:
         lines.append(
             'for argument in "$@"; do\n'
