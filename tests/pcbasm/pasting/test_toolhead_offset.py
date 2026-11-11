@@ -17,7 +17,6 @@ from pcbasm.config import MachineConfig, load_machine
 from pcbasm.geometry import Identity, Point2d, Shift
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import FakeCamera, FakeKlipper
-from pcbasm.kicad import load_board
 from pcbasm.pasting.session import PasteSession
 from pcbasm.pasting.toolhead_offset import (
     MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT,
@@ -29,8 +28,9 @@ from pcbasm.pasting.toolhead_offset import (
     plan_toolhead_offset_points,
 )
 from pcbasm.vision import Image
+from tests.support.boards import led_blinker_board
 from tests.support.camera_model import make_camera_model
-from tests.support.paths import LED_BLINKER_PCB, TEST_CONFIG_DIR
+from tests.support.paths import TEST_CONFIG_DIR
 
 CALIBRATED_AT = datetime(2026, 7, 17, 12, 0, 0)
 PPM = 10.0
@@ -356,7 +356,7 @@ def _procedure(
     diameter_min: float,
 ) -> ToolheadOffsetProcedure:
     board_frame = BoardFrame(
-        board=load_board(LED_BLINKER_PCB),
+        board=led_blinker_board(),
         camera_model=make_camera_model(PPM, (640, 480), focus_z=FOCUS_Z),
         board_transform=Shift(BOARD_SHIFT.x, BOARD_SHIFT.y),
     )
