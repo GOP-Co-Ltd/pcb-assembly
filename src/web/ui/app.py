@@ -4,16 +4,18 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from functools import cache
 from pathlib import Path
 from typing import override
 from urllib.parse import quote
 
 import httpx
-from fastapi import FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
+from starlette.routing import BaseRoute
 
 from web.selfupdate.runner import UpdateRunner
 from web.selfupdate.settings import UpdateSettings
@@ -197,11 +199,24 @@ def create_app(
     )
     # prefix なし（全マシンでブラウザキャッシュを共有する）
     app.mount("/static", _NoCacheStaticFiles(directory=_STATIC_DIR), name="static")
+    app.router.routes.extend(_ui_routes())
+    return app
+
+
+@cache
+def _ui_routes() -> tuple[BaseRoute, ...]:
+    """組み上げた route を、プロセス内で使い回す.
+
+    `include_router` は呼ぶたびに route と pydantic の field を作り直し、create_app の時間の大半を占める。
+    組み上げた route は app の状態を持たないので、別の app に同じものを載せてよい。
+    ただし app ではなく単独の APIRouter で組むため、route は `app.dependency_overrides` を見ない（使っていない）。
+    """
+    router = APIRouter()
     # pages ルータより先に登録する（後だと /{suffix:path} のキャッチオールに先にマッチし、
     # ドロップダウン更新が HTML を受け取る）
-    app.include_router(machines_api.router)
+    router.include_router(machines_api.router)
     # 同上。/update がキャッチオールにマッチすると、更新ページの代わりに自機か機体一覧へ飛ぶ
-    app.include_router(update_api.router)
+    router.include_router(update_api.router)
     # キャッチオールを持つため最後に登録する
-    app.include_router(pages.router)
-    return app
+    router.include_router(pages.router)
+    return tuple(router.routes)

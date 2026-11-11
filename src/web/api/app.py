@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from functools import cache
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi.staticfiles import StaticFiles
+from starlette.routing import BaseRoute
 
 from pcbasm.machine.devices import Devices
 from web.api.backend import Backend, open_backend
@@ -87,7 +89,23 @@ def create_app(
     app.mount("/artifacts", StaticFiles(directory=artifacts_dir), name="artifacts")
 
     install_error_handlers(app, backend.control)
-    for router in (
+    capabilities = backend.machine_config.capabilities
+    app.router.routes.extend(
+        _api_routes(solder="solder" in capabilities, pnp="pnp" in capabilities)
+    )
+    return app
+
+
+@cache
+def _api_routes(*, solder: bool, pnp: bool) -> tuple[BaseRoute, ...]:
+    """機能の組ごとに組み上げた route を、プロセス内で使い回す.
+
+    `include_router` は呼ぶたびに route と pydantic の field を作り直し、create_app の時間の大半を占める。
+    組み上げた route は app の状態を持たないので、別の app に同じものを載せてよい。
+    ただし app ではなく単独の APIRouter で組むため、route は `app.dependency_overrides` を見ない（使っていない）。
+    """
+    router = APIRouter()
+    for module_router in (
         session.router,
         selection.router,
         machine.router,
@@ -100,17 +118,17 @@ def create_app(
         update.router,
         readiness.router,
     ):
-        app.include_router(router)
+        router.include_router(module_router)
     # 塗布の API は、塗布のジョブと同じく solder 機能の機体にだけ置く
-    if "solder" in backend.machine_config.capabilities:
-        for router in (
+    if solder:
+        for module_router in (
             board.router,
             nozzle.router,
             calibration.router,
             test_board.router,
         ):
-            app.include_router(router)
+            router.include_router(module_router)
     # 部品実装の API は、部品実装のジョブと同じく pnp 機能の機体にだけ置く
-    if "pnp" in backend.machine_config.capabilities:
-        app.include_router(servo.router)
-    return app
+    if pnp:
+        router.include_router(servo.router)
+    return tuple(router.routes)
