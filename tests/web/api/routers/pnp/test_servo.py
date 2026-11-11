@@ -143,10 +143,11 @@ class TestTweezerPanel:
         response = pnp_client.post(OPEN, json={"fraction": fraction})
 
         assert response.status_code == 200
-        assert bus.commands[-2:] == [
-            ServoCommand(2, "goto", target),
-            ServoCommand(2, "torque", 1),
-        ]
+        # トルクは入っているので書かない（書くとサーボは goal へ動かずに止まる）
+        assert bus.commands[-1] == ServoCommand(2, "goto", target)
+        assert (
+            bus.commands.count(ServoCommand(2, "torque", 1)) == 1
+        )  # fixture が入れた 1 回だけ
 
     def test_status_reports_the_open_fraction_after_open(self, pnp_client: TestClient):
         pnp_client.post(OPEN, json={"fraction": 0.25})

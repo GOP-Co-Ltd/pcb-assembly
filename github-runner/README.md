@@ -22,14 +22,27 @@ runner user を `video`、`gpio`、`dialout`、`input` group へ追加しない�
 例外として、runner user は専用の `uinput` group に入れる。ゲームパッドのテスト（`TestEvdevGamepad`）が
 `/dev/uinput` で仮想の入力デバイスを作るため。`input` group と違い、実機のコントローラやキーボード
 （`/dev/input/event*`）は読めない。`install` が次の udev 規則を `/etc/udev/rules.d/60-pcbasm-uinput.rules`
-に置く。
+に置く。1 行目で `/dev/uinput` に書けるようにし、2 行目でテストが作った仮想デバイス（名前が `pcbasm-test-` で
+始まる）の event ノードだけを読めるようにする。Raspberry Pi OS の `/usr/lib/udev/rules.d/99-com.rules` が
+後から input の全デバイスを `GROUP="input"` にするため、2 行目は `GROUP:=` で上書きを禁じている。
 
 ```text
 KERNEL=="uinput", GROUP="uinput", MODE="0660", OPTIONS+="static_node=uinput"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="pcbasm-test-*", GROUP:="uinput", MODE="0660"
 ```
 
 起動中の runner service は group を読み直さないので、初めて `uinput` group に入れた host では、job が
 走っていないときに runner service を再起動する（または OS を再起動する）。
+
+CI job を container で動かすため、runner user は rootless の podman を使う。container 内の root は host では
+runner user になるので、`docker` group（実質 root）を与えずに済む。`ci/run.sh` は `--userns keep-id` で container の中も
+runner user の uid で動かし、workspace に root 所有のファイルを残さない。
+`install` は次を行う。
+
+- `podman` と `uidmap` を導入する
+- runner user に subuid / subgid を 65536 個割り当てる（既存の割り当ての後ろに足す）
+- `loginctl enable-linger` で runner user の `/run/user/<uid>` と user の systemd を常に用意する
+    （system service の runner には login session が無いため）
 
 ## セットアップ
 
@@ -41,8 +54,8 @@ repository を checkout した Raspberry Pi 上で、`sudo` を付けずに実�
 
 次を一度に実行する。
 
-- CI に必要な OS package（`python3-picamera2`、`python3-evdev` を含む）、Git LFS、KiCad（`pcbnew`）、Chromium、`uv 0.10.9` のインストール
-- `github-runner` user の作成、`uinput` group と udev 規則の配置、host cache directory の準備
+- runner と podman に要る OS package のインストール（CI の OS package は `ci/Containerfile` が持つ）
+- `github-runner` user の作成、rootless の podman の準備、`uinput` group と udev 規則の配置、host cache directory の準備
 - `actions/runner` の最新 release を `/opt/actions-runner/pcb-assembly-rpi-1` へ展開
 - registration token の取得（`gh`）または非表示入力による instance の登録
 - systemd service の作成・起動と、service・登録状態・GitHub 接続の検証
@@ -115,9 +128,8 @@ runs-on: [self-hosted, linux, ARM64, rpi-ci]
 `verify` は次を確認する。
 
 - instance が登録済みで、systemd service が有効かつ起動中
-- Git LFS の system filter 設定と `pcbnew`、`evdev` の import
 - `/dev/uinput` の group が `uinput` で、runner user がその group に入っている
-- `uv` version
+- runner user で rootless の podman が動き、subuid が container に割り当てられる
 - GitHub 側の runner 一覧（name / status / busy / label）
 - CPU、memory、disk 使用量
 
@@ -125,8 +137,16 @@ GitHub 側の一覧は Settings > Actions > Runners でも確認できる。
 
 ## 依存関係と cache
 
-OS package は job ごとにインストールしない。各 job は独立した `.venv` を作るが、package
-本体と pre-commit hook 環境は次の host cache を再利用する。
+workflow の各コマンドは `ci/run.sh` 経由で、`ci/Containerfile` の image から作った使い捨ての container で
+動かす。CI の OS package（kicad、chromium、picamera2 など）は `ci/Containerfile` に書く。
+
+- image は registry を使わず、各 runner で build する。tag は `ci/Containerfile` の hash で、その tag の image が
+    無いとき（Containerfile を変えた後の最初の job）だけ build し、前の image を消す
+- container は rootless の podman で動かす。workspace と host の `~/.cache` を mount し、network は host と共有する
+- `/dev/uinput` と `/dev/input` を渡し、ゲームパッドのテストが仮想デバイスを作って読めるようにする
+
+job ごとに OS package をインストールしない。各 job は独立した `.venv` を作るが、package
+本体と pre-commit hook 環境は次の host cache を再利用する（container にも同じパスで mount する）。
 
 ```text
 /home/github-runner/.cache/uv
@@ -139,25 +159,30 @@ lock で保護する。
 `pcbnew` Python module は Trixie の `kicad` package から導入する。CI では symbol、footprint、
 demo を使わないため、`kicad` の推奨 package はインストールしない。
 
-テスト画像・音声は Git LFS で管理する。`install` は Git LFS filter を system 設定し、pytest
-job は checkout 済み workspace に対して `git lfs pull` を実行する。
+テスト画像・音声は Git LFS で管理する。image は Git LFS filter を system 設定し、pytest
+job は checkout 済み workspace に対して container の中で `git lfs pull` を実行する。
 
 `pytest` job は非実機テストを、`e2e` job は fake カメラと隔離した backend・frontend を使う
 WebUI E2E を実行する。2 つは別 job で、別の runner に並列で割り当てられる。Chromium は
 headless で起動し、カメラや GPIO の権限は不要。JUnit レポートは `pytest-report` と
 `e2e-report` の artifact に 7 日間保存する。
 
-新しい runner には `install` で system Chromium を導入する。既存 runner に
-`/usr/bin/chromium` が無い場合、workflow は Playwright の headless shell をユーザー cache へ
-取得する。OS 依存ライブラリが不足するホストには、管理者が Chromium を導入する。
-job から OS package をインストールするための sudo 権限は与えない。
+Chromium は image の `/usr/bin/chromium` を使う。OS package を足すときは `ci/Containerfile` を
+変える。job に sudo 権限は与えない。
 
-容量確認と uv cache の安全な整理は次のとおり。
+image の容量確認と、使っていない image の削除は次のとおり（`ci/run.sh` は build のたびに前の image を消す）。
+
+```bash
+sudo -u github-runner -H podman images
+sudo -u github-runner -H podman image prune --all --force
+```
+
+cache の容量確認は次のとおり。uv cache は消しても次の job が取り直す。
 
 ```bash
 sudo du -sh /home/github-runner/.cache/uv
 sudo du -sh /home/github-runner/.cache/pre-commit
-sudo -u github-runner -H /usr/local/bin/uv cache prune
+sudo -u github-runner -H rm -rf /home/github-runner/.cache/uv
 ```
 
 pre-commit cache を全削除すると、次回の workflow で hook 環境を再構築する。通常運用では
@@ -173,8 +198,7 @@ instance を登録し直さない。runner version を明示的に入れ替え�
 1. 「登録解除と削除」の手順で instance を削除する
 2. `RUNNER_VERSION=<version> ./github-runner/setup.sh setup` を実行する
 
-`uv` を入れ替えるには、`setup.sh` の `UV_VERSION` を変えた変更が review された後に `install` を
-再実行する（`install` は導入済み `uv` の version が `UV_VERSION` と違うときだけ入れ直す）。
+`uv` や CI の OS package を入れ替えるには `ci/Containerfile` を変える。各 runner は次の job で image を build し直す。
 
 ## 3 instance 構成からの移行
 

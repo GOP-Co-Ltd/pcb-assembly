@@ -41,7 +41,7 @@ JOBS_BY_DOMAIN = {
         "make_fill_coverage_pcb",
     ),
     "machine": ("machine_check",),
-    "pnp": ("servo_setup",),
+    "pnp": ("servo_setup", "gamepad_control"),
 }
 
 JOBS_DIR = Path(__file__).parents[4] / "src" / "web" / "api" / "jobs"

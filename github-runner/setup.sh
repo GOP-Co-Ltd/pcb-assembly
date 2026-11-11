@@ -11,18 +11,23 @@ readonly RUNNER_LABELS="rpi-ci"
 # GitHub Actions の self-hosted runner は 1 instance あたり 1 job しか
 # 実行しない。Raspberry Pi を 4 台導入したので、1 台につき 1 instance 置く。
 readonly RUNNER_COUNT="1"
-readonly UV_VERSION="0.10.9"
+# rootless podman で container 内に割り当てる uid / gid の数
+readonly SUBID_COUNT="65536"
 # ゲームパッドのテストが /dev/uinput で仮想デバイスを作る。装置の input group とは分ける
 readonly UINPUT_GROUP="uinput"
 readonly UINPUT_RULE_FILE="/etc/udev/rules.d/60-pcbasm-uinput.rules"
-readonly UINPUT_RULE='KERNEL=="uinput", GROUP="uinput", MODE="0660", OPTIONS+="static_node=uinput"'
+# 2 行目: テストが作る仮想デバイス（名前が pcbasm-test-）の event ノードだけを uinput group で読めるようにする。
+# runner を input group に入れずに済み、実機のコントローラやキーボードは読めないまま。
+# Raspberry Pi OS の 99-com.rules が後から input の全デバイスを GROUP="input" にするので、:= で上書きを禁じる
+readonly UINPUT_RULE='KERNEL=="uinput", GROUP="uinput", MODE="0660", OPTIONS+="static_node=uinput"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="pcbasm-test-*", GROUP:="uinput", MODE="0660"'
 
 usage() {
     cat <<EOF
 Usage: $(basename "$0") <setup|install|register|status|verify>
 
   setup     依存関係をインストールし、runnerを登録・検証する
-  install   OS依存関係、Actions Runner、uvを導入する
+  install   OS依存関係、podman、Actions Runnerを導入する
   register  registration tokenでrunnerを登録し、serviceとして起動する
   status    runner serviceの状態を表示する
   verify    service、runner登録、GitHub接続、host resourceを検証する
@@ -107,30 +112,6 @@ resolve_runner_version() {
     echo "${version#v}"
 }
 
-install_uv() {
-    local installed_version installer_script
-
-    if [ -x /usr/local/bin/uv ]; then
-        installed_version="$(/usr/local/bin/uv --version | awk '{print $2}')"
-        if [ "${installed_version}" = "${UV_VERSION}" ]; then
-            return
-        fi
-    fi
-
-    installer_script="$(mktemp)"
-    trap 'rm -f "${installer_script:-}"' EXIT
-    curl --fail --silent --show-error --location \
-        "https://astral.sh/uv/${UV_VERSION}/install.sh" \
-        --output "${installer_script}"
-    sudo env UV_UNMANAGED_INSTALL=/usr/local/bin sh "${installer_script}"
-    rm -f "${installer_script}"
-    trap - EXIT
-
-    installed_version="$(/usr/local/bin/uv --version | awk '{print $2}')"
-    if [ "${installed_version}" != "${UV_VERSION}" ]; then
-        die "uv ${UV_VERSION}のインストールを確認できませんでした: ${installed_version}"
-    fi
-}
 
 create_runner_user() {
     if getent passwd "${RUNNER_USER}" >/dev/null; then
@@ -140,6 +121,33 @@ create_runner_user() {
     # CI job は host 上で直接コマンドを実行する。camera や装置を触らせないため
     # video / gpio / dialout group には入れない。
     sudo useradd --system --create-home --shell /bin/bash "${RUNNER_USER}"
+}
+
+add_runner_subids() {
+    local file option start
+
+    file="$1"
+    option="$2"
+    if grep -q "^${RUNNER_USER}:" "${file}"; then
+        return
+    fi
+    # 既存の割り当て（gop など）と重ならないよう、最後の範囲の後ろに足す
+    start="$(awk -F: 'BEGIN { end = 100000 } $2 + $3 > end { end = $2 + $3 } END { print end }' "${file}")"
+    sudo usermod "${option}" "${start}-$((start + SUBID_COUNT - 1))" "${RUNNER_USER}"
+}
+
+allow_runner_podman() {
+    # CI job を rootless の container で動かす。container 内の root は host では runner user になり、
+    # docker group（実質 root）を与えずに済む
+    sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes podman uidmap
+
+    # useradd --system は subuid / subgid を割り当てない。podman を初めて使う前に割り当てる
+    add_runner_subids /etc/subuid --add-subuids
+    add_runner_subids /etc/subgid --add-subgids
+
+    # runner は system service で login session が無い。linger で /run/user/<uid> と user の systemd を
+    # 常に用意し、podman の runtime directory と cgroup の管理に使う
+    sudo loginctl enable-linger "${RUNNER_USER}"
 }
 
 runner_in_uinput_group() {
@@ -221,47 +229,24 @@ install_dependencies() {
     check_platform
 
     sudo env DEBIAN_FRONTEND=noninteractive apt-get update
+    # CI の OS package（kicad、chromium など）は ci/Containerfile に持つ。host には runner と podman に要るものだけ入れる。
+    # git は actions/checkout が、python3 は resolve_runner_version が使う
     sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes \
         ca-certificates \
-        chromium \
         curl \
         git \
-        git-lfs \
-        libgl1 \
-        libglib2.0-0t64 \
-        make \
-        python3 \
-        python3-evdev \
-        python3-picamera2 \
-        v4l-utils
-    sudo git lfs install --system --skip-repo
-    verify_git_lfs
-    sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends kicad
-    verify_pcbnew_import
+        python3
 
-    install_uv
     create_runner_user
+    allow_runner_podman
     allow_runner_uinput
     prepare_runner_cache
     install_runner_instances
 
-    echo "GitHub Actions RunnerとCI依存関係をインストールしました。"
+    echo "GitHub Actions Runnerと依存関係をインストールしました。"
 }
 
-verify_git_lfs() {
-    if ! git lfs version >/dev/null; then
-        die "Git LFSを実行できません"
-    fi
-    if ! git config --system --get filter.lfs.process >/dev/null; then
-        die "Git LFSのsystem filter設定を確認できません"
-    fi
-}
 
-verify_evdev_import() {
-    if ! /usr/bin/python3 -c 'import evdev'; then
-        die "/usr/bin/python3からevdevをimportできません"
-    fi
-}
 
 verify_uinput() {
     if [ "$(stat -c %G /dev/uinput 2>/dev/null)" != "${UINPUT_GROUP}" ]; then
@@ -272,11 +257,20 @@ verify_uinput() {
     fi
 }
 
-verify_pcbnew_import() {
-    if ! /usr/bin/python3 -c 'import pcbnew'; then
-        die "/usr/bin/python3からpcbnewをimportできません"
+verify_podman() {
+    local mapped
+
+    # runner service と同じく XDG_RUNTIME_DIR を渡さずに確かめる。cwd は runner user が読める / にする
+    if [ "$(cd / && sudo -u "${RUNNER_USER}" -H podman info --format '{{.Host.Security.Rootless}}')" != "true" ]; then
+        die "${RUNNER_USER}でrootlessのpodmanを実行できません"
+    fi
+    mapped="$(cd / && sudo -u "${RUNNER_USER}" -H podman unshare cat /proc/self/uid_map |
+        awk '{ sum += $3 } END { print sum }')"
+    if [ "${mapped}" -le 1 ]; then
+        die "${RUNNER_USER}のsubuidがcontainerに割り当てられていません"
     fi
 }
+
 
 instance_is_registered() {
     sudo test -f "$(instance_dir "$1")/.runner"
@@ -409,7 +403,7 @@ verify_registered_runners() {
 }
 
 verify_runner() {
-    local index installed_version runner_home service
+    local index runner_home service
 
     require_command df
     require_command free
@@ -428,15 +422,8 @@ verify_runner() {
             die "${service}が起動していません"
     done
 
-    verify_git_lfs
-    verify_pcbnew_import
-    verify_evdev_import
     verify_uinput
-
-    installed_version="$(/usr/local/bin/uv --version | awk '{print $2}')"
-    if [ "${installed_version}" != "${UV_VERSION}" ]; then
-        die "uv versionが${UV_VERSION}ではありません: ${installed_version}"
-    fi
+    verify_podman
 
     if command -v gh >/dev/null 2>&1; then
         echo

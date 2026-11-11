@@ -4,11 +4,12 @@ pytest と同じプロセスのスレッドで演じると、scservo_sdk の受�
 応答が遅れ、SDK の待ち時間（約 34 ms）を超えることがある。CI の self-hosted runner のように負荷の高い
 ホストで不安定になるので、別プロセスにする。
 
-使い方: ``python wire_servo.py <master の fd> <reply_delays の JSON>``。標準ライブラリだけを使う。
+使い方: ``python wire_servo.py <master の fd> <reply_delays の JSON> [<registers の JSON>]``。標準ライブラリだけを使う。
 
 - 起動したら ``ready`` の 1 行を stdout へ書く
 - 受けた instruction packet は、応答を返す前に hex の 1 行で stdout へ書く
-- 読み出しには 0 を並べて返す。ブロードキャスト（ID 0xFE）には応答しない
+- 読み出しには registers（先頭アドレス → hex のバイト列）にあればその値を、無ければ 0 を並べて返す。
+  ブロードキャスト（ID 0xFE）には応答しない
 - reply_delays（アドレス → 秒）にあるアドレスへの WRITE は、その秒数だけ遅れて応答する
 """
 
@@ -24,7 +25,9 @@ _INSTRUCTION_WRITE = 0x03
 _BROADCAST = 0xFE
 
 
-def _serve(master: int, reply_delays: dict[int, float]) -> None:
+def _serve(
+    master: int, reply_delays: dict[int, float], registers: dict[int, bytes]
+) -> None:
     buffer = b""
     while True:
         try:
@@ -42,12 +45,20 @@ def _serve(master: int, reply_delays: dict[int, float]) -> None:
                 continue
             if packet[4] == _INSTRUCTION_WRITE:
                 time.sleep(reply_delays.get(packet[5], 0.0))
-            data = bytes(packet[6]) if packet[4] == _INSTRUCTION_READ else b""
+            data = b""
+            if packet[4] == _INSTRUCTION_READ:
+                length = packet[6]
+                data = registers.get(packet[5], b"").ljust(length, b"\x00")[:length]
             body = bytes([packet[2], len(data) + 2, 0]) + data
             os.write(master, b"\xff\xff" + body + bytes([~sum(body) & 0xFF]))
 
 
 if __name__ == "__main__":
     delays = {int(key): value for key, value in json.loads(sys.argv[2]).items()}
+    values = json.loads(sys.argv[3]) if len(sys.argv) > 3 else {}
     print("ready", flush=True)
-    _serve(int(sys.argv[1]), delays)
+    _serve(
+        int(sys.argv[1]),
+        delays,
+        {int(key): bytes.fromhex(value) for key, value in values.items()},
+    )

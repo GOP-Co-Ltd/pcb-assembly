@@ -42,29 +42,29 @@ web
 
 ## 責務と変更先
 
-| 配置                                | 責務                                                                                                                   |
-| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `src/pcbasm/geometry/`              | 座標変換、ポリゴン、経路、配置の計算                                                                                   |
-| `src/pcbasm/plotting.py`            | 描画の共通部品（Agg、穴付きポリゴン、基板外形、PNG 保存）。図そのものは使う側のパッケージに置く                        |
-| `src/pcbasm/config/`                | `machine.toml` のスキーマ（TOML の 1 節が 1 モジュール）と読み込み、設定ページの項目、機体の機能                       |
-| `src/pcbasm/board/`                 | 基板データ（外形・部品・パッド・銅箔）と CSV / JSON の書き出し、全体図の描画                                           |
-| `src/pcbasm/kicad/`                 | KiCad 読込・生成、footprint、単位変換（pcbnew はここだけ）                                                             |
-| `src/pcbasm/vision/`                | カメラ校正、画像・銅箔・塗布点の検出                                                                                   |
-| `src/pcbasm/hal/`                   | カメラ、Klipper、ステージ、ディスペンサー、音声の抽象と実装、fake                                                      |
-| `src/pcbasm/machine/`               | 装置の組み立て、G-code ジャーナル、操作パネルの命令、駐機、装置診断                                                    |
-| `src/pcbasm/align/`                 | 基板の位置合わせ、基準点、補正、カメラと装置の座標対応                                                                 |
-| `src/pcbasm/pasting/`               | 塗布の設定解決、経路、高さ面、機械手順、画像収集、塗布量校正                                                           |
-| `src/pcbasm/pnp/`                   | 部品実装（Pick and Place）。いまはピンセットのサーボの役割判別と開閉の範囲（`servo_setup.py`）                         |
-| `src/pcbasm/commissioning.py`       | 立ち上げ手順の表と、各段が済んだかの判定（`GET /api/readiness`）                                                       |
-| `src/web/api/routers/`              | HTTP 入出力とコア呼び出し、例外から HTTP 応答への変換                                                                  |
-| `src/web/api/jobs/`                 | 長時間処理、進捗、中断、操作者への質問、成果物の公開                                                                   |
-| `src/web/ui/`                       | マシン探索・選択、SSR ページ、backend への中継                                                                         |
-| `src/web/ui/templates/` / `static/` | HTML、CSS、DOM 操作、API 応答の表示                                                                                    |
-| `src/web/selfupdate/`               | backend / frontend 共通の Git 更新とサービス再起動手順                                                                 |
-| `src/web/contract/`                 | backend・frontend・自己更新が共有する応答モデルとワイヤ定数                                                            |
-| `src/web/process.py`                | backend / frontend 共通の env 読み取りと logging の初期化                                                              |
-| `src/firmware/pnp-motion/`          | PnP 機の XYZ を速度指令で動かす Klipper の MCU ファーム（C、GPLv3。[README](../../src/firmware/pnp-motion/README.md)） |
-| `install.sh`、`deploy/`             | ホストの導入（段ごとに冪等）と、unit・sudoers・機種のテンプレート・firmware の雛形                                     |
+| 配置                                | 責務                                                                                                                                       |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/pcbasm/geometry/`              | 座標変換、ポリゴン、経路、配置の計算                                                                                                       |
+| `src/pcbasm/plotting.py`            | 描画の共通部品（Agg、穴付きポリゴン、基板外形、PNG 保存）。図そのものは使う側のパッケージに置く                                            |
+| `src/pcbasm/config/`                | `machine.toml` のスキーマ（TOML の 1 節が 1 モジュール）と読み込み、設定ページの項目、機体の機能                                           |
+| `src/pcbasm/board/`                 | 基板データ（外形・部品・パッド・銅箔）と CSV / JSON の書き出し、全体図の描画                                                               |
+| `src/pcbasm/kicad/`                 | KiCad 読込・生成、footprint、単位変換（pcbnew はここだけ）                                                                                 |
+| `src/pcbasm/vision/`                | カメラ校正、画像・銅箔・塗布点の検出                                                                                                       |
+| `src/pcbasm/hal/`                   | カメラ、Klipper、ステージ、ディスペンサー、音声の抽象と実装、fake                                                                          |
+| `src/pcbasm/machine/`               | 装置の組み立て、G-code ジャーナル、操作パネルの命令、駐機、装置診断                                                                        |
+| `src/pcbasm/align/`                 | 基板の位置合わせ、基準点、補正、カメラと装置の座標対応                                                                                     |
+| `src/pcbasm/pasting/`               | 塗布の設定解決、経路、高さ面、機械手順、画像収集、塗布量校正                                                                               |
+| `src/pcbasm/pnp/`                   | 部品実装（Pick and Place）。いまはピンセットのサーボの役割判別と開閉の範囲（`servo_setup.py`）と、コントローラ操作（`gamepad_control.py`） |
+| `src/pcbasm/commissioning.py`       | 立ち上げ手順の表と、各段が済んだかの判定（`GET /api/readiness`）                                                                           |
+| `src/web/api/routers/`              | HTTP 入出力とコア呼び出し、例外から HTTP 応答への変換                                                                                      |
+| `src/web/api/jobs/`                 | 長時間処理、進捗、中断、操作者への質問、成果物の公開                                                                                       |
+| `src/web/ui/`                       | マシン探索・選択、SSR ページ、backend への中継                                                                                             |
+| `src/web/ui/templates/` / `static/` | HTML、CSS、DOM 操作、API 応答の表示                                                                                                        |
+| `src/web/selfupdate/`               | backend / frontend 共通の Git 更新とサービス再起動手順                                                                                     |
+| `src/web/contract/`                 | backend・frontend・自己更新が共有する応答モデルとワイヤ定数                                                                                |
+| `src/web/process.py`                | backend / frontend 共通の env 読み取りと logging の初期化                                                                                  |
+| `src/firmware/pnp-motion/`          | PnP 機の XYZ を速度指令で動かす Klipper の MCU ファーム（C、GPLv3。[README](../../src/firmware/pnp-motion/README.md)）                     |
+| `install.sh`、`deploy/`             | ホストの導入（段ごとに冪等）と、unit・sudoers・機種のテンプレート・firmware の雛形                                                         |
 
 パッケージの中の構成は、各パッケージの README にある（[align](../../src/pcbasm/align/README.md)、[geometry](../../src/pcbasm/geometry/README.md)、[hal](../../src/pcbasm/hal/README.md)、[machine](../../src/pcbasm/machine/README.md)、[pasting](../../src/pcbasm/pasting/README.md)、[pnp](../../src/pcbasm/pnp/README.md)、[vision](../../src/pcbasm/vision/README.md)）。
 
@@ -118,6 +118,7 @@ PnP の中身は、塗布と同じ形で次の場所に足す。
 | `height_plane`             | 塗布     | `jobs/pasting/height_plane.py`                    | `pasting.height`                                                                                                                                                      | `[probe]`                                                 |
 | `nozzle_clean_test`        | 塗布     | `jobs/pasting/nozzle_clean_test.py`               | `pasting.nozzle_clean.plan_nozzle_clean`、`clean_nozzle`                                                                                                              | `[solder.nozzle.clean]`                                   |
 | `placement`                | 部品実装 | なし（準備中のページ）                            | なし                                                                                                                                                                  | `[pnp]`                                                   |
+| `gamepad_control`          | 部品実装 | `jobs/pnp/gamepad_control.py`                     | `pnp.gamepad_control.GamepadControl`、`hal.gamepad`、`hal.servo.Tweezer`                                                                                              | `[pnp.servo]`                                             |
 | `commissioning`            | 校正     | `routers/readiness.py`                            | `commissioning.readiness`                                                                                                                                             | 全体                                                      |
 | `camera_calibration`       | 校正     | `jobs/align/camera_calibration.py`                | `vision.calibration.CheckerboardCalibrator`                                                                                                                           | `[camera]`                                                |
 | `camera_preview`           | 校正     | `routers/preview.py`                              | `machine.devices`                                                                                                                                                     | `[camera]`                                                |
