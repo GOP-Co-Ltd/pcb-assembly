@@ -80,7 +80,7 @@ Klippy は動かさず、submodule の Klipper（ファームと同じ commit）
 ピン（`!` と `^` を含む）、ステップ数、電流、速さ、加速度、可動域、原点出しの向きと速さは、機体の printer.cfg（既定は `config/printer.cfg`、`--printer-cfg` で変える）から読む。
 試験用に速さを抑えることはしない（`v` の上限は `max_velocity`・`max_z_velocity`、原点出しは `homing_speed` など）。
 
-- 読んだ値を表示し、`yes` と入力するまで動かさない。1 mm あたりのステップ数と向きを、機体と照らして確かめる
+- 起動すると読んだ値（1 mm あたりのステップ数、向き、速さ、可動域など）を表示する
 - kinematics は `cartesian`・`corexy`・`inversed_corexy` に対応する。速度・位置・可動域は直交座標の X・Y・Z で扱い、
     モーターへの写し方はファームが受け持つ。corexy では `stepper_x` と `stepper_y` の 1 mm あたりのステップ数が同じでなければ起動しない
 - 軸を動かせるのは原点出しのあとだけ。原点出しの前の軸は、`v` では 0、`p` では `-` しか指定できない
@@ -94,7 +94,7 @@ PnP 機（kurousagi）の Pi で行う。bench と Klippy は同じ MCU を同�
 2. `sudo systemctl stop klipper` で Klipper を止める（MCU のシリアルを空ける）
 3. モーターの電源（24 V）を入れる。TMC2209 は電源がないと UART に応答しない
 4. `~/klippy-env/bin/python src/firmware/pnp-motion/tools/bench.py` で起動する。
-    printer.cfg の値を確かめて `yes` と入力すると、MCU を設定し、TMC2209 に Klipper と同じレジスタ（printer.cfg の電流、microsteps、stealthChop）を書いて確かめる
+    読んだ printer.cfg の値を表示し、MCU を設定して、TMC2209 に Klipper と同じレジスタ（printer.cfg の電流、microsteps、stealthChop）を書いて確かめる
 
 | コマンド          | 動き                                                                                                                                                |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |

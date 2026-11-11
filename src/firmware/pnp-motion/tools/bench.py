@@ -1025,9 +1025,6 @@ def main():
     try:
         machine = load_machine(args.printer_cfg)
         print(describe_machine(args.printer_cfg, machine))
-        # 値を取り違えたまま動かさないように、目で確かめてから進める
-        if input("この値で動かしますか？（yes で続ける）: ").strip() != "yes":
-            sys.exit("中止しました")
         AXES, TMC_RX, TMC_TX = machine.axes, machine.tmc_rx, machine.tmc_tx
         KINEMATICS_NAME = machine.kinematics
         _load_klippy(args.klipper)
