@@ -124,11 +124,12 @@ class TestTweezerPanel:
         page = browser_page
         _open_panel(page, live_ui)
         _send_from_field(page, "0.5")
-        wait_until(lambda: _open_close_gotos(bus) == [2304])
+        # 脱力していたので、今の位置（閉じ切り 2048）で保持してから送る
+        wait_until(lambda: _open_close_gotos(bus) == [2048, 2304])
 
         _send_from_field(page, "0")
 
-        wait_until(lambda: _open_close_gotos(bus) == [2304, 2048])
+        wait_until(lambda: _open_close_gotos(bus) == [2048, 2304, 2048])
         expect(page.locator("#mc-open")).to_have_value("0.00")
         expect(page.locator("#mc-open-slider")).to_have_value("0")
 

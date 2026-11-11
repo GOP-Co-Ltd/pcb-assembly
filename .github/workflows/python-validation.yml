@@ -23,6 +23,7 @@ on:
       - github-runner/setup.sh
       - pyproject.toml
       - uv.lock
+      - "ci/**"
       - .github/workflows/python-validation.yml
 
 concurrency:
@@ -32,30 +33,29 @@ concurrency:
 permissions:
   contents: read
 
+# 各コマンドは ci/run.sh が使い捨ての container で動かす（github-runner/README.md）。
+# ci/Containerfile を変えた後の最初の job は、その runner で image を build する時間を含む
 jobs:
   pyright:
     runs-on: [self-hosted, linux, ARM64, rpi-ci]
-    timeout-minutes: 15
+    timeout-minutes: 30
     env:
       UV_NO_SYNC: "1"
     steps:
       - uses: actions/checkout@v5
 
-      - name: Configure host caches
-        run: echo "UV_CACHE_DIR=$HOME/.cache/uv" >>"$GITHUB_ENV"
-
       - name: Sync dependencies
         run: |
-          uv venv --clear --system-site-packages --python /usr/bin/python3
-          uv sync --locked --all-groups
+          ci/run.sh uv venv --clear --system-site-packages --python /usr/bin/python3
+          ci/run.sh uv sync --locked --all-groups
 
       - name: Run pyright
-        run: make type
+        run: ci/run.sh make type
 
   # 非 E2E テストと WebUI E2E は互いに独立なので、別 job にして別の runner で並列に走らせる。
   pytest:
     runs-on: [self-hosted, linux, ARM64, rpi-ci]
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       OPENBLAS_NUM_THREADS: "1"
       OMP_NUM_THREADS: "1"
@@ -63,19 +63,16 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Configure host caches
-        run: echo "UV_CACHE_DIR=$HOME/.cache/uv" >>"$GITHUB_ENV"
-
       - name: Sync dependencies
         run: |
-          uv venv --clear --system-site-packages --python /usr/bin/python3
-          uv sync --locked --all-groups
+          ci/run.sh uv venv --clear --system-site-packages --python /usr/bin/python3
+          ci/run.sh uv sync --locked --all-groups
 
       - name: Fetch LFS objects
-        run: git lfs pull
+        run: ci/run.sh git lfs pull
 
       - name: Run tests
-        run: make test
+        run: ci/run.sh make test
         env:
           PYTEST_ADDOPTS: --timeout=180 --junitxml=pytest-report.xml
 
@@ -89,7 +86,7 @@ jobs:
 
   e2e:
     runs-on: [self-hosted, linux, ARM64, rpi-ci]
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       OPENBLAS_NUM_THREADS: "1"
       OMP_NUM_THREADS: "1"
@@ -97,25 +94,16 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Configure host caches
-        run: echo "UV_CACHE_DIR=$HOME/.cache/uv" >>"$GITHUB_ENV"
-
       - name: Sync dependencies
         run: |
-          uv venv --clear --system-site-packages --python /usr/bin/python3
-          uv sync --locked --all-groups
+          ci/run.sh uv venv --clear --system-site-packages --python /usr/bin/python3
+          ci/run.sh uv sync --locked --all-groups
 
       - name: Fetch LFS objects
-        run: git lfs pull
-
-      - name: Prepare Chromium for browser tests
-        run: |
-          if [ ! -x /usr/bin/chromium ]; then
-            uv run --no-sync playwright install --only-shell chromium
-          fi
+        run: ci/run.sh git lfs pull
 
       - name: Run WebUI E2E tests
-        run: make test-e2e
+        run: ci/run.sh make test-e2e
         env:
           PYTEST_ADDOPTS: --junitxml=e2e-report.xml
 

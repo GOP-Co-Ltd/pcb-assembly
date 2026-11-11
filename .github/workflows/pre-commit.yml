@@ -17,19 +17,16 @@ permissions:
 jobs:
   pre-commit:
     runs-on: [self-hosted, linux, ARM64, rpi-ci]
-    timeout-minutes: 10
+    # ci/Containerfile を変えた後の最初の job は、その runner で image を build する時間を含む
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
 
-      - name: Configure host caches
-        run: |
-          echo "UV_CACHE_DIR=$HOME/.cache/uv" >>"$GITHUB_ENV"
-          echo "PRE_COMMIT_HOME=$HOME/.cache/pre-commit" >>"$GITHUB_ENV"
-
+      # 各コマンドは ci/run.sh が使い捨ての container で動かす（github-runner/README.md）
       - name: Sync dev dependencies
         run: |
-          uv venv --clear --python /usr/bin/python3
-          uv sync --locked --only-group dev --no-install-project
+          ci/run.sh uv venv --clear --python /usr/bin/python3
+          ci/run.sh uv sync --locked --only-group dev --no-install-project
 
       - name: Run pre-commit
-        run: uv run --no-sync pre-commit run --all-files --show-diff-on-failure
+        run: ci/run.sh uv run --no-sync pre-commit run --all-files --show-diff-on-failure
