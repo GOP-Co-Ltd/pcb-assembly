@@ -1,8 +1,9 @@
 """`pcbasm.hal.gamepad` の仕様テスト.
 
-Xbox コントローラの LT・LB・RB を evdev から読む。`EvdevGamepad` は `/dev/uinput` で作った仮想デバイスを、
+Xbox コントローラの LT・LB・RB と、左スティック・右スティックの縦を evdev から読む。`EvdevGamepad` は `/dev/uinput` で作った仮想デバイスを、
 モジュールの実物 `pcbasm.hal.gamepad.open_gamepad` で開いて確かめる（`pcbasm.hal.open_gamepad` は root conftest
-が塞ぐ）。ドライバごとの割り当ての判別と LT の正規化も、軸を変えた仮想デバイスで確かめる。
+が塞ぐ）。ドライバごとの割り当ての判別と LT・スティックの正規化も、軸を変えた仮想デバイスで確かめる。
+スティックは静止（中点）がちょうど 0 になるが、中点の両側を幅（32767 など）で割るので、途中の値は 0.5 ちょうどなどにならない。比べるときは `_rounded` で丸める。
 CI の runner は専用の `uinput` group で `/dev/uinput` に書け、job の container には `ci/run.sh` がデバイスと group を
 渡す（`github-runner/README.md`）。書けない環境
 （既定の権限の Raspberry Pi OS）では、仮想デバイスを使うテストを skip する。
@@ -14,6 +15,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
+import attrs
 import pytest
 from evdev import AbsInfo, UInput, UInputError, ecodes
 
@@ -22,15 +24,24 @@ from pcbasm.hal.gamepad import open_gamepad
 from tests.support.polling import wait_until
 
 
-def _abs(minimum: int, maximum: int) -> AbsInfo:
+def _abs(minimum: int, maximum: int, value: int | None = None) -> AbsInfo:
+    """軸の範囲（value を省けば min。スティックは中立の値を渡す）."""
     return AbsInfo(
-        value=minimum, min=minimum, max=maximum, fuzz=0, flat=0, resolution=0
+        value=minimum if value is None else value,
+        min=minimum,
+        max=maximum,
+        fuzz=0,
+        flat=0,
+        resolution=0,
     )
 
 
-STICK = _abs(-32768, 32767)
+STICK = _abs(-32768, 32767, 0)  # xpad のスティック（中立は 0）
+BT_STICK = _abs(0, 65535, 32768)  # hid-microsoft のスティック（中立は 32768）
 TRIGGER = _abs(0, 1023)
 BUMPERS = [ecodes.BTN_TL, ecodes.BTN_TR]
+# LT と LB・RB に加えて、最小限のスティック（左の X・Y と右の Y）を持つ軸
+STICKS = [(ecodes.ABS_X, STICK), (ecodes.ABS_Y, STICK), (ecodes.ABS_RY, STICK)]
 
 # USB の xpad（Xbox Series S|X を実機で確認）: LT が ABS_Z、RT が ABS_RZ
 XPAD = {
@@ -48,10 +59,10 @@ XPAD = {
 BLUETOOTH = {
     ecodes.EV_KEY: [ecodes.BTN_SOUTH, ecodes.BTN_EAST, *BUMPERS],
     ecodes.EV_ABS: [
-        (ecodes.ABS_X, _abs(0, 65535)),
-        (ecodes.ABS_Y, _abs(0, 65535)),
-        (ecodes.ABS_Z, _abs(0, 65535)),
-        (ecodes.ABS_RZ, _abs(0, 65535)),
+        (ecodes.ABS_X, BT_STICK),
+        (ecodes.ABS_Y, BT_STICK),
+        (ecodes.ABS_Z, BT_STICK),
+        (ecodes.ABS_RZ, BT_STICK),
         (ecodes.ABS_GAS, TRIGGER),
         (ecodes.ABS_BRAKE, TRIGGER),
     ],
@@ -114,6 +125,16 @@ def opened() -> Iterator[OpenGamepad]:
         gamepad.close()
 
 
+def _rounded(state: GamepadState) -> GamepadState:
+    """スティックを小数 3 桁に丸める（幅で割ることで生じる 1e-5 程度のずれを消す）."""
+    return attrs.evolve(
+        state,
+        left_x=round(state.left_x, 3),
+        left_y=round(state.left_y, 3),
+        right_y=round(state.right_y, 3),
+    )
+
+
 def _send(device: UInput, *events: tuple[int, int, int]) -> None:
     for event_type, code, value in events:
         device.write(event_type, code, value)
@@ -127,8 +148,14 @@ def _press_left_bumper_and_wait(device: UInput, gamepad: EvdevGamepad) -> None:
 
 
 class TestEvdevGamepad:
-    def test_is_at_rest_when_nothing_is_pressed(self, pad: UInput, opened: OpenGamepad):
-        assert opened(pad).state() == GamepadState()
+    @pytest.mark.parametrize("layout", ["usb", "bluetooth"])
+    def test_is_exactly_at_rest_when_nothing_is_pressed(
+        self, make_device: MakeDevice, opened: OpenGamepad, layout: str
+    ):
+        # スティックの中立（xpad は 0、hid-microsoft は 32768）はちょうど 0 になる（デッドゾーンが 0 でも漂わない）
+        device = make_device(XPAD if layout == "usb" else BLUETOOTH)
+
+        assert opened(device).state() == GamepadState()
 
     def test_reads_lt_and_bumpers_pressed_after_opening(
         self, pad: UInput, opened: OpenGamepad
@@ -144,7 +171,7 @@ class TestEvdevGamepad:
             (ecodes.EV_KEY, ecodes.BTN_TR, 1),
         )
 
-        wait_until(lambda: gamepad.state() == expected)
+        wait_until(lambda: _rounded(gamepad.state()) == expected)
 
     def test_bumpers_follow_release(self, pad: UInput, opened: OpenGamepad):
         gamepad = opened(pad)
@@ -153,7 +180,7 @@ class TestEvdevGamepad:
 
         _send(pad, (ecodes.EV_KEY, ecodes.BTN_TL, 0))
 
-        wait_until(lambda: gamepad.state() == GamepadState(right_bumper=True))
+        wait_until(lambda: _rounded(gamepad.state()) == GamepadState(right_bumper=True))
 
     def test_reads_what_is_held_when_opened(self, pad: UInput, opened: OpenGamepad):
         _send(
@@ -162,7 +189,9 @@ class TestEvdevGamepad:
 
         gamepad = opened(pad)
 
-        assert gamepad.state() == GamepadState(left_trigger=1.0, right_bumper=True)
+        assert _rounded(gamepad.state()) == GamepadState(
+            left_trigger=1.0, right_bumper=True
+        )
 
     def test_returns_the_latest_even_after_the_kernel_drops_events(
         self, pad: UInput, opened: OpenGamepad
@@ -174,7 +203,26 @@ class TestEvdevGamepad:
             _send(pad, (ecodes.EV_ABS, ecodes.ABS_Z, raw))
         _send(pad, (ecodes.EV_ABS, ecodes.ABS_Z, 0), (ecodes.EV_KEY, ecodes.BTN_TL, 1))
 
-        wait_until(lambda: gamepad.state() == GamepadState(left_bumper=True))
+        wait_until(lambda: _rounded(gamepad.state()) == GamepadState(left_bumper=True))
+
+    def test_rereads_the_sticks_after_the_kernel_drops_events(
+        self, pad: UInput, opened: OpenGamepad
+    ):
+        gamepad = opened(pad)
+
+        for raw in range(-32768, 32767, 512):
+            _send(pad, (ecodes.EV_ABS, ecodes.ABS_X, raw))
+        _send(
+            pad,
+            (ecodes.EV_ABS, ecodes.ABS_X, 32767),
+            (ecodes.EV_ABS, ecodes.ABS_RY, -32768),
+            (ecodes.EV_KEY, ecodes.BTN_TL, 1),
+        )
+
+        wait_until(
+            lambda: _rounded(gamepad.state())
+            == GamepadState(left_bumper=True, left_x=1.0, right_y=1.0)
+        )
 
     @pytest.mark.parametrize(
         ("maximum", "raw", "expected"),
@@ -196,7 +244,7 @@ class TestEvdevGamepad:
         device = make_device(
             {
                 ecodes.EV_KEY: BUMPERS,
-                ecodes.EV_ABS: [(ecodes.ABS_Z, _abs(0, maximum))],
+                ecodes.EV_ABS: [(ecodes.ABS_Z, _abs(0, maximum)), *STICKS],
             }
         )
         gamepad = opened(device)
@@ -209,11 +257,11 @@ class TestEvdevGamepad:
     @pytest.mark.parametrize(
         "event",
         [
-            (ecodes.EV_ABS, ecodes.ABS_X, 30000),  # 左スティック
+            (ecodes.EV_ABS, ecodes.ABS_RX, 30000),  # 右スティックの横
             (ecodes.EV_ABS, ecodes.ABS_RZ, 1023),  # RT
             (ecodes.EV_KEY, ecodes.BTN_SOUTH, 1),  # A
         ],
-        ids=["stick", "right-trigger", "a-button"],
+        ids=["right-stick-x", "right-trigger", "a-button"],
     )
     def test_ignores_other_inputs(
         self, pad: UInput, opened: OpenGamepad, event: tuple[int, int, int]
@@ -223,7 +271,7 @@ class TestEvdevGamepad:
         _send(pad, event)
         _press_left_bumper_and_wait(pad, gamepad)
 
-        assert gamepad.state() == GamepadState(left_bumper=True)
+        assert _rounded(gamepad.state()) == GamepadState(left_bumper=True)
 
     def test_reads_lt_from_abs_brake_on_bluetooth_where_abs_z_is_the_right_stick(
         self, make_device: MakeDevice, opened: OpenGamepad
@@ -238,18 +286,112 @@ class TestEvdevGamepad:
         )
         _press_left_bumper_and_wait(device, gamepad)
 
-        assert gamepad.state() == GamepadState(left_trigger=1.0, left_bumper=True)
+        assert _rounded(gamepad.state()) == GamepadState(
+            left_trigger=1.0, left_bumper=True
+        )
+
+    @pytest.mark.parametrize(
+        ("event", "expected"),
+        [
+            ((ecodes.EV_ABS, ecodes.ABS_X, 32767), GamepadState(left_x=1.0)),
+            ((ecodes.EV_ABS, ecodes.ABS_X, -32768), GamepadState(left_x=-1.0)),
+            ((ecodes.EV_ABS, ecodes.ABS_Y, -32768), GamepadState(left_y=1.0)),
+            ((ecodes.EV_ABS, ecodes.ABS_Y, 16384), GamepadState(left_y=-0.5)),
+            ((ecodes.EV_ABS, ecodes.ABS_RY, -32768), GamepadState(right_y=1.0)),
+            ((ecodes.EV_ABS, ecodes.ABS_RY, 32767), GamepadState(right_y=-1.0)),
+        ],
+        ids=[
+            "left-right",
+            "left-left",
+            "left-up",
+            "left-half-down",
+            "right-up",
+            "right-down",
+        ],
+    )
+    def test_reads_sticks_with_right_and_up_positive(
+        self,
+        pad: UInput,
+        opened: OpenGamepad,
+        event: tuple[int, int, int],
+        expected: GamepadState,
+    ):
+        # evdev の Y は下が +。GamepadState では上を + にそろえる
+        gamepad = opened(pad)
+
+        _send(pad, event)
+        _press_left_bumper_and_wait(pad, gamepad)
+
+        assert _rounded(gamepad.state()) == attrs.evolve(expected, left_bumper=True)
+
+    def test_reads_the_right_stick_y_from_abs_rz_on_bluetooth(
+        self, make_device: MakeDevice, opened: OpenGamepad
+    ):
+        device = make_device(BLUETOOTH)
+        gamepad = opened(device)
+
+        _send(
+            device,
+            (ecodes.EV_ABS, ecodes.ABS_X, 49151),  # 右へ半分
+            (ecodes.EV_ABS, ecodes.ABS_Y, 0),  # 上へ倒し切る
+            (ecodes.EV_ABS, ecodes.ABS_RZ, 0),  # 右スティックを上へ倒し切る
+        )
+        _press_left_bumper_and_wait(device, gamepad)
+
+        assert _rounded(gamepad.state()) == GamepadState(
+            left_bumper=True, left_x=0.5, left_y=1.0, right_y=1.0
+        )
+
+    def test_reads_sticks_held_when_opened(self, pad: UInput, opened: OpenGamepad):
+        _send(
+            pad,
+            (ecodes.EV_ABS, ecodes.ABS_X, -32768),
+            (ecodes.EV_ABS, ecodes.ABS_RY, 32767),
+        )
+
+        gamepad = opened(pad)
+
+        assert _rounded(gamepad.state()) == GamepadState(left_x=-1.0, right_y=-1.0)
 
     @pytest.mark.parametrize(
         "events",
         [
-            {ecodes.EV_KEY: BUMPERS, ecodes.EV_ABS: [(ecodes.ABS_X, STICK)]},
-            {ecodes.EV_KEY: [ecodes.BTN_TL], ecodes.EV_ABS: [(ecodes.ABS_Z, TRIGGER)]},
+            {ecodes.EV_KEY: BUMPERS, ecodes.EV_ABS: STICKS},
+            {
+                ecodes.EV_KEY: [ecodes.BTN_TL],
+                ecodes.EV_ABS: [(ecodes.ABS_Z, TRIGGER), *STICKS],
+            },
             {ecodes.EV_KEY: [ecodes.KEY_A, ecodes.KEY_B]},
+            {ecodes.EV_KEY: BUMPERS, ecodes.EV_ABS: [(ecodes.ABS_Z, TRIGGER)]},
+            {
+                ecodes.EV_KEY: BUMPERS,
+                ecodes.EV_ABS: [
+                    (ecodes.ABS_Z, TRIGGER),
+                    (ecodes.ABS_X, STICK),
+                    (ecodes.ABS_Y, STICK),
+                    (ecodes.ABS_RZ, TRIGGER),
+                ],
+            },
+            {
+                ecodes.EV_KEY: BUMPERS,
+                ecodes.EV_ABS: [
+                    (ecodes.ABS_BRAKE, TRIGGER),
+                    (ecodes.ABS_X, BT_STICK),
+                    (ecodes.ABS_Y, BT_STICK),
+                    (ecodes.ABS_RY, BT_STICK),
+                ],
+            },
         ],
-        ids=["no-trigger", "no-right-bumper", "keyboard"],
+        ids=[
+            "no-trigger",
+            "no-right-bumper",
+            "keyboard",
+            "no-stick",
+            "xpad-without-right-stick-y",
+            "bluetooth-without-abs-rz",
+        ],
     )
-    def test_refuses_an_input_device_without_lt_and_both_bumpers(
+    def test_refuses_an_input_device_without_lt_bumpers_and_sticks(
         self, make_device: MakeDevice, events: dict[int, Any]
     ):
         device = make_device(events)

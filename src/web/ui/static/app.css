@@ -1033,6 +1033,94 @@ h2 {
   font-size: 0.9rem;
 }
 
+/* 仮想スティック（コントローラ操作のページ）。つまみの位置は JS が --vs-x / --vs-y（-1〜1）で渡す */
+.virtual-stick {
+  max-width: 42rem;
+  margin: 0 0 0.9rem;
+}
+
+.vs-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+
+.vs-control {
+  margin: 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.vs-pad,
+.vs-z {
+  --vs-x: 0;
+  --vs-y: 0;
+  position: relative;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-2);
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+}
+
+.vs-pad {
+  width: min(16rem, 70vw);
+  aspect-ratio: 1;
+  border-radius: 50%;
+}
+
+.vs-z {
+  width: 3.5rem;
+  height: min(16rem, 70vw);
+  border-radius: 1.75rem;
+}
+
+.vs-knob {
+  position: absolute;
+  left: calc(50% + var(--vs-x) * 50%);
+  top: calc(50% - var(--vs-y) * 50%);
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: var(--shadow);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.vs-label {
+  position: absolute;
+  color: var(--quiet);
+  font-size: 0.8rem;
+  pointer-events: none;
+}
+
+.vs-label-top {
+  top: 0.3rem;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.vs-label-bottom {
+  bottom: 0.3rem;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.vs-label-left {
+  left: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.vs-label-right {
+  right: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
 .job-param-group {
   display: grid;
   gap: 0.55rem;

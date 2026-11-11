@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from tests.support.web import standalone_catalog
+from web.api.backend import Backend
 from web.api.jobs.runtime.catalog import JobCatalog
 from web.api.jobs.steps import LOADING_STAGE
 
@@ -243,3 +244,29 @@ class TestParamGroups:
             "min_area_px",
             "require_blank_zero",
         }
+
+
+class TestMotionStageMachine:
+    """XYZ を新ファームで動かす機体（[pnp.motion]）にだけ、XYZ のコントローラ操作を登録する."""
+
+    def test_only_the_motion_machine_has_gamepad_motion(
+        self, catalog: JobCatalog, motion_backend: Backend
+    ):
+        names = [definition.name for definition in motion_backend.catalog.list()]
+
+        assert names[: len(JOBS_BY_DOMAIN["pnp"]) + 1] == [
+            *JOBS_BY_DOMAIN["pnp"],
+            "gamepad_motion",
+        ]
+        assert "gamepad_motion" not in {d.name for d in catalog.list()}
+
+    def test_job_lives_in_a_file_named_after_it(self):
+        assert (JOBS_DIR / "pnp" / "gamepad_motion.py").is_file()
+
+    def test_job_flags(self, motion_backend: Backend):
+        """装置を動かし（終わると止めて完了音を鳴らす）、パネルと仮想スティックの command を受ける."""
+        definition = motion_backend.catalog.get("gamepad_motion")
+
+        assert definition.requires_pcb is False
+        assert definition.uses_machine is True
+        assert definition.accepts_commands is True

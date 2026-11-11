@@ -19,8 +19,9 @@ from pcbasm.align import AlignEvent, AlignStep, BoardFrame, measure_board_frame
 from pcbasm.board import Board, Outline
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d
-from pcbasm.hal import Camera, KlipperClient, Speed, XYZStage
+from pcbasm.hal import Camera, KlipperClient, MotionStage, Speed, XYZStage
 from pcbasm.machine.commands import COMMAND_TIMEOUT, to_gcode
+from pcbasm.machine.motion_commands import execute_motion_command
 from pcbasm.pasting.applicator import PasteApplicator
 from pcbasm.pasting.paste_volume.calibration import (
     auto_calibration_path,
@@ -142,6 +143,13 @@ def move_to(
 _NOT_MACHINE_COMMAND = frozenset({"union_tag_invalid", "union_tag_not_found"})
 
 
+def validation_reason(exc: ValidationError) -> str:
+    """WS command の検証エラーを、ジョブのログに出す 1 行にする（``場所: 理由`` をカンマで並べる）."""
+    return ", ".join(
+        f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors()
+    )
+
+
 def handle_machine_command(
     ctx: JobContext,
     klipper: KlipperClient,
@@ -158,13 +166,9 @@ def handle_machine_command(
     try:
         request = MachineCommandRequest.model_validate(command)
     except ValidationError as exc:
-        errors = exc.errors()
-        if errors[0]["type"] in _NOT_MACHINE_COMMAND:
+        if exc.errors()[0]["type"] in _NOT_MACHINE_COMMAND:
             return False
-        reason = ", ".join(
-            f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in errors
-        )
-        ctx.log(f"コマンドを実行できません: {reason}")
+        ctx.log(f"コマンドを実行できません: {validation_reason(exc)}")
         return True
     try:
         commands = to_gcode(to_command(request), stage, lambda: ctx.machine)
@@ -172,6 +176,32 @@ def handle_machine_command(
         ctx.log(f"コマンドを実行できません: {exc}")
         return True
     klipper.send_gcode(commands, timeout=COMMAND_TIMEOUT)
+    return True
+
+
+def handle_motion_command(
+    ctx: JobContext, stage: MotionStage, command: Mapping[str, Any]
+) -> bool:
+    """対話ジョブの WS command がマシン操作なら、新ファームの機体のステージで実行する（REST と同じ扱い）.
+
+    原点出しと移動は終わるまで戻らない（途中でジョブを中止しても止まらない。止めるのは緊急停止）。
+
+    Returns:
+        マシン操作なら True（形の誤りや実行できない理由は log してジョブを続ける）。
+        type がマシン操作でない command は False（log は呼び出し側の責務）。
+        ステージの失敗（MotionError）はジョブを失敗させるため握りつぶさない
+    """
+    try:
+        request = MachineCommandRequest.model_validate(command)
+    except ValidationError as exc:
+        if exc.errors()[0]["type"] in _NOT_MACHINE_COMMAND:
+            return False
+        ctx.log(f"コマンドを実行できません: {validation_reason(exc)}")
+        return True
+    try:
+        execute_motion_command(to_command(request), stage)
+    except ValueError as exc:
+        ctx.log(f"コマンドを実行できません: {exc}")
     return True
 
 

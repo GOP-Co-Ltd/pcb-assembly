@@ -9,6 +9,9 @@
     するため伝播する）
 - type がマシン操作でない command（ジョブ固有の type、type の欠落）は False を返す（log は呼び出し側の責務）
 
+新ファームの機体の handle_motion_command も同じ戻り値の契約で、命令を FakeMotionStage で実行する。
+Klipper の機体だけの命令（焦点 Z・G-code など）と原点が未の軸のジョグは log して True、ステージの失敗は伝播する。
+
 jog / move / home の実送信は Moonraker 必須のため受け入れ試験（docs/acceptance.md の
 A1、A3）でカバーする。ここではテスト用 config
 （Klipper port 7126 = 接続拒否）で戻り値契約と例外伝播のみ検証する。
@@ -24,12 +27,14 @@ from typing import Any
 
 import pytest
 
+from pcbasm.geometry import Point3d
 from pcbasm.hal import XYZStage
-from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper
+from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper, FakeMotionStage
 from pcbasm.machine.commands import COMMAND_TIMEOUT
 from pcbasm.pasting.applicator import build_applicator
 from tests.support.polling import wait_until
 from tests.support.web import ManagerFactory, register_synthetic
+from web.api.backend import Backend
 from web.api.jobs.runtime.catalog import JobCatalog, JobDefinition
 from web.api.jobs.runtime.context import JobContext
 from web.api.jobs.runtime.manager import JobManager
@@ -41,6 +46,7 @@ from web.api.jobs.steps import (
     LoadingTotals,
     Rotate,
     handle_machine_command,
+    handle_motion_command,
     loading_loop,
     parse_loading_command,
 )
@@ -191,6 +197,108 @@ class TestHandleMachineCommand:
         assert record.status == JobStatus.FAILED
         assert record.error  # 接続エラーが error に載る
         assert results == []  # True を返す前に送信例外で中断
+
+
+def _run_motion_handler_job(
+    manager: JobManager, catalog: JobCatalog, commands: list[dict[str, Any]]
+) -> tuple[JobRecord, list[bool]]:
+    """合成ジョブ内で handle_motion_command を順に呼び、戻り値列を返す."""
+    results: list[bool] = []
+
+    def run(ctx: JobContext) -> None:
+        stage = ctx.devices.motion_stage()
+        for command in commands:
+            results.append(handle_motion_command(ctx, stage, command))
+
+    register_synthetic(catalog, run, name="motion_handler")
+    record = manager.start("motion_handler", {})
+    wait_until(lambda: record.status.terminal)
+    return record, results
+
+
+class TestHandleMotionCommand:
+    """新ファームの機体の handle_motion_command（戻り値の契約は handle_machine_command と同じ）."""
+
+    @pytest.fixture
+    def catalog(self, motion_backend: Backend) -> JobCatalog:
+        return motion_backend.catalog
+
+    @pytest.mark.parametrize(
+        "command",
+        [{"type": "stick", "x": 1.0, "y": 0.0, "z": 0.0}, {"axis": "x"}],
+        ids=["job-command", "missing-type"],
+    )
+    def test_non_machine_command_returns_false(
+        self,
+        motion_manager: JobManager,
+        catalog: JobCatalog,
+        command: dict[str, Any],
+    ):
+        record, results = _run_motion_handler_job(motion_manager, catalog, [command])
+
+        assert record.status == JobStatus.SUCCEEDED
+        assert results == [False]
+        assert record.log_lines == ()
+
+    def test_runs_the_commands_in_order_on_the_stage(
+        self,
+        motion_manager: JobManager,
+        catalog: JobCatalog,
+        motion_stage: FakeMotionStage,
+    ):
+        record, results = _run_motion_handler_job(
+            motion_manager,
+            catalog,
+            [
+                {"type": "home"},
+                {"type": "move", "x": 10.0, "z": -5.0},
+                {"type": "jog", "axis": "x", "distance": 2.5},
+            ],
+        )
+
+        assert record.status == JobStatus.SUCCEEDED
+        assert results == [True, True, True]
+        assert motion_stage.status().position == Point3d(12.5, 0.0, -5.0)
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            {"type": "jog", "axis": "x", "distance": "abc"},
+            {"type": "jog", "axis": "x", "distance": 1.0},
+            {"type": "focus_z"},
+            {"type": "gcode", "gcode": "M400"},
+        ],
+        ids=["malformed", "unhomed", "focus-z", "gcode"],
+    )
+    def test_command_that_cannot_run_is_logged_and_returns_true(
+        self,
+        motion_manager: JobManager,
+        catalog: JobCatalog,
+        motion_stage: FakeMotionStage,
+        command: dict[str, Any],
+    ):
+        record, results = _run_motion_handler_job(motion_manager, catalog, [command])
+
+        assert record.status == JobStatus.SUCCEEDED
+        assert results == [True]
+        assert record.log_lines
+        assert motion_stage.commands == []
+
+    def test_stage_failure_propagates_to_job_failed(
+        self,
+        motion_manager: JobManager,
+        catalog: JobCatalog,
+        motion_stage: FakeMotionStage,
+    ):
+        motion_stage.shutdown("Command request")
+
+        record, results = _run_motion_handler_job(
+            motion_manager, catalog, [{"type": "home"}]
+        )
+
+        assert record.status == JobStatus.FAILED
+        assert record.error is not None and "shutdown" in record.error
+        assert results == []
 
 
 class TestParseLoadingCommand:

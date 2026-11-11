@@ -1,0 +1,37 @@
+{% extends "job.html" %}
+{# コントローラ操作（新ファームの機体）。ジョブを始めると、押している間だけ画面の仮想スティックで XYZ を動かせる（virtual_stick.js） #}
+{% block main %}
+{{ super() }}
+<section id="virtual-stick" class="virtual-stick" data-testid="virtual-stick" data-requires-control
+         data-job-name="{{ job_name }}">
+  <h3>仮想スティック</h3>
+  <p class="job-intro">
+    ジョブの実行中に、押して倒している間だけ動きます。離すと止まります。
+    倒し切ると各軸の最高速度です。原点出しをしていない軸は動きません。
+  </p>
+  <div class="vs-controls">
+    <figure class="vs-control">
+      <div id="vs-pad" class="vs-pad" data-testid="vs-pad">
+        <span class="vs-label vs-label-top">Y−</span>
+        <span class="vs-label vs-label-bottom">Y+</span>
+        <span class="vs-label vs-label-left">X−</span>
+        <span class="vs-label vs-label-right">X+</span>
+        <span class="vs-knob" aria-hidden="true"></span>
+      </div>
+      <figcaption>XY</figcaption>
+    </figure>
+    <figure class="vs-control">
+      <div id="vs-z" class="vs-z" data-testid="vs-z">
+        <span class="vs-label vs-label-top">Z+</span>
+        <span class="vs-label vs-label-bottom">Z−</span>
+        <span class="vs-knob" aria-hidden="true"></span>
+      </div>
+      <figcaption>Z</figcaption>
+    </figure>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+{{ super() }}
+<script src="{{ static_asset('js/pnp/virtual_stick.js') }}"></script>
+{% endblock %}

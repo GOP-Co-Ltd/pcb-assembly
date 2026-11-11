@@ -15,8 +15,11 @@ from pathlib import Path
 import pytest
 
 from pcbasm.commissioning import steps
+from pcbasm.pasting.overrides import BoardOverrides
 from tests.support.web import standalone_catalog
-from web.contract.models import Capability
+from web.api.jobs.catalog import default_catalog
+from web.api.jobs.pasting import PasteStores
+from web.contract.models import Capability, StageKind
 from web.ui import features
 from web.ui.features import (
     FEATURES,
@@ -100,13 +103,16 @@ class TestMachineCapabilities:
 
     def test_solder_machine_tabs_open_the_same_pages_as_before(self):
         """はんだ塗布機のタブとリンク先は、機能で分ける前と同じ."""
-        assert machine_tabs(SOLDER) == {
+        assert machine_tabs(SOLDER, "klipper") == {
             "pasting": "塗布",
             "calibration": "校正",
             "board": "基板",
             "machine": "機体",
         }
-        assert [tab_features(tab, SOLDER)[0].slug for tab in machine_tabs(SOLDER)] == [
+        assert [
+            tab_features(tab, SOLDER, "klipper")[0].slug
+            for tab in machine_tabs(SOLDER, "klipper")
+        ] == [
             "paste_solder",
             "commissioning",
             "paste_test_board",
@@ -115,13 +121,16 @@ class TestMachineCapabilities:
 
     def test_pnp_machine_tabs(self):
         """部品実装だけの機体には塗布タブが無く、部品実装タブが先頭になる."""
-        assert machine_tabs(PNP) == {
+        assert machine_tabs(PNP, "klipper") == {
             "pnp": "部品実装",
             "calibration": "校正",
             "board": "基板",
             "machine": "機体",
         }
-        assert [tab_features(tab, PNP)[0].slug for tab in machine_tabs(PNP)] == [
+        assert [
+            tab_features(tab, PNP, "klipper")[0].slug
+            for tab in machine_tabs(PNP, "klipper")
+        ] == [
             "placement",
             "commissioning",
             "generate_grid_pcb",
@@ -129,7 +138,7 @@ class TestMachineCapabilities:
         ]
 
     def test_a_machine_with_both_has_every_tab(self):
-        assert machine_tabs(("solder", "pnp")) == TABS
+        assert machine_tabs(("solder", "pnp"), "klipper") == TABS
 
     @pytest.mark.parametrize(
         ("capabilities", "page"),
@@ -142,10 +151,12 @@ class TestMachineCapabilities:
     )
     def test_landing(self, capabilities: tuple[Capability, ...], page: str):
         """塗布機は日常の塗布、部品実装だけの機体は部品実装のページに着く."""
-        assert landing(capabilities) == page
+        assert landing(capabilities, "klipper") == page
 
     def test_pnp_machine_has_no_solder_page(self):
-        pages = {feature.slug for feature in FEATURES if feature.is_available(PNP)}
+        pages = {
+            feature.slug for feature in FEATURES if feature.is_available(PNP, "klipper")
+        }
 
         assert {"paste_solder", "nozzle_cap", "paste_test_board"}.isdisjoint(pages)
         assert {"camera_calibration", "machine_check", "machine_config"} <= pages
@@ -154,9 +165,11 @@ class TestMachineCapabilities:
         """はんだ塗布機のサイドバーの見出し。表の順に、最初に出た位置へまとめる."""
         groups = {
             tab: list(
-                dict.fromkeys(feature.group for feature in tab_features(tab, SOLDER))
+                dict.fromkeys(
+                    feature.group for feature in tab_features(tab, SOLDER, "klipper")
+                )
             )
-            for tab in machine_tabs(SOLDER)
+            for tab in machine_tabs(SOLDER, "klipper")
         }
 
         assert groups == {
@@ -187,8 +200,41 @@ class TestCatalogConsistency:
         assert {
             feature.slug
             for feature in FEATURES
-            if feature.is_job and feature.is_available(capabilities)
+            if feature.is_job and feature.is_available(capabilities, "klipper")
         } == jobs
+
+
+class TestMotionStage:
+    """XYZ を新ファームで動かす機体（machine-info の ``stage`` が "motion"）にだけ出すページ."""
+
+    def test_gamepad_motion_is_only_on_the_motion_machine(self):
+        def pnp_tab(stage: StageKind) -> list[str]:
+            return [feature.slug for feature in tab_features("pnp", PNP, stage)]
+
+        assert pnp_tab("motion") == ["placement", "gamepad_control", "gamepad_motion"]
+        assert pnp_tab("klipper") == ["placement", "gamepad_control"]
+
+    def test_motion_machine_lands_on_the_placement_page(self):
+        assert landing(PNP, "motion") == "placement"
+
+    def test_job_pages_are_exactly_the_public_jobs(self, tmp_path: Path):
+        """新ファームの機体でも、backend が公開する全ジョブにページがあり、ジョブのページには backend のジョブがある."""
+        catalog = default_catalog(
+            PNP,
+            PasteStores(
+                overrides=BoardOverrides(tmp_path),
+                paste_dataset_dir=tmp_path / "paste-dataset",
+                paste_volume_calibration_dir=tmp_path / "paste-volume-calibrations",
+            ),
+            tmp_path / "machine_check.json",
+            motion_stage=True,
+        )
+
+        assert {
+            feature.slug
+            for feature in FEATURES
+            if feature.is_job and feature.is_available(PNP, "motion")
+        } == {definition.name for definition in catalog.list()}
 
 
 class TestCommissioningSteps:
@@ -198,7 +244,9 @@ class TestCommissioningSteps:
     def test_every_step_has_a_page(self, capabilities: tuple[Capability, ...]):
         """チェックリストの各段は、その機体にある、その段を行うページへリンクする."""
         pages = {
-            feature.slug for feature in FEATURES if feature.is_available(capabilities)
+            feature.slug
+            for feature in FEATURES
+            if feature.is_available(capabilities, "klipper")
         }
 
         assert {step.name for step in steps(capabilities)} <= pages

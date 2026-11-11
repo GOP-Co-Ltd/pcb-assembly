@@ -6,7 +6,8 @@
 タブとグループは表示上のまとまりで、この表だけが持つ（backend は知らない）。
 
 機能のページには、それを使える機体の機能（``capability``）を書く（None はどの機体にもある）。
-機体のタブ・サイドバー・着地点は、backend が ``GET /api/session/machine-info`` で申告する機能で絞る。
+XYZ を動かす仕組みで分かれるページには ``stage`` も書く（None はどちらの機体にもある）。
+機体のタブ・サイドバー・着地点は、backend が ``GET /api/session/machine-info`` で申告する機能と stage で絞る。
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from collections.abc import Collection
 
 import attrs
 
-from web.contract.models import Capability
+from web.contract.models import Capability, StageKind
 from web.ui.models import UPDATE_INDEX_PATH
 
 
@@ -32,15 +33,21 @@ class Feature:
     label: str | None = None
     # このページを使える機体の機能（None はどの機体にもある）
     capability: Capability | None = None
+    # このページを使える、XYZ を動かす仕組み（None はどちらの機体にもある）
+    stage: StageKind | None = None
 
     @property
     def is_job(self) -> bool:
         """ジョブのページか（表示名・フォーム・プレビューの有無を backend のジョブ定義から取る）."""
         return self.label is None
 
-    def is_available(self, capabilities: Collection[Capability]) -> bool:
-        """機能 ``capabilities`` の機体にこのページがあるか."""
-        return self.capability is None or self.capability in capabilities
+    def is_available(
+        self, capabilities: Collection[Capability], stage: StageKind
+    ) -> bool:
+        """機能 ``capabilities`` で、XYZ を ``stage`` で動かす機体にこのページがあるか."""
+        return (self.capability is None or self.capability in capabilities) and (
+            self.stage is None or self.stage == stage
+        )
 
 
 # タブ slug → 表示名（作業の頻度順。タブのリンクは、そのタブの先頭の機能を開く）
@@ -82,6 +89,14 @@ FEATURES: tuple[Feature, ...] = (
         capability="pnp",
     ),
     Feature("gamepad_control", "pnp", "コントローラ操作", "job.html", capability="pnp"),
+    Feature(
+        "gamepad_motion",
+        "pnp",
+        "コントローラ操作",
+        "pnp/gamepad_motion.html",
+        capability="pnp",
+        stage="motion",
+    ),
     # 校正タブの入口（タブのリンク先）。段の表は pcbasm.commissioning が持つ
     Feature(
         "commissioning",
@@ -220,26 +235,39 @@ LEGACY: dict[str, str] = {
 }
 
 
-def tab_features(tab: str, capabilities: Collection[Capability]) -> tuple[Feature, ...]:
-    """機能 ``capabilities`` の機体にあるタブの機能を、表の順に返す（先頭がタブのリンク先）."""
+def tab_features(
+    tab: str, capabilities: Collection[Capability], stage: StageKind
+) -> tuple[Feature, ...]:
+    """機体にある、タブの機能を表の順に返す（先頭がタブのリンク先）.
+
+    機体は、機能 ``capabilities`` を持ち、XYZ を ``stage`` で動かす。
+    """
     return tuple(
         feature
         for feature in FEATURES
-        if feature.tab == tab and feature.is_available(capabilities)
+        if feature.tab == tab and feature.is_available(capabilities, stage)
     )
 
 
-def machine_tabs(capabilities: Collection[Capability]) -> dict[str, str]:
-    """機能 ``capabilities`` の機体に出すタブ（slug → 表示名。機能のページが 1 つも無いタブは出さない）."""
+def machine_tabs(
+    capabilities: Collection[Capability], stage: StageKind
+) -> dict[str, str]:
+    """機体に出すタブを返す（slug → 表示名）.
+
+    機体は、機能 ``capabilities`` を持ち、XYZ を ``stage`` で動かす。
+    機能のページが 1 つも無いタブは出さない。
+    """
     return {
-        tab: label for tab, label in TABS.items() if tab_features(tab, capabilities)
+        tab: label
+        for tab, label in TABS.items()
+        if tab_features(tab, capabilities, stage)
     }
 
 
-def landing(capabilities: Collection[Capability]) -> str:
+def landing(capabilities: Collection[Capability], stage: StageKind) -> str:
     """機体のページの着地点（`/` と `/m/{machine_id}` から飛ぶ。最初のタブの先頭の機能）.
 
     塗布機なら塗布（paste_solder）、部品実装だけの機体なら部品実装のページになる。
     """
-    tab = next(iter(machine_tabs(capabilities)))
-    return tab_features(tab, capabilities)[0].slug
+    tab = next(iter(machine_tabs(capabilities, stage)))
+    return tab_features(tab, capabilities, stage)[0].slug
