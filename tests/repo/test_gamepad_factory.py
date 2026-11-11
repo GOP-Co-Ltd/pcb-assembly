@@ -8,8 +8,7 @@ import ast
 from pathlib import Path
 
 from pcbasm.paths import PROJECT_ROOT
-
-SRC_DIR = PROJECT_ROOT / "src"
+from tests.support.paths import python_sources
 
 
 def constructions(path: Path, names: set[str]) -> list[str]:
@@ -45,7 +44,7 @@ class TestGamepadFactory:
         # 公開の生成口は open_gamepad 1 つ。_gamepad はその中だけで使う補助関数
         sites = sorted(
             (str(path.relative_to(PROJECT_ROOT)), scope)
-            for path in sorted(SRC_DIR.rglob("*.py"))
+            for path in python_sources()
             for scope in constructions(path, {"EvdevGamepad", "InputDevice"})
         )
 
@@ -60,7 +59,7 @@ class TestGamepadFactory:
         callers = sorted(
             {
                 str(path.relative_to(PROJECT_ROOT))
-                for path in sorted(SRC_DIR.rglob("*.py"))
+                for path in python_sources()
                 if path.name != "gamepad.py" and constructions(path, {"open_gamepad"})
             }
         )
@@ -71,7 +70,7 @@ class TestGamepadFactory:
         # from-import は import 時点で実物に束縛され、テストの差し替えを迂回する
         importers = [
             str(path.relative_to(PROJECT_ROOT))
-            for path in sorted(SRC_DIR.rglob("*.py"))
+            for path in python_sources()
             if imports_open_gamepad(path)
         ]
 

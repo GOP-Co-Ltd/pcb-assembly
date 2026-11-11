@@ -63,6 +63,7 @@ web
 | `src/web/selfupdate/`               | backend / frontend 共通の Git 更新とサービス再起動手順                                                                                     |
 | `src/web/contract/`                 | backend・frontend・自己更新が共有する応答モデルとワイヤ定数                                                                                |
 | `src/web/process.py`                | backend / frontend 共通の env 読み取りと logging の初期化                                                                                  |
+| `src/firmware/pnp-motion/`          | PnP 機の XYZ を速度指令で動かす Klipper の MCU ファーム（C、GPLv3。[README](../../src/firmware/pnp-motion/README.md)）                     |
 | `install.sh`、`deploy/`             | ホストの導入（段ごとに冪等）と、unit・sudoers・機種のテンプレート・firmware の雛形                                                         |
 
 パッケージの中の構成は、各パッケージの README にある（[align](../../src/pcbasm/align/README.md)、[geometry](../../src/pcbasm/geometry/README.md)、[hal](../../src/pcbasm/hal/README.md)、[machine](../../src/pcbasm/machine/README.md)、[pasting](../../src/pcbasm/pasting/README.md)、[pnp](../../src/pcbasm/pnp/README.md)、[vision](../../src/pcbasm/vision/README.md)）。
@@ -101,7 +102,7 @@ PnP の中身は、塗布と同じ形で次の場所に足す。
 3. `src/web/api/jobs/pnp/` にジョブを置き、`default_catalog` の `if "pnp" in capabilities:` の下で登録する。API の router も `app.py` で同じ条件で置く
 4. `src/web/ui/features.py` の「部品実装」タブ（`pnp`）にページを `capability="pnp"` で足し、準備中のページ（`placement`）を置き換える
 5. 立ち上げの段を `pcbasm.commissioning` の `CAPABILITY_STEPS["pnp"]` に足し、[立ち上げ](../commissioning.md) の表にも足す
-6. 部品実装機の雛形 `deploy/templates/usaremino_pnp/` の `machine.toml` と `printer.cfg` に、PnP のハードウェアの設定を足す
+6. 部品実装機の雛形 `deploy/templates/kurousagi/` の `machine.toml` と `printer.cfg` に、PnP のハードウェアの設定を足す
 
 ## 機能 → コードの地図
 

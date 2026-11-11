@@ -1,4 +1,6 @@
-"""テストが読む入力ファイルの場所（tests/data）."""
+"""テストが読む入力ファイル（tests/data）と、走査するソースの場所."""
+
+from pathlib import Path
 
 from pcbasm.paths import PROJECT_ROOT
 
@@ -28,3 +30,15 @@ PASTE_VOLUME_CALIBRATION = (
 PASTE_DATASET_METADATA = TEST_DATA_DIR / "schemas" / "paste_dataset_metadata_v3.json"
 # 同じ収集の、計量質量が未確定の metadata（pending schema v1 の実物）
 PASTE_DATASET_PENDING = TEST_DATA_DIR / "schemas" / "paste_dataset_pending_v1.json"
+
+
+def python_sources() -> list[Path]:
+    """パッケージの Python のソース（src/ の下、名前順）.
+
+    src/firmware（ファームと、submodule の upstream の Klipper）は層にも import
+    の規則にも入らないので除く。
+    """
+    src = PROJECT_ROOT / "src"
+    return sorted(
+        path for path in src.rglob("*.py") if not path.is_relative_to(src / "firmware")
+    )

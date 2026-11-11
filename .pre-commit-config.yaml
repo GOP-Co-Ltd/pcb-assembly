@@ -14,6 +14,8 @@ repos:
     rev: v5.0.0
     hooks:
       - id: trailing-whitespace
+        # patch の文脈行の行末空白は差分の一部なので削らない
+        exclude: \.patch$
       - id: end-of-file-fixer
       - id: check-docstring-first
       - id: check-yaml

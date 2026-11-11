@@ -3,7 +3,7 @@
 部品実装（`[pnp]`）の機体の、運動制御の設計案。
 XYZ ステージを動かすファームウェアと、ピンセットのサーボ、強化学習（RL）の置き場所を扱う。
 
-状態は**提案**で、実装には着手していない。
+ファーム（方式 C1）は `src/firmware/pnp-motion/` に実装した。実機での確認と、Pi 側（pcbasm）のクライアントはこれから。
 XYZ は、Klipper の MCU ファームに速度指令のモジュールを足したもの（[方式 C1](#%E6%96%B9%E5%BC%8F%E3%81%AE%E6%AF%94%E8%BC%83)）で動かす方針とする。
 言語は C とし、Zig は見送る（[言語](#%E8%A8%80%E8%AA%9E%E3%81%AE%E9%81%B8%E6%8A%9E)）。
 
@@ -15,7 +15,7 @@ XYZ は、Klipper の MCU ファームに速度指令のモジュールを足し
 | 項目       | 構成                                                                        |
 | ---------- | --------------------------------------------------------------------------- |
 | 自由度     | 4+1。XYZ と、ピンセットの回転（θ）で 4 軸、ピンセットの開閉で 1             |
-| XYZ        | stepper。台形ネジ（1.5 mm/rev）の直動。いまは Klipper で駆動する            |
+| XYZ        | stepper。X・Y は inversed corexy、Z は直動。いまは Klipper で駆動する       |
 | MCU        | BTT SKR Pico（RP2040、TMC2209 × 4）。塗布機と同じボード                     |
 | θ・開閉    | Feetech STS3032 を 1 台ずつ。FEETECH URT-2 経由の UART で Raspberry Pi へ   |
 | 接触の検知 | ロードセル（HX711、80 SPS）。いまは Klipper の `[load_cell_probe]`          |
@@ -40,12 +40,12 @@ R1 と R2 は、RL のポリシーが何を出しても機体を壊さないた�
 
 次の値は未決定。表の「仮置き」は議論の出発点で、段階 1 の実測の前にユーザーと決める。
 
-| 項目                       | 仮置き                         | 決め方                                         |
-| -------------------------- | ------------------------------ | ---------------------------------------------- |
-| 制御周期（指令・観測）     | 50 Hz                          | RL のポリシーの推論時間とカメラの fps で決める |
-| 指令から動き出すまでの遅延 | 40 ms 以下で、ばらつきが小さい | 学習時と実機のずれが出ない範囲                 |
-| 接触から停止までの時間     | 20 ms 以下                     | 部品と基板を傷めない押し込み量から逆算         |
-| 最大速度                   | 10 mm/s（今の `max_velocity`） | 機構で決まる                                   |
+| 項目                       | 仮置き                          | 決め方                                         |
+| -------------------------- | ------------------------------- | ---------------------------------------------- |
+| 制御周期（指令・観測）     | 50 Hz                           | RL のポリシーの推論時間とカメラの fps で決める |
+| 指令から動き出すまでの遅延 | 40 ms 以下で、ばらつきが小さい  | 学習時と実機のずれが出ない範囲                 |
+| 接触から停止までの時間     | 20 ms 以下                      | 部品と基板を傷めない押し込み量から逆算         |
+| 最大速度                   | 100 mm/s（今の `max_velocity`） | 機構で決まる                                   |
 
 ## Klipper のどこが要件に合わないか
 
@@ -78,8 +78,8 @@ MCU 側には、止める仕組みが汎用の部品として揃っている。
 足りないのは、**速度指令から MCU の中でステップを作る部分**だけである。
 いまは Pi が時刻つきのステップ列（`queue_step`）を送り、MCU はそれをなぞる。
 
-ステップの速度は足りる。最大 10 mm/s、`microsteps: 64`、1.5 mm/rev では 1 軸あたり約 85k steps/s、
-3 軸で約 256k steps/s。Klipper のベンチマークでは RP2040 は 3 軸で約 850k steps/s 出る。
+ステップの速度は足りる。kurousagi（`microsteps: 64`、32 mm/rev で 400 steps/mm）の最大 100 mm/s では 1 軸あたり 40k steps/s。
+corexy で X と Y を同時に動かすとモーター 1 つが最大 80k steps/s になり、3 モーターで約 200k steps/s。Klipper のベンチマークでは RP2040 は 3 軸で約 850k steps/s 出る。
 PIO は使わない。
 
 ## 方式の比較
@@ -127,39 +127,47 @@ Zig へ移るかは、C1 を作ったあと、Klipper から離れたくなっ�
 
 ### 構成
 
-Klipper の MCU ファームに、速度指令のモジュール（仮称 `velocity_stream`）を足す。
-Klipper 本体への変更は、ビルドへの登録と、`stepper.c` に内部向けの関数を 1 つ足す程度にとどめる。
+Klipper の MCU ファームに、速度指令のモジュール `velocity_stream` を足す。
+Klipper 本体への変更は、ビルドへの登録と、`stepper.c` の既存のコマンドの本体を関数として公開する
+patch（`stepper_oid_lookup`・`stepper_queue_move`・`stepper_set_next_dir`・`stepper_reset_clock`・`stepper_position`）にとどめる。
+コマンドの一覧とホストが守る前提は `src/firmware/pnp-motion/README.md` にある。
 
-- **`velocity_stream`:** 一定周期（例: 1 kHz）のタイマで、各軸の目標速度へ加速度の制限つきで近づける。
-    数 ms 分ずつのステップ区間（`interval`・`count`・`add`）を作り、`stepper.c` のキューへ直接積む。
+- **`velocity_stream`:** 一定周期（例: 2 ms）のタイマで task を起こし、各軸の目標速度へ加速度の制限つきで近づける。
+    区間ごとのステップを `queue_step` と同じ形（先頭 1 歩と、`interval`・`interval + 1` の 2 段）で `stepper.c` のキューへ直接積む。
     stepper のキューを経由するので、`trsync` による停止と位置の数え方は Klipper のものがそのまま効く
+- **kinematics:** 速度・可動域・可動域の手前の制動は、直交座標の X・Y・Z で計算する。
+    計算した位置を、設定時に受け取る kinematics（cartesian・corexy・inversed_corexy）でモーターの位置へ写し、
+    モーターごとにステップにする。corexy では、モーターごとの可動域では機体の矩形を守れないため
 - **接触停止:** HX711 → `trigger_analog` → `trsync` → `stepper_stop`。`velocity_stream` も同じ `trsync` に
     シグナルを登録し、トリガで目標速度を 0 に戻す。止め方は homing と同じで、減速を挟まない
-    （台形ネジで最大 10 mm/s と遅いので、即時に止めてよい）
+    （接触を探るときは遅く動かすので、即時に止めてよい）
 - **原点出し:** Klippy と同じく、Pi が `endstop`・`trsync`・`queue_step` で行う。遅延の要件がないので、MCU 側に新しく書かない
 
 ### 状態
 
-| 状態      | 意味                                     | 受け付ける指令                       |
-| --------- | ---------------------------------------- | ------------------------------------ |
-| `IDLE`    | 停止中                                   | すべて                               |
-| `HOMING`  | 原点出し中                               | 停止                                 |
-| `STREAM`  | 速度指令に追従中（R1）                   | 速度指令、停止                       |
-| `MOVE`    | 目標位置への移動中（位置合わせ・搬送用） | 停止                                 |
-| `CONTACT` | 接触で止まった（R2）。エラーではない     | 接触から離れる向きの指令、明示の解除 |
-| `FAULT`   | Klipper の shutdown                      | `FIRMWARE_RESTART` 相当の再起動      |
+| 状態       | 意味                                                    | 受け付ける指令                       |
+| ---------- | ------------------------------------------------------- | ------------------------------------ |
+| `IDLE`     | 停止中                                                  | 設定、位置の設定、開始               |
+| `STREAM`   | 速度指令に追従中（R1）                                  | 速度指令、停止                       |
+| `STOPPING` | 目標 0 で減速し、積んだステップが出尽くすのを待っている | （出尽くすと `IDLE`）                |
+| `CONTACT`  | 接触で止まった（R2）。エラーではない                    | 設定、位置の設定、開始（明示の再開） |
+| `FAULT`    | Klipper の shutdown                                     | `FIRMWARE_RESTART` 相当の再起動      |
 
-`CONTACT` は停止した位置と荷重を報告し、ホストはそこから運転を続けられる。
+`CONTACT` は停止した位置を報告し、ホストはそこから運転を続けられる（荷重は Klipper の HX711 の報告で読む）。
+どちらへ離れるかは MCU には分からないので、`CONTACT` のあとの速度指令は無視し、ホストが向きを決めて開始し直す。
 `FAULT` は Klipper の shutdown をそのまま使う。
+原点出しと目標位置への移動は、今のファームでは MCU の状態に持たない（原点出しは Pi が行い、位置への移動は Pi 側を作るときに決める）。
 
 ### 通信
 
 Klipper のプロトコル（`docs/Protocol.md`）をそのまま使い、コマンドを足す。
 
-- **指令:** 速度指令（各軸の速度と有効期限）、位置指令（台形の加減速つき）、停止、`CONTACT` の解除、
-    可動域・速度上限・加速度・接触しきい値の設定
-- **テレメトリ:** 制御周期ごとに、位置（ステップ数）・速度・荷重・状態・最後に処理した指令の連番を返す。
-    RL の観測と、遅延の監視に使う
+- **指令:** 速度指令（各軸の速度と有効期限）、開始（`CONTACT` からの再開を兼ねる）、停止、
+    可動域・速度上限・加速度・位置の設定。接触しきい値は Klipper の `trigger_analog` の既存のコマンドで設定する。
+    位置指令（台形の加減速つき）は、Pi 側を作るときに足すかを決める
+- **テレメトリ:** 制御周期ごとに、位置（ステップ数）・速度・状態・最後に受け取った指令の連番を返す。
+    RL の観測と、遅延の監視に使う。位置は報告時刻の stepper の位置、速度は先読みの分だけ先の計画の速度
+    （揃え方は Pi 側を作るときに決める）。荷重は Klipper の HX711 の報告で別に読む
 
 ### 安全
 
@@ -199,16 +207,19 @@ src/firmware/pnp-motion/
   module/           Klipper とつなぐ部分（velocity_stream.c。DECL_COMMAND、タイマ、trsync）
   patches/          Klipper 本体への小さな patch（ビルドへの登録、stepper.c の関数）
   skr-pico.config   Klipper の .config（menuconfig の結果）
-  build.sh          Klipper を取得して patch を当て、module を写して .uf2 を作る
+  klipper/          upstream の Klipper（git submodule。commit を固定する。書き換えない）
+  build.sh          klipper/ を build/ へ書き出して patch を当て、module を写して .uf2 を作る
+  build/            ビルドの出力（Git で追跡しない）
 ```
 
-- **Klipper は submodule にしない。** `build.sh` が upstream の Klipper を、固定した commit でビルド用のディレクトリ
-    （バージョン管理の外）へ取得する。理由は 2 つある
-    - 機体の自己更新（`web.selfupdate`）は `fetch` → `merge --ff-only` で進み、submodule を更新しない。
-        submodule にすると、自己更新のあとに Klipper の中身が古いまま残る
-    - Klipper のソースが要るのはファームをビルドするときだけで、塗布機を含むすべての機体に持たせる必要はない
-- **Python のツールの対象から外す。** ビルド用のディレクトリを `src/` の下に置くなら、Klipper の `*.py` と `README.md` が、
-    `src` を走査するテスト（`tests/repo`）、pyright、ruff の対象に入る。これらの除外にファームのディレクトリを足す
+- **Klipper は submodule で固定する。** どの Klipper を元にしたかを、リポジトリの履歴として持つ
+    - `build.sh` は submodule を書き換えない。記録された commit を `build/` へ書き出し、そこへ patch を当ててビルドする
+    - 機体の自己更新（`web.selfupdate`）は `fetch` → `merge --ff-only` で進み、submodule を動かさない。
+        そのため `.gitmodules` に `ignore = all` を置き、submodule の版の違いを未コミットの変更と数えない（自己更新を止めない）。
+        `build.sh` はビルドのたびに `git submodule update --init` で記録された commit に揃える
+    - submodule は既定では取得しない。Klipper のソースが要るのはファームをビルドする機体だけで、`build.sh` が初めて取得する
+- **Python のツールの対象から外す。** Klipper の `*.py` と `README.md` は、pyright・ruff の除外（`pyproject.toml`）と、
+    `src` を走査するテスト（`tests/repo`、`tests/test_architecture.py`）の除外で、はっきり外す
 - **`src/` の規約はファームにも効く。** pre-commit の `no-plan-references` は `src/` の下のテキストを検査する
 - Klipper を fork したリポジトリを別に持つより、upstream の commit を固定して差分を patch で持つ方が、
     差分の大きさが一目で分かり、upstream に追従しやすい
@@ -216,8 +227,9 @@ src/firmware/pnp-motion/
 
 ## ビルドとデプロイ
 
-- **ビルド:** CI で `core/` のテストと `.uf2` のビルドを流す。Pi の上でも `build.sh` でビルドできる
-- **配布:** `.uf2` はリポジトリに置かない。塗布機の Klipper ファーム（`deploy/hardware.sh`）と同じく、導入時に Pi でビルドする
+- **ビルド:** CI では `core/` のテストを流す（`tests/firmware/`）。`.uf2` は Pi の上で `build.sh` でビルドする
+- **配布:** `.uf2` はリポジトリに置かない。塗布機の Klipper ファームと同じく、導入時に Pi でビルドして書き込む
+    （`./install.sh firmware pnp-motion`。中身は `deploy/firmware.sh`）
 - **書き込み:** 初回だけ、今の手順（BOOT ジャンパ）で書く。以降は 1200 baud で bootloader に入れ、
     Klipper の `rp2040_flash` で書き換える。WebUI のジョブにできる
 - **版の確認:** 接続時に、ファームの版（git hash とプロトコルの版）を確かめる。pcbasm と合わなければ動かさず、書き込みのジョブへ案内する
@@ -226,15 +238,13 @@ src/firmware/pnp-motion/
 
 PnP 機には Klippy、Moonraker、Mainsail を入れない。`install.sh` で機種ごとに分ける。塗布機は今のまま変えない。
 
-`deploy/templates/usaremino_pnp/printer.cfg` から引き継ぐもの:
+部品実装機の雛形 `deploy/templates/kurousagi/printer.cfg` から引き継ぐもの:
 
-- X・Y・Z のピン、`microsteps: 64`、`rotation_distance: 1.5`、可動域
-- TMC2209 の設定（片線 UART gpio8/9、アドレス 0〜2、`run_current: 0.54`、stealthChop）
-- 原点出し: X と Y は StallGuard（diag は gpio4/3）、Z は正方向のリミットスイッチ。順序は Z → X → Y
+- kinematics（`inversed_corexy`）、X・Y・Z のピン、`microsteps: 64`、`rotation_distance: 32`、可動域
+- TMC2209 の設定（片線 UART gpio8/9、アドレス X 0・Y 2・Z 1、`run_current: 0.4`、stealthChop）
+- 原点出し: X・Y・Z ともリミットスイッチ（gpio4/3/25）。Z は正方向。順序は Z → X → Y
 - HX711（gpio0/1、80 SPS）と、風袋引き・校正
 - `led_light`（gpio17）
-
-`paste_dispenser` と `air_pump` は、塗布機の設定を写したときの名残で、ピンセット式では引き継がない。
 
 ## Pi 側（pcbasm）の構成
 

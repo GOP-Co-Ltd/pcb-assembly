@@ -14,6 +14,8 @@ from pcbasm.paths import PROJECT_ROOT
 from tests.support.config_reference import render
 from web.ui.features import FEATURES
 
+_FIRMWARE = PROJECT_ROOT / "src" / "firmware" / "pnp-motion"
+
 DOCS = sorted(
     [
         PROJECT_ROOT / "README.md",
@@ -22,7 +24,13 @@ DOCS = sorted(
         PROJECT_ROOT / "github-runner" / "README.md",
         *(PROJECT_ROOT / "data").glob("*/README.md"),
         *(PROJECT_ROOT / "docs").rglob("*.md"),
-        *(PROJECT_ROOT / "src").rglob("README.md"),
+        *(
+            path
+            for path in (PROJECT_ROOT / "src").rglob("README.md")
+            # upstream の Klipper（submodule）と、ビルドが書き出したその複製の文書は対象外
+            if not path.is_relative_to(_FIRMWARE / "klipper")
+            and not path.is_relative_to(_FIRMWARE / "build")
+        ),
         *(PROJECT_ROOT / "deploy").rglob("README.md"),
     ]
 )

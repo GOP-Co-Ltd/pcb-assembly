@@ -9,8 +9,7 @@ import ast
 from pathlib import Path
 
 from pcbasm.paths import PROJECT_ROOT
-
-SRC_DIR = PROJECT_ROOT / "src"
+from tests.support.paths import python_sources
 
 
 def constructions(path: Path, names: set[str]) -> list[str]:
@@ -44,7 +43,7 @@ def imports_open_servo_bus(path: Path) -> bool:
 def _sites(names: set[str]) -> list[tuple[str, str]]:
     return [
         (str(path.relative_to(PROJECT_ROOT)), scope)
-        for path in sorted(SRC_DIR.rglob("*.py"))
+        for path in python_sources()
         for scope in constructions(path, names)
     ]
 
@@ -65,7 +64,7 @@ class TestServoFactory:
         # from-import は import 時点で実物に束縛され、テストの差し替えを迂回する
         importers = [
             str(path.relative_to(PROJECT_ROOT))
-            for path in sorted(SRC_DIR.rglob("*.py"))
+            for path in python_sources()
             if imports_open_servo_bus(path)
         ]
 

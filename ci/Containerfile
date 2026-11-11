@@ -7,6 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # picamera2 と chromium は runner の host（Raspberry Pi OS）と同じく Raspberry Pi の apt repository から入れる。
 # 鍵は host と同じ raspberrypi-archive-keyring の .deb を hash を確かめて入れる
 # （raspberrypi.gpg.key の鍵は SHA1 の署名で、trixie の apt が受け付けない）。
+# gcc と libc6-dev は src/firmware/pnp-motion の core の C のテスト（UBSan つき）をビルドするため。
 # fonts-ipafont-gothic は E2E で日本語の UI を描くため。無いと文字幅が host と変わり、クリック位置がずれるテストがある
 ARG RPI_KEYRING_DEB=raspberrypi-archive-keyring_2025.1+rpt1_all.deb
 ARG RPI_KEYRING_SHA256=2e727149d7acb8cc7f604e66d0049161039c8aa1eaf1175e54f9e69d963d60e4
@@ -27,8 +28,10 @@ RUN apt-get update \
     && apt-get update \
     && apt-get install --yes \
         chromium \
+        gcc \
         git \
         git-lfs \
+        libc6-dev \
         libgl1 \
         libglib2.0-0t64 \
         make \

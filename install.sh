@@ -7,7 +7,7 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="${PROJECT_ROOT}/deploy"
 UV_VERSION="0.12.5"
-MACHINE_STAGES=(preflight packages python klipper hardware machine services)
+MACHINE_STAGES=(preflight packages python klipper hardware firmware machine services)
 UI_ONLY_STAGES=(preflight packages python services)
 BASE_PACKAGES=(curl make git git-lfs)
 MACHINE_PACKAGES=(alsa-utils v4l-utils kicad python3-picamera2 python3-evdev)
@@ -34,7 +34,9 @@ Usage: $(basename "$0") [--ui-only] [<段> [引数]]
   packages           apt のパッケージと Git LFS の実体
   python             版を固定した uv と venv（無ければ make setup、あれば uv sync で同期だけ）
   klipper            KIAUH で Klipper を入れ（導入済みなら飛ばす）、独自 kinematics を symlink する
-  hardware           boot overlay（カメラ・スピーカー）と MCU firmware（deploy/hardware.sh）
+  hardware           boot overlay（カメラ・スピーカー）（deploy/hardware.sh）
+  firmware [種類]    MCU firmware をビルドして BTT SKR Pico に書き込む（deploy/firmware.sh）。
+                     種類は klipper（はんだ塗布機）か pnp-motion（部品実装機）。省くと選ぶ（スキップもできる）
   machine            deploy/templates/ から config/machine.toml と printer.cfg を置く
   services [対象] [restart]
                      systemd unit（api / ui / all。既定 all）と更新用 sudoers を設置して起動する。
@@ -137,6 +139,12 @@ stage_klipper() {
 
 stage_hardware() {
     "${DEPLOY_DIR}/hardware.sh"
+}
+
+# --- firmware ---
+
+stage_firmware() {
+    "${DEPLOY_DIR}/firmware.sh" "$@"
 }
 
 # --- machine ---
@@ -361,7 +369,7 @@ main() {
             fi
             echo "導入が完了しました。boot 設定を変えたときは sudo reboot で反映します。"
             ;;
-        preflight | packages | python | klipper | hardware | machine | services | render)
+        preflight | packages | python | klipper | hardware | firmware | machine | services | render)
             stage="$1"
             shift
             "stage_${stage}" "$@"

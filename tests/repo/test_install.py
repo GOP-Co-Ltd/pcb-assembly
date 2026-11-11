@@ -21,6 +21,7 @@ from pcbasm.paths import PROJECT_ROOT
 from web.selfupdate.settings import UpdateSettings
 
 INSTALL = PROJECT_ROOT / "install.sh"
+FIRMWARE = PROJECT_ROOT / "deploy" / "firmware.sh"
 TEMPLATES = PROJECT_ROOT / "deploy" / "templates"
 
 UNIT = """\
@@ -322,6 +323,57 @@ class TestKlipper:
         assert link.readlink() == PROJECT_ROOT / "klipper" / "inversed_corexy.py"
 
 
+class TestFirmware:
+    """`install.sh firmware [klipper|pnp-motion]`: MCU firmware を選んで書き込む.
+
+    ビルドと書き込みは実機の作業なので、選んだ firmware のビルドへ進むところまでを確かめる。
+    """
+
+    def test_unknown_firmware_fails(self, tmp_path: Path):
+        result = run(INSTALL, "firmware", "marlin", env={"HOME": str(tmp_path)})
+
+        assert result.returncode != 0
+        assert "marlin" in result.stderr
+        assert "klipper" in result.stderr and "pnp-motion" in result.stderr
+
+    def test_skip_writes_nothing(self, tmp_path: Path):
+        result = run(INSTALL, "firmware", env={"HOME": str(tmp_path)}, stdin="3\n")
+
+        assert result.returncode == 0, result.stderr
+        assert "スキップ" in result.stdout
+
+    @pytest.mark.parametrize(
+        ("args", "stdin"), [(("klipper",), ""), ((), "1\n")], ids=["arg", "choice"]
+    )
+    def test_klipper_builds_from_the_kiauh_klipper(
+        self, tmp_path: Path, args: tuple[str, ...], stdin: str
+    ):
+        """Klipper の firmware は KIAUH の ~/klipper（Klippy と同じ版）からビルドする."""
+        result = run(
+            INSTALL, "firmware", *args, env={"HOME": str(tmp_path)}, stdin=stdin
+        )
+
+        assert result.returncode != 0
+        assert f"{tmp_path}/klipper がありません" in result.stderr
+
+    @pytest.mark.parametrize(
+        ("args", "stdin"), [("pnp-motion", ""), ("", "2\n")], ids=["arg", "choice"]
+    )
+    def test_pnp_motion_is_chosen(self, args: str, stdin: str):
+        """番号でも引数でも pnp-motion を選べる."""
+        # install.sh 経由だと build.sh が submodule を取得しに行くので、選択だけを確かめる
+        result = subprocess.run(
+            ["bash", "-c", f'source "{FIRMWARE}" && choose_firmware "$1"', "-", args],
+            input=stdin,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == "pnp-motion"
+
+
 @attrs.frozen
 class MachineHost:
     """Klipper 導入直後のホスト（printer.cfg は KIAUH が置く stub）."""
@@ -367,7 +419,7 @@ class TestMachine:
     """`install.sh machine`: 機種のテンプレートから設定を置き、置いた設定は再実行で変えない."""
 
     def test_places_the_chosen_template(self, machine_host: MachineHost):
-        # 機種は名前順に並ぶ（1. kurousagi、2. usaremino、3. usaremino_pnp）
+        # 機種は名前順に並ぶ（1. kurousagi、2. usaremino）
         result = run(INSTALL, "machine", env=machine_host.env(), stdin="2\n")
 
         assert result.returncode == 0, result.stderr
@@ -388,17 +440,16 @@ class TestMachine:
         ]
 
     def test_places_the_pnp_template(self, machine_host: MachineHost):
-        """部品実装機の雛形は共通の節と空の [pnp] を置き、printer.cfg は同じ筐体のものを使う."""
-        result = run(INSTALL, "machine", env=machine_host.env(), stdin="3\n")
+        """部品実装機の雛形 kurousagi は、[pnp] を持ち [solder] を持たない."""
+        result = run(INSTALL, "machine", env=machine_host.env(), stdin="1\n")
 
         assert result.returncode == 0, result.stderr
         machine_toml = (machine_host.config / "machine.toml").read_text()
-        assert (
-            machine_toml == (TEMPLATES / "usaremino_pnp" / "machine.toml").read_text()
-        )
+        assert machine_toml == (TEMPLATES / "kurousagi" / "machine.toml").read_text()
         assert "[pnp]" in machine_toml and "[solder" not in machine_toml
         assert (
-            "[printer]\nkinematics: cartesian" in machine_host.printer_cfg.read_text()
+            "[printer]\nkinematics: inversed_corexy"
+            in machine_host.printer_cfg.read_text()
         )
 
     def test_rerun_changes_nothing(self, machine_host: MachineHost):
