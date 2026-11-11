@@ -23,11 +23,12 @@ runner user を `video`、`gpio`、`dialout`、`input` group へ追加しない�
 `/dev/uinput` で仮想の入力デバイスを作るため。`input` group と違い、実機のコントローラやキーボード
 （`/dev/input/event*`）は読めない。`install` が次の udev 規則を `/etc/udev/rules.d/60-pcbasm-uinput.rules`
 に置く。1 行目で `/dev/uinput` に書けるようにし、2 行目でテストが作った仮想デバイス（名前が `pcbasm-test-` で
-始まる）の event ノードだけを読めるようにする。
+始まる）の event ノードだけを読めるようにする。Raspberry Pi OS の `/usr/lib/udev/rules.d/99-com.rules` が
+後から input の全デバイスを `GROUP="input"` にするため、2 行目は `GROUP:=` で上書きを禁じている。
 
 ```text
 KERNEL=="uinput", GROUP="uinput", MODE="0660", OPTIONS+="static_node=uinput"
-SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="pcbasm-test-*", GROUP="uinput", MODE="0660"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="pcbasm-test-*", GROUP:="uinput", MODE="0660"
 ```
 
 起動中の runner service は group を読み直さないので、初めて `uinput` group に入れた host では、job が

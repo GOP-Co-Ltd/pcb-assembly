@@ -16,9 +16,10 @@ readonly UV_VERSION="0.10.9"
 readonly UINPUT_GROUP="uinput"
 readonly UINPUT_RULE_FILE="/etc/udev/rules.d/60-pcbasm-uinput.rules"
 # 2 行目: テストが作る仮想デバイス（名前が pcbasm-test-）の event ノードだけを uinput group で読めるようにする。
-# runner を input group に入れずに済み、実機のコントローラやキーボードは読めないまま
+# runner を input group に入れずに済み、実機のコントローラやキーボードは読めないまま。
+# Raspberry Pi OS の 99-com.rules が後から input の全デバイスを GROUP="input" にするので、:= で上書きを禁じる
 readonly UINPUT_RULE='KERNEL=="uinput", GROUP="uinput", MODE="0660", OPTIONS+="static_node=uinput"
-SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="pcbasm-test-*", GROUP="uinput", MODE="0660"'
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="pcbasm-test-*", GROUP:="uinput", MODE="0660"'
 
 usage() {
     cat <<EOF
