@@ -364,9 +364,11 @@ class TestSingleFlight:
         runner = UpdateRunner(settings)
 
         first_id, first_reason = runner.start()
-        wait_until(lambda: call_log(log_path(settings)) != [])
-        second_id, second_reason = runner.start()
-        release.touch()
+        try:
+            wait_until(lambda: call_log(log_path(settings)) != [])
+            second_id, second_reason = runner.start()
+        finally:
+            release.touch()
 
         assert first_reason is None, first_reason
         assert first_id is not None
@@ -516,9 +518,15 @@ class TestRestartServices:
         run_id, reason = runner.start()
         assert reason is None and run_id is not None
 
-        wait_until(lambda: call_log(log_path(settings)) != [])
-        refusal = runner.restart_services()
-        release.touch()
+        try:
+            wait_until(
+                lambda: any(
+                    line.startswith("uv sync ") for line in call_log(log_path(settings))
+                )
+            )
+            refusal = runner.restart_services()
+        finally:
+            release.touch()
 
         assert refusal is not None
         assert before_deadline(lambda: runner.wait(30.0), what="更新の完了") is True
