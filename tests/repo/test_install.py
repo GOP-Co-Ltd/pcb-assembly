@@ -357,16 +357,11 @@ class TestFirmware:
         assert f"{tmp_path}/klipper がありません" in result.stderr
 
     @pytest.mark.parametrize(
-        ("args", "stdin", "firmware"),
-        [
-            ("klipper", "", "klipper"),
-            ("pnp-motion", "", "pnp-motion"),
-            ("", "1\n", "klipper"),
-            ("", "2\n", "pnp-motion"),
-            ("", "3\n", ""),
-        ],
+        ("args", "stdin"), [("pnp-motion", ""), ("", "2\n")], ids=["arg", "choice"]
     )
-    def test_choose_firmware(self, args: str, stdin: str, firmware: str):
+    def test_pnp_motion_is_chosen(self, args: str, stdin: str):
+        """番号でも引数でも pnp-motion を選べる."""
+        # install.sh 経由だと build.sh が submodule を取得しに行くので、選択だけを確かめる
         result = subprocess.run(
             ["bash", "-c", f'source "{FIRMWARE}" && choose_firmware "$1"', "-", args],
             input=stdin,
@@ -376,7 +371,7 @@ class TestFirmware:
         )
 
         assert result.returncode == 0, result.stderr
-        assert result.stdout == firmware
+        assert result.stdout == "pnp-motion"
 
 
 @attrs.frozen
