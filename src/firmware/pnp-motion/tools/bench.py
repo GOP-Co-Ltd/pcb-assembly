@@ -613,6 +613,10 @@ class Bench:
         else:
             # 原点出しの前は位置が分からないので、いまの位置を 0 として、スイッチを探す距離だけ前後に
             low, high = -self._homing_dist(a), self._homing_dist(a)
+        self._send_limits(i, low, high)
+
+    def _send_limits(self, i, low, high):
+        a = AXES[i]
         self._ser.send(
             f"velocity_stream_set_limits oid={VS} axis={i} min_pos={a.steps(low)}"
             f" max_pos={a.steps(high)} max_velocity={a.steps(a.max_velocity)}"
@@ -745,6 +749,72 @@ class Bench:
     def cmd_s(self, args):
         """s: 減速して止める."""
         self._stop()
+
+    def cmd_p(self, args):
+        """P X Y Z [SPEED]: 位置（mm）へ直線に動かす（- の軸は動かさない）."""
+        # SPEED（mm/s）は直線の速さ。省けば、どの軸も printer.cfg の上限を超えない最大の速さ
+        if len(args) not in (3, 4):
+            raise BenchError("p X Y Z [SPEED]（例: p 10 20 - 5）")
+        speed = float(args[3]) if len(args) == 4 else None
+        if speed is not None and not speed > 0:
+            raise BenchError("SPEED は 0 より大きくする")
+        self._stop()
+        self._query()
+        current = [a.mm(self._state[a.name]) for a in AXES]
+        target = list(current)
+        for i, (a, text) in enumerate(zip(AXES, args[:3])):
+            if text == "-":
+                continue
+            if not self._homed[i]:
+                raise BenchError(f"{a.name} は原点出しの前です（home を使う）")
+            target[i] = float(text)
+            if not a.position_min <= target[i] <= a.position_max:
+                raise BenchError(
+                    f"{a.name} は {a.position_min}〜{a.position_max} mm の中で指定する"
+                )
+        # 1 ステップに満たない移動は動かさない
+        delta = [
+            t - c if abs(a.steps(t) - a.steps(c)) > 0 else 0.0
+            for a, t, c in zip(AXES, target, current)
+        ]
+        moving = [i for i, d in enumerate(delta) if d]
+        if not moving:
+            return
+        # 直線に動くよう、各軸の速さを距離に比例させ、どの軸も上限を超えないようにする
+        distance = sum(d * d for d in delta) ** 0.5
+        rate = min(AXES[i].max_velocity / abs(delta[i]) for i in moving)
+        if speed is not None:
+            rate = min(rate, speed / distance)
+        velocity = [d * rate for d in delta]
+        try:
+            # 動かす向きの可動域の端を目標に置く。ファームは端の手前で減速し、端で止める
+            for i in moving:
+                a = AXES[i]
+                if delta[i] > 0:
+                    self._send_limits(i, a.position_min, target[i])
+                else:
+                    self._send_limits(i, target[i], a.position_max)
+            self._velocity = velocity
+            self._start()
+
+            def arrived():
+                self._query()
+                return all(
+                    self._state["v" + AXES[i].name] == 0
+                    and abs(self._state[AXES[i].name] - AXES[i].steps(target[i])) <= 1
+                    for i in moving
+                )
+
+            brake = max(abs(velocity[i]) / AXES[i].accel for i in moving)
+            if not self._wait(arrived, 1 / rate + 2 * brake + 2.0):
+                raise BenchError("目標の位置に着きません")
+        finally:
+            if not self._shutdown:
+                self._stop()
+                for i in moving:
+                    self._set_limits(i, homed=True)
+        self._query()
+        print(f"着きました  {self._position_text()}")
 
     def cmd_q(self, args):
         """q: 状態と位置を表示する."""
