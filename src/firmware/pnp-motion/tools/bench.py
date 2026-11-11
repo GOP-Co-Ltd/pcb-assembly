@@ -786,7 +786,9 @@ class Bench:
         )
 
     def cmd_nudge(self, args):
-        """nudge AXIS MM: 軸を MM だけ 2 mm/s で動かす（時間で測る目安。向きの確認に）."""
+        """nudge AXIS MM: 軸を MM だけ 1 mm/s で動かす（時間で測る目安。向きの確認に）."""
+        if len(args) != 2:
+            raise BenchError("nudge AXIS MM（例: nudge x 1）")
         i = self._axis(args[0])
         distance = float(args[1])
         if not 0 < abs(distance) <= 10:
@@ -854,7 +856,7 @@ class Bench:
         """help: この一覧."""
         for name in sorted(n for n in dir(self) if n.startswith("cmd_")):
             doc = getattr(self, name).__doc__
-            print("  " + doc[0].lower() + doc[1:])
+            print("  " + (doc[0].lower() + doc[1:]).rstrip("."))
         print("  quit: 止めて励磁を切り、終わる")
         print("  動いている最中は s だけを受け付ける（他のコマンドは終わってから）")
 
