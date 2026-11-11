@@ -3,7 +3,8 @@
 Xbox コントローラの LT・LB・RB を evdev から読む。`EvdevGamepad` は `/dev/uinput` で作った仮想デバイスを、
 モジュールの実物 `pcbasm.hal.gamepad.open_gamepad` で開いて確かめる（`pcbasm.hal.open_gamepad` は root conftest
 が塞ぐ）。ドライバごとの割り当ての判別と LT の正規化も、軸を変えた仮想デバイスで確かめる。
-CI の runner は専用の `uinput` group で `/dev/uinput` に書ける（`github-runner/README.md`）。書けない環境
+CI の runner は専用の `uinput` group で `/dev/uinput` に書け、job の container には `ci/run.sh` がデバイスと group を
+渡す（`github-runner/README.md`）。書けない環境
 （既定の権限の Raspberry Pi OS）では、仮想デバイスを使うテストを skip する。
 パスを渡さない自動検出は実機のコントローラを開きうるので、ここでは確かめない（受け入れ試験 A26 が持つ）。
 """

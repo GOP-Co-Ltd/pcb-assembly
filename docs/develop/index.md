@@ -97,6 +97,8 @@ Chromium がシステムにない場合は `make playwright-install` でブラ�
 GitHub Actions は専用 Raspberry Pi runner で pre-commit、pyright、テスト、隔離 E2E を
 別 job にして並列に実行する。`pytest` job は非 E2E テスト、`e2e` job はブラウザ・HTTP・WS・
 MJPEG の検証を受け持ち、JUnit レポートを `pytest-report` と `e2e-report` の artifact に残す。
+各コマンドは `ci/run.sh` が `ci/Containerfile` の image から作る使い捨ての container で動かす。
+CI に要る OS package（KiCad、`python3-evdev`、Chromium など）を足すときは `ci/Containerfile` に書く。
 
 ## テストの書き方
 
