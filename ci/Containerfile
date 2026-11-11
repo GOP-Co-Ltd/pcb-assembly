@@ -4,11 +4,18 @@ FROM docker.io/library/debian:trixie
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# picamera2 と chromium は runner の host（Raspberry Pi OS）と同じく Raspberry Pi の apt repository から入れる
+# picamera2 と chromium は runner の host（Raspberry Pi OS）と同じく Raspberry Pi の apt repository から入れる。
+# 鍵は host と同じ raspberrypi-archive-keyring の .deb を hash を確かめて入れる
+# （raspberrypi.gpg.key の鍵は SHA1 の署名で、trixie の apt が受け付けない）
+ARG RPI_KEYRING_DEB=raspberrypi-archive-keyring_2025.1+rpt1_all.deb
+ARG RPI_KEYRING_SHA256=2e727149d7acb8cc7f604e66d0049161039c8aa1eaf1175e54f9e69d963d60e4
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends ca-certificates curl gpg \
-    && curl --fail --silent --show-error --location https://archive.raspberrypi.com/debian/raspberrypi.gpg.key \
-        | gpg --dearmor --output /usr/share/keyrings/raspberrypi-archive-keyring.pgp \
+    && apt-get install --yes --no-install-recommends ca-certificates curl \
+    && curl --fail --silent --show-error --location --output "/tmp/${RPI_KEYRING_DEB}" \
+        "https://archive.raspberrypi.com/debian/pool/main/r/raspberrypi-archive-keyring/${RPI_KEYRING_DEB}" \
+    && echo "${RPI_KEYRING_SHA256}  /tmp/${RPI_KEYRING_DEB}" | sha256sum --check --strict \
+    && dpkg --install "/tmp/${RPI_KEYRING_DEB}" \
+    && rm "/tmp/${RPI_KEYRING_DEB}" \
     && printf '%s\n' \
         'Types: deb' \
         'URIs: http://archive.raspberrypi.com/debian/' \
