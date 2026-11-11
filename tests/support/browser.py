@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import shutil
 import threading
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, override
 
 import attrs
 import httpx
@@ -16,6 +17,7 @@ from fastapi import FastAPI
 from starlette.types import ASGIApp
 
 from tests.support.paths import LED_BLINKER_PCB
+from tests.support.polling import wait_until
 from tests.support.web import job_manager
 from web.api.backend import Backend
 from web.api.env import Env
@@ -27,6 +29,10 @@ from web.contract.identity import SESSION_COOKIE
 _STARTUP_TIMEOUT = 10.0
 _HTTP_TIMEOUT = 10.0
 _WS_TIMEOUT = 30.0
+# 停止要求と起動完了を見る間隔（uvicorn 既定の 0.1 秒刻みだと、起動・停止のたびに待ちが積もる）
+_LIFECYCLE_POLL_INTERVAL = 0.005
+# 停止時に応答の完了を待つ上限（秒）。開いたままのページの MJPEG のように終わらない応答は、これを過ぎたら打ち切る
+_GRACEFUL_SHUTDOWN_TIMEOUT = 1
 
 # 操作権の状態がブラウザへ届くまでの上限（GET /api/session/state 1 往復 + 描画）
 _CONTROL_TIMEOUT_MS = 10_000
@@ -151,30 +157,51 @@ class RunningServer:
         self.thread.join(timeout=_STARTUP_TIMEOUT)
 
 
+class _Server(uvicorn.Server):
+    """停止要求を短い間隔で見る uvicorn.Server."""
+
+    @override
+    async def main_loop(self) -> None:
+        """`on_tick` を `_LIFECYCLE_POLL_INTERVAL` ごとに呼び、停止要求で抜ける."""
+        counter = 0
+        while not await self.on_tick(counter):
+            counter += 1
+            await asyncio.sleep(_LIFECYCLE_POLL_INTERVAL)
+
+
 def start_app(app: ASGIApp) -> RunningServer:
     """ASGI アプリを実 uvicorn（127.0.0.1・エフェメラルポート）で起動する.
 
     port=0 でポートを OS に割り当てさせ、起動後に実ポートを取得する。呼び出し側は
     必ず `RunningServer.stop` を呼ぶ（fixture の finally / テストの try-finally）。
 
+    停止時は応答の完了を `_GRACEFUL_SHUTDOWN_TIMEOUT` 秒まで待ち、残った応答は打ち切る。
+    ブラウザのページを開いたまま止めると、MJPEG の中継のような終わらない応答が残り、
+    上限が無いと `RunningServer.stop` の join が時間切れになってスレッドが動き続けるため。
+
+    起動が `_STARTUP_TIMEOUT` 以内に完了しなければテストを失敗させる。
+
     Args:
         app: 起動する ASGI アプリ
 
     Returns:
         実ポートと停止手段を持つハンドル
-
-    Raises:
-        RuntimeError: 起動が `_STARTUP_TIMEOUT` 以内に完了しない場合
     """
-    config = uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning")
-    server = uvicorn.Server(config)
+    config = uvicorn.Config(
+        app,
+        host="127.0.0.1",
+        port=0,
+        log_level="warning",
+        timeout_graceful_shutdown=_GRACEFUL_SHUTDOWN_TIMEOUT,
+    )
+    server = _Server(config)
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
-    deadline = time.monotonic() + _STARTUP_TIMEOUT
-    while not server.started:
-        if time.monotonic() > deadline:
-            raise RuntimeError("uvicorn が時間内に起動しなかった")
-        time.sleep(0.05)
+    wait_until(
+        lambda: server.started,
+        timeout=_STARTUP_TIMEOUT,
+        interval=_LIFECYCLE_POLL_INTERVAL,
+    )
     return RunningServer(
         port=server.servers[0].sockets[0].getsockname()[1],
         server=server,
