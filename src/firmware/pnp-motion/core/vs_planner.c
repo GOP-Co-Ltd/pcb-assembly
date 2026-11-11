@@ -188,14 +188,15 @@ vs_motor_plan(struct vs_motor *m, int64_t new_pos, uint32_t seg_start,
 }
 
 // モーターの位置（小数部つき）。stepper の位置が計画の整数位置と同じなら、計画の小数部を引き継ぐ。
-// 整数の位置に丸めると、corexy では止めて開始し直すたびに直交座標が半歩ずつ一方へずれていく。
-// 違えば（接触で積んだステップの途中で止まったときなど）stepper の位置をそのまま使う
+// 違えば（接触で積んだステップの途中で止まったときなど）、そのステップの中央（+ 0.5）に置く。
+// 整数の位置（floor）に置くと、corexy では 2 つのモーターの小数部が f と 1 - f のとき直交座標が半歩下がり、
+// 止めて開始し直すたびに一方へずれていく。中央に置けばこのとき直交座標は合い、偏りも残らない
 static int64_t
 motor_pos(const struct vs_motor *m, int32_t stepper_pos)
 {
     if (vs_motor_position(m) == stepper_pos)
         return m->pos;
-    return (int64_t)stepper_pos * ONE;
+    return (int64_t)stepper_pos * ONE + ONE / 2;
 }
 
 // stepper の位置から求めた、直交座標の位置（小数部つき）

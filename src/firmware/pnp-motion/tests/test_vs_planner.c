@@ -592,7 +592,7 @@ sim_restart(struct sim *s)
     int32_t motors[VS_AXES];
     sim_motors(s, motors);
     for (int i = 0; i < VS_AXES; i++)
-        s->m[i].step_clock = s->clock;
+        s->m[i].step_clock = s->clock, s->m[i].has_step = 0;
     vs_stage_reset(&s->stage, motors, (uint32_t)s->clock);
 }
 
@@ -614,6 +614,30 @@ test_restarts_do_not_drift(void)
                 CHECK(sim_position(&s, 0) == starts[j], "kin=%u cycle=%d: x=%d（初め %d）",
                       kins[k], cycle, sim_position(&s, 0), starts[j]);
             }
+        }
+    }
+}
+
+static void
+test_contacts_do_not_drift(void)
+{
+    // 接触では先読みで積んだステップが捨てられ、stepper は計画より手前の位置で止まる。
+    // Y の移動中の接触を繰り返しても、指令していない X が一方へずれていかない
+    uint8_t kins[] = {VS_COREXY, VS_INVERSED_COREXY};
+    for (unsigned k = 0; k < sizeof(kins); k++) {
+        struct sim s;
+        sim_init_at(&s, kins[k], 0, MAX_POS / 2, MAX_POS / 2, 0);
+        for (int cycle = 0; cycle < 20; cycle++) {
+            CHECK(sim_run3(&s, 0, 1234, 0, 37), "展開がずれた");
+            int32_t stopped[VS_AXES];
+            sim_motors(&s, stopped);
+            // 先読みの 5 区間ぶんは計画したが、stepper はそこまで進まないうちに止まった
+            CHECK(sim_run3(&s, 0, 1234, 0, 5), "展開がずれた");
+            for (int i = 0; i < VS_AXES; i++)
+                s.m[i].position = stopped[i];
+            sim_restart(&s);
+            CHECK(sim_position(&s, 0) >= -1 && sim_position(&s, 0) <= 0,
+                  "kin=%u cycle=%d: x=%d", kins[k], cycle, sim_position(&s, 0));
         }
     }
 }
@@ -647,6 +671,7 @@ main(void)
     test_set_position_changes_only_that_axis();
     test_reset_on_a_half_step_does_not_step();
     test_restarts_do_not_drift();
+    test_contacts_do_not_drift();
     if (failures) {
         printf("%d failure(s)\n", failures);
         return 1;
