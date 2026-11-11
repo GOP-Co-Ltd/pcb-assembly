@@ -3,24 +3,18 @@
 #
 # pnp-motion ファーム（BTT SKR Pico 用の .uf2）をビルドする。
 #
-# upstream の Klipper を klipper.commit の commit で取得し、patches/ を当て、
-# core/ と module/ を src/pnp/ へ写してビルドする。出力は ${BUILD_DIR}/pnp-motion.uf2。
-#
-# 環境変数:
-#   BUILD_DIR     ビルド用ディレクトリ（既定: ${XDG_CACHE_HOME:-~/.cache}/pcbasm/pnp-motion）。
-#                 リポジトリの外に置き、Klipper のソースを pytest・pyright・ruff の対象に入れない
-#   KLIPPER_REPO  Klipper の取得元（既定: upstream）。手元の clone を指せばネットワークなしで取得できる
+# submodule の klipper/（upstream の Klipper を commit で固定）を build/klipper/ へ書き出し、
+# patches/ を当て、core/ と module/ を src/pnp/ へ写してビルドする。
+# submodule は書き換えない（patch は書き出した側に当てる）。出力は build/pnp-motion.uf2。
 
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BUILD_DIR="${BUILD_DIR:-${XDG_CACHE_HOME:-${HOME}/.cache}/pcbasm/pnp-motion}"
-# make -C は作業ディレクトリを移すので、絶対パスにしておく
-mkdir -p "$BUILD_DIR"
-BUILD_DIR="$(cd "$BUILD_DIR" && pwd)"
-KLIPPER_REPO="${KLIPPER_REPO:-https://github.com/Klipper3d/klipper.git}"
-KLIPPER_COMMIT="$(tr -d '[:space:]' <"${HERE}/klipper.commit")"
+SUBMODULE="${HERE}/klipper"
+BUILD_DIR="${HERE}/build"
 KLIPPER_DIR="${BUILD_DIR}/klipper"
+# ファームの中身を決めるもの。ファームの版（PNP_MOTION_VERSION）は、これを最後に変えた commit
+FIRMWARE_SOURCES=(core module patches klipper skr-pico.config build.sh)
 
 die() {
     echo "エラー: $1" >&2
@@ -30,38 +24,44 @@ die() {
 check_tools() {
     local tool
     # Klipper の導入スクリプトの依存（KIAUH が入れる）に含まれる
-    for tool in git make arm-none-eabi-gcc g++; do
+    for tool in git make patch tar arm-none-eabi-gcc g++; do
         command -v "$tool" >/dev/null || die "${tool} がありません"
     done
 }
 
-# 固定した commit の Klipper を、前回の patch と生成物を捨てた状態で用意する
-fetch_klipper() {
-    if [ ! -d "${KLIPPER_DIR}/.git" ]; then
-        git clone --quiet --no-checkout "$KLIPPER_REPO" "$KLIPPER_DIR"
-    fi
-    if ! git -C "$KLIPPER_DIR" cat-file -e "${KLIPPER_COMMIT}^{commit}" 2>/dev/null; then
-        git -C "$KLIPPER_DIR" fetch --quiet "$KLIPPER_REPO" "$KLIPPER_COMMIT"
-    fi
-    git -C "$KLIPPER_DIR" checkout --quiet --force --detach "$KLIPPER_COMMIT"
-    git -C "$KLIPPER_DIR" clean --quiet -fdx
+# submodule を、親が記録した commit に揃える（未取得なら取得し、その commit がなければ fetch する）。
+# 自己更新（fetch → merge --ff-only）は submodule を動かさないので、ビルドのたびに揃える
+sync_submodule() {
+    git -C "$HERE" submodule update --init -- klipper
+}
+
+# 記録された commit の Klipper を、前回の patch と生成物のない状態で書き出す
+export_klipper() {
+    local commit
+    # submodule の作業ツリーではなく、親の index が記録した commit を書き出す
+    # （submodule の中で checkout を動かしていても、固定した版でビルドする）
+    commit="$(git -C "$HERE" ls-files --stage -- klipper | awk '{print $2}')"
+    [ -n "$commit" ] || die "submodule の commit が見つかりません"
+    rm -rf "$KLIPPER_DIR"
+    mkdir -p "$KLIPPER_DIR"
+    git -C "$SUBMODULE" archive "$commit" | tar -x -C "$KLIPPER_DIR"
+    # Klipper はデータ辞書の版を .git か klippy/.version から取る。書き出しには .git がないので書いておく
+    git -C "$SUBMODULE" describe --always --tags --long "$commit" >"${KLIPPER_DIR}/klippy/.version"
 }
 
 apply_sources() {
     local patch
     local version
     for patch in "${HERE}"/patches/*.patch; do
-        git -C "$KLIPPER_DIR" apply "$patch"
+        # 文脈がずれたら当てずに失敗させる（Klipper を上げたときに、ずれた当たり方に気づけるように）
+        patch --batch --fuzz=0 --quiet --strip=1 --directory="$KLIPPER_DIR" <"$patch"
     done
     mkdir -p "${KLIPPER_DIR}/src/pnp"
     cp "${HERE}"/core/*.[ch] "${HERE}"/module/*.c "${KLIPPER_DIR}/src/pnp/"
-    # ファームが返す版（このディレクトリを最後に変えた commit）。ホストが接続時に確かめる。
+    # ファームが返す版（ファームのソースを最後に変えた commit）。ホストが接続時に確かめる。
     # ファームに関係しない commit では変わらないので、書き込み直しが要らない
-    # Git の外（ソースだけを写した場合）では unknown
-    version="$(git -C "$HERE" log -1 --format=%h -- . 2>/dev/null || true)"
-    if [ -z "$version" ]; then
-        version="unknown"
-    elif [ -n "$(git -C "$HERE" status --porcelain -- . 2>/dev/null)" ]; then
+    version="$(git -C "$HERE" log -1 --format=%h -- "${FIRMWARE_SOURCES[@]}")"
+    if [ -n "$(git -C "$HERE" status --porcelain -- "${FIRMWARE_SOURCES[@]}")" ]; then
         version="${version}-dirty"
     fi
     printf '#define PNP_MOTION_VERSION "%s"\n' "$version" >"${KLIPPER_DIR}/src/pnp/pnp_version.h"
@@ -79,7 +79,8 @@ build() {
 
 main() {
     check_tools
-    fetch_klipper
+    sync_submodule
+    export_klipper
     apply_sources
     build
     echo "ビルド: ${BUILD_DIR}/pnp-motion.uf2"

@@ -1,0 +1,4 @@
+[submodule "src/firmware/pnp-motion/klipper"]
+	path = src/firmware/pnp-motion/klipper
+	url = https://github.com/Klipper3d/klipper.git
+	ignore = all

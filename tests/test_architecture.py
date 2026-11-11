@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 from pcbasm.paths import PROJECT_ROOT
+from tests.support.paths import python_sources
 
 SRC = PROJECT_ROOT / "src"
 
@@ -87,12 +88,7 @@ def _module_name(path: Path) -> str:
     return ".".join(parts[:-1] if parts[-1] == "__init__" else parts)
 
 
-# src/firmware はファームとその試験ツールで、Python のパッケージの層に入らない
-_MODULES = {
-    _module_name(path): path
-    for path in SRC.rglob("*.py")
-    if not path.is_relative_to(SRC / "firmware")
-}
+_MODULES = {_module_name(path): path for path in python_sources()}
 
 
 def _unit(module: str) -> str:

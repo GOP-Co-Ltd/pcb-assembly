@@ -2,10 +2,9 @@
 #
 # pnp-motion ファームのホスト側の作業。.uf2 のビルドは build.sh で行う。
 #   make test           core をホストの cc でテストする（UBSan つき）
-#   make test OUT=dir/  ビルドの出力先を変える（既定はリポジトリの外のキャッシュ）
+#   make test OUT=dir/  ビルドの出力先を変える（既定は build/test/）
 
-CACHE_DIR ?= $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/pcbasm/pnp-motion
-OUT ?= $(CACHE_DIR)/test/
+OUT ?= build/test/
 CC ?= cc
 CFLAGS := -std=gnu11 -O1 -g -Wall -Wextra -Werror \
     -fsanitize=undefined -fno-sanitize-recover=all -Icore

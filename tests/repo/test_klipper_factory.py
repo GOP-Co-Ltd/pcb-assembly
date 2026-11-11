@@ -9,8 +9,7 @@ import ast
 from pathlib import Path
 
 from pcbasm.paths import PROJECT_ROOT
-
-SRC_DIR = PROJECT_ROOT / "src"
+from tests.support.paths import python_sources
 
 
 def klipper_constructions(path: Path) -> list[str]:
@@ -54,7 +53,7 @@ class TestKlipperFactory:
     def test_only_open_klipper_constructs_klipper(self):
         constructions = [
             (str(path.relative_to(PROJECT_ROOT)), scope)
-            for path in sorted(SRC_DIR.rglob("*.py"))
+            for path in python_sources()
             for scope in klipper_constructions(path)
         ]
 
@@ -63,7 +62,7 @@ class TestKlipperFactory:
     def test_only_devices_calls_open_klipper(self):
         callers = [
             str(path.relative_to(PROJECT_ROOT))
-            for path in sorted(SRC_DIR.rglob("*.py"))
+            for path in python_sources()
             if calls_open_klipper(path)
         ]
 
@@ -73,7 +72,7 @@ class TestKlipperFactory:
         # from-import は import 時点で実物に束縛され、テストの差し替えを迂回する
         importers = [
             str(path.relative_to(PROJECT_ROOT))
-            for path in sorted(SRC_DIR.rglob("*.py"))
+            for path in python_sources()
             if imports_open_klipper(path)
         ]
 

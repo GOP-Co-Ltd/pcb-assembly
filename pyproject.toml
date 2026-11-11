@@ -88,8 +88,11 @@ exclude = [
   "**/.venv",
   "./klipper",
   ".claude/worktrees",
-  # pnp-motion の実機の試験ツールは klippy-env と klippy の部品で動き、このリポジトリの環境では import できない。
-  "src/firmware",
+  # upstream の Klipper（submodule）と、ビルドで書き出した Klipper
+  "src/firmware/pnp-motion/klipper",
+  "src/firmware/pnp-motion/build",
+  # 実機の試験ツールは klippy-env と submodule の klippy の部品（型のない Python）で動く
+  "src/firmware/pnp-motion/tools",
   # 外部から vendoring した skill は upstream と同一に保つため型検査しない。
   ".claude/skills/yomiyasu"
 ]
@@ -119,6 +122,8 @@ exclude = [
     "dist",
     "node_modules",
     ".venv",
+    # upstream の Klipper（submodule）。ビルドで書き出した Klipper は上の "build" で外れる
+    "src/firmware/pnp-motion/klipper",
 ]
 
 # Linter ignore codes

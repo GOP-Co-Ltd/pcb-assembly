@@ -13,9 +13,10 @@ Klipper の MCU ファームに、モジュール `velocity_stream` を足した
 | `core/vs_planner.{h,c}`                   | Klipper に依存しない計算。1 軸の速度を目標へ近づけ、区間ごとのステップの時刻を作る     |
 | `module/velocity_stream.c`                | Klipper とつなぐ部分。コマンド、タイマと task、trsync                                  |
 | `patches/0001-stepper-internal-api.patch` | Klipper の `stepper.c` の内部関数を公開し、`src/pnp/*.c` をビルドに足す                |
-| `klipper.commit`                          | 元にする upstream の Klipper の commit                                                 |
+| `klipper/`                                | upstream の Klipper（git submodule）。元にする commit を固定する。書き換えない         |
 | `skr-pico.config`                         | Klipper の `.config`（menuconfig の既定から変える項目だけ）                            |
-| `build.sh`                                | Klipper を取得して patch を当て、`.uf2` を作る                                         |
+| `build.sh`                                | `klipper/` を `build/` へ書き出して patch を当て、`.uf2` を作る                        |
+| `build/`                                  | ビルドの出力（Git で追跡しない）                                                       |
 | `tests/test_vs_planner.c`、`Makefile`     | `core/` のホストでのテスト                                                             |
 | `tools/bench.py`                          | 実機で試す対話のツール（[実機で試す](#%E5%AE%9F%E6%A9%9F%E3%81%A7%E8%A9%A6%E3%81%99)） |
 
@@ -25,16 +26,19 @@ Klipper の MCU ファームに、モジュール `velocity_stream` を足した
 src/firmware/pnp-motion/build.sh
 ```
 
-`${XDG_CACHE_HOME:-~/.cache}/pcbasm/pnp-motion/` に、`pnp-motion.uf2` とデータ辞書 `pnp-motion.dict` ができる。
-Klipper のソースもそこへ取得する（リポジトリの外に置き、pytest・pyright・ruff の対象に入れない）。
+`build/` に、`pnp-motion.uf2` とデータ辞書 `pnp-motion.dict` ができる。
 
-| 環境変数       | 既定                                            | 用途                                                                                  |
-| -------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `BUILD_DIR`    | `${XDG_CACHE_HOME:-~/.cache}/pcbasm/pnp-motion` | ビルド用のディレクトリ                                                                |
-| `KLIPPER_REPO` | upstream の GitHub                              | Klipper の取得元。手元の clone（例: `~/klipper`）を指せばネットワークなしで取得できる |
+- Klipper は submodule の `klipper/` にある。`build.sh` はビルドのたびに `git submodule update --init` で、
+    親のリポジトリが記録した commit に揃える（未取得なら取得する）
+- `.gitmodules` の `ignore = all` で、submodule の版の違いは `git status` に出ない（機体の自己更新を止めないため）
+- `build.sh` は、親のリポジトリが記録した commit の Klipper を `build/klipper/` へ書き出し、そこに patch を当ててビルドする。
+    submodule は書き換えないので、いつも upstream と同じ状態に保たれる
+- `klipper/` と `build/` は、pyright・ruff・pytest の対象から設定で外している（`pyproject.toml`）
 
-`arm-none-eabi-gcc`・`g++`・`make`・`git` が要る（Klipper の導入で入る）。
-ファームの版（`PNP_MOTION_VERSION`）は、このディレクトリを最後に変えた commit。データ辞書の `config` に入る。
+`arm-none-eabi-gcc`・`g++`・`make`・`git`・`patch`・`tar` が要る。
+submodule を取得した git worktree は `git worktree remove` で消せない（Git の制約）。消すときは `--force` を付ける。
+ファームの版（`PNP_MOTION_VERSION`）は、ファームの中身を決めるもの（`core/`・`module/`・`patches/`・`klipper`・`skr-pico.config`・`build.sh`）を最後に変えた commit。
+データ辞書の `config` に入る。
 
 ## テスト
 
@@ -47,15 +51,17 @@ pytest（`tests/firmware/`）からも流れ、CI に載る。`module/` は実�
 
 ## Klipper を上げるとき
 
-1. `klipper.commit` を新しい commit にする
-2. `build.sh` で patch が当たるか確かめる。当たらなければ、新しい commit の上で `stepper.c`・`stepper.h`・`src/Makefile` を直し、
-    `git diff` で patch を作り直す
+1. submodule を新しい commit にする。`git -C src/firmware/pnp-motion/klipper fetch` と `checkout <commit>` のあと、
+    親で `git add src/firmware/pnp-motion/klipper` する（`ignore = all` なので `git status` には出ない。`git diff --cached` で確かめる）
+2. `build.sh` で patch が当たるか確かめる（文脈がずれると失敗する）。当たらなければ、submodule の作業ツリーで
+    `stepper.c`・`stepper.h`・`src/Makefile` を直し、`git -C src/firmware/pnp-motion/klipper diff` で patch を作り直して、
+    `git -C src/firmware/pnp-motion/klipper checkout .` で submodule を戻す
 3. データ辞書で、Klipper の既存のコマンドと `velocity_stream_*` が揃っていることを確かめる
 
 ## 実機で試す
 
 Pi 側のクライアントができるまでは、`tools/bench.py` で MCU に直接つないで試す。
-Klippy は動かさず、ファームと同じ commit の Klipper の klippy の部品（シリアルの通信、時刻の同期、TMC のレジスタの定義）を使う。
+Klippy は動かさず、submodule の Klipper（ファームと同じ commit）の klippy の部品（シリアルの通信、時刻の同期、TMC のレジスタの定義）を使う。
 ピンと値は PnP 機（`deploy/templates/usaremino/printer.cfg`）と同じものをファイルの先頭に持つ。違う機体で使うときはそこを直す。
 
 PnP 機の Pi で行う。書き込んでいる間、その機体は Klipper で動かせない（WebUI の Klipper の操作も使えない）。
@@ -63,7 +69,7 @@ PnP 機の Pi で行う。書き込んでいる間、その機体は Klipper で
 1. `src/firmware/pnp-motion/build.sh` でビルドする
 2. `sudo systemctl stop klipper` で Klipper を止める（MCU のシリアルを空ける）
 3. SKR Pico に `pnp-motion.uf2` を書き込む。電源を切り、BOOT のジャンパ pin を挿し、USB をつないで RESET を押して起動し、
-    現れた `RPI-RP2` ボリュームへ `${XDG_CACHE_HOME:-~/.cache}/pcbasm/pnp-motion/pnp-motion.uf2` をコピーする。
+    現れた `RPI-RP2` ボリュームへ `src/firmware/pnp-motion/build/pnp-motion.uf2` をコピーする。
     ジャンパ pin を抜いて RESET を押す
 4. モーターの電源（24 V）を入れる。TMC2209 は電源がないと UART に応答しない
 5. `~/klippy-env/bin/python src/firmware/pnp-motion/tools/bench.py` で起動する。

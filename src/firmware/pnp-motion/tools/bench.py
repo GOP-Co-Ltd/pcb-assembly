@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Pnp-motion ファームを実機で試す、対話の試験ツール.
 
-Klippy は動かさず、ファームと同じ commit の Klipper の klippy の部品（serialhdl、clocksync、
-TMC のレジスタ定義）で MCU に直接つなぐ。printer.cfg の代わりに、PnP 機（usaremino_pnp）の
-ピンと値をこのファイルに持つ。Pi 側のクライアントができるまでの、ファームの確認用。
+Klippy は動かさず、submodule の Klipper（ファームと同じ commit）の klippy
+の部品（serialhdl、clocksync、 TMC のレジスタ定義）で MCU に直接つなぐ。printer.cfg の代わりに、PnP
+機（usaremino_pnp）の ピンと値をこのファイルに持つ。Pi 側のクライアントができるまでの、ファームの確認用。
 
 ~/klippy-env/bin/python src/firmware/pnp-motion/tools/bench.py
 
@@ -144,7 +144,8 @@ def _load_klippy(klipper_dir):
     klippy = os.path.join(klipper_dir, "klippy")
     if not os.path.isdir(klippy):
         raise BenchError(
-            f"klippy が見つかりません: {klippy}（先に build.sh を実行する）"
+            f"klippy が見つかりません: {klippy}"
+            "（git submodule update --init src/firmware/pnp-motion/klipper）"
         )
     sys.path.insert(0, klippy)
     global reactor, serialhdl, clocksync, util, tmc, tmc2208, tmc2209, tmc_uart
@@ -748,12 +749,11 @@ def _default_device():
 
 
 def main():
-    cache = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--klipper",
-        default=os.path.join(cache, "pcbasm", "pnp-motion", "klipper"),
-        help="build.sh が取得した Klipper（既定: build.sh の既定の場所）",
+        default=os.path.join(os.path.dirname(os.path.dirname(__file__)), "klipper"),
+        help="Klipper のソース（既定: submodule の klipper/）",
     )
     parser.add_argument(
         "--device", help="MCU のシリアル（既定: /dev/serial/by-id から探す）"

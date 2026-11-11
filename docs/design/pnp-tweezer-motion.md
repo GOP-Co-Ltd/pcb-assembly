@@ -204,16 +204,19 @@ src/firmware/pnp-motion/
   module/           Klipper とつなぐ部分（velocity_stream.c。DECL_COMMAND、タイマ、trsync）
   patches/          Klipper 本体への小さな patch（ビルドへの登録、stepper.c の関数）
   skr-pico.config   Klipper の .config（menuconfig の結果）
-  build.sh          Klipper を取得して patch を当て、module を写して .uf2 を作る
+  klipper/          upstream の Klipper（git submodule。commit を固定する。書き換えない）
+  build.sh          klipper/ を build/ へ書き出して patch を当て、module を写して .uf2 を作る
+  build/            ビルドの出力（Git で追跡しない）
 ```
 
-- **Klipper は submodule にしない。** `build.sh` が upstream の Klipper を、固定した commit でビルド用のディレクトリ
-    （バージョン管理の外）へ取得する。理由は 2 つある
-    - 機体の自己更新（`web.selfupdate`）は `fetch` → `merge --ff-only` で進み、submodule を更新しない。
-        submodule にすると、自己更新のあとに Klipper の中身が古いまま残る
-    - Klipper のソースが要るのはファームをビルドするときだけで、塗布機を含むすべての機体に持たせる必要はない
-- **Python のツールの対象から外す。** ビルド用のディレクトリを `src/` の下に置くなら、Klipper の `*.py` と `README.md` が、
-    `src` を走査するテスト（`tests/repo`）、pyright、ruff の対象に入る。これらの除外にファームのディレクトリを足す
+- **Klipper は submodule で固定する。** どの Klipper を元にしたかを、リポジトリの履歴として持つ
+    - `build.sh` は submodule を書き換えない。記録された commit を `build/` へ書き出し、そこへ patch を当ててビルドする
+    - 機体の自己更新（`web.selfupdate`）は `fetch` → `merge --ff-only` で進み、submodule を動かさない。
+        そのため `.gitmodules` に `ignore = all` を置き、submodule の版の違いを未コミットの変更と数えない（自己更新を止めない）。
+        `build.sh` はビルドのたびに `git submodule update --init` で記録された commit に揃える
+    - submodule は既定では取得しない。Klipper のソースが要るのはファームをビルドする機体だけで、`build.sh` が初めて取得する
+- **Python のツールの対象から外す。** Klipper の `*.py` と `README.md` は、pyright・ruff の除外（`pyproject.toml`）と、
+    `src` を走査するテスト（`tests/repo`、`tests/test_architecture.py`）の除外で、はっきり外す
 - **`src/` の規約はファームにも効く。** pre-commit の `no-plan-references` は `src/` の下のテキストを検査する
 - Klipper を fork したリポジトリを別に持つより、upstream の commit を固定して差分を patch で持つ方が、
     差分の大きさが一目で分かり、upstream に追従しやすい
