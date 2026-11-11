@@ -643,9 +643,9 @@ class Bench:
         self._ser.send(
             f"trsync_start oid={TRSYNC} report_clock=0 report_ticks=0 expire_reason=0"
         )
-        for i in range(3):
+        for stepper in range(3):
             self._ser.send(
-                f"stepper_stop_on_trigger oid={STEPPER + i} trsync_oid={TRSYNC}"
+                f"stepper_stop_on_trigger oid={STEPPER + stepper} trsync_oid={TRSYNC}"
             )
         self._ser.send(f"velocity_stream_stop_on_trigger oid={VS} trsync_oid={TRSYNC}")
         clock = (self._now() + self._ticks(START_MARGIN)) & 0xFFFFFFFF
