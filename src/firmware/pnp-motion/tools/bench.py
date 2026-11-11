@@ -475,6 +475,8 @@ class Bench:
         self._ser.register_response(self._handle_trsync, "trsync_state", TRSYNC)
         self._ser.register_response(self._handle_shutdown, "shutdown")
         self._ser.register_response(self._handle_shutdown, "is_shutdown")
+        # MCU が数秒ごとに送る統計。受け口がないと klippy が警告を出し、入力の途中に割り込む
+        self._ser.register_response(lambda params: None, "stats")
 
     def _configure(self):
         cmds = [f"allocate_oids count={OID_COUNT}"]
