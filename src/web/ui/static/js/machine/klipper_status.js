@@ -60,16 +60,20 @@
     }
   })();
 
-  document.getElementById("ks-gcode-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const input = document.getElementById("ks-gcode");
-    const text = input.value.trim();
-    if (!text) return;
-    try {
-      await api("POST", "/api/machine/command", { type: "gcode", gcode: text });
-      toast("G-code 送信完了");
-    } catch (err) {
-      toast(err.message, false);
-    }
-  });
+  // 新ファームの機体ではテンプレート側で欄を出さない（null ガード）
+  const gcodeForm = document.getElementById("ks-gcode-form");
+  if (gcodeForm) {
+    gcodeForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const input = document.getElementById("ks-gcode");
+      const text = input.value.trim();
+      if (!text) return;
+      try {
+        await api("POST", "/api/machine/command", { type: "gcode", gcode: text });
+        toast("G-code 送信完了");
+      } catch (err) {
+        toast(err.message, false);
+      }
+    });
+  }
 })();

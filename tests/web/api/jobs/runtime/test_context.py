@@ -9,6 +9,7 @@ JobContext は JobManager だけが生成するため、合成ジョブを manag
 - machine は選択マシンの設定、artifacts_dir は data/webui/<job_id>/（作成済み）
 - log / progress は record へ反映、frame はカメラ（CameraFeed）のオーバーライドスロットへ
 - next_command は timeout 超過で None
+- klipper() は、XYZ を新ファームで動かす機体（[klipper] なし）では「この機体は Klipper を使いません」で失敗する
 - confirm / require / choose / choose_button / ask_positive は prompt の定型（ボタンの文言・中止・正数の再入力）
 
 prompt / abort 経由の挙動は test_manager.py（respond_prompt / request_abort
@@ -26,6 +27,7 @@ import numpy as np
 import pytest
 
 from pcbasm.hal.fake import FakeAudioPlayer
+from pcbasm.machine.devices import NO_KLIPPER
 from pcbasm.vision import Image
 from tests.support.paths import LED_BLINKER_PCB
 from tests.support.polling import wait_until
@@ -126,6 +128,21 @@ class TestContextProperties:
 
         assert record.status == JobStatus.SUCCEEDED
         assert captured[0] == fake_camera_settings.webui_data_dir / record.id
+
+
+class TestKlipperOnMotionMachine:
+    def test_klipper_job_fails_with_the_reason(
+        self, motion_manager: JobManager, motion_backend: Backend
+    ):
+        def run(ctx: JobContext) -> None:
+            ctx.klipper().send_gcode("G28")
+
+        _register(motion_backend.catalog, run)
+        record = motion_manager.start("synthetic", {})
+        wait_until(lambda: record.status.terminal)
+
+        assert record.status == JobStatus.FAILED
+        assert record.error == NO_KLIPPER
 
 
 class TestSourcePcb:

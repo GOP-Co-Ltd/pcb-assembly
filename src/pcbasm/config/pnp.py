@@ -4,16 +4,26 @@
 空の表も受け付ける。下位表は装置の部品で分ける。
 
 - ``servo``: ピンセットのサーボ（Feetech STS3032 ×2）のポートと役割
+- ``motion``: XYZ ステージを動かす新ファーム（pnp-motion）の MCU。あれば Klipper を使わずに XYZ を動かす
+- ``gamepad``: コントローラのスティックのデッドゾーン
 """
 
 from __future__ import annotations
 
+from typing import Literal
+
 import attrs
 
 from pcbasm.config.fields import setting
-from pcbasm.validators import as_validator
+from pcbasm.validators import (
+    as_validator,
+    validate_non_negative_number,
+    validate_positive_int,
+    validate_positive_number,
+)
 
 _SERVO = "ピンセットのサーボ"
+_GAMEPAD = "コントローラ"
 
 _MAX_SERVO_ID = 253
 _FULL_TURN = 360.0
@@ -149,12 +159,231 @@ class ServoConfig:
         return None
 
 
+type Kinematics = Literal["cartesian", "corexy", "inversed_corexy"]
+
+# ファーム（src/firmware/pnp-motion/README.md「ホストが守る前提」）が受け付ける上限。超えると shutdown する
+_MAX_STEP_RATE = 500_000  # [steps/s]。corexy では X と Y の和にも掛かる
+_MAX_STEP_ACCEL = 1_000_000_000  # [steps/s²]
+_MAX_MICROSTEPS = 256
+# TMC2209 の UART のアドレスは MS1・MS2 のピンで 0〜3
+_MAX_TMC_ADDRESS = 3
+_MAX_DEADZONE = 0.5
+
+
+def _validate_microsteps(name: str, value: object) -> str | None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not 1 <= value <= _MAX_MICROSTEPS
+        or value & (value - 1)
+    ):
+        return f"{name}は{_MAX_MICROSTEPS}以下の2の累乗である必要があります: {value!r}"
+    return None
+
+
+def _validate_tmc_address(name: str, value: object) -> str | None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not 0 <= value <= _MAX_TMC_ADDRESS
+    ):
+        return f"{name}は0〜{_MAX_TMC_ADDRESS}の整数である必要があります: {value!r}"
+    return None
+
+
+def _validate_deadzone(name: str, value: object) -> str | None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int | float)
+        or not 0 <= value <= _MAX_DEADZONE
+    ):
+        return f"{name}は0以上{_MAX_DEADZONE:g}以下である必要があります: {value!r}"
+    return None
+
+
+_positive = as_validator(validate_positive_number)
+_optional_positive = attrs.validators.optional(_positive)
+
+
+@attrs.frozen(kw_only=True)
+class MotionAxisConfig:
+    """新ファームで動かす 1 軸（[pnp.motion.x] など）.
+
+    項目の名前と意味は Klipper の printer.cfg の ``[stepper_*]`` と ``[tmc2209 stepper_*]`` に合わせる。
+    ピンも Klipper と同じ表記で、先頭の ``!`` は論理の反転、``^`` はプルアップ（``!gpio10``、``^gpio4``）。
+    ``!`` と ``^`` は、HAL に渡す設定に直すとき（:mod:`pcbasm.machine.devices`）に解く。
+
+    Attributes:
+        step_pin: step のピン
+        dir_pin: dir のピン
+        enable_pin: enable のピン
+        endstop_pin: リミットスイッチのピン
+        microsteps: マイクロステップ数（TMC2209 に書く。256 以下の 2 の累乗）
+        full_steps_per_rotation: モーター 1 回転のフルステップ数
+        rotation_distance: モーター 1 回転で進む距離 [mm]
+        position_min: 可動域の下端 [mm]
+        position_max: 可動域の上端 [mm]
+        position_endstop: リミットスイッチが反応する位置 [mm]（可動域の中）
+        homing_positive: 原点出しで正の向きへ動かす
+        homing_speed: 原点出しの 1 回目の速さ [mm/s]
+        second_homing_speed: 原点出しの 2 回目（離れてから当て直す）の速さ [mm/s]。None なら 1 回目の半分
+        homing_retract: 原点出しで 1 回目のあとに離れる距離 [mm]
+        max_velocity: 最高速度 [mm/s]（コントローラのスティックを倒し切ったときの速さ）
+        max_accel: 最大加速度 [mm/s²]
+        tmc_address: TMC2209 の UART のアドレス（0〜3）
+        run_current: 動かすときの電流 [A RMS]
+        hold_current: 止まっているときの電流 [A RMS]。None なら run_current と同じ
+        sense_resistor: TMC2209 の検出抵抗 [Ω]
+    """
+
+    step_pin: str
+    dir_pin: str
+    enable_pin: str
+    endstop_pin: str
+    microsteps: int = attrs.field(
+        default=64, validator=as_validator(_validate_microsteps)
+    )
+    full_steps_per_rotation: int = attrs.field(
+        default=200, validator=as_validator(validate_positive_int)
+    )
+    rotation_distance: float = attrs.field(validator=_positive)
+    position_min: float
+    position_max: float
+    position_endstop: float
+    homing_positive: bool = False
+    homing_speed: float = attrs.field(default=5.0, validator=_positive)
+    second_homing_speed: float | None = attrs.field(
+        default=None, validator=_optional_positive
+    )
+    homing_retract: float = attrs.field(
+        default=5.0, validator=as_validator(validate_non_negative_number)
+    )
+    max_velocity: float = attrs.field(validator=_positive)
+    max_accel: float = attrs.field(validator=_positive)
+    tmc_address: int = attrs.field(validator=as_validator(_validate_tmc_address))
+    run_current: float = attrs.field(validator=_positive)
+    hold_current: float | None = attrs.field(default=None, validator=_optional_positive)
+    sense_resistor: float = attrs.field(default=0.110, validator=_positive)
+
+    def __attrs_post_init__(self) -> None:
+        if error := self._validate_relations():
+            raise ValueError(error)
+
+    @property
+    def steps_per_mm(self) -> float:
+        """1 mm あたりのステップ数（マイクロステップ単位）."""
+        return self.full_steps_per_rotation * self.microsteps / self.rotation_distance
+
+    def _validate_relations(self) -> str | None:
+        if self.position_min >= self.position_max:
+            return (
+                f"position_min（{self.position_min:g}）は position_max"
+                f"（{self.position_max:g}）より小さい必要があります"
+            )
+        if not self.position_min <= self.position_endstop <= self.position_max:
+            return (
+                f"position_endstop（{self.position_endstop:g}）は可動域"
+                f"（{self.position_min:g}〜{self.position_max:g}）の中に置く必要があります"
+            )
+        if self.max_velocity * self.steps_per_mm > _MAX_STEP_RATE:
+            return (
+                f"max_velocity（{self.max_velocity:g} mm/s）がファームの上限"
+                f"（{_MAX_STEP_RATE} steps/s = {_MAX_STEP_RATE / self.steps_per_mm:g} mm/s）を超えます"
+            )
+        if self.max_accel * self.steps_per_mm > _MAX_STEP_ACCEL:
+            return (
+                f"max_accel（{self.max_accel:g} mm/s²）がファームの上限"
+                f"（{_MAX_STEP_ACCEL:g} steps/s² = {_MAX_STEP_ACCEL / self.steps_per_mm:g} mm/s²）を超えます"
+            )
+        return None
+
+
+@attrs.frozen(kw_only=True)
+class MotionConfig:
+    """XYZ ステージを動かす新ファーム（pnp-motion）の MCU（[pnp.motion]）.
+
+    この表があれば、Klipper を使わずに XYZ を動かす機体になる（[klipper] は無くてよい）。
+    値は Klipper の printer.cfg と同じ意味で、kurousagi では printer.cfg から移した。
+
+    Attributes:
+        serial: MCU のシリアルポート（``/dev/serial/by-id/...`` で固定する）
+        kinematics: 運動学（``cartesian`` / ``corexy`` / ``inversed_corexy``。printer.cfg の ``[printer]``）
+        tmc_rx_pin: TMC2209 の UART の受信ピン（printer.cfg の ``uart_pin``）
+        tmc_tx_pin: TMC2209 の UART の送信ピン（printer.cfg の ``tx_pin``）
+        x: X 軸
+        y: Y 軸
+        z: Z 軸
+    """
+
+    serial: str
+    kinematics: Kinematics
+    tmc_rx_pin: str
+    tmc_tx_pin: str
+    x: MotionAxisConfig
+    y: MotionAxisConfig
+    z: MotionAxisConfig
+
+    def __attrs_post_init__(self) -> None:
+        if error := self._validate_relations():
+            raise ValueError(error)
+
+    def _validate_relations(self) -> str | None:
+        if self.kinematics == "cartesian":
+            return None
+        # corexy は X と Y の 1 ステップを、モーターの 1 ステップとして写す
+        if self.x.steps_per_mm != self.y.steps_per_mm:
+            return (
+                f"{self.kinematics} では X と Y の steps/mm を同じにする必要があります"
+                f"（X {self.x.steps_per_mm:g}、Y {self.y.steps_per_mm:g}）"
+            )
+        # モーターは X と Y の速さの和で回る
+        rate = (self.x.max_velocity + self.y.max_velocity) * self.x.steps_per_mm
+        if rate > _MAX_STEP_RATE:
+            return (
+                f"{self.kinematics} では X と Y の max_velocity の和"
+                f"（{self.x.max_velocity + self.y.max_velocity:g} mm/s）がファームの上限"
+                f"（{_MAX_STEP_RATE} steps/s = {_MAX_STEP_RATE / self.x.steps_per_mm:g} mm/s）を超えます"
+            )
+        return None
+
+
+_deadzone = as_validator(_validate_deadzone)
+
+
+@attrs.frozen(kw_only=True)
+class GamepadConfig:
+    """コントローラのスティック（[pnp.gamepad]）.
+
+    デッドゾーンより内側は 0 とみなし、外側を 0〜1 に伸ばし直す（境目で速さが飛ばない）。
+    スティックは静止していても中心からわずかにずれるので、0 にすると止めたつもりで漂う。
+
+    Attributes:
+        deadzone_xy: 左スティック（XY）のデッドゾーン（中心からの距離。0〜0.5）
+        deadzone_z: 右スティック（Z）のデッドゾーン（0〜0.5）
+    """
+
+    deadzone_xy: float = attrs.field(
+        default=0.15,
+        validator=_deadzone,
+        metadata=setting(label="XY のデッドゾーン", group=_GAMEPAD, order=8, minimum=0),
+    )
+    deadzone_z: float = attrs.field(
+        default=0.15,
+        validator=_deadzone,
+        metadata=setting(label="Z のデッドゾーン", group=_GAMEPAD, order=9, minimum=0),
+    )
+
+
 @attrs.frozen
 class PnpConfig:
     """部品実装の設定（[pnp]）.
 
     Attributes:
         servo: ピンセットのサーボ（[pnp.servo] が無ければ None）
+        motion: 新ファームの MCU と XYZ ステージ（[pnp.motion] が無ければ None で、XYZ は Klipper で動かす）
+        gamepad: コントローラのスティック（[pnp.gamepad] が無ければ既定値）
     """
 
     servo: ServoConfig | None = None
+    motion: MotionConfig | None = None
+    gamepad: GamepadConfig = attrs.field(factory=GamepadConfig)

@@ -21,6 +21,8 @@
     {% endfor %}
   </table>
 </section>
+{# 新ファームの機体は Klipper を使わないので、任意 G-code の欄を出さない #}
+{% if stage != "motion" %}
 <section class="status-card">
   <h3>G-code 送信</h3>
   {# 任意 G-code は machine-control（変更系）なので操作権が要る #}
@@ -29,6 +31,7 @@
     <button type="submit" id="ks-gcode-send">送信</button>
   </form>
 </section>
+{% endif %}
 {% endblock %}
 {% block scripts %}
 {{ super() }}

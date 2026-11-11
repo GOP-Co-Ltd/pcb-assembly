@@ -14,11 +14,13 @@ import numpy as np
 import pytest
 
 from pcbasm.config import CAPABILITIES, Capability
-from pcbasm.hal import AudioPlayer
+from pcbasm.hal import AudioPlayer, Limits, ScalarLimits, Velocity
+from pcbasm.hal.fake import FakeMotionStage
 from pcbasm.machine.devices import Devices, open_devices
 from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.vision import ImageArray
 from tests.support import polling
+from tests.support.machine_toml import motion_table, pnp_motion
 from tests.support.paths import FAKE_CAMERA_IMAGE, TEST_CONFIG_DIR
 from web.api.backend import Backend
 from web.api.env import Env
@@ -123,6 +125,49 @@ def devices_with_audio(env: Env, audio: AudioPlayer) -> Devices:
         camera_image=env.fake_camera_image,
         audio=audio,
     )
+
+
+def fake_motion_stage(*, homed: bool = False) -> FakeMotionStage:
+    """``motion_table()`` の可動域と最高速度の FakeMotionStage（時計は実時間）."""
+    table = motion_table()
+    x, y, z = table["x"], table["y"], table["z"]
+    return FakeMotionStage(
+        Limits(
+            x=ScalarLimits(x["position_min"], x["position_max"]),
+            y=ScalarLimits(y["position_min"], y["position_max"]),
+            z=ScalarLimits(z["position_min"], z["position_max"]),
+            v=ScalarLimits(
+                0.0, max(x["max_velocity"], y["max_velocity"], z["max_velocity"])
+            ),
+        ),
+        Velocity(x["max_velocity"], y["max_velocity"], z["max_velocity"]),
+        homed=homed,
+    )
+
+
+def use_motion_machine(config_dir: Path) -> Path:
+    """``config_dir`` の machine.toml を、XYZ を新ファームで動かす部品実装機にする.
+
+    ``[solder]`` と ``[klipper]`` を消し、``[pnp.motion]`` を足す。
+
+    Returns:
+        書き換えた machine.toml のパス
+    """
+    path = MachineConfigFile(config_dir).path
+    path.write_text(pnp_motion(path.read_text(encoding="utf-8")), encoding="utf-8")
+    return path
+
+
+def motion_devices(
+    env: Env, audio: AudioPlayer, stage: FakeMotionStage | None
+) -> Devices:
+    """新ファームの機体にした ``env`` の装置（ステージは ``stage``、None なら実機の MCU を開く口のまま）.
+
+    None は「まだ開いていないステージ」を確かめるためのもの。pytest では root conftest が MCU
+    を開く口を塞いでいる。
+    """
+    path = use_motion_machine(env.config_dir)
+    return Devices(path, env.journal_dir, audio=audio, motion=stage)
 
 
 def job_manager(

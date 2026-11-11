@@ -9,6 +9,8 @@
   （プロキシ配下で必ず誤るため）。未設定時は `http://{machine_id}.local`
   （machine_id が既にドットを含むなら `.local` を重ねない）
   fake の機体（`Env.fake`）は実機の Mainsail へ導かないよう空文字を返す
+- stage は XYZ を動かす仕組み（``[pnp.motion]`` があれば "motion"、無ければ "klipper"）。
+  "motion" の機体には Mainsail が無いので mainsail_url は空
 - StateResponse に nozzle_cap を追加。`[solder.nozzle.cap]` が x/y/z を揃えていない
   machine.toml でも 200 + null（防御しないと全クライアントのポーリングが 500 する）
 
@@ -47,7 +49,7 @@ from fastapi.testclient import TestClient
 from starlette.testclient import WebSocketTestSession
 
 from tests.support.polling import before_deadline
-from tests.support.web import register_synthetic
+from tests.support.web import register_synthetic, use_motion_machine
 from web.api.app import create_app
 from web.api.backend import Backend
 from web.api.control import ClientIdentity
@@ -155,9 +157,21 @@ class TestMachineInfoApi:
             # frontend / discovery の互換判定に使う値なので、`web.contract.discovery.API_VERSION`
             # を import せずリテラルで固定する（import すると同語反復になり、うっかりの
             # バンプが無音で通る）。バンプは意図的な契約変更なのでここも同時に更新する
-            "api_version": 19,
+            "api_version": 20,
             "capabilities": [{"name": "solder", "label": "はんだ塗布"}],
+            "stage": "klipper",
         }
+
+    def test_motion_machine_reports_the_motion_stage_without_mainsail(
+        self, webui_settings: Env
+    ):
+        use_motion_machine(webui_settings.config_dir)
+        settings = attrs.evolve(webui_settings, hostname="pnp-01")
+        with TestClient(create_app(settings)) as client:
+            info = client.get("/api/session/machine-info").json()
+
+        assert info["stage"] == "motion"
+        assert info["mainsail_url"] == ""
 
     def test_mainsail_url_resolves_from_machine_id_not_request_host(
         self, webui_settings: Env

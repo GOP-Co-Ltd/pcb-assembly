@@ -12,6 +12,16 @@ from .framehub import FrameHub, FrameSource
 from .gamepad import EvdevGamepad, Gamepad, GamepadError, GamepadState, open_gamepad
 from .klipper import KlipperClient, KlipperError, MoonrakerKlipper, open_klipper
 from .manual_stepper import ManualStepper
+from .motion import (
+    HOMING_ORDER,
+    Axis,
+    MotionError,
+    MotionStage,
+    MotionState,
+    MotionStatus,
+    Velocity,
+    homing_order,
+)
 from .paste_dispenser import PasteDispenser
 from .servo import (
     DEFAULT_ACCELERATION,
@@ -59,6 +69,15 @@ __all__ = [
     "open_klipper",
     # manual_stepper
     "ManualStepper",
+    # motion
+    "HOMING_ORDER",
+    "Axis",
+    "MotionError",
+    "MotionStage",
+    "MotionState",
+    "MotionStatus",
+    "Velocity",
+    "homing_order",
     # stage
     "ScalarLimits",
     "Limits",

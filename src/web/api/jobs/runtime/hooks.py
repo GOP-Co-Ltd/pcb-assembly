@@ -21,8 +21,19 @@ _logger = logging.getLogger(__name__)
 
 
 def park_after_job(ctx: JobContext) -> None:
-    """装置を動かしたジョブの終了時に、ノズルキャップ（未記録なら PRESENT）へ退避して脱力する."""
+    """装置を動かしたジョブの終了時に、ノズルキャップ（未記録なら PRESENT）へ退避して脱力する.
+
+    XYZ を新ファームで動かす機体（``[pnp.motion]``）では、開いているステージを止めるだけにする
+    （退避と脱力はしない。開いていなければ、止めるために接続はしない）。
+    どちらの機体かはジョブ開始時に読んだ設定で決める（ジョブの途中で machine.toml が壊れても退避する）。
+    """
+    pnp = ctx.machine.pnp
     try:
+        if pnp is not None and pnp.motion is not None:
+            stage = ctx.devices.opened_motion_stage()
+            if stage is not None:
+                stage.stop()
+            return
         klipper = ctx.klipper(PRESENT_TIMEOUT)
         park(
             klipper,

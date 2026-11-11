@@ -5,14 +5,15 @@ HAL はこのパッケージを import しない。
 
 ## 構成
 
-| モジュール       | 役割                                                                                                                                                                                                    |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `devices.py`     | 機体 1 台の装置 `Devices`（Klipper、カメラ、通知音）と、それを組む `open_devices`。fake への切替もここで行う                                                                                            |
-| `journal.py`     | G-code ジャーナル `Journal`。実機へ送ったブロックを実効 timeout の見出し付きで `data/webui/journal/` に追記する                                                                                         |
-| `diagnostics.py` | 装置診断（ジョブ `machine_check`）。Klipper の接続と状態、printer.cfg にジョブの部品が要求する section、カメラの校正（焦点 Z の記録と解像度の一致）、ALSA の再生デバイスを確かめる                      |
-| `commands.py`    | マシン操作パネルの命令 `MachineCommand`（home / jog / move / relax / focus_z / move_to_cap / gcode）と、その G-code を組む `to_gcode`。REST の `/api/machine/command` と対話ジョブの command が共用する |
-| `park.py`        | ノズルキャップへの駐機 `park`（キャップ → PRESENT → M84）。ジョブの終了時に使う                                                                                                                         |
-| `labels.py`      | ステージ座標の表示文字列 `position_label`。操作パネルの現在位置と、記録したノズルキャップ位置を同じ書式で返す（JS とテンプレートで書式を組まない）                                                      |
+| モジュール           | 役割                                                                                                                                                                                                                                                                                                             |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `devices.py`         | 機体 1 台の装置 `Devices`（Klipper か新ファームの XYZ ステージ、カメラ、通知音、ピンセットのサーボ）と、それを組む `open_devices`。`[pnp.motion]` を MCU のステージの設定に直す `motion_settings`。fake への切替もここで行う                                                                                     |
+| `journal.py`         | G-code ジャーナル `Journal`。実機へ送ったブロックを実効 timeout の見出し付きで `data/webui/journal/` に追記する                                                                                                                                                                                                  |
+| `diagnostics.py`     | 装置診断（ジョブ `machine_check`）。Klipper の接続と状態、printer.cfg にジョブの部品が要求する section、カメラの校正（焦点 Z の記録と解像度の一致）、ALSA の再生デバイスを確かめる                                                                                                                               |
+| `commands.py`        | マシン操作パネルの命令 `MachineCommand`（home / jog / move / relax / focus_z / move_to_cap / gcode）と、その G-code を組む `to_gcode`。REST の `/api/machine/command` と対話ジョブの command が共用する                                                                                                          |
+| `motion_commands.py` | 新ファームの機体（`[pnp.motion]`）で、同じ `MachineCommand` を `MotionStage` で実行する `execute_motion_command`（home / jog / move / relax。focus_z / move_to_cap / gcode は「この機体では使えません」）と、位置の表示文字列 `motion_position_label`（原点が未の軸は `X?`）、原点を出した軸 `motion_homed_axes` |
+| `park.py`            | ノズルキャップへの駐機 `park`（キャップ → PRESENT → M84）。ジョブの終了時に使う                                                                                                                                                                                                                                  |
+| `labels.py`          | ステージ座標の表示文字列 `position_label`。操作パネルの現在位置と、記録したノズルキャップ位置を同じ書式で返す（JS とテンプレートで書式を組まない）                                                                                                                                                               |
 
 ## 装置（Devices）
 
@@ -25,6 +26,17 @@ HAL はこのパッケージを import しない。
 - 緊急停止は使い回すクライアントとは別のクライアントで送り、実行中の長い送信の後ろで待たない。送ったら閉じる
 - `open_devices(..., fake=True)` は Klipper を実機と同じ printer.cfg（`FAKE_MACHINE_PRINTER_CONFIG`。駐機の PRESENT マクロまである）の `FakeKlipper` に、カメラをその位置から `scene` の図形と塗布痕を描く `SceneCamera` にする（`PCBASM_FAKE=1` と `make dev`）。画素の大きさと解像度は校正ファイルから、ノズルの位置は machine.toml から取る
 - golden は `Devices(..., klipper=FakeKlipper(), camera=...)` を注入する。`open_klipper` は root conftest が塞いでいる。backend を組み立て経路ごと確かめるテストは、root conftest の `mount_klipper` / `moonraker` / `unreachable_klipper` で `open_klipper` の返り値を差し替える
+
+## 新ファームのステージ（`[pnp.motion]`）
+
+- `machine.toml` に `[pnp.motion]` があれば、XYZ を Klipper ではなく pnp-motion ファームの MCU で動かす（`uses_motion_stage()`。`[klipper]` は無くてよい）。この機体で `klipper()` を呼ぶと `DeviceError`（`NO_KLIPPER`）になる
+- ステージは最初の `motion_stage()` で開く。状態の表示とジョブ終わりの停止は `opened_motion_stage()` を、可動域は `motion_limits()`（`[pnp.motion]` から読む）を使い、そのために MCU を開かない
+- `[pnp.motion]` が読めなくても `[klipper]` が読めれば、Klipper の機体として扱う（移行の途中の書き損じでも、緊急停止と操作パネルが Klipper へ届く）
+- `machine.toml` を書き換えても開いているステージは開き直さない。読み直すのは `restart_motion_stage()`（ファームウェア再起動）で、原点は「未」になる
+- 緊急停止は、開いているステージがあればそれで送る（原点出しや移動の待ちの後ろで待たない）。無ければ `mcu.send_emergency_stop` で緊急停止だけのために開いて送り、設定も reset もしない
+- `open_devices(..., fake=True)` は、`[pnp.motion]` の可動域と最高速度で、原点が未の `FakeMotionStage` を持たせる
+- `[pnp.motion]` のピンの `^`（プルアップ）と `!`（反転）は `motion_settings` が解き、付けられない記号は設定エラーにする
+- 装置診断の Klipper の項目は、`[klipper]` の無い機体では問い合わせずに不合格とする（新ファームの診断は範囲外）
 
 ## 装置診断
 

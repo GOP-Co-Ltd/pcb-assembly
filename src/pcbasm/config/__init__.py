@@ -8,6 +8,9 @@ TOML のパスと属性のパスは一致する（``solder.defaults.ul_per_mm2``
 機体の機能（:data:`CAPABILITIES`）は節の有無で表す。
 ``[solder]`` があればはんだ塗布機、``[pnp]`` があれば部品実装機、両方あれば両方使える機体になる。
 どちらも無い machine.toml は設定エラーにする。種別を表すキーは持たない。
+
+XYZ ステージは ``[klipper]``（Moonraker 経由の Klipper）か ``[pnp.motion]``（新ファームの MCU）で動かす。
+``[pnp.motion]`` があればそちらで動かす機体になり、``[klipper]`` は無くてよい。どちらも無ければ設定エラーにする。
 """
 
 from __future__ import annotations
@@ -27,7 +30,7 @@ from pcbasm.config.camera import CameraConfig
 from pcbasm.config.detection import DetectionConfig
 from pcbasm.config.fields import section
 from pcbasm.config.klipper import KlipperConfig
-from pcbasm.config.pnp import PnpConfig
+from pcbasm.config.pnp import MotionConfig, PnpConfig
 from pcbasm.config.probe import ProbeConfig
 from pcbasm.config.reference_point import ReferencePointConfig
 from pcbasm.config.settle import SettleConfig
@@ -169,14 +172,15 @@ class MachineConfig:
     未知のキーは設定エラーにする（書き間違えたキーが黙って既定値で動くのを防ぐ）。
     ``section`` の付いた節が設定ページの 1 画面になる（``order`` は画面の並び順）。
     ``solder`` と ``pnp`` は機能の節で、無い機能は None になる。
+    ``klipper`` は ``[pnp.motion]`` で XYZ を動かす機体では None になりうる。
     """
 
-    klipper: KlipperConfig
     camera: CameraConfig = attrs.field(metadata=section(label="カメラ", order=5))
     reference_point: ReferencePointConfig = attrs.field(
         metadata=section(label="基準点", order=4)
     )
     probe: ProbeConfig = attrs.field(metadata=section(label="プローブ", order=3))
+    klipper: KlipperConfig | None = None
     alignment: AlignmentConfig = attrs.field(
         factory=AlignmentConfig, metadata=section(label="位置合わせ", order=2)
     )
@@ -271,6 +275,12 @@ def parse_machine(data: Mapping[str, Any], config_dir: Path) -> MachineConfig:
             "machine.toml に [solder]（はんだ塗布）か [pnp]（部品実装）のどちらかが要ります",
             frozenset(CAPABILITIES),
         )
+    if machine.klipper is None and (machine.pnp is None or machine.pnp.motion is None):
+        raise ConfigError(
+            "machine.toml に [klipper]（Klipper で XYZ を動かす）か"
+            " [pnp.motion]（新ファームで XYZ を動かす）のどちらかが要ります",
+            frozenset({"klipper", "pnp"}),
+        )
     calibration_file = config_dir.resolve() / machine.camera.calibration_file
     return attrs.evolve(
         machine,
@@ -316,3 +326,18 @@ def load_klipper(path: str | Path) -> KlipperConfig:
     if "klipper" not in data:
         raise ConfigError("machine.toml に [klipper] がありません")
     return _structure(data["klipper"], KlipperConfig, "machine.toml.klipper")
+
+
+def load_motion(path: str | Path) -> MotionConfig | None:
+    """machine.toml の [pnp.motion] の表だけを読む（設定エラーの間も緊急停止を送れるように）.
+
+    Returns:
+        [pnp.motion] の設定。表が無ければ None（XYZ は Klipper で動かす機体）
+
+    Raises:
+        ConfigError: TOML として読めない・[pnp.motion] が不正な場合
+    """
+    pnp = _read_toml(Path(path)).get("pnp")
+    if not isinstance(pnp, Mapping) or "motion" not in pnp:
+        return None
+    return _structure(pnp["motion"], MotionConfig, "machine.toml.pnp.motion")

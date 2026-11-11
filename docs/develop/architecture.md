@@ -11,8 +11,12 @@ flowchart TD
     ui -->|HTTP / WebSocket / MJPEG| api[web.api :8081・機体ごと]
     api --> jobs[ジョブ・設定・状態]
     jobs --> core[pcbasm・計算と装置の手順]
-    core --> hal[HAL・カメラ / Klipper / 音声]
+    core --> hal[HAL・カメラ / Klipper / MCU / 音声]
+    hal -->|Moonraker| klipper[Klipper・塗布機の XYZ]
+    hal -->|USB シリアル・hal.mcu| mcu[pnp-motion ファーム・PnP 機の XYZ]
     hal --> device[機体]
+    klipper --> device
+    mcu --> device
 ```
 
 ## 層と依存方向
@@ -42,29 +46,29 @@ web
 
 ## 責務と変更先
 
-| 配置                                | 責務                                                                                                                                       |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `src/pcbasm/geometry/`              | 座標変換、ポリゴン、経路、配置の計算                                                                                                       |
-| `src/pcbasm/plotting.py`            | 描画の共通部品（Agg、穴付きポリゴン、基板外形、PNG 保存）。図そのものは使う側のパッケージに置く                                            |
-| `src/pcbasm/config/`                | `machine.toml` のスキーマ（TOML の 1 節が 1 モジュール）と読み込み、設定ページの項目、機体の機能                                           |
-| `src/pcbasm/board/`                 | 基板データ（外形・部品・パッド・銅箔）と CSV / JSON の書き出し、全体図の描画                                                               |
-| `src/pcbasm/kicad/`                 | KiCad 読込・生成、footprint、単位変換（pcbnew はここだけ）                                                                                 |
-| `src/pcbasm/vision/`                | カメラ校正、画像・銅箔・塗布点の検出                                                                                                       |
-| `src/pcbasm/hal/`                   | カメラ、Klipper、ステージ、ディスペンサー、音声の抽象と実装、fake、MCU（pnp-motion ファーム）と話すクライアント（`mcu/`）                  |
-| `src/pcbasm/machine/`               | 装置の組み立て、G-code ジャーナル、操作パネルの命令、駐機、装置診断                                                                        |
-| `src/pcbasm/align/`                 | 基板の位置合わせ、基準点、補正、カメラと装置の座標対応                                                                                     |
-| `src/pcbasm/pasting/`               | 塗布の設定解決、経路、高さ面、機械手順、画像収集、塗布量校正                                                                               |
-| `src/pcbasm/pnp/`                   | 部品実装（Pick and Place）。いまはピンセットのサーボの役割判別と開閉の範囲（`servo_setup.py`）と、コントローラ操作（`gamepad_control.py`） |
-| `src/pcbasm/commissioning.py`       | 立ち上げ手順の表と、各段が済んだかの判定（`GET /api/readiness`）                                                                           |
-| `src/web/api/routers/`              | HTTP 入出力とコア呼び出し、例外から HTTP 応答への変換                                                                                      |
-| `src/web/api/jobs/`                 | 長時間処理、進捗、中断、操作者への質問、成果物の公開                                                                                       |
-| `src/web/ui/`                       | マシン探索・選択、SSR ページ、backend への中継                                                                                             |
-| `src/web/ui/templates/` / `static/` | HTML、CSS、DOM 操作、API 応答の表示                                                                                                        |
-| `src/web/selfupdate/`               | backend / frontend 共通の Git 更新とサービス再起動手順                                                                                     |
-| `src/web/contract/`                 | backend・frontend・自己更新が共有する応答モデルとワイヤ定数                                                                                |
-| `src/web/process.py`                | backend / frontend 共通の env 読み取りと logging の初期化                                                                                  |
-| `src/firmware/pnp-motion/`          | PnP 機の XYZ を速度指令で動かす Klipper の MCU ファーム（C、GPLv3。[README](../../src/firmware/pnp-motion/README.md)）                     |
-| `install.sh`、`deploy/`             | ホストの導入（段ごとに冪等）と、unit・sudoers・機種のテンプレート・firmware の雛形                                                         |
+| 配置                                | 責務                                                                                                                                                                                                     |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/pcbasm/geometry/`              | 座標変換、ポリゴン、経路、配置の計算                                                                                                                                                                     |
+| `src/pcbasm/plotting.py`            | 描画の共通部品（Agg、穴付きポリゴン、基板外形、PNG 保存）。図そのものは使う側のパッケージに置く                                                                                                          |
+| `src/pcbasm/config/`                | `machine.toml` のスキーマ（TOML の 1 節が 1 モジュール）と読み込み、設定ページの項目、機体の機能                                                                                                         |
+| `src/pcbasm/board/`                 | 基板データ（外形・部品・パッド・銅箔）と CSV / JSON の書き出し、全体図の描画                                                                                                                             |
+| `src/pcbasm/kicad/`                 | KiCad 読込・生成、footprint、単位変換（pcbnew はここだけ）                                                                                                                                               |
+| `src/pcbasm/vision/`                | カメラ校正、画像・銅箔・塗布点の検出                                                                                                                                                                     |
+| `src/pcbasm/hal/`                   | カメラ、Klipper、ステージ、ディスペンサー、音声の抽象と実装、fake、速度指令で動かす XYZ ステージ `MotionStage`（`motion.py`）、MCU（pnp-motion ファーム）と話すクライアントとステージの MCU 版（`mcu/`） |
+| `src/pcbasm/machine/`               | 装置の組み立て（XYZ を Klipper と新ファームのどちらで動かすかの振り分け）、G-code ジャーナル、操作パネルの命令（新ファームの機体は `motion_commands.py`）、駐機、装置診断                                |
+| `src/pcbasm/align/`                 | 基板の位置合わせ、基準点、補正、カメラと装置の座標対応                                                                                                                                                   |
+| `src/pcbasm/pasting/`               | 塗布の設定解決、経路、高さ面、機械手順、画像収集、塗布量校正                                                                                                                                             |
+| `src/pcbasm/pnp/`                   | 部品実装（Pick and Place）。いまはピンセットのサーボの役割判別と開閉の範囲（`servo_setup.py`）と、コントローラ操作（`gamepad_control.py`）                                                               |
+| `src/pcbasm/commissioning.py`       | 立ち上げ手順の表と、各段が済んだかの判定（`GET /api/readiness`）                                                                                                                                         |
+| `src/web/api/routers/`              | HTTP 入出力とコア呼び出し、例外から HTTP 応答への変換                                                                                                                                                    |
+| `src/web/api/jobs/`                 | 長時間処理、進捗、中断、操作者への質問、成果物の公開                                                                                                                                                     |
+| `src/web/ui/`                       | マシン探索・選択、SSR ページ、backend への中継                                                                                                                                                           |
+| `src/web/ui/templates/` / `static/` | HTML、CSS、DOM 操作、API 応答の表示                                                                                                                                                                      |
+| `src/web/selfupdate/`               | backend / frontend 共通の Git 更新とサービス再起動手順                                                                                                                                                   |
+| `src/web/contract/`                 | backend・frontend・自己更新が共有する応答モデルとワイヤ定数                                                                                                                                              |
+| `src/web/process.py`                | backend / frontend 共通の env 読み取りと logging の初期化                                                                                                                                                |
+| `src/firmware/pnp-motion/`          | PnP 機の XYZ を速度指令で動かす Klipper の MCU ファーム（C、GPLv3。[README](../../src/firmware/pnp-motion/README.md)）                                                                                   |
+| `install.sh`、`deploy/`             | ホストの導入（段ごとに冪等）と、unit・sudoers・機種のテンプレート・firmware の雛形                                                                                                                       |
 
 パッケージの中の構成は、各パッケージの README にある（[align](../../src/pcbasm/align/README.md)、[geometry](../../src/pcbasm/geometry/README.md)、[hal](../../src/pcbasm/hal/README.md)、[machine](../../src/pcbasm/machine/README.md)、[pasting](../../src/pcbasm/pasting/README.md)、[pnp](../../src/pcbasm/pnp/README.md)、[vision](../../src/pcbasm/vision/README.md)）。
 
@@ -92,6 +96,18 @@ backend は起動したときの節で機能を決め（`MachineConfigFile.capab
 塗布の処理は登録の時点で振り分けてあるので、`[solder]` が無いことを各所で確かめない。
 ジョブは `JobContext.solder`、router は `MachineConfig.require_solder()` で `[solder]` を受け取る。
 どの機体にもある処理で塗布の値を使うもの（終了時の駐機、装置診断のディスペンサー）だけが `machine.solder` の有無を見る。
+
+### XYZ を動かす経路は [pnp.motion] で決まる
+
+XYZ ステージは、`machine.toml` に `[pnp.motion]` があれば新ファーム（pnp-motion）の MCU で、無ければ `[klipper]` の Klipper で動かす。
+`[klipper]` と `[pnp.motion]` のどちらかは必須で、どちらも無ければ設定エラーになる。
+分岐は `Devices.uses_motion_stage()` だけで決め、塗布機の Klipper の経路（`to_gcode`、`handle_machine_command`、`XYZStage`）は変えない。
+`[pnp.motion]` が読めなくても `[klipper]` が読めれば Klipper の機体とする（緊急停止と操作パネルを Klipper へ届ける）。
+
+- API: `routers/machine.py` の command・status・limits・firmware-restart が、新ファームの機体では `pcbasm.machine.motion_commands` と `MotionStage` を呼ぶ。status と limits は MCU に接続しない（開いているステージと `[pnp.motion]` を読む）。緊急停止は `Devices.emergency_stop` が振り分ける
+- ジョブ: 終了時の駐機（`hooks.park_after_job`）は、新ファームの機体では開いているステージを止めるだけにする
+- 申告と画面: `GET /api/session/machine-info` の `stage`（`"klipper"` / `"motion"`）で、操作パネルが G-code・焦点 Z・キャップの項目を隠し、Z のボタンの並びを変える
+- Klipper に依存する機能（位置合わせ・校正・装置診断のジョブ、任意の G-code）は、新ファームの機体では使えない旨のエラーになる（`JobContext.klipper` が `NO_KLIPPER` の `DeviceError` を出す。装置診断の motion 対応は後続）
 
 ### PnP を足すときの変更先
 
@@ -139,7 +155,7 @@ PnP の中身は、塗布と同じ形で次の場所に足す。
 | `generate_rect_pcb`        | 基板     | `jobs/kicad/generate_rect_pcb.py`                 | `pasting.plate.write_rect_board`                                                                                                                                      | なし                                                      |
 | `extract_pcb`              | 基板     | `jobs/kicad/extract_pcb.py`                       | `board.export`、`board.plot.render_pcb`                                                                                                                               | なし                                                      |
 | `make_fill_coverage_pcb`   | 基板     | `jobs/kicad/make_fill_coverage_pcb.py`            | `kicad.build.build_fill_coverage_board`                                                                                                                               | なし                                                      |
-| `klipper_status`           | 機体     | `routers/machine.py`                              | `machine.commands.to_gcode`                                                                                                                                           | `[klipper]`                                               |
+| `klipper_status`           | 機体     | `routers/machine.py`                              | `machine.commands.to_gcode`、`machine.motion_commands.execute_motion_command`                                                                                         | `[klipper]`、`[pnp.motion]`                               |
 | `machine_check`            | 機体     | `jobs/machine/machine_check.py`                   | `machine.diagnostics`                                                                                                                                                 | `[klipper]`、`[camera]`、`[audio]`                        |
 | `machine_config`           | 機体     | `routers/machine_config.py`                       | `config.fields.setting_fields`                                                                                                                                        | 全体                                                      |
 | `audio`                    | 機体     | `routers/audio.py`                                | `hal.audio`                                                                                                                                                           | `[audio]`                                                 |

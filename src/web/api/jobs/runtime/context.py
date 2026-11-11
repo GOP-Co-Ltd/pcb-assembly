@@ -14,8 +14,9 @@ from typing import Any, Literal, overload, override
 from pcbasm.board import Board
 from pcbasm.config import MachineConfig
 from pcbasm.config.solder import SolderConfig
+from pcbasm.errors import DeviceError
 from pcbasm.hal import Camera, FrameHub, KlipperClient
-from pcbasm.machine.devices import Devices
+from pcbasm.machine.devices import NO_KLIPPER, Devices
 from pcbasm.machine.journal import Journal
 from pcbasm.pasting.hooks import ProcedureHooks
 from pcbasm.validators import is_finite_number
@@ -314,10 +315,14 @@ class JobContext(ProcedureHooks):
 
         Args:
             timeout: 送信ごとの指定が無いときと、問い合わせの timeout 秒数（None は無制限）
+
+        Raises:
+            DeviceError: [klipper] が無く、XYZ を [pnp.motion] の新ファームで動かす機体の場合
         """
-        return self._devices.klipper(
-            timeout, journal=self._journal, endpoint=self._machine.klipper
-        )
+        endpoint = self._machine.klipper
+        if endpoint is None:
+            raise DeviceError(NO_KLIPPER)
+        return self._devices.klipper(timeout, journal=self._journal, endpoint=endpoint)
 
     @property
     def machine_id(self) -> str:

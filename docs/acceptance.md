@@ -75,20 +75,21 @@
 
 ## 変えた領域と、実施する項目
 
-| 変えた領域                                            | 実施する項目                                 |
-| ----------------------------------------------------- | -------------------------------------------- |
-| `pcbasm.hal`、`pcbasm.machine`                        | A0, A1, A2, A8, A10, A14, A20                |
-| `pcbasm.gcode`、`pcbasm.geometry`                     | A1, A5, A8                                   |
-| `pcbasm.align`、`pcbasm.vision`                       | A3, A4, A5, A8                               |
-| `pcbasm.board`、`pcbasm.kicad`                        | A8, A17                                      |
-| `pcbasm.pasting`                                      | A6, A7, A8, A9, A15, A16, A21                |
-| 描画（`pcbasm.plotting` と `render_*`）               | A7, A9, A17                                  |
-| `pcbasm.config`、`web.api.machine_config`、設定の移行 | A10, A13, A18, A19, A22 と、全項目の起動確認 |
-| `web.api`、`web.ui`                                   | A1, A8, A12, A17, A18 の画面操作             |
-| `web.selfupdate`、`install.sh`、unit                  | A11                                          |
-| `tests/golden` の更新                                 | A8 と、差分が出たジョブ・route の項目        |
-| `pcbasm.pnp`、`pcbasm.hal.servo`                      | A23, A24, A25, A27                           |
-| `pcbasm.hal.gamepad`                                  | A26, A27                                     |
+| 変えた領域                                                              | 実施する項目                                 |
+| ----------------------------------------------------------------------- | -------------------------------------------- |
+| `pcbasm.hal`、`pcbasm.machine`                                          | A0, A1, A2, A8, A10, A14, A20                |
+| `pcbasm.gcode`、`pcbasm.geometry`                                       | A1, A5, A8                                   |
+| `pcbasm.align`、`pcbasm.vision`                                         | A3, A4, A5, A8                               |
+| `pcbasm.board`、`pcbasm.kicad`                                          | A8, A17                                      |
+| `pcbasm.pasting`                                                        | A6, A7, A8, A9, A15, A16, A21                |
+| 描画（`pcbasm.plotting` と `render_*`）                                 | A7, A9, A17                                  |
+| `pcbasm.config`、`web.api.machine_config`、設定の移行                   | A10, A13, A18, A19, A22 と、全項目の起動確認 |
+| `web.api`、`web.ui`                                                     | A1, A8, A12, A17, A18 の画面操作             |
+| `web.selfupdate`、`install.sh`、unit                                    | A11                                          |
+| `tests/golden` の更新                                                   | A8 と、差分が出たジョブ・route の項目        |
+| `pcbasm.pnp`、`pcbasm.hal.servo`                                        | A23, A24, A25, A27                           |
+| `pcbasm.hal.gamepad`                                                    | A26, A27                                     |
+| `pcbasm.hal.motion`、`pcbasm.hal.mcu`、`pcbasm.machine.motion_commands` | A28, A29, A30, A31                           |
 
 ## 項目
 
@@ -122,6 +123,10 @@
 | A25  | ピンセットのパネル操作           | PnP 機                                 |
 | A26  | Xbox コントローラの入力          | PnP 機                                 |
 | A27  | コントローラでピンセット操作     | PnP 機                                 |
+| A28  | 新ファームのステージへの接続     | PnP 機（`[pnp.motion]`）               |
+| A29  | 原点出しとパネルの位置操作       | PnP 機（`[pnp.motion]`）               |
+| A30  | 新ファームの緊急停止と再起動     | PnP 機（`[pnp.motion]`）               |
+| A31  | backend の停止と再起動           | PnP 機（`[pnp.motion]`）               |
 
 ### A0 装置診断
 
@@ -338,6 +343,72 @@
     - 4: 回している間も部品を落とさない
     - 5: ジョブが中止で終わり、回転が止まり、ピンセットはトルクが入ったまま（つまんだ部品を落とさない）。パネルの操作がまた使える
     - 6: ジョブが「切断」のエラーで終わり、回転が止まる（Bluetooth はカーネルが切断に気づくまで数秒回り続けることがある）
+
+### A28 新ファームのステージへの接続
+
+- 画面: マシン操作パネルと `klipper_status`（PnP 機の機体タブ）
+- 前提:
+    - MCU に pnp-motion ファームを書き込んである（`./install.sh firmware pnp-motion`）
+    - Klipper のサービスを止めて無効にしてある（`sudo systemctl disable --now klipper`）。Klipper が同じシリアルを開いていると話せない
+    - `machine.toml` に `[pnp.motion]` を書き、`[klipper]` を消してある（雛形は `deploy/templates/kurousagi/machine.toml`）。`serial` は `ls /dev/serial/by-id/` で確かめる
+- 操作:
+    1. backend を起動し、`klipper_status` を開く
+    2. マシン操作パネルを開く
+    3. `serial` を Klipper のファームを書いた MCU（または存在しないデバイス）に向けて、操作パネルの Home を押す
+- 合格条件:
+    - 1: 接続状態と可動域（`[pnp.motion]` の `position_min`〜`position_max`）が出る。G-code の入力欄が出ない
+    - 2: Z のボタンは + が上に並ぶ。焦点 Z とキャップ位置へのボタンが出ない。サイドバーに Klipper（Mainsail）へのリンクが出ない
+    - 接続の際に、TMC2209 の確認（IFCNT と GCONF の読み戻し）で失敗しない。失敗すると操作がエラーになり、文言に IFCNT が出る
+    - 3: 「pnp-motion ファームではありません。`./install.sh firmware pnp-motion` で書き込んでください」か、開けない旨のエラーになり、機械は動かない
+
+### A29 原点出しとパネルの位置操作
+
+- 画面: マシン操作パネル（PnP 機）
+- 前提: A28 を済ませる。ノズルが周りに引っかからない位置にある
+- 操作:
+    1. 操作権を取り、原点出しの前に位置の表示を見る。続けて XY のジョグを押す
+    2. X だけの Home を押す（Z の原点が未のまま）
+    3. 全軸の Home を押す
+    4. X・Y・Z のそれぞれで ±0.1・±1・±10 のジョグを押す
+    5. 座標を入れて移動する。行き先を定規やカメラの映像で測る
+    6. 可動域の端（`position_min`、`position_max`）へ移動する。端の外へのジョグと移動も押す
+    7. Relax を押す
+- 合格条件:
+    - 1: 位置が `X? Y? Z?` と出る。ジョグは「原点出しをしていない軸」のエラーになり、動かない
+    - 2: Z の原点を先に出してから X を出す（ノズルが引っかからない）
+    - 3: Z → X → Y の順に、1 回目は速くスイッチに当たり、離れてから 2 回目はゆっくり当たる。終わると位置が `position_endstop` の値になる
+    - 4: 押した軸だけが押した向きと距離だけ動く。Z は上のボタン（+）で上昇する。位置の表示が動いた量と一致する
+    - 5: 測った位置が入れた座標と一致し、位置の表示とも一致する。XY を同時に変えると直線に動く
+    - 6: 端の手前で減速して端で止まり、機構の当たりやスイッチに当たらない。端の外への操作は「可動域の外」のエラーになり、動かない
+    - 7: XYZ のモーターが脱力し、手で動かせる。位置が `X? Y? Z?` に戻る。Relax の後に何もしなければ、励磁は入り直さない
+
+### A30 新ファームの緊急停止と再起動
+
+- 画面: マシン操作パネルとヘッダの緊急停止・再起動（復旧）（PnP 機）
+- 前提: A29 を済ませる
+- 操作:
+    1. 全軸の原点を出し、可動域の端から端への長い移動を始め、途中で緊急停止を押す
+    2. `klipper_status` で状態を見て、パネルの操作を押す
+    3. 再起動（復旧）を押す
+    4. `machine.toml` の `[pnp.motion]` の値（たとえば `max_velocity`）を変えて保存し、再起動（復旧）を押してから移動する
+    5. backend を起動し直した直後（パネルで何も操作していない状態）に、緊急停止を押す
+- 合格条件:
+    - 1: すぐに止まる（減速を待たない）。shutdown で励磁が切れたときに、Z が自重で落ちない（落ちるなら、落ちた量を PR 本文に書く）
+    - 2: 接続が切れた表示に shutdown の理由が出る。操作はエラーになり、機械は動かない
+    - 3: 「XYZ の MCU を再起動しました。原点は「未」に戻ったので、原点出しからやり直してください。」と出る。WebUI のサービスは再起動しない（ページを開き直さずに操作を続けられる）。位置が `X? Y? Z?` に戻り、原点出しからやり直すと A29 のとおりに動く
+    - 4: 変えた値が効く（再起動の前は、`machine.toml` を書き換えても開いているステージは古い値のまま）
+    - 5: MCU が shutdown する（緊急停止のためだけに開いて送る）
+
+### A31 backend の停止と再起動
+
+- 画面: マシン操作パネル（PnP 機）
+- 前提: A29 を済ませる
+- 操作:
+    1. 全軸の原点を出し、可動域の端から端への長い移動を始め、途中で backend を `kill -9` する
+    2. backend を起動し直し、`klipper_status` を開いてから、パネルの Home を押す
+- 合格条件:
+    - 1: backend が止まってすぐ（速度指令の期限の 0.2 s のうちに）減速して止まる
+    - 2: backend のログに「MCU を reset する」が出ず、Z の励磁が切れない（Z が落ちない）。原点は「未」として始まり（`X? Y? Z?`）、Home からやり直せる
 
 ## 未確認の項目（実機で確かめる）
 

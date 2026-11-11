@@ -1,6 +1,9 @@
-"""機体 1 台の装置（Klipper、カメラ、通知音、ピンセットのサーボ）.
+"""機体 1 台の装置（Klipper か新ファームの XYZ ステージ、カメラ、通知音、ピンセットのサーボ）.
 
 装置を組み立てる場所はここだけで、fake への切替もここで行う。
+
+XYZ は machine.toml に ``[pnp.motion]`` があれば新ファームのステージ（:class:`~pcbasm.hal.motion.MotionStage`）で、
+無ければ ``[klipper]`` の Klipper で動かす。
 """
 
 from __future__ import annotations
@@ -13,9 +16,10 @@ from pathlib import Path
 from shapely import Polygon
 
 from pcbasm import hal
-from pcbasm.config import ConfigError, load_klipper, load_machine
+from pcbasm.config import ConfigError, load_klipper, load_machine, load_motion
 from pcbasm.config.klipper import KlipperConfig
-from pcbasm.config.pnp import ServoConfig
+from pcbasm.config.pnp import MotionAxisConfig, MotionConfig, ServoConfig
+from pcbasm.errors import DeviceError
 from pcbasm.geometry import Point2d
 from pcbasm.hal import (
     AlsaAudioPlayer,
@@ -24,23 +28,35 @@ from pcbasm.hal import (
     FrameHub,
     Gamepad,
     KlipperClient,
+    Limits,
     MoonrakerKlipper,
+    MotionStage,
+    ScalarLimits,
     ServoBus,
     ServoMode,
     Tweezer,
+    Velocity,
+    mcu,
 )
 from pcbasm.hal.fake import (
     FAKE_MACHINE_PRINTER_CONFIG,
     FakeCamera,
     FakeGamepad,
     FakeKlipper,
+    FakeMotionStage,
     FakeServoBus,
     SceneCamera,
 )
+from pcbasm.hal.mcu import AxisSettings, McuMotionSettings, TmcSettings
 from pcbasm.machine.journal import Journal
 from pcbasm.vision import CameraModel, Image
 
 EMERGENCY_STOP_TIMEOUT = 10.0
+
+# [klipper] が無く、XYZ を新ファームで動かす機体で Klipper を求められたときの文言
+NO_KLIPPER = (
+    "この機体は Klipper を使いません（XYZ は [pnp.motion] の新ファームで動かします）"
+)
 
 
 class Devices:
@@ -48,7 +64,8 @@ class Devices:
 
     作っただけでは外部装置へ接続しない。
     Moonraker へは最初の送信か問い合わせで、カメラへは最初に :meth:`frame_hub` を呼んだときに、
-    サーボへは最初に :meth:`servo_bus` を呼んだときに接続する。
+    サーボへは最初に :meth:`servo_bus` を呼んだときに、新ファームのステージへは最初に :meth:`motion_stage` を
+    呼んだときに接続する。
     Moonraker が起動していなくても作れ、起動した後は作り直さずにそのまま使える。
     """
 
@@ -62,6 +79,7 @@ class Devices:
         audio: AudioPlayer | None = None,
         servo_bus: FakeServoBus | None = None,
         gamepad: FakeGamepad | None = None,
+        motion: FakeMotionStage | None = None,
     ) -> None:
         """Devices を初期化する.
 
@@ -73,6 +91,7 @@ class Devices:
             audio: 通知音のプレイヤー（None は ALSA で鳴らす）
             servo_bus: 実機のサーボの代わりに使う fake のバス（None は [pnp.servo] のポートを開く）
             gamepad: 実機のコントローラの代わりに使う fake（None はつながっているコントローラを探して開く）
+            motion: 新ファームのステージの代わりに使う fake（None は [pnp.motion] の MCU を開く）
         """
         self._config_path = config_path
         self._journal_dir = journal_dir
@@ -89,6 +108,10 @@ class Devices:
         self._servo_bus: ServoBus | None = None
         self._servo_port: tuple[str, int] | None = None
         self._fake_gamepad = gamepad
+        self._fake_motion = motion
+        self._motion_lock = threading.Lock()
+        self._motion_stage: MotionStage | None = None
+        self._motion_settings: McuMotionSettings | None = None
 
     @property
     def audio(self) -> AudioPlayer:
@@ -115,6 +138,7 @@ class Devices:
 
         Raises:
             ConfigError: endpoint が None で [klipper] が読めない場合
+            DeviceError: endpoint が None で、[klipper] が無く [pnp.motion] で XYZ を動かす機体の場合
         """
         if journal is None:
             journal = Journal.for_today(self._journal_dir)
@@ -123,14 +147,33 @@ class Devices:
     def emergency_stop(self) -> None:
         """緊急停止を送る（使い回す HTTP クライアントとは別に送り、実行中の長い送信の後ろで待たない）.
 
+        新ファームの機体（[pnp.motion]）では MCU へ送る。開いているステージがあればそれで送り
+        （原点出しや移動の待ちの後ろで待たない）、無ければ緊急停止だけのために開いて送る（設定も reset もしない）。
+        ステージを閉じている最中（:meth:`restart_motion_stage` で設定が変わったときと :meth:`close`）は、
+        実行中の操作の終わりを待つ間も、閉じ終えるまで古いステージで送る。
+        ステージを開いている最中（初回の :meth:`motion_stage` と、設定が変わった :meth:`restart_motion_stage` で
+        古いステージを閉じ終えた後）は、ポートを開けずに ``DeviceError`` になる（その間 MCU は流していないか、
+        速度指令の期限で止まる）。
+        どちらの機体かは :meth:`uses_motion_stage` と同じく決める（[pnp.motion] が読めなくても [klipper] が
+        読めれば Klipper へ送る）。
+
         Raises:
-            ConfigError: [klipper] が読めない場合
+            ConfigError: どちらの機体かを決められないか、[klipper] が読めない場合
             KlipperError: Klipper が要求を断った場合
+            DeviceError: MCU へ送れない場合（``MotionError``・``McuError``）
         """
+        stage = self.opened_motion_stage()
+        if stage is not None:
+            stage.emergency_stop()
+            return
         if self._fake_klipper is not None:
             self._fake_klipper.connection(
                 timeout=EMERGENCY_STOP_TIMEOUT
             ).emergency_stop()
+            return
+        motion = self._motion_config()
+        if motion is not None:
+            mcu.send_emergency_stop(motion.serial)
             return
         endpoint = load_klipper(self._config_path)
         klipper = hal.open_klipper(
@@ -140,6 +183,81 @@ class Devices:
             klipper.emergency_stop()
         finally:
             klipper.close()
+
+    def uses_motion_stage(self) -> bool:
+        """XYZ を新ファームのステージで動かす機体か（fake を渡されていなければ、呼ぶたびに [pnp.motion] を読む）.
+
+        [pnp.motion] が読めなくても [klipper] が読めれば、Klipper の機体とする（移行の途中で [pnp.motion] を
+        書き損じても、緊急停止と操作パネルを Klipper へ届けるため）。
+
+        Raises:
+            ConfigError: machine.toml が TOML として読めないか、[pnp.motion] が不正で [klipper] も読めない場合
+        """
+        return self._fake_motion is not None or self._motion_config() is not None
+
+    def motion_limits(self) -> Limits:
+        """新ファームのステージの可動域と最高速度（[pnp.motion] から読み、MCU は開かない）.
+
+        Raises:
+            DeviceError: [pnp.motion] が無い場合
+            ConfigError: [pnp.motion] が読めない場合
+        """
+        if self._fake_motion is not None:
+            return self._fake_motion.limits
+        return _motion_limits(self._required_motion())
+
+    def motion_stage(self) -> MotionStage:
+        """新ファームのステージを返す（初回に [pnp.motion] の MCU を開いて設定する）.
+
+        machine.toml を書き換えても開き直さない。読み直すのは :meth:`restart_motion_stage`。
+
+        Raises:
+            DeviceError: [pnp.motion] が無い場合（``MotionError`` は MCU を開けない・設定できない場合）
+            ConfigError: [pnp.motion] が読めないか、ピンの書き方が不正な場合
+        """
+        if self._fake_motion is not None:
+            return self._fake_motion
+        with self._motion_lock:
+            stage = self._motion_stage
+            if stage is None:
+                stage = self._open_motion(self._read_motion_settings())
+            return stage
+
+    def opened_motion_stage(self) -> MotionStage | None:
+        """開いている新ファームのステージ（開いていなければ None。ここでは接続しない）.
+
+        状態の表示やジョブ終わりの停止のように、そのために MCU を開きたくない呼び出し側が使う。
+        """
+        if self._fake_motion is not None:
+            return self._fake_motion
+        return self._motion_stage
+
+    def restart_motion_stage(self) -> MotionStage:
+        """ファームウェア再起動。[pnp.motion] を読み直してステージを立て直す。原点は「未」になる.
+
+        設定が開いたときと同じなら、開いているステージを restart する（MCU を reset して設定し直す）。
+        変わっていれば閉じて新しい設定で開き直し、開いていなければ開く。開くときは、MCU が shutdown しているか
+        MCU の設定が違えば reset する。
+
+        Raises:
+            DeviceError: [pnp.motion] が無い場合（``MotionError`` は MCU と話せない場合）
+            ConfigError: [pnp.motion] が読めないか、ピンの書き方が不正な場合
+        """
+        if self._fake_motion is not None:
+            self._fake_motion.restart()
+            return self._fake_motion
+        settings = self._read_motion_settings()
+        with self._motion_lock:
+            stage = self._motion_stage
+            if stage is not None and settings == self._motion_settings:
+                stage.restart()
+                return stage
+            if stage is not None:
+                # 閉じ終えるまで参照を外さない（実行中の操作の終わりを待つ間も、緊急停止は古い接続から送る）
+                stage.close()
+                self._motion_stage = None
+                self._motion_settings = None
+            return self._open_motion(settings)
 
     def frame_hub(self) -> FrameHub:
         """FrameHub を返す（初回の呼び出しでカメラを開く。start はしない）.
@@ -246,7 +364,8 @@ class Devices:
                 )
 
     def close(self) -> None:
-        """後始末（通知音を閉じ、FrameHub を止め、Moonraker への HTTP クライアントとサーボのバスを閉じる）.
+        """後始末（通知音を閉じ、FrameHub を止め、Moonraker への HTTP
+        クライアント、サーボのバス、新ファームのステージを閉じる）.
 
         実行中のジョブの完了音を捨てないよう、ジョブを止めてから呼ぶ。
         """
@@ -263,6 +382,13 @@ class Devices:
             self._servo_port = None
         if servo_bus is not None:
             servo_bus.close()
+        with self._motion_lock:
+            motion = self._fake_motion or self._motion_stage
+            if motion is not None:
+                # 閉じ終えるまで参照を外さない（restart_motion_stage と同じ）
+                motion.close()
+            self._motion_stage = None
+            self._motion_settings = None
 
     def _klipper(
         self, endpoint: KlipperConfig | None
@@ -270,13 +396,55 @@ class Devices:
         if self._fake_klipper is not None:
             return self._fake_klipper
         if endpoint is None:
-            endpoint = load_klipper(self._config_path)
+            endpoint = self._klipper_endpoint()
         with self._klipper_lock:
             if self._moonraker is None or endpoint != self._endpoint:
                 # 古いクライアントは閉じない（実行中のジョブの接続がまだ使っているかもしれない）
                 self._moonraker = hal.open_klipper(endpoint.host, endpoint.port)
                 self._endpoint = endpoint
             return self._moonraker
+
+    def _klipper_endpoint(self) -> KlipperConfig:
+        try:
+            return load_klipper(self._config_path)
+        except ConfigError:
+            if load_motion(self._config_path) is not None:
+                raise DeviceError(NO_KLIPPER) from None
+            raise
+
+    def _motion_config(self) -> MotionConfig | None:
+        """[pnp.motion]（無いか、読めず [klipper] が読める機体は None）."""
+        try:
+            return load_motion(self._config_path)
+        except ConfigError:
+            if self._klipper_readable():
+                return None
+            raise
+
+    def _klipper_readable(self) -> bool:
+        try:
+            load_klipper(self._config_path)
+        except ConfigError:
+            return False
+        return True
+
+    def _required_motion(self) -> MotionConfig:
+        motion = load_motion(self._config_path)
+        if motion is None:
+            raise DeviceError(
+                "この機体は新ファームのステージを使いません（machine.toml に [pnp.motion] がありません）"
+            )
+        return motion
+
+    def _read_motion_settings(self) -> McuMotionSettings:
+        return motion_settings(self._required_motion())
+
+    def _open_motion(self, settings: McuMotionSettings) -> MotionStage:
+        """MCU を開いて覚える（``_motion_lock`` を持って呼ぶ）."""
+        stage = mcu.open_motion_stage(settings)
+        self._motion_stage = stage
+        self._motion_settings = settings
+        return stage
 
     def _servo_config(self) -> ServoConfig:
         pnp = load_machine(self._config_path).pnp
@@ -317,7 +485,9 @@ def open_devices(
         fake: Klipper を実機と同じ printer.cfg の FakeKlipper にし、カメラをその位置から scene を描く SceneCamera にする。
             サーボは ID 1 がステップモード、ID 2 が位置モードの FakeServoBus にし、サーボ設定ジョブを済ませた
             角度制限（ID 1 は制限なし、ID 2 は [pnp.servo] の閉じ切り〜開き切り）を持たせる。
-            コントローラは何も押していない FakeGamepad にする
+            コントローラは何も押していない FakeGamepad にする。
+            [pnp.motion] があれば、その可動域と最高速度の FakeMotionStage（原点は「未」）を持たせる
+            （ここで [pnp.motion] が無いか読めなければ持たせない）
         scene: fake のカメラに映す図形（機械座標 [mm]）を返す関数（カメラを開くたびに呼ぶ）
         camera_image: 与えると、カメラをこの画像を返し続ける FakeCamera にする（fake より優先する）
         audio: 通知音のプレイヤー（None は ALSA で鳴らす。テストは FakeAudioPlayer を渡す）
@@ -330,6 +500,7 @@ def open_devices(
         camera = functools.partial(_scene_camera, klipper, config_path, scene)
     servo_bus = _fake_servo_bus(config_path) if fake else None
     gamepad = FakeGamepad() if fake else None
+    motion = _fake_motion_stage(config_path) if fake else None
     return Devices(
         config_path,
         journal_dir,
@@ -338,6 +509,115 @@ def open_devices(
         audio=audio,
         servo_bus=servo_bus,
         gamepad=gamepad,
+        motion=motion,
+    )
+
+
+def motion_settings(config: MotionConfig) -> McuMotionSettings:
+    """[pnp.motion] を MCU のステージの設定に直す（ピンの ``^`` と ``!`` を解く）.
+
+    付けられる記号はピンごとに決まっていて、それ以外（``~`` のプルダウンなど）は設定エラーにする。
+    ``^`` はリミットスイッチと TMC2209 の受信ピンに、``!`` は dir・enable・リミットスイッチのピンに付けられる。
+
+    Raises:
+        ConfigError: ピンの書き方が不正な場合
+    """
+    tmc_rx_pin, tmc_rx_pull_up, _ = _pin(config.tmc_rx_pin, "tmc_rx_pin", pull_up=True)
+    tmc_tx_pin, _, _ = _pin(config.tmc_tx_pin, "tmc_tx_pin")
+    return McuMotionSettings(
+        device=config.serial,
+        kinematics=config.kinematics,
+        x=_axis_settings("x", config.x),
+        y=_axis_settings("y", config.y),
+        z=_axis_settings("z", config.z),
+        tmc_rx_pin=tmc_rx_pin,
+        tmc_tx_pin=tmc_tx_pin,
+        tmc_rx_pull_up=tmc_rx_pull_up,
+    )
+
+
+def _axis_settings(name: str, axis: MotionAxisConfig) -> AxisSettings:
+    step_pin, _, _ = _pin(axis.step_pin, f"{name}.step_pin")
+    dir_pin, _, invert_dir = _pin(axis.dir_pin, f"{name}.dir_pin", invert=True)
+    enable_pin, _, invert_enable = _pin(
+        axis.enable_pin, f"{name}.enable_pin", invert=True
+    )
+    endstop_pin, endstop_pull_up, endstop_invert = _pin(
+        axis.endstop_pin, f"{name}.endstop_pin", pull_up=True, invert=True
+    )
+    second_homing_speed = axis.second_homing_speed
+    if second_homing_speed is None:
+        second_homing_speed = axis.homing_speed / 2
+    return AxisSettings(
+        step_pin=step_pin,
+        dir_pin=dir_pin,
+        invert_dir=invert_dir,
+        enable_pin=enable_pin,
+        invert_enable=invert_enable,
+        endstop_pin=endstop_pin,
+        endstop_pull_up=endstop_pull_up,
+        endstop_invert=endstop_invert,
+        steps_per_mm=axis.steps_per_mm,
+        position_min=axis.position_min,
+        position_max=axis.position_max,
+        position_endstop=axis.position_endstop,
+        homing_positive=axis.homing_positive,
+        homing_speed=axis.homing_speed,
+        second_homing_speed=second_homing_speed,
+        homing_retract=axis.homing_retract,
+        max_velocity=axis.max_velocity,
+        max_accel=axis.max_accel,
+        tmc_address=axis.tmc_address,
+        tmc=TmcSettings(
+            run_current=axis.run_current,
+            hold_current=axis.hold_current,
+            sense_resistor=axis.sense_resistor,
+            microsteps=axis.microsteps,
+        ),
+    )
+
+
+def _pin(
+    text: str, key: str, *, pull_up: bool = False, invert: bool = False
+) -> tuple[str, bool, bool]:
+    """Klipper の表記のピンを (名前, プルアップ, 反転) に分ける（先頭の ``^`` と ``!`` は順不同で 1 つずつ）."""
+    name = text.lstrip("^!~")
+    marks = text[: len(text) - len(name)]
+    allowed = ("^" if pull_up else "") + ("!" if invert else "")
+    if not name or len(set(marks)) != len(marks) or not set(marks) <= set(allowed):
+        usable = (
+            f"先頭に付けられる記号は {' と '.join(allowed)} だけ"
+            if allowed
+            else "先頭に記号を付けられない"
+        )
+        raise ConfigError(
+            f"machine.toml の [pnp.motion] の {key}（{text!r}）が読めません（{usable}。"
+            "^ はプルアップ、! は反転）",
+            frozenset({"pnp"}),
+        )
+    return name, "^" in marks, "!" in marks
+
+
+def _fake_motion_stage(config_path: Path) -> FakeMotionStage | None:
+    try:
+        motion = load_motion(config_path)
+    except ConfigError:
+        return None
+    if motion is None:
+        return None
+    x, y, z = motion.x, motion.y, motion.z
+    return FakeMotionStage(
+        _motion_limits(motion), Velocity(x.max_velocity, y.max_velocity, z.max_velocity)
+    )
+
+
+def _motion_limits(motion: MotionConfig) -> Limits:
+    x, y, z = motion.x, motion.y, motion.z
+    return Limits(
+        x=ScalarLimits(x.position_min, x.position_max),
+        y=ScalarLimits(y.position_min, y.position_max),
+        z=ScalarLimits(z.position_min, z.position_max),
+        v=ScalarLimits(0.0, max(x.max_velocity, y.max_velocity, z.max_velocity)),
     )
 
 

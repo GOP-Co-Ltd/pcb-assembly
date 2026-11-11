@@ -20,9 +20,16 @@
     <div class="mc-jog-area">
       <div id="mc-jogpad" class="mc-jogpad"></div>
       <div class="mc-zbar">
+        {% if stage == "motion" %}
+        <span class="mc-zbar-label" title="上が Z プラス（新ファームの機体は、上昇で Z 増加）">Z</span>
+        {# 新ファームの機体は Z の原点が上で、上昇＝Z プラス。上端を正（上昇）・下端を負（下降）に並べる #}
+        {% set z_distances = [10, 1, 0.1, -0.1, -1, -10] %}
+        {% else %}
         <span class="mc-zbar-label" title="上が Z マイナス（マシン設計上、上昇で Z 減少）">Z</span>
         {# マシン設計上、上昇＝Z マイナス。上端を負（上昇）・下端を正（下降）に並べる #}
-        {% for dist in [-10, -1, -0.1, 0.1, 1, 10] %}
+        {% set z_distances = [-10, -1, -0.1, 0.1, 1, 10] %}
+        {% endif %}
+        {% for dist in z_distances %}
         <button data-mc-jog="z" data-mc-dist="{{ dist }}">{{ "%+g" | format(dist) }}</button>
         {% endfor %}
       </div>
@@ -67,6 +74,10 @@
     </section>
     {% endif %}
     <div class="mc-group">
+      {% if stage == "motion" %}
+      {# 新ファームの機体は Klipper を使わないので、焦点 Z（カメラ校正の結果）とキャップ位置への移動は出さない #}
+      <button id="mc-relax" title="XYZ のモーターを脱力する。脱力後は原点出しし直す">Relax</button>
+      {% else %}
       <button id="mc-relax" title="全モーターを脱力する（M84）。脱力後はホーミングし直す">Relax</button>
       <button id="mc-focus-z" title="カメラキャリブレーションで記録した Z へ移動する（その結果を「設定に反映」するまで押せない）"
               {% if focus_z is none %}disabled{% endif %}>
@@ -74,6 +85,7 @@
       </button>
       {% if "solder" in capabilities %}
       <button id="mc-move-to-cap" title="ノズルキャップ位置に移動（Z0 → XY → Z）">キャップ位置へ</button>
+      {% endif %}
       {% endif %}
       {% if "pnp" in capabilities %}
       <button id="mc-servo-relax" title="ピンセットのサーボ（バスにつながる全台）のトルクを切る">サーボ脱力</button>

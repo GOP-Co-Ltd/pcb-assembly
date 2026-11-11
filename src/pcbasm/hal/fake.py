@@ -1,4 +1,4 @@
-"""実機の代わりに使う Klipper・カメラ・音声出力・サーボの fake.
+"""実機の代わりに使う Klipper・カメラ・音声出力・サーボ・モーションステージの fake.
 
 テストと開発用のシミュレーション起動（``make dev``）が同じ実装を使う。
 機構の物理は模擬せず、送信した G-code から位置と押出量を追うところまでにとどめる。
@@ -11,7 +11,7 @@ import math
 import threading
 import time
 from collections import defaultdict
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from concurrent.futures import Future
 from typing import Any, Literal, override
 
@@ -21,7 +21,7 @@ import numpy as np
 from shapely import Polygon
 
 from pcbasm.gcode import GCode, GCodeLike
-from pcbasm.geometry import Point2d
+from pcbasm.geometry import Point2d, Point3d
 from pcbasm.hal.klipper import KlipperClient
 from pcbasm.vision.image import Image, ImageArray
 
@@ -29,6 +29,15 @@ from .audio import AudioDevice, AudioPlayer, Sound
 from .camera import Camera, CameraInfo, Resolution
 from .gamepad import Gamepad, GamepadError, GamepadState
 from .klipper import GCodeJournal, KlipperError
+from .motion import (
+    Axis,
+    MotionError,
+    MotionStage,
+    MotionState,
+    MotionStatus,
+    Velocity,
+    homing_order,
+)
 from .servo import (
     BROADCAST_ID,
     DEFAULT_ACCELERATION,
@@ -42,6 +51,7 @@ from .servo import (
     check_angle_limits,
     check_speed,
 )
+from .stage import Limits, ScalarLimits
 
 # FakeKlipper が既定で返す printer.cfg。XYZStage / PasteDispenser / ProbeExecutor と所要時間の予測が読むセクションだけを持つ
 FAKE_PRINTER_CONFIG: dict[str, dict[str, Any]] = {
@@ -916,3 +926,235 @@ class FakeGamepad(Gamepad):
     @override
     def close(self) -> None:
         self._closed = True
+
+
+def _clamp(value: float, limits: ScalarLimits) -> float:
+    return min(max(value, limits.min), limits.max)
+
+
+class FakeMotionStage(MotionStage):
+    """速度指令を時計で積分して位置を追う ``MotionStage``.
+
+    加速度は無視し、位置は可動域でクランプする。期限（``ttl``）を過ぎた速度は 0 にする（状態は ``MOVING`` のまま）。
+    :meth:`home` は軸を 0（可動域の外なら近い端）へ、:meth:`move_to` は行き先へ、即座に置く。
+    :meth:`shutdown` で MCU の shutdown を、:meth:`disconnect` で USB が外れたことを模擬する。
+    時計は注入する（テストは手で進める時計を渡す）。
+    """
+
+    def __init__(
+        self,
+        limits: Limits,
+        max_velocity: Velocity,
+        *,
+        ttl: float = 0.2,
+        homed: bool = False,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        """Fake のステージを作る.
+
+        Args:
+            limits: 各軸の可動域と、座標指定の移動の速度の範囲
+            max_velocity: 各軸の最高速度 [mm/s]
+            ttl: 速度指令の期限 [s]
+            homed: 初めから全軸の原点出しを済ませたことにするか
+            clock: 時刻 [s] を返す時計
+        """
+        self._limits = limits
+        self._max_velocity = max_velocity
+        self._ttl = ttl
+        self._clock = clock
+        self._position = Point3d(
+            _clamp(0.0, limits.x), _clamp(0.0, limits.y), _clamp(0.0, limits.z)
+        )
+        self._velocity = Velocity()
+        self._expires_at = 0.0
+        self._updated_at = clock()
+        self._state = MotionState.IDLE
+        self._homed: frozenset[Axis] = frozenset(("x", "y", "z") if homed else ())
+        self._shutdown_reason: str | None = None
+        self._connected = True
+        self._closed = False
+        self._velocities: list[tuple[float, Velocity]] = []
+        self._commands: list[str] = []
+        self._lock = threading.Lock()
+
+    @property
+    def velocities(self) -> list[tuple[float, Velocity]]:
+        """送った速度指令（送った時刻と値、送った順）."""
+        with self._lock:
+            return list(self._velocities)
+
+    @property
+    def commands(self) -> list[str]:
+        """速度指令以外の操作（``home
+        z``・``move_to``・``stop``・``relax``・``restart``・``emergency_stop``）."""
+        with self._lock:
+            return list(self._commands)
+
+    @property
+    def closed(self) -> bool:
+        """Close() されたか."""
+        return self._closed
+
+    def shutdown(self, reason: str) -> None:
+        """MCU が shutdown したことにする（以後は :meth:`restart` まで MotionError）."""
+        with self._lock:
+            self._advance()
+            self._halt(MotionState.SHUTDOWN)
+            self._shutdown_reason = reason
+
+    def disconnect(self) -> None:
+        """USB が外れたことにする（以後の操作はすべて MotionError）."""
+        with self._lock:
+            self._connected = False
+
+    @property
+    @override
+    def limits(self) -> Limits:
+        return self._limits
+
+    @property
+    @override
+    def max_velocity(self) -> Velocity:
+        return self._max_velocity
+
+    @override
+    def status(self) -> MotionStatus:
+        with self._lock:
+            self._check_connected()
+            self._advance()
+            return MotionStatus(
+                position=self._position,
+                velocity=self._velocity,
+                state=self._state,
+                homed=self._homed,
+                shutdown_reason=self._shutdown_reason,
+            )
+
+    @override
+    def home(self, axes: Collection[Axis] = ()) -> None:
+        with self._lock:
+            self._check_ready()
+            self._advance()
+            self._halt(MotionState.IDLE)
+            order = homing_order(axes, self._homed)
+            for axis in order:
+                limits = getattr(self._limits, axis)
+                self._position = attrs.evolve(
+                    self._position, **{axis: _clamp(0.0, limits)}
+                )
+                self._commands.append(f"home {axis}")
+            self._homed = self._homed.union(order)
+
+    @override
+    def set_velocity(self, velocity: Velocity) -> None:
+        with self._lock:
+            self._check_ready()
+            moving = {
+                axis for axis in ("x", "y", "z") if getattr(velocity, axis) != 0.0
+            }
+            if unhomed := sorted(moving - self._homed):
+                msg = f"原点出しをしていない軸は動かせません: {', '.join(unhomed)}"
+                raise ValueError(msg)
+            if self._state is MotionState.IDLE and not moving:
+                return
+            self._advance()
+            now = self._clock()
+            self._velocity = velocity
+            self._expires_at = now + self._ttl
+            self._state = MotionState.MOVING
+            self._velocities.append((now, velocity))
+
+    @override
+    def stop(self) -> None:
+        with self._lock:
+            self._check_ready()
+            self._advance()
+            self._halt(MotionState.IDLE)
+            self._commands.append("stop")
+
+    @override
+    def move_to(
+        self,
+        x: float | None = None,
+        y: float | None = None,
+        z: float | None = None,
+        *,
+        speed: float | None = None,
+    ) -> None:
+        with self._lock:
+            self._check_ready()
+            if outside := self._limits.outside(x=x, y=y, z=z, feed=speed):
+                msg = f"可動域の外です: {', '.join(outside)}"
+                raise ValueError(msg)
+            targets = {"x": x, "y": y, "z": z}
+            wanted = {axis for axis, value in targets.items() if value is not None}
+            if unhomed := sorted(wanted - self._homed):
+                msg = f"原点出しをしていない軸は動かせません: {', '.join(unhomed)}"
+                raise ValueError(msg)
+            self._advance()
+            self._halt(MotionState.IDLE)
+            self._position = attrs.evolve(
+                self._position, **{axis: targets[axis] for axis in wanted}
+            )
+            self._commands.append("move_to")
+
+    @override
+    def relax(self) -> None:
+        with self._lock:
+            self._check_ready()
+            self._advance()
+            self._halt(MotionState.IDLE)
+            self._homed = frozenset()
+            self._commands.append("relax")
+
+    @override
+    def restart(self) -> None:
+        with self._lock:
+            self._check_connected()
+            self._advance()
+            self._halt(MotionState.IDLE)
+            self._homed = frozenset()
+            self._shutdown_reason = None
+            self._commands.append("restart")
+
+    @override
+    def emergency_stop(self) -> None:
+        with self._lock:
+            self._check_connected()
+            self._advance()
+            self._halt(MotionState.SHUTDOWN)
+            self._shutdown_reason = "Command request"
+            self._commands.append("emergency_stop")
+
+    @override
+    def close(self) -> None:
+        self._closed = True
+
+    def _check_connected(self) -> None:
+        if not self._connected:
+            raise MotionError("モーションステージが切断されました")
+
+    def _check_ready(self) -> None:
+        self._check_connected()
+        if self._state is MotionState.SHUTDOWN:
+            msg = f"MCU が shutdown しています: {self._shutdown_reason}"
+            raise MotionError(msg)
+
+    def _halt(self, state: MotionState) -> None:
+        self._velocity = Velocity()
+        self._state = state
+
+    def _advance(self) -> None:
+        """前回から今までの速度を積分して位置を進める（期限を過ぎたら速度を 0 にする）."""
+        now = self._clock()
+        end = min(now, self._expires_at)
+        dt = max(0.0, end - self._updated_at)
+        self._position = Point3d(
+            _clamp(self._position.x + self._velocity.x * dt, self._limits.x),
+            _clamp(self._position.y + self._velocity.y * dt, self._limits.y),
+            _clamp(self._position.z + self._velocity.z * dt, self._limits.z),
+        )
+        self._updated_at = now
+        if now >= self._expires_at:
+            self._velocity = Velocity()

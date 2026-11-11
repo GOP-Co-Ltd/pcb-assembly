@@ -9,8 +9,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from pcbasm.config import CAPABILITY_LABELS
+from pcbasm.config import CAPABILITY_LABELS, ConfigError
 from pcbasm.geometry import Point3d
+from pcbasm.machine.devices import Devices
 from pcbasm.machine.labels import position_label
 from pcbasm.pasting.labels import clean_position_label
 from pcbasm.vision import load_focus_z
@@ -18,6 +19,7 @@ from web.api.backend import Backend
 from web.api.control import ClientIdentity, LeaseInfo, control_payload
 from web.api.deps import (
     BackendDep,
+    DevicesDep,
     EnvDep,
     IdentityDep,
     LeaseDep,
@@ -31,6 +33,7 @@ from web.contract.models import (
     JobBrief,
     MachineInfo,
     NozzlePositionInfo,
+    StageKind,
     StateResponse,
 )
 
@@ -112,6 +115,14 @@ def _mainsail_url(env: Env) -> str:
     return f"http://{host}"
 
 
+def _stage_kind(devices: Devices) -> StageKind:
+    """XYZ を動かす仕組み（machine.toml か [pnp.motion] が読めなければ、これまでどおり klipper）."""
+    try:
+        return "motion" if devices.uses_motion_stage() else "klipper"
+    except ConfigError:
+        return "klipper"
+
+
 def _control_response(
     info: LeaseInfo, identity: ClientIdentity
 ) -> ControlStateResponse:
@@ -129,22 +140,27 @@ def get_state(backend: BackendDep, identity: IdentityDep) -> StateResponse:
 
 
 @router.get("/machine-info")
-def get_machine_info(env: EnvDep, machine_config: MachineConfigDep) -> MachineInfo:
+def get_machine_info(
+    env: EnvDep, machine_config: MachineConfigDep, devices: DevicesDep
+) -> MachineInfo:
     """Backend が自己申告する装置情報を返す（到達性プローブ兼用）.
 
     ホスト名の解決といった環境依存の処理はここに集約する（pcbasm 層は machine.toml に
     書かれた値だけを返す）。``mainsail_url`` はリクエストのホスト名に依存させない
     （プロキシ配下で必ず誤るため）。
+    XYZ を新ファームで動かす機体には Mainsail が無いので、``mainsail_url`` を空にする。
     """
+    stage = _stage_kind(devices)
     return MachineInfo(
         machine_id=resolve_machine_id(env),
-        mainsail_url=_mainsail_url(env),
+        mainsail_url="" if stage == "motion" else _mainsail_url(env),
         fb_start=_fb_start(env),
         api_version=API_VERSION,
         capabilities=[
             CapabilityInfo(name=name, label=CAPABILITY_LABELS[name])
             for name in machine_config.capabilities
         ],
+        stage=stage,
     )
 
 

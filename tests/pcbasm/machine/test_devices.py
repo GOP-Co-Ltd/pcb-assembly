@@ -4,30 +4,48 @@ Moonraker は `moonraker` fixture（httpx.MockTransport で応える FakeMoonrak
 """
 
 import threading
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
+from typing import Any, override
 
 import httpx
 import pytest
+import tomlkit
 from shapely import Point
+from tomlkit.items import Table
 
-from pcbasm.config import ConfigError
+from pcbasm.config import ConfigError, load_motion
 from pcbasm.config.klipper import KlipperConfig
-from pcbasm.hal import FrameHub, GamepadState, ServoMode, XYZStage
+from pcbasm.config.pnp import MotionConfig
+from pcbasm.errors import DeviceError
+from pcbasm.hal import (
+    FrameHub,
+    GamepadState,
+    Limits,
+    ScalarLimits,
+    ServoMode,
+    Velocity,
+    XYZStage,
+    mcu,
+)
 from pcbasm.hal.fake import (
     FAKE_MACHINE_PRINTER_CONFIG,
     FakeCamera,
     FakeGamepad,
     FakeKlipper,
+    FakeMotionStage,
     FakeServoBus,
     ServoCommand,
 )
-from pcbasm.machine.devices import Devices, open_devices
+from pcbasm.hal.mcu import McuMotionSettings, TmcSettings
+from pcbasm.machine.devices import Devices, motion_settings, open_devices
 from pcbasm.machine.journal import Journal
 from pcbasm.vision import Image
 from tests.support import polling
+from tests.support.machine_toml import motion_table, pnp_motion
 from tests.support.moonraker import FakeMoonraker
-from tests.support.paths import FAKE_CAMERA_IMAGE
+from tests.support.paths import FAKE_CAMERA_IMAGE, MINIMAL_MACHINE_TOML
 from tests.support.web import copy_test_config
 
 
@@ -532,3 +550,521 @@ class TestTweezer:
         # サーボ設定ジョブを済ませた状態（Rotation は制限なし、Open Close は設定の閉じ切り〜開き切り）
         assert (bus.angle_limits(1), bus.angle_limits(2)) == ((0, 0), (2048, 2560))
         assert bus.position(1) == (2048 + 1024) % 4096
+
+
+def _use_motion(config_path: Path, motion: dict[str, Any] | None = None) -> None:
+    """machine.toml を、[klipper] の無い新ファームの機体（[pnp.motion]）にする."""
+    config_path.write_text(
+        pnp_motion(config_path.read_text(encoding="utf-8"), motion), encoding="utf-8"
+    )
+
+
+def _motion_stage() -> FakeMotionStage:
+    return FakeMotionStage(
+        Limits(
+            x=ScalarLimits(0.0, 68.0),
+            y=ScalarLimits(0.0, 50.0),
+            z=ScalarLimits(-40.0, 0.0),
+            v=ScalarLimits(0.0, 100.0),
+        ),
+        Velocity(100.0, 100.0, 50.0),
+    )
+
+
+class _OpenedStages:
+    """`mcu.open_motion_stage` の代わりに、渡された設定を記録して fake のステージを返す."""
+
+    def __init__(self) -> None:
+        self.settings: list[McuMotionSettings] = []
+        self.stages: list[FakeMotionStage] = []
+
+    def __call__(self, settings: McuMotionSettings) -> FakeMotionStage:
+        self.settings.append(settings)
+        self.stages.append(_motion_stage())
+        return self.stages[-1]
+
+
+@pytest.fixture
+def opened(monkeypatch: pytest.MonkeyPatch) -> _OpenedStages:
+    stages = _OpenedStages()
+    monkeypatch.setattr(mcu, "open_motion_stage", stages)
+    return stages
+
+
+class TestMotionStage:
+    """新ファームのステージは初回の呼び出しで [pnp.motion] から開き、設定が変わっても restart まで開き直さない."""
+
+    def test_klipper_machine_does_not_use_motion_stage(self, devices: Devices):
+        assert not devices.uses_motion_stage()
+        assert devices.opened_motion_stage() is None
+
+    def test_without_motion_table_is_a_device_error(self, devices: Devices):
+        with pytest.raises(DeviceError, match=r"\[pnp\.motion\]"):
+            devices.motion_stage()
+
+    def test_uses_the_given_fake_stage(self, config_path: Path, journal_dir: Path):
+        _use_motion(config_path)
+        stage = _motion_stage()
+        devices = Devices(config_path, journal_dir, motion=stage)
+
+        assert devices.uses_motion_stage()
+        assert devices.motion_stage() is stage
+        assert devices.opened_motion_stage() is stage
+
+    def test_opens_once_on_first_use(
+        self, config_path: Path, journal_dir: Path, opened: _OpenedStages
+    ):
+        _use_motion(config_path)
+        devices = Devices(config_path, journal_dir)
+        assert devices.uses_motion_stage()
+        assert devices.opened_motion_stage() is None
+        assert opened.settings == []
+
+        first = devices.motion_stage()
+
+        assert devices.motion_stage() is first
+        assert devices.opened_motion_stage() is first
+        assert [settings.device for settings in opened.settings] == ["/dev/ttyACM0"]
+
+    def test_does_not_reopen_when_machine_toml_changes(
+        self, config_path: Path, journal_dir: Path, opened: _OpenedStages
+    ):
+        _use_motion(config_path)
+        devices = Devices(config_path, journal_dir)
+        first = devices.motion_stage()
+        motion = motion_table()
+        motion["serial"] = "/dev/ttyACM1"
+        _use_motion_text(config_path, motion)
+
+        assert devices.motion_stage() is first
+        assert len(opened.settings) == 1
+
+    def test_restart_reopens_with_the_changed_machine_toml(
+        self, config_path: Path, journal_dir: Path, opened: _OpenedStages
+    ):
+        _use_motion(config_path)
+        devices = Devices(config_path, journal_dir)
+        first = devices.motion_stage()
+        motion = motion_table()
+        motion["serial"] = "/dev/ttyACM1"
+        _use_motion_text(config_path, motion)
+
+        second = devices.restart_motion_stage()
+
+        assert second is not first
+        assert devices.motion_stage() is second
+        assert [settings.device for settings in opened.settings] == [
+            "/dev/ttyACM0",
+            "/dev/ttyACM1",
+        ]
+        assert opened.stages[0].closed
+        assert not opened.stages[1].closed
+
+    def test_restart_restarts_the_open_stage_when_unchanged(
+        self, config_path: Path, journal_dir: Path, opened: _OpenedStages
+    ):
+        _use_motion(config_path)
+        devices = Devices(config_path, journal_dir)
+        stage = devices.motion_stage()
+        stage.emergency_stop()
+
+        assert devices.restart_motion_stage() is stage
+        assert len(opened.settings) == 1
+        assert opened.stages[0].commands[-1] == "restart"
+        assert stage.status().shutdown_reason is None
+
+    def test_restart_opens_the_stage_when_not_open(
+        self, config_path: Path, journal_dir: Path, opened: _OpenedStages
+    ):
+        _use_motion(config_path)
+        devices = Devices(config_path, journal_dir)
+
+        stage = devices.restart_motion_stage()
+
+        assert devices.opened_motion_stage() is stage
+        assert len(opened.settings) == 1
+
+    def test_restart_restarts_the_given_fake_stage(
+        self, config_path: Path, journal_dir: Path
+    ):
+        _use_motion(config_path)
+        stage = _motion_stage()
+        devices = Devices(config_path, journal_dir, motion=stage)
+
+        assert devices.restart_motion_stage() is stage
+        assert stage.commands == ["restart"]
+
+    def test_limits_come_from_machine_toml_without_opening(
+        self, config_path: Path, journal_dir: Path, opened: _OpenedStages
+    ):
+        _use_motion(config_path)
+        devices = Devices(config_path, journal_dir)
+
+        limits = devices.motion_limits()
+
+        assert (limits.x.min, limits.x.max) == (0.0, 68.0)
+        assert (limits.z.min, limits.z.max) == (-40.0, 0.0)
+        assert limits.v.max == 100.0
+        assert opened.settings == []
+        assert devices.opened_motion_stage() is None
+
+    def test_limits_of_the_given_fake_stage(self, config_path: Path, journal_dir: Path):
+        _use_motion(config_path)
+        stage = _motion_stage()
+        devices = Devices(config_path, journal_dir, motion=stage)
+
+        assert devices.motion_limits() == stage.limits
+
+    def test_close_closes_the_opened_stage(
+        self, config_path: Path, journal_dir: Path, opened: _OpenedStages
+    ):
+        _use_motion(config_path)
+        devices = Devices(config_path, journal_dir)
+        devices.motion_stage()
+
+        devices.close()
+
+        assert opened.stages[0].closed
+        assert devices.opened_motion_stage() is None
+
+    def test_close_closes_the_given_fake_stage(
+        self, config_path: Path, journal_dir: Path
+    ):
+        _use_motion(config_path)
+        stage = _motion_stage()
+        devices = Devices(config_path, journal_dir, motion=stage)
+
+        devices.close()
+
+        assert stage.closed
+
+
+class TestMotionEmergencyStop:
+    """新ファームの機体の緊急停止は MCU へ送り、Moonraker へは送らない."""
+
+    def test_goes_to_the_open_stage(
+        self,
+        config_path: Path,
+        journal_dir: Path,
+        opened: _OpenedStages,
+        moonraker: FakeMoonraker,
+    ):
+        _use_motion(config_path)
+        devices = Devices(config_path, journal_dir)
+        devices.motion_stage()
+
+        devices.emergency_stop()
+
+        assert opened.stages[0].commands == ["emergency_stop"]
+        assert moonraker.requests == []
+
+    def test_sends_with_a_minimal_open_when_the_stage_is_not_open(
+        self,
+        config_path: Path,
+        journal_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        moonraker: FakeMoonraker,
+    ):
+        """開いていないステージは開かず（設定も reset もせず）、緊急停止だけを送る."""
+        _use_motion(config_path)
+        sent: list[str] = []
+        monkeypatch.setattr(
+            mcu, "send_emergency_stop", lambda device, **_kwargs: sent.append(device)
+        )
+        devices = Devices(config_path, journal_dir)
+
+        devices.emergency_stop()
+
+        assert sent == ["/dev/ttyACM0"]
+        assert devices.opened_motion_stage() is None
+        assert moonraker.requests == []
+
+    def test_goes_to_the_given_fake_stage(self, config_path: Path, journal_dir: Path):
+        _use_motion(config_path)
+        stage = _motion_stage()
+        klipper = FakeKlipper()
+        devices = Devices(config_path, journal_dir, klipper=klipper, motion=stage)
+
+        devices.emergency_stop()
+
+        assert stage.commands == ["emergency_stop"]
+        assert klipper.sent == ()
+
+    @pytest.mark.parametrize(
+        "closing",
+        [
+            pytest.param(Devices.restart_motion_stage, id="restart-with-changed-toml"),
+            pytest.param(Devices.close, id="close"),
+        ],
+    )
+    def test_reaches_the_old_stage_while_it_is_closing(
+        self,
+        config_path: Path,
+        journal_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        closing: Callable[[Devices], object],
+    ):
+        """古いステージを閉じ終えるまで（実行中の原点出しや移動の終わりを待つ間）、緊急停止は古い接続から送る."""
+        _use_motion(config_path)
+        old = _SlowToCloseStage()
+        stages = iter([old, _motion_stage()])
+        monkeypatch.setattr(mcu, "open_motion_stage", lambda _settings: next(stages))
+        sent: list[str] = []
+        monkeypatch.setattr(
+            mcu, "send_emergency_stop", lambda device, **_kwargs: sent.append(device)
+        )
+        devices = Devices(config_path, journal_dir)
+        devices.motion_stage()
+        motion = motion_table()
+        motion["serial"] = "/dev/ttyACM1"
+        _use_motion_text(config_path, motion)
+        worker = threading.Thread(target=closing, args=(devices,))
+        worker.start()
+        try:
+            assert old.closing.wait(timeout=5.0)
+            devices.emergency_stop()
+        finally:
+            old.release.set()
+            worker.join(timeout=5.0)
+
+        assert old.commands == ["emergency_stop"]
+        assert sent == []
+        assert old.closed
+
+
+class _SlowToCloseStage(FakeMotionStage):
+    """閉じるときに、実行中の操作の終わりを待つステージ（``release`` まで close が戻らない）."""
+
+    def __init__(self) -> None:
+        stage = _motion_stage()
+        super().__init__(stage.limits, stage.max_velocity)
+        self.closing = threading.Event()
+        self.release = threading.Event()
+
+    @override
+    def close(self) -> None:
+        self.closing.set()
+        self.release.wait(timeout=5.0)
+        super().close()
+
+
+def _break_motion(config_path: Path, *, klipper: bool) -> None:
+    """[pnp.motion] を読めない値にする（移行の途中で書き損じた machine.toml）."""
+    motion = motion_table()
+    motion["x"]["max_velocity"] = "fast"
+    config_path.write_text(
+        pnp_motion(config_path.read_text(encoding="utf-8"), motion, klipper=klipper),
+        encoding="utf-8",
+    )
+
+
+class TestBrokenMotionTable:
+    """[pnp.motion] が読めなくても、[klipper] が読めれば Klipper の機体として緊急停止と操作を届ける."""
+
+    def test_emergency_stop_reaches_klipper(
+        self, config_path: Path, journal_dir: Path, moonraker: FakeMoonraker
+    ):
+        _break_motion(config_path, klipper=True)
+        devices = Devices(config_path, journal_dir)
+
+        devices.emergency_stop()
+
+        assert not devices.uses_motion_stage()
+        assert [request.url.path for request in moonraker.requests] == [
+            "/printer/emergency_stop"
+        ]
+
+    def test_without_klipper_the_motion_error_is_raised(
+        self, config_path: Path, journal_dir: Path, moonraker: FakeMoonraker
+    ):
+        _break_motion(config_path, klipper=False)
+        devices = Devices(config_path, journal_dir)
+
+        with pytest.raises(ConfigError, match="pnp.motion"):
+            devices.uses_motion_stage()
+        with pytest.raises(ConfigError, match="pnp.motion"):
+            devices.emergency_stop()
+        assert moonraker.requests == []
+
+
+class TestKlipperOnMotionMachine:
+    def test_klipper_is_a_device_error_without_klipper_table(
+        self, config_path: Path, journal_dir: Path, moonraker: FakeMoonraker
+    ):
+        _use_motion(config_path)
+        devices = Devices(config_path, journal_dir)
+
+        with pytest.raises(DeviceError, match="Klipper を使いません"):
+            devices.klipper()
+
+        assert moonraker.requests == []
+
+    def test_klipper_table_kept_with_motion_is_still_reached(
+        self, config_path: Path, journal_dir: Path, moonraker: FakeMoonraker
+    ):
+        config_path.write_text(
+            pnp_motion(config_path.read_text(encoding="utf-8"), klipper=True),
+            encoding="utf-8",
+        )
+        devices = Devices(config_path, journal_dir)
+
+        assert devices.klipper(10.0).get_status("toolhead", "homed_axes") == ""
+
+
+class TestMotionSettings:
+    """[pnp.motion] を MCU のステージの設定へ直す（ピンの !
+
+    と ^ を解く）.
+    """
+
+    def test_kurousagi_values(self, tmp_path: Path):
+        settings = motion_settings(_load_motion(tmp_path, motion_table()))
+
+        assert settings.device == "/dev/ttyACM0"
+        assert settings.kinematics == "inversed_corexy"
+        assert (settings.tmc_rx_pin, settings.tmc_tx_pin) == ("gpio9", "gpio8")
+        assert not settings.tmc_rx_pull_up
+        x = settings.x
+        assert (x.step_pin, x.dir_pin, x.enable_pin, x.endstop_pin) == (
+            "gpio11",
+            "gpio10",
+            "gpio12",
+            "gpio4",
+        )
+        assert x.invert_dir and x.invert_enable
+        assert x.endstop_pull_up and not x.endstop_invert
+        assert x.steps_per_mm == 200 * 64 / 32.0
+        assert (x.position_min, x.position_max, x.position_endstop) == (0.0, 68.0, 0.0)
+        assert not x.homing_positive
+        assert (x.homing_speed, x.second_homing_speed, x.homing_retract) == (
+            20.0,
+            10.0,
+            5.0,
+        )
+        assert (x.max_velocity, x.max_accel, x.tmc_address) == (100.0, 500.0, 0)
+        assert x.tmc == TmcSettings(
+            run_current=0.4, hold_current=None, sense_resistor=0.110, microsteps=64
+        )
+        z = settings.z
+        assert z.homing_positive
+        assert (z.position_min, z.position_max) == (-40.0, 0.0)
+        assert z.second_homing_speed == 5.0
+        assert z.tmc_address == 1
+
+    def test_given_second_homing_speed_and_hold_current_are_used(self, tmp_path: Path):
+        motion = motion_table()
+        motion["x"]["second_homing_speed"] = 3.0
+        motion["x"]["hold_current"] = 0.2
+
+        x = motion_settings(_load_motion(tmp_path, motion)).x
+
+        assert x.second_homing_speed == 3.0
+        assert x.tmc.hold_current == 0.2
+
+    @pytest.mark.parametrize(
+        ("pin", "pull_up", "invert"),
+        [
+            ("gpio4", False, False),
+            ("^gpio4", True, False),
+            ("!gpio4", False, True),
+            ("^!gpio4", True, True),
+            ("!^gpio4", True, True),
+        ],
+    )
+    def test_endstop_pin_takes_pull_up_and_invert(
+        self, tmp_path: Path, pin: str, pull_up: bool, invert: bool
+    ):
+        motion = motion_table()
+        motion["x"]["endstop_pin"] = pin
+
+        x = motion_settings(_load_motion(tmp_path, motion)).x
+
+        assert (x.endstop_pin, x.endstop_pull_up, x.endstop_invert) == (
+            "gpio4",
+            pull_up,
+            invert,
+        )
+
+    def test_tmc_rx_pin_takes_pull_up(self, tmp_path: Path):
+        motion = motion_table()
+        motion["tmc_rx_pin"] = "^gpio9"
+
+        settings = motion_settings(_load_motion(tmp_path, motion))
+
+        assert (settings.tmc_rx_pin, settings.tmc_rx_pull_up) == ("gpio9", True)
+
+    @pytest.mark.parametrize(
+        ("table", "key", "pin"),
+        [
+            ("x", "endstop_pin", "~gpio4"),  # プルダウンは持たない
+            ("x", "step_pin", "!gpio11"),
+            ("x", "dir_pin", "^gpio10"),
+            ("x", "enable_pin", "^!gpio12"),
+            ("x", "endstop_pin", "^^gpio4"),
+            ("x", "endstop_pin", "^"),
+            (None, "tmc_tx_pin", "!gpio8"),
+            (None, "tmc_rx_pin", "!gpio9"),
+        ],
+    )
+    def test_unsupported_pin_notation_is_a_config_error(
+        self, tmp_path: Path, table: str | None, key: str, pin: str
+    ):
+        motion = motion_table()
+        (motion if table is None else motion[table])[key] = pin
+        config = _load_motion(tmp_path, motion)
+
+        with pytest.raises(ConfigError, match=key) as raised:
+            motion_settings(config)
+
+        assert raised.value.sections == {"pnp"}
+
+
+def _use_motion_text(config_path: Path, motion: dict[str, Any]) -> None:
+    """[pnp.motion] の表を差し替える."""
+    document = tomlkit.parse(config_path.read_text(encoding="utf-8"))
+    pnp = document["pnp"]
+    assert isinstance(pnp, Table)
+    pnp["motion"] = motion
+    config_path.write_text(tomlkit.dumps(document), encoding="utf-8")
+
+
+def _load_motion(tmp_path: Path, motion: dict[str, Any]) -> MotionConfig:
+    path = tmp_path / "machine.toml"
+    path.write_text(
+        pnp_motion(MINIMAL_MACHINE_TOML.read_text(encoding="utf-8"), motion),
+        encoding="utf-8",
+    )
+    config = load_motion(path)
+    assert config is not None
+    return config
+
+
+class TestFakeMotion:
+    def test_open_devices_fake_has_a_motion_stage_from_machine_toml(
+        self, config_path: Path, journal_dir: Path
+    ):
+        # open_motion_stage と send_emergency_stop は root conftest が塞いでいるので、呼べばテストが落ちる
+        _use_motion(config_path)
+        devices = open_devices(config_path, journal_dir, fake=True)
+
+        stage = devices.motion_stage()
+        devices.emergency_stop()
+
+        assert devices.opened_motion_stage() is stage
+        assert stage.limits == Limits(
+            x=ScalarLimits(0.0, 68.0),
+            y=ScalarLimits(0.0, 50.0),
+            z=ScalarLimits(-40.0, 0.0),
+            v=ScalarLimits(0.0, 100.0),
+        )
+        assert stage.max_velocity == Velocity(100.0, 100.0, 50.0)
+        assert stage.status().homed == frozenset()
+        assert stage.status().shutdown_reason is not None
+
+    def test_open_devices_fake_on_klipper_machine_has_no_motion_stage(
+        self, config_path: Path, journal_dir: Path
+    ):
+        devices = open_devices(config_path, journal_dir, fake=True)
+
+        assert not devices.uses_motion_stage()
+        assert devices.opened_motion_stage() is None
