@@ -102,7 +102,7 @@ PnP の中身は、塗布と同じ形で次の場所に足す。
 3. `src/web/api/jobs/pnp/` にジョブを置き、`default_catalog` の `if "pnp" in capabilities:` の下で登録する。API の router も `app.py` で同じ条件で置く
 4. `src/web/ui/features.py` の「部品実装」タブ（`pnp`）にページを `capability="pnp"` で足し、準備中のページ（`placement`）を置き換える
 5. 立ち上げの段を `pcbasm.commissioning` の `CAPABILITY_STEPS["pnp"]` に足し、[立ち上げ](../commissioning.md) の表にも足す
-6. 部品実装機の雛形 `deploy/templates/usaremino_pnp/` の `machine.toml` と `printer.cfg` に、PnP のハードウェアの設定を足す
+6. 部品実装機の雛形 `deploy/templates/kurousagi/` の `machine.toml` と `printer.cfg` に、PnP のハードウェアの設定を足す
 
 ## 機能 → コードの地図
 
