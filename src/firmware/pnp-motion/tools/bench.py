@@ -30,12 +30,8 @@ REPO_ROOT = os.path.dirname(
     )
 )
 
-# 試験の速さの上限（mm/s）。printer.cfg の値がこれより速くても、ここで抑える
-BENCH_MAX_VELOCITY = 5.0
-BENCH_HOMING_SPEED = 2.0
-NUDGE_SPEED = 1.0
-# 原点出しのあとの可動域を、スイッチの側だけこの分だけ内側にする（端まで動いてもスイッチを押さない）
-SWITCH_MARGIN_MM = 0.5
+# 原点出しの前の可動域とスイッチを探す距離（可動域の長さの倍数。Klipper の原点出しと同じ）
+HOMING_SPAN = 1.5
 # 対応する kinematics（ファームの列挙 velocity_stream_kinematics の名前）
 KINEMATICS = ("cartesian", "corexy", "inversed_corexy")
 TMC_BAUD = 40000
@@ -65,10 +61,11 @@ class Axis:
     position_max: float
     position_endstop: float
     home_dir: int  # スイッチの向き（-1 か +1）
-    homing_speed: float  # mm/s（試験の上限で抑えたもの）
+    homing_speed: float  # mm/s
+    second_homing_speed: float
     retract_speed: float
     retract_dist: float
-    max_velocity: float  # mm/s（試験の上限で抑えたもの）
+    max_velocity: float  # mm/s
     accel: float  # mm/s²
     uart_address: int
     run_current: float
@@ -82,19 +79,6 @@ class Axis:
 
     def mm(self, steps):
         return steps / self.steps_per_mm
-
-    @property
-    def min_mm(self):
-        """原点出しのあとの可動域の下端（スイッチの側なら少し内側）."""
-        if self.home_dir < 0:
-            return max(self.position_min, self.position_endstop + SWITCH_MARGIN_MM)
-        return self.position_min
-
-    @property
-    def max_mm(self):
-        if self.home_dir > 0:
-            return min(self.position_max, self.position_endstop - SWITCH_MARGIN_MM)
-        return self.position_max
 
     @property
     def endstop_trigger_value(self):
@@ -239,10 +223,8 @@ def load_machine(path):
         position_min = st.getfloat("position_min", 0.0)
         position_max = st.getfloat("position_max")
         home_dir = _home_dir(name, st, position_endstop, position_min, position_max)
-        homing_speed = min(st.getfloat("homing_speed", 5.0), BENCH_HOMING_SPEED)
-        retract_speed = min(
-            st.getfloat("homing_retract_speed", homing_speed), BENCH_HOMING_SPEED
-        )
+        # 既定値は Klipper の stepper.PrinterRail と同じ
+        homing_speed = st.getfloat("homing_speed", 5.0)
         if name == "z":
             max_velocity = printer.getfloat(
                 "max_z_velocity", printer.getfloat("max_velocity")
@@ -270,9 +252,12 @@ def load_machine(path):
                 position_endstop=position_endstop,
                 home_dir=home_dir,
                 homing_speed=homing_speed,
-                retract_speed=retract_speed,
+                second_homing_speed=st.getfloat(
+                    "second_homing_speed", homing_speed / 2
+                ),
+                retract_speed=st.getfloat("homing_retract_speed", homing_speed),
                 retract_dist=st.getfloat("homing_retract_dist", 5.0),
-                max_velocity=min(max_velocity, BENCH_MAX_VELOCITY),
+                max_velocity=max_velocity,
                 accel=accel,
                 uart_address=drv.getint("uart_address", 0),
                 run_current=run_current,
@@ -291,11 +276,6 @@ def load_machine(path):
         raise BenchError(
             f"{kinematics} では stepper_x と stepper_y の 1 mm あたりのステップ数を同じにする"
         )
-    for a in axes:
-        if a.retract_dist <= SWITCH_MARGIN_MM:
-            raise BenchError(
-                f"stepper_{a.name}: homing_retract_dist は {SWITCH_MARGIN_MM} mm より大きくする"
-            )
     return Machine(kinematics, tuple(axes), _parse_pin(rx), _parse_pin(tx).name)
 
 
@@ -314,13 +294,11 @@ def describe_machine(path, machine):
         )
         lines.append(
             f"     原点 {a.position_endstop} mm（{'+' if a.home_dir > 0 else '-'} 向き、"
-            f"{a.homing_speed} mm/s、退避 {a.retract_dist} mm）、可動域 {a.min_mm}〜{a.max_mm} mm、"
+            f"{a.homing_speed}・2 回目 {a.second_homing_speed} mm/s、"
+            f"退避 {a.retract_dist} mm を {a.retract_speed} mm/s）、"
+            f"可動域 {a.position_min}〜{a.position_max} mm、"
             f"電流 {a.run_current} A（address {a.uart_address}）"
         )
-    lines.append(
-        f"  試験の上限: 移動 {BENCH_MAX_VELOCITY} mm/s、原点出し {BENCH_HOMING_SPEED} mm/s、"
-        f"nudge {NUDGE_SPEED} mm/s"
-    )
     return "\n".join(lines)
 
 
@@ -631,16 +609,19 @@ class Bench:
     def _set_limits(self, i, homed):
         a = AXES[i]
         if homed:
-            low, high = a.min_mm, a.max_mm
+            low, high = a.position_min, a.position_max
         else:
-            # 原点出しの前は位置が分からないので、いまの位置を 0 として可動域の長さだけ前後に
-            span = a.position_max - a.position_min
-            low, high = -span, span
+            # 原点出しの前は位置が分からないので、いまの位置を 0 として、スイッチを探す距離だけ前後に
+            low, high = -self._homing_dist(a), self._homing_dist(a)
         self._ser.send(
             f"velocity_stream_set_limits oid={VS} axis={i} min_pos={a.steps(low)}"
             f" max_pos={a.steps(high)} max_velocity={a.steps(a.max_velocity)}"
             f" accel={a.steps(a.accel)}"
         )
+
+    @staticmethod
+    def _homing_dist(axis):
+        return HOMING_SPAN * (axis.position_max - axis.position_min)
 
     @staticmethod
     def _enable_value(axis, on):
@@ -655,8 +636,8 @@ class Bench:
 
     # ---- 流す・止める
 
-    def _arm(self, skip):
-        """Trsync に 3 軸の stepper と velocity_stream を登録し、押されていないスイッチを張る."""
+    def _arm(self, i):
+        """Trsync に 3 軸の stepper と velocity_stream を登録し、軸 i のスイッチだけを張る."""
         # 前回張ったままの endstop が、登録の途中で trsync を消費しないように
         self._disarm()
         self._ser.send(
@@ -668,17 +649,14 @@ class Bench:
             )
         self._ser.send(f"velocity_stream_stop_on_trigger oid={VS} trsync_oid={TRSYNC}")
         clock = (self._now() + self._ticks(START_MARGIN)) & 0xFFFFFFFF
-        for i in range(3):
-            if i in skip:
-                continue
-            self._ser.send(
-                f"endstop_home oid={ENDSTOP + i} clock={clock}"
-                f" sample_ticks={self._ticks(ENDSTOP_SAMPLE)}"
-                f" sample_count={ENDSTOP_SAMPLE_COUNT}"
-                f" rest_ticks={self._ticks(ENDSTOP_REST)}"
-                f" pin_value={AXES[i].endstop_trigger_value}"
-                f" trsync_oid={TRSYNC} trigger_reason={REASON_ENDSTOP + i}"
-            )
+        self._ser.send(
+            f"endstop_home oid={ENDSTOP + i} clock={clock}"
+            f" sample_ticks={self._ticks(ENDSTOP_SAMPLE)}"
+            f" sample_count={ENDSTOP_SAMPLE_COUNT}"
+            f" rest_ticks={self._ticks(ENDSTOP_REST)}"
+            f" pin_value={AXES[i].endstop_trigger_value}"
+            f" trsync_oid={TRSYNC} trigger_reason={REASON_ENDSTOP + i}"
+        )
 
     def _disarm(self):
         for i in range(3):
@@ -687,15 +665,12 @@ class Bench:
                 f" rest_ticks=0 pin_value=0 trsync_oid={TRSYNC} trigger_reason=0"
             )
 
-    def _start(self, skip=()):
-        pressed = self._pressed()
-        for i in pressed - set(skip):
-            print(
-                f"{AXES[i].name} のリミットスイッチが押されたままなので、張らずに動かします"
-            )
+    def _start(self, arm=None):
+        """流し始める。arm は原点出しで張るスイッチの軸（None なら張らず、可動域の端でだけ止まる）."""
         self._enable(True)
         self._last_trigger = None
-        self._arm(set(skip) | pressed)
+        if arm is not None:
+            self._arm(arm)
         clock = (self._now() + self._ticks(LEAD + START_MARGIN)) & 0xFFFFFFFF
         self._ser.send(
             f"velocity_stream_start oid={VS} clock={clock}"
@@ -740,24 +715,19 @@ class Bench:
             raise BenchError("止まりません")
         self._disarm()
 
-    def _run_for(self, i, velocity, distance, skip=()):
-        """軸 i を velocity で distance だけ動かす（時間で測るので目安）."""
+    def _run_for(self, i, velocity, distance):
+        """軸 i を velocity で distance だけ動かす（スイッチは張らない。時間で測るので目安）."""
         self._stop()
         self._velocity = [0.0, 0.0, 0.0]
         self._velocity[i] = velocity
-        self._start(skip)
-        self._send_velocity()
-        hit = self._wait(
-            lambda: self._state_name() == "contact", abs(distance / velocity)
-        )
+        self._start()
+        self._wait(lambda: False, abs(distance / velocity))
         self._stop()
-        if hit:
-            raise BenchError("リミットスイッチで止まりました")
 
     # ---- コマンド
 
     def cmd_v(self, args):
-        """v VX VY VZ: 速度（mm/s）で動かし続ける。原点出しの前の軸は 0 だけ."""
+        """v VX VY VZ: 速度（mm/s）で動かし続け、可動域の端で止まる。原点出しの前の軸は 0 だけ."""
         velocity = [float(x) for x in args]
         if len(velocity) != 3:
             raise BenchError("v VX VY VZ")
@@ -765,7 +735,7 @@ class Bench:
             if not abs(v) <= a.max_velocity:
                 raise BenchError(f"{a.name} の速度は ±{a.max_velocity} mm/s まで")
             if v and not homed:
-                raise BenchError(f"{a.name} は原点出しの前です（home か nudge を使う）")
+                raise BenchError(f"{a.name} は原点出しの前です（home を使う）")
         # 開始より先に設定する（接触のあとに古い速度で流し始めないように）
         self._velocity = velocity
         if self._state_name() != "stream" or not self._streaming:
@@ -785,38 +755,50 @@ class Bench:
             f"[{self._state_name()}] {self._position_text()}  押されたスイッチ:{names}"
         )
 
-    def cmd_nudge(self, args):
-        """nudge AXIS MM: 軸を MM だけ 1 mm/s で動かす（時間で測る目安。向きの確認に）."""
-        if len(args) != 2:
-            raise BenchError("nudge AXIS MM（例: nudge x 1）")
-        i = self._axis(args[0])
-        distance = float(args[1])
-        if not 0 < abs(distance) <= 10:
-            raise BenchError("nudge は 0 より大きく 10 mm まで")
-        self._run_for(i, NUDGE_SPEED if distance > 0 else -NUDGE_SPEED, distance)
-
     def cmd_home(self, args):
         """Home [AXIS...]: 原点出し（既定は z x y の順）."""
         for i in [self._axis(x) for x in args] or [2, 0, 1]:
             self._home(i)
 
     def _home(self, i):
+        """Klipper と同じ手順: スイッチへ向かい、退避して、2 回目はゆっくり向かう."""
         a = AXES[i]
         self._stop()
         self._homed[i] = False
-        # 可動域を広げ、いまの位置を 0 にしてスイッチへ向かう
+        # 可動域を広げ、いまの位置を 0 にする
         self._set_limits(i, homed=False)
         self._ser.send(f"velocity_stream_set_position oid={VS} axis={i} pos=0")
         if i in self._pressed():
             print(f"{a.name}: スイッチが押されているので、先に離れます")
-            self._run_for(i, -a.home_dir * a.retract_speed, a.retract_dist, skip={i})
-            if i in self._pressed():
-                raise BenchError(f"{a.name}: スイッチから離れられません")
-        print(f"{a.name}: スイッチへ向かいます（{a.homing_speed} mm/s）")
+            self._retract(i)
+        self._approach(i, a.homing_speed)
+        if a.retract_dist:
+            self._retract(i)
+            self._approach(i, a.second_homing_speed)
+        self._ser.send(
+            f"velocity_stream_set_position oid={VS} axis={i} pos={a.steps(a.position_endstop)}"
+        )
+        self._set_limits(i, homed=True)
+        self._homed[i] = True
+        self._query()
+        print(f"{a.name}: 原点出しを終えました  {self._position_text()}")
+
+    def _retract(self, i):
+        a = AXES[i]
+        self._run_for(i, -a.home_dir * a.retract_speed, a.retract_dist)
+        if i in self._pressed():
+            raise BenchError(f"{a.name}: 退避してもスイッチが押されたままです")
+
+    def _approach(self, i, speed):
+        """軸 i のスイッチだけを張って向かい、押された位置を 0 にする（広げた可動域の中ほど）."""
+        a = AXES[i]
+        print(f"{a.name}: スイッチへ向かいます（{speed} mm/s）")
+        self._stop()
         self._velocity = [0.0, 0.0, 0.0]
-        self._velocity[i] = a.home_dir * a.homing_speed
-        self._start()
-        timeout = (a.position_max - a.position_min + 10) / a.homing_speed
+        self._velocity[i] = a.home_dir * speed
+        self._start(arm=i)
+        # 加速と減速の分の余裕を 1 秒とる
+        timeout = self._homing_dist(a) / speed + 1.0
         if not self._wait(lambda: self._state_name() == "contact", timeout):
             self._stop()
             raise BenchError(f"{a.name}: スイッチに届きません（向きと配線を確かめる）")
@@ -824,20 +806,8 @@ class Bench:
         # trsync_state は velocity_stream_state と別に届く
         self._wait(lambda: self._last_trigger is not None, 0.5, abortable=False)
         if self._last_trigger != i:
-            raise BenchError(f"{a.name}: 別のスイッチで止まりました")
-        self._ser.send(
-            f"velocity_stream_set_position oid={VS} axis={i} pos={a.steps(a.position_endstop)}"
-        )
-        # 可動域を広げたまま退避してから、可動域を戻す
-        self._run_for(i, -a.home_dir * a.retract_speed, a.retract_dist, skip={i})
-        self._query()
-        pos = a.mm(self._state[a.name])
-        if i in self._pressed() or not a.min_mm <= pos <= a.max_mm:
-            raise BenchError(f"{a.name}: 退避が足りません（{pos:.3f} mm）")
-        self._set_limits(i, homed=True)
-        self._homed[i] = True
-        self._query()
-        print(f"{a.name}: 原点出しを終えました  {self._position_text()}")
+            raise BenchError(f"{a.name}: スイッチ以外の理由で止まりました")
+        self._ser.send(f"velocity_stream_set_position oid={VS} axis={i} pos=0")
 
     def cmd_on(self, args):
         """on: モーターを励磁する."""
