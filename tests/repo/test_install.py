@@ -21,6 +21,7 @@ from pcbasm.paths import PROJECT_ROOT
 from web.selfupdate.settings import UpdateSettings
 
 INSTALL = PROJECT_ROOT / "install.sh"
+FIRMWARE = PROJECT_ROOT / "deploy" / "firmware.sh"
 TEMPLATES = PROJECT_ROOT / "deploy" / "templates"
 
 UNIT = """\
@@ -320,6 +321,62 @@ class TestKlipper:
 
         link = kinematics / "inversed_corexy.py"
         assert link.readlink() == PROJECT_ROOT / "klipper" / "inversed_corexy.py"
+
+
+class TestFirmware:
+    """`install.sh firmware [klipper|pnp-motion]`: MCU firmware を選んで書き込む.
+
+    ビルドと書き込みは実機の作業なので、選んだ firmware のビルドへ進むところまでを確かめる。
+    """
+
+    def test_unknown_firmware_fails(self, tmp_path: Path):
+        result = run(INSTALL, "firmware", "marlin", env={"HOME": str(tmp_path)})
+
+        assert result.returncode != 0
+        assert "marlin" in result.stderr
+        assert "klipper" in result.stderr and "pnp-motion" in result.stderr
+
+    def test_skip_writes_nothing(self, tmp_path: Path):
+        result = run(INSTALL, "firmware", env={"HOME": str(tmp_path)}, stdin="3\n")
+
+        assert result.returncode == 0, result.stderr
+        assert "スキップ" in result.stdout
+
+    @pytest.mark.parametrize(
+        ("args", "stdin"), [(("klipper",), ""), ((), "1\n")], ids=["arg", "choice"]
+    )
+    def test_klipper_builds_from_the_kiauh_klipper(
+        self, tmp_path: Path, args: tuple[str, ...], stdin: str
+    ):
+        """Klipper の firmware は KIAUH の ~/klipper（Klippy と同じ版）からビルドする."""
+        result = run(
+            INSTALL, "firmware", *args, env={"HOME": str(tmp_path)}, stdin=stdin
+        )
+
+        assert result.returncode != 0
+        assert f"{tmp_path}/klipper がありません" in result.stderr
+
+    @pytest.mark.parametrize(
+        ("args", "stdin", "firmware"),
+        [
+            ("klipper", "", "klipper"),
+            ("pnp-motion", "", "pnp-motion"),
+            ("", "1\n", "klipper"),
+            ("", "2\n", "pnp-motion"),
+            ("", "3\n", ""),
+        ],
+    )
+    def test_choose_firmware(self, args: str, stdin: str, firmware: str):
+        result = subprocess.run(
+            ["bash", "-c", f'source "{FIRMWARE}" && choose_firmware "$1"', "-", args],
+            input=stdin,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == firmware
 
 
 @attrs.frozen

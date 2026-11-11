@@ -38,7 +38,8 @@ OS を入れ、ホスト名を機体ごとに一意な名前へ変える。ホ�
     | `packages`  | apt で KiCad、`python3-picamera2`、`python3-evdev`、`git-lfs`、`alsa-utils` などを入れ、Git LFS の実体を取得する |
     | `python`    | 版を固定した uv を入れ、`make setup` で `.venv` を作る（既にあれば作り直さず `uv sync` で同期だけする）          |
     | `klipper`   | KIAUH を対話式で起動する（Klipper が入っていれば飛ばす）。独自 kinematics（`inversed_corexy`）を symlink する    |
-    | `hardware`  | カメラ・スピーカーの boot overlay と Klipper MCU firmware を対話式で設定する（`deploy/hardware.sh`）             |
+    | `hardware`  | カメラ・スピーカーの boot overlay を対話式で設定する（`deploy/hardware.sh`）                                     |
+    | `firmware`  | MCU firmware をビルドして BTT SKR Pico v1.0 に書き込む（`deploy/firmware.sh`）。種類を選ぶか、スキップする       |
     | `machine`   | `deploy/templates/` から機種を選び、`config/machine.toml` と `~/printer_data/config/printer.cfg` を置く          |
     | `services`  | `pcbasm-api` / `pcbasm-ui` の systemd unit と、WebUI からの更新に使う sudoers を設置して起動する                 |
 
@@ -48,9 +49,12 @@ OS を入れ、ホスト名を機体ごとに一意な名前へ変える。ホ�
         設定するか聞かれ、設定する場合は残りの port の driver を同じ候補から選ぶ
     - スピーカーは `max98357a`（標準構成）、`hifiberry-dac`、`hifiberry-dacplus`、
         `iqaudio-dacplus`、`googlevoicehat-soundcard`、overlay 名の手入力、未設定から選ぶ
-    - BTT SKR Pico v1.0 の firmware は、`~/klipper` と設定（`deploy/firmware/btt-skr-pico-v1-usb.config`）から
-        その場でビルドする。ホストの Klipper と同じ版になる。続けて画面の案内に従って BOOT jumper と RESET を操作し、
-        `/media/$USER/RPI-RP2` volume へ UF2 をコピーする。Klipper を更新したら、`./install.sh hardware` で書き込み直す
+    - `firmware` は種類を引数で渡すか（`./install.sh firmware klipper`）、番号で選ぶ。どちらもその場でビルドし、
+        画面の案内に従って BOOT jumper と RESET を操作すると、`/media/$USER/RPI-RP2` volume へ UF2 をコピーする
+        - `klipper`（はんだ塗布機）: `~/klipper` と設定（`deploy/firmware/btt-skr-pico-v1-usb.config`）からビルドする。
+            ホストの Klipper と同じ版になる。Klipper を更新したら、`./install.sh firmware klipper` で書き込み直す
+        - `pnp-motion`（部品実装機）: Klipper に速度指令のモジュールを足したもの
+            （[pnp-motion](../src/firmware/pnp-motion/README.md)）。初回は固定した版の Klipper を GitHub から取得する
     - boot 設定は `/boot/firmware/config.txt`（旧 OS では `/boot/config.txt`）へ反映され、
         変更前の内容は同じ場所の `config.txt.pcbasm.bak` に保存される。管理する marker 内だけを再実行時に置換する
     - `machine` は、既にある `config/machine.toml` と、KIAUH が置いた stub（`kinematics: none`）でない
