@@ -1,0 +1,44 @@
+# CI の job を動かす image。ci/run.sh が各 runner でこのファイルの hash を tag にして build する。
+# パッケージは github-runner/setup.sh が host に入れていたものと同じにする
+FROM docker.io/library/debian:trixie
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# picamera2 と chromium は runner の host（Raspberry Pi OS）と同じく Raspberry Pi の apt repository から入れる。
+# 鍵は host と同じ raspberrypi-archive-keyring の .deb を hash を確かめて入れる
+# （raspberrypi.gpg.key の鍵は SHA1 の署名で、trixie の apt が受け付けない）。
+# fonts-ipafont-gothic は E2E で日本語の UI を描くため。無いと文字幅が host と変わり、クリック位置がずれるテストがある
+ARG RPI_KEYRING_DEB=raspberrypi-archive-keyring_2025.1+rpt1_all.deb
+ARG RPI_KEYRING_SHA256=2e727149d7acb8cc7f604e66d0049161039c8aa1eaf1175e54f9e69d963d60e4
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates curl \
+    && curl --fail --silent --show-error --location --output "/tmp/${RPI_KEYRING_DEB}" \
+        "https://archive.raspberrypi.com/debian/pool/main/r/raspberrypi-archive-keyring/${RPI_KEYRING_DEB}" \
+    && echo "${RPI_KEYRING_SHA256}  /tmp/${RPI_KEYRING_DEB}" | sha256sum --check --strict \
+    && dpkg --install "/tmp/${RPI_KEYRING_DEB}" \
+    && rm "/tmp/${RPI_KEYRING_DEB}" \
+    && printf '%s\n' \
+        'Types: deb' \
+        'URIs: http://archive.raspberrypi.com/debian/' \
+        'Suites: trixie' \
+        'Components: main' \
+        'Signed-By: /usr/share/keyrings/raspberrypi-archive-keyring.pgp' \
+        > /etc/apt/sources.list.d/raspi.sources \
+    && apt-get update \
+    && apt-get install --yes \
+        chromium \
+        git \
+        git-lfs \
+        libgl1 \
+        libglib2.0-0t64 \
+        make \
+        python3 \
+        python3-evdev \
+        python3-picamera2 \
+        v4l-utils \
+    && apt-get install --yes --no-install-recommends kicad fonts-ipafont-gothic \
+    && git lfs install --system --skip-repo \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl --fail --silent --show-error --location https://astral.sh/uv/0.10.9/install.sh \
+    | env UV_UNMANAGED_INSTALL=/usr/local/bin sh
