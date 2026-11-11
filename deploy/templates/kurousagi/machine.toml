@@ -83,3 +83,4 @@ region_overlap = 0.2
 # open_close_id = 2       # Open Close のサーボ ID（0〜253）
 # closed_angle = 180.0   # Open Close の閉じ切りの角度（サーボの絶対角 0〜360°）
 # open_angle = 210.0     # Open Close の開き切りの角度（0〜360°。閉じ切りとの差は 180° 以下）
+# rotation_speed = 45.0  # Rotation を回す速さ [deg/s]（マシン操作パネルの ± とコントローラの両方）
