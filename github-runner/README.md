@@ -54,8 +54,8 @@ repository を checkout した Raspberry Pi 上で、`sudo` を付けずに実�
 
 次を一度に実行する。
 
-- CI に必要な OS package（`python3-picamera2`、`python3-evdev` を含む）、Git LFS、KiCad（`pcbnew`）、Chromium、`uv 0.10.9` のインストール
-- `github-runner` user の作成、`uinput` group と udev 規則の配置、host cache directory の準備
+- runner と podman に要る OS package のインストール（CI の OS package は `ci/Containerfile` が持つ）
+- `github-runner` user の作成、rootless の podman の準備、`uinput` group と udev 規則の配置、host cache directory の準備
 - `actions/runner` の最新 release を `/opt/actions-runner/pcb-assembly-rpi-1` へ展開
 - registration token の取得（`gh`）または非表示入力による instance の登録
 - systemd service の作成・起動と、service・登録状態・GitHub 接続の検証
@@ -128,10 +128,8 @@ runs-on: [self-hosted, linux, ARM64, rpi-ci]
 `verify` は次を確認する。
 
 - instance が登録済みで、systemd service が有効かつ起動中
-- Git LFS の system filter 設定と `pcbnew`、`evdev` の import
 - `/dev/uinput` の group が `uinput` で、runner user がその group に入っている
 - runner user で rootless の podman が動き、subuid が container に割り当てられる
-- `uv` version
 - GitHub 側の runner 一覧（name / status / busy / label）
 - CPU、memory、disk 使用量
 
@@ -179,12 +177,12 @@ sudo -u github-runner -H podman images
 sudo -u github-runner -H podman image prune --all --force
 ```
 
-容量確認と uv cache の安全な整理は次のとおり。
+cache の容量確認は次のとおり。uv cache は消しても次の job が取り直す。
 
 ```bash
 sudo du -sh /home/github-runner/.cache/uv
 sudo du -sh /home/github-runner/.cache/pre-commit
-sudo -u github-runner -H /usr/local/bin/uv cache prune
+sudo -u github-runner -H rm -rf /home/github-runner/.cache/uv
 ```
 
 pre-commit cache を全削除すると、次回の workflow で hook 環境を再構築する。通常運用では
@@ -200,8 +198,7 @@ instance を登録し直さない。runner version を明示的に入れ替え�
 1. 「登録解除と削除」の手順で instance を削除する
 2. `RUNNER_VERSION=<version> ./github-runner/setup.sh setup` を実行する
 
-`uv` を入れ替えるには、`setup.sh` の `UV_VERSION` を変えた変更が review された後に `install` を
-再実行する（`install` は導入済み `uv` の version が `UV_VERSION` と違うときだけ入れ直す）。
+`uv` や CI の OS package を入れ替えるには `ci/Containerfile` を変える。各 runner は次の job で image を build し直す。
 
 ## 3 instance 構成からの移行
 
