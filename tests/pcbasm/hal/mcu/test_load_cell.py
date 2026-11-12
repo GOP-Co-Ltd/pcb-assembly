@@ -354,6 +354,84 @@ class TestReadingErrors:
         assert tracker.reading(10.6).error == "ロードセルの値が来ない"
 
 
+class TestPausedAutoTare:
+    def test_does_not_tare_while_paused_even_if_quiet(self):
+        feeder = _tared(0)
+
+        for _ in range(20):
+            feeder.now += 12 * _PERIOD
+            assert (
+                feeder.tracker.feed([300] * 12, feeder.now, quiet=True, auto_tare=False)
+                is None
+            )
+
+        assert feeder.reading() == LoadReading(0.3)
+
+
+class TestReady:
+    def test_needs_the_tare(self):
+        feeder = _Feeder(LoadTracker(_settings()))
+        feeder.feed(0, 12)
+
+        assert not feeder.tracker.ready(feeder.now)
+        feeder.feed(0, 4)
+        assert feeder.tracker.ready(feeder.now)
+
+    def test_is_false_when_the_last_sample_is_old_or_an_error(self):
+        feeder = _tared(0)
+
+        assert not feeder.tracker.ready(feeder.now + 0.6)
+        feeder.tracker.note_error(SampleError.DESYNC, feeder.now)
+        assert not feeder.tracker.ready(feeder.now)
+
+
+class TestReleased:
+    """接触保持から戻るのは、保持に入った後の連続 100 ms（80 SPS で 8 個）が release_force（15
+    g）を下回ったとき."""
+
+    def test_needs_eight_samples_below_the_release_force_after_since(self):
+        feeder = _tared(0)
+        since = feeder.now
+
+        feeder.feed(14_000, 7)
+        assert not feeder.tracker.released(since, feeder.now)
+        feeder.feed(14_000, 1)
+        assert feeder.tracker.released(since, feeder.now)
+
+    def test_samples_before_since_do_not_count(self):
+        feeder = _tared(0)
+        feeder.feed(0, 12)
+
+        assert not feeder.tracker.released(feeder.now, feeder.now)
+
+    def test_a_sample_at_the_release_force_keeps_holding(self):
+        feeder = _tared(0)
+        since = feeder.now
+
+        feeder.feed(0, 7)
+        feeder.feed(15_000, 1)
+
+        assert not feeder.tracker.released(since, feeder.now)
+
+    def test_only_the_last_hundred_milliseconds_count(self):
+        feeder = _tared(0)
+        since = feeder.now
+
+        feeder.feed(60_000, 4)
+        feeder.feed(0, 8)
+
+        assert feeder.tracker.released(since, feeder.now)
+
+    def test_an_error_or_an_old_sample_is_not_released(self):
+        feeder = _tared(0)
+        since = feeder.now
+        feeder.feed(0, 12)
+
+        assert not feeder.tracker.released(since, feeder.now + 0.6)
+        feeder.tracker.note_error(SampleError.DESYNC, feeder.now)
+        assert not feeder.tracker.released(since, feeder.now)
+
+
 # --- MCU 役と話す ---
 
 

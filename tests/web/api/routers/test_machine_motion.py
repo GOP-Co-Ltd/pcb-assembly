@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from pcbasm.hal import MotionState
+from pcbasm.hal import ContactSettings, MotionState, Velocity
 from pcbasm.hal.fake import FakeAudioPlayer, FakeMotionStage
 from tests.support.polling import wait_until
 from tests.support.selfupdate import UpdateSandbox, make_update_sandbox
@@ -194,6 +194,37 @@ class TestMotionTare:
         assert response.status_code == 200, response.text
         assert response.json()["load_label"] == "荷重 0.0 g"
         assert stage.status().load == 0.0
+
+
+class TestMotionContact:
+    """接触保持の間（ロードセルの接触で止まり、まだ離していない）."""
+
+    @pytest.fixture
+    def stage(self) -> FakeMotionStage:
+        return fake_motion_stage(homed=True, load_cell=True, contact=ContactSettings())
+
+    def _press(self, stage: FakeMotionStage) -> None:
+        stage.set_velocity(Velocity(z=-1.0))
+        stage.set_load(60.0)
+
+    def test_status_shows_the_contact(
+        self, motion_client: TestClient, stage: FakeMotionStage
+    ):
+        self._press(stage)
+
+        assert motion_client.get(STATUS).json()["load_label"] == "荷重 60.0 g（接触中）"
+
+    def test_xy_jog_is_refused_with_the_reason(
+        self, motion_client: TestClient, stage: FakeMotionStage
+    ):
+        self._press(stage)
+
+        response = motion_client.post(
+            COMMAND, json={"type": "jog", "axis": "x", "distance": 1.0}
+        )
+
+        assert response.status_code == 400
+        assert "接触中" in response.json()["detail"]
 
 
 class TestMotionStatus:

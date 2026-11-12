@@ -190,3 +190,22 @@ class TestLoadLabel:
 
     def test_no_load_cell_has_no_label(self):
         assert motion_load_label(self._status(None)) is None
+
+    @pytest.mark.parametrize(
+        ("load", "error", "expected"),
+        [
+            (52.04, None, "荷重 52.0 g（接触中）"),
+            (
+                None,
+                "ロードセルの値が来ない",
+                "ロードセル: ロードセルの値が来ない（接触中）",
+            ),
+            (None, None, "接触中"),
+        ],
+    )
+    def test_contact_is_appended(
+        self, load: float | None, error: str | None, expected: str
+    ):
+        status = attrs.evolve(self._status(load, error), contact=True)
+
+        assert motion_load_label(status) == expected

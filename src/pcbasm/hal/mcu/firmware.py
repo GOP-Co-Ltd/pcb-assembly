@@ -12,7 +12,11 @@
   （``endstop_home`` の ``sample_count=0`` で外す）、``trsync.c``（``trsync_start`` で登録を消してから張り直す）、
   ``gpiocmds.c``（``config_digital_out`` の ``value`` は設定したときの値、``default_value`` は shutdown のときの値、
   ``max_duration=0`` は期限なし）、``tmcuart.c``、``sensor_hx71x.c``（``config_hx71x`` と ``query_hx71x``。読み取りは
-  :mod:`pcbasm.hal.mcu.load_cell`）
+  :mod:`pcbasm.hal.mcu.load_cell`。``hx71x_attach_trigger_analog``。誤りのサンプルでは ``trigger_analog_update`` を
+  呼ばない）、``sos_filter.c``（``config_sos_filter``、``sos_filter_set_offset_scale``。``(値 + offset) × scale`` を
+  ``scale_frac_bits`` だけ右へずらし、断面が 0 個ならそれが出力。あふれたら誤り）、``trigger_analog.c``
+  （``config_trigger_analog``、``trigger_analog_set_raw_range``、``trigger_analog_set_trigger``、``trigger_analog_home``。
+  下の「接触停止」）
 - TMC2209 Datasheet Rev 1.09 の「IFCNT」（UART の書き込みが正しく届くたびに 1 進む 8 bit の数）
 
 ``tools/bench.py``（GPLv3）は、ホストがどのコマンドをどの順に送るかを確かめるためにだけ読んだ。
@@ -21,8 +25,8 @@
 決めたこと:
 
 - **oid:** ``velocity_stream`` が 0、stepper が 1〜3、endstop が 4〜6、enable が 7〜9、trsync が 10、tmcuart が 11、
-  LED が 12、hx71x が 13。LED とロードセルが無い機体でも 14 個を割り当てる（使わない oid は空のまま）。
-  oid の数を 12 から 14 に変えたので crc も変わり、この版で最初に接続したときに 1 回 reset する
+  LED が 12、hx71x が 13、sos_filter が 14、trigger_analog が 15。LED とロードセルが無い機体でも 16 個を割り当てる
+  （使わない oid は空のまま）。oid の数を変えると crc も変わり、その版で最初に接続したときに 1 回 reset する
 - **LED:** 設定の列で ``config_digital_out`` の ``value`` と ``default_value`` を 1 にする（設定したときから点け、
   shutdown しても消さない）。ホストから点け消しはしない。MCU を reset すると（再起動、設定が変わったとき、
   この版で最初に接続したとき）、設定し直すまでの間はピンが既定の状態に戻って消える（ファームの外の話）
@@ -47,6 +51,43 @@
   ``_ARRIVAL_TOLERANCE`` 以下の軸は着いているとみなして動かさない。corexy では止まった位置が 1 ステップ
   ずれて報告されることがあり（velocity_stream.c の開始の検査も 1 ステップの余裕をみる）、その差を
   動かそうとすると切り詰めた可動域が空（``min_pos >= max_pos``）になって shutdown するため
+
+接触停止（ロードセルがある機体）:
+
+- **経路:** MCU の中で完結させる。``hx71x`` のサンプル → ``trigger_analog``（``sos_filter`` で
+  ``(値 − 風袋) × 符号`` にする）→ 原点出しと同じ trsync（oid 10）→ 3 軸の stepper を即座に止め、``velocity_stream``
+  を ``contact`` にする。ホストを待たないので、止まるまでの遅れはサンプルの周期（80 SPS で 12.5 ms）の 1〜2 個分
+- **設定の列:** ``config_sos_filter``（断面 0 個。フィルタは掛けない: 80 SPS では遅れが増えるので、受け入れ試験
+  A34・A35 の実測を見て要れば足す）→ ``config_trigger_analog`` → ``trigger_analog_set_raw_range``（HX711 が
+  張り付いた ±2^23 の端を誤りにする。oid は 0 で埋まるので、送らないと範囲が 0〜0 になり全サンプルが誤りになる）→
+  ``trigger_analog_set_trigger``（``gt`` で ``round(trigger_force × counts_per_gram)`` を超えたら。押される向き
+  だけを見る）→ ``hx71x_attach_trigger_analog``
+- **風袋:** :class:`~pcbasm.hal.mcu.load_cell.LoadCell` が風袋を変えるたびに ``sos_filter_set_offset_scale`` で
+  ``offset = −風袋``、``scale = ±1``（``inverted`` で −1）を送る。設定したばかりの scale は 0 で出力も 0 なので、
+  風袋を取るまでは張らない（張ろうとしたら :class:`LoadCellFault`）
+- **trsync の理由（reason）:**
+
+  ====  ==============================================================
+  0     期限切れ（``trsync_start`` の ``expire_reason``。期限を張らないので来ない）
+  1〜3  X・Y・Z のリミットスイッチ（``endstop_home`` の ``trigger_reason``）
+  4     接触（``trigger_analog_home`` の ``trigger_reason``）
+  5〜8  ロードセルの異常。``trigger_analog_home`` の ``error_reason`` を 5 にし、ファームが
+        ``RAW_RANGE`` 0・``OVERFLOW`` 1・``MONITOR`` 2・``SENSOR_SPECIFIC`` 3 を足す
+  ====  ==============================================================
+
+- **見張り:** ``monitor_ticks`` を 1 サンプルの周期、``monitor_max`` を 3 にする。サンプルが来るたびに数えるのを
+  0 に戻し、周期ごとに 1 進め、3 を超えたら ``MONITOR``。約 5 周期（80 SPS で約 60 ms）サンプルが来なければ
+  異常で止まる。hx71x は誤りのサンプル（DESYNC、READ_TOO_LONG）を ``trigger_analog`` に渡さないので、
+  誤りが続いても ``MONITOR`` になる（:class:`~pcbasm.hal.mcu.load_cell.LoadCell` が読み直して、それより早く
+  戻れば止まらない）
+- **張る・外す:** 張るのは :meth:`PnpMotionFirmware.start` の直前だけ（止まっているとき）。``trsync_start`` が
+  前の登録を消すので、二重に登録しない。外すのは :meth:`PnpMotionFirmware.stop` の後、原点出しの後
+  （:meth:`PnpMotionFirmware.disarm`）、接触保持に入るとき（:meth:`PnpMotionFirmware.clear_trigger`）、
+  使い回して接続したとき。``trigger_analog_home`` の ``monitor_ticks=0`` で外す
+- **報告:** 接触や異常で止まると、``velocity_stream_state`` の ``contact`` と ``trsync_state`` の理由が別々に届く。
+  ``contact`` を受けたら流していないとする（受信スレッド。スティックで流している間はホストが問い合わせない
+  ので、そのままだと止まったのに速度を送り続ける）。``contact`` は次の ``start`` まで変わらず、それより前の報告は
+  :meth:`PnpMotionFirmware.query` の ``get_config`` で掃き出すので、古い ``contact`` が新しい ``start`` の後に来ない
 """
 
 from __future__ import annotations
@@ -105,12 +146,26 @@ _TRSYNC = 10
 _TMCUART = 11
 _LED = 12
 _HX71X = 13
-_OID_COUNT = 14
+_SOS_FILTER = 14
+_TRIGGER_ANALOG = 15
+_OID_COUNT = 16
 
 # endstop_home の trigger_reason。trsync_state がこの値を返すので、止めたスイッチの軸が分かる
 _SWITCH_REASON: dict[Axis, int] = {
     axis: 1 + index for index, axis in enumerate(("x", "y", "z"))
 }
+
+# trigger_analog_home の trigger_reason と error_reason（モジュールの docstring の「接触停止」）
+_CONTACT_REASON = 4
+_SENSOR_ERROR_REASON = 5
+# trigger_analog.c の TE_* の順（error_reason に足す値）
+_SENSOR_ERRORS = ("RAW_RANGE", "OVERFLOW", "MONITOR", "SENSOR_SPECIFIC")
+# HX711 は 24 bit。張り付いた端（0x7FFFFF と 0x800000）を範囲の外にする
+_RAW_MIN = -(1 << 23) + 1
+_RAW_MAX = (1 << 23) - 2
+_MONITOR_MAX = 3
+# 接触や異常で止まったとき、trsync_state と contact の報告の片方だけが届いた状態から、もう片方を待つ長さ [s]
+_TRIGGER_WAIT = 0.5
 
 # 時刻を指定するコマンド（velocity_stream_start、endstop_home）を、今からどれだけ先に置くか [s]。
 # 時刻の推定の誤差と送る遅れを吸収する（ファームは lead_ticks より近い開始を shutdown にする）
@@ -141,6 +196,14 @@ class ProcedureError(McuError):
 
     MCU との接続は生きている。
     """
+
+
+class ContactStop(ProcedureError):
+    """ロードセルの接触で止まった（trsync の理由が接触）."""
+
+
+class LoadCellFault(ProcedureError):
+    """ロードセルの異常で止まった、または読めないので接触停止を張れない."""
 
 
 class StreamState(enum.Enum):
@@ -207,11 +270,17 @@ class PnpMotionFirmware:
         self._shutdown_reason: str | None = None
         self._bounds: dict[Axis, tuple[int, int]] = {}
         self._trigger_reason: int | None = None
+        self._armed = False
+        self._contact_armed = False
         self._load_cell = (
             None
             if settings.load_cell is None
             else LoadCell(
-                transport, settings.load_cell, oid=_HX71X, clock_freq=frequency
+                transport,
+                settings.load_cell,
+                oid=_HX71X,
+                clock_freq=frequency,
+                on_tare=self._send_tare,
             )
         )
         transport.subscribe("velocity_stream_state", self._on_state, oid=_STREAM)
@@ -238,6 +307,10 @@ class PnpMotionFirmware:
     def streaming(self) -> bool:
         """流しているか（:meth:`start` から :meth:`stop` か接触停止まで）."""
         return self._streaming
+
+    def bounds(self, axis: Axis) -> tuple[int, int]:
+        """軸の今の可動域 [steps]（最後に送った :meth:`set_limits` の値）."""
+        return self._bounds[axis]
 
     @property
     def latest(self) -> StreamReport | None:
@@ -316,8 +389,22 @@ class PnpMotionFirmware:
         for axis in axes:
             self.set_position(axis, 0)
 
-    def start(self) -> None:
-        """流し始める（速度は 0 から）。止まっているか、接触停止の後に送る."""
+    def start(self, *, switch: Axis | None = None, contact: bool = False) -> None:
+        """流し始める（速度は 0 から）。止まっているか、接触停止の後に送る.
+
+        ``switch`` か ``contact`` があれば、先に同じ trsync に 3 軸の stepper と ``velocity_stream`` を登録し直し
+        （``trsync_start`` が前の登録を消す）、``switch`` の軸のリミットスイッチと、``contact`` ならロードセルを張る。
+        見始めるのは今から ``_SCHEDULE_AHEAD`` 先（流し始めるより前）。
+
+        Args:
+            switch: 張るリミットスイッチの軸
+            contact: ロードセルの接触停止を張る
+
+        Raises:
+            LoadCellFault: ``contact`` だが、ロードセルが無いか、風袋がまだか、読めない
+        """
+        if switch is not None or contact:
+            self._arm(switch, contact=contact)
         settings = self._settings
         clock = self._clock.now() + self._clock.ticks(
             settings.stream_lead + _SCHEDULE_AHEAD
@@ -366,6 +453,8 @@ class PnpMotionFirmware:
             if time.monotonic() > deadline:
                 raise ProcedureError(f"{timeout:.1f} 秒待っても止まらない")
             time.sleep(_POLL)
+        if self._contact_armed:
+            self._disarm_contact()
 
     def query(self) -> StreamReport:
         """今の状態を問い合わせる（それまでに送ったコマンドを MCU が実行した後の状態）.
@@ -393,8 +482,14 @@ class PnpMotionFirmware:
     ) -> StreamReport | None:
         """流している間、速度を期限が切れる前に送り直しながら、報告が ``until`` を満たすまで待つ.
 
+        ``contact`` で止まったら、``until`` を見る前に trsync の理由を調べる（理由がまだ届いていなければ待ち続ける）。
+
         Returns:
             ``until`` を満たした報告。``timeout`` 秒を過ぎたら None
+
+        Raises:
+            ContactStop: ロードセルの接触で止まった
+            LoadCellFault: ロードセルの異常で止まった
         """
         deadline = time.monotonic() + timeout
         resend_at = 0.0
@@ -404,21 +499,32 @@ class PnpMotionFirmware:
                 self.set_velocity(velocity)
                 resend_at = now + self._settings.stream_ttl / 4
             report = self.query()
+            if report.state is StreamState.CONTACT:
+                self._raise_load_cell_stop(self._trigger_reason)
             if until(report):
                 return report
             if now > deadline:
                 return None
             time.sleep(_POLL)
 
-    def travel(self, targets: Mapping[Axis, int], speed: float | None = None) -> None:
+    def travel(
+        self,
+        targets: Mapping[Axis, int],
+        speed: float | None = None,
+        *,
+        contact: bool = False,
+    ) -> None:
         """``targets`` の軸を行き先 [steps] へ直線に動かし、止まるまで待つ（止まっているときに呼ぶ）.
 
         進め方はモジュールの docstring の「座標指定の移動」。``speed`` [mm/s] は直線の速さで、省けば
         どの軸も ``max_velocity`` を超えない最も速い動き。行き先は、いまの可動域の中に置く。
+        ``contact`` なら、ロードセルの接触停止を張って動かす。
         失敗しても、shutdown していなければ止めてから可動域を戻す。
 
         Raises:
             ProcedureError: 待っても行き先に着かない
+            ContactStop: ロードセルの接触で止まった
+            LoadCellFault: ロードセルの異常で止まった、または読めないので張れない
         """
         here = self.query().position
         offsets: dict[Axis, int] = {
@@ -444,7 +550,7 @@ class PnpMotionFirmware:
         timeout = duration + ramp + _TRAVEL_SLACK
         destinations: dict[Axis, int] = {axis: targets[axis] for axis in offsets}
         with self._narrowed(destinations, offsets):
-            self.start()
+            self.start(contact=contact)
 
             def settled(report: StreamReport) -> bool:
                 return all(
@@ -509,34 +615,8 @@ class PnpMotionFirmware:
         )
         return message.params["pin_value"] == self.axis(axis).endstop_pressed_level
 
-    def arm_homing(self, axis: Axis) -> None:
-        """軸のリミットスイッチだけを張る。押されたら 3 軸の stepper と ``velocity_stream`` が止まる.
-
-        同じ trsync に 3 軸の stepper と ``velocity_stream`` を登録し直す（``trsync_start`` が前の登録を消す）。
-        スイッチを見始めるのは今から ``_SCHEDULE_AHEAD`` 先（:meth:`start` の開始より前）。
-        """
-        self._trigger_reason = None
-        self._send(
-            "trsync_start", oid=_TRSYNC, report_clock=0, report_ticks=0, expire_reason=0
-        )
-        for oid in _STEPPERS:
-            self._send("stepper_stop_on_trigger", oid=oid, trsync_oid=_TRSYNC)
-        self._send("velocity_stream_stop_on_trigger", oid=_STREAM, trsync_oid=_TRSYNC)
-        clock = self._clock.now() + self._clock.ticks(_SCHEDULE_AHEAD)
-        self._send(
-            "endstop_home",
-            oid=_ENDSTOPS[AXES.index(axis)],
-            clock=to_clock32(clock),
-            sample_ticks=self._clock.ticks(_ENDSTOP_SAMPLE),
-            sample_count=_ENDSTOP_SAMPLE_COUNT,
-            rest_ticks=self._clock.ticks(_ENDSTOP_REST),
-            pin_value=self.axis(axis).endstop_pressed_level,
-            trsync_oid=_TRSYNC,
-            trigger_reason=_SWITCH_REASON[axis],
-        )
-
-    def disarm_homing(self) -> None:
-        """3 軸のリミットスイッチを外す."""
+    def disarm(self) -> None:
+        """3 軸のリミットスイッチと、ロードセルの接触停止を外す."""
         for oid in _ENDSTOPS:
             self._send(
                 "endstop_home",
@@ -549,12 +629,64 @@ class PnpMotionFirmware:
                 trsync_oid=_TRSYNC,
                 trigger_reason=0,
             )
+        if self._load_cell is not None:
+            self._disarm_contact()
+        self._armed = False
+
+    def clear_trigger(self) -> None:
+        """Trsync が引かれた理由を忘れ、張っていれば外す（接触保持に入るときと、異常を知らせた後）."""
+        if self._armed:
+            self.disarm()
+        self._trigger_reason = None
+
+    def settle_trigger(self) -> int | None:
+        """張ったものが trsync を引いていれば、その理由（引いていなければ None）.
+
+        張ったまま、理由と ``contact`` の報告の片方だけが届いていれば、両方が揃うまで問い合わせて待つ（揃った後は
+        :attr:`streaming` が偽で、:attr:`latest` が止まった位置を持つ）。張っていなければ、前に引いた理由を
+        そのまま返す（原点出しのスイッチの理由が残っていることがある）.
+
+        Raises:
+            ProcedureError: 待っても揃わない
+        """
+        deadline = time.monotonic() + _TRIGGER_WAIT
+        while True:
+            reason = self._trigger_reason
+            latest = self._latest
+            running = latest is not None and latest.state.running
+            contact = latest is not None and latest.state is StreamState.CONTACT
+            if reason is None and not (self._armed and contact):
+                return None
+            # 張っていなければ、残っているのは前に引いた理由（原点出しのスイッチなど）で、待つものは無い
+            if reason is not None and (not self._armed or not running):
+                return reason
+            if time.monotonic() > deadline:
+                raise ProcedureError(
+                    "止まったが、trsync の理由と velocity_stream の contact が揃わない"
+                    f"（理由 {reason}）"
+                )
+            time.sleep(_POLL)
+            self.query()
 
     @property
     def trigger_reason(self) -> int | None:
-        """:meth:`arm_homing` のあと trsync が引かれた理由（``trsync_state`` がまだ来ていなければ
-        None）."""
+        """張ったあと trsync が引かれた理由（``trsync_state`` がまだ来ていなければ None）."""
         return self._trigger_reason
+
+    @staticmethod
+    def is_contact(reason: int | None) -> bool:
+        """Trsync を引いた理由がロードセルの接触か."""
+        return reason == _CONTACT_REASON
+
+    @staticmethod
+    def sensor_error(reason: int | None) -> str | None:
+        """Trsync を引いた理由がロードセルの異常なら、その名前（``MONITOR`` など。異常でなければ None）."""
+        if reason is None:
+            return None
+        index = reason - _SENSOR_ERROR_REASON
+        if 0 <= index < len(_SENSOR_ERRORS):
+            return _SENSOR_ERRORS[index]
+        return None
 
     @staticmethod
     def switch_axis(reason: int | None) -> Axis | None:
@@ -600,9 +732,9 @@ class PnpMotionFirmware:
             raise McuError("MCU を設定できない")
 
     def _clean_up(self) -> None:
-        """前のプロセスが残したもの（流したまま、張ったままの endstop）を片付ける."""
+        """前のプロセスが残したもの（流したまま、張ったままの endstop と接触停止）を片付ける."""
         self.stop()
-        self.disarm_homing()
+        self.disarm()
 
     def _program_drivers(self) -> None:
         """3 軸の TMC2209 にレジスタを書く。書くたびに IFCNT が 1 つだけ進んだことを確かめる."""
@@ -650,6 +782,70 @@ class PnpMotionFirmware:
             "ドライバの電源（24 V）と UART の配線を確かめてください"
         )
 
+    def _arm(self, switch: Axis | None, *, contact: bool) -> None:
+        """同じ trsync に 3 軸の stepper と ``velocity_stream`` を登録し、スイッチと接触停止を張る."""
+        load_cell = self._load_cell
+        load_settings = self._settings.load_cell
+        if contact and (load_cell is None or not load_cell.ready):
+            raise LoadCellFault(
+                "ロードセルが読めないので動かさない（風袋がまだか、値が来ていない）"
+            )
+        self._trigger_reason = None
+        self._send(
+            "trsync_start", oid=_TRSYNC, report_clock=0, report_ticks=0, expire_reason=0
+        )
+        for oid in _STEPPERS:
+            self._send("stepper_stop_on_trigger", oid=oid, trsync_oid=_TRSYNC)
+        self._send("velocity_stream_stop_on_trigger", oid=_STREAM, trsync_oid=_TRSYNC)
+        clock = to_clock32(self._clock.now() + self._clock.ticks(_SCHEDULE_AHEAD))
+        if switch is not None:
+            self._send(
+                "endstop_home",
+                oid=_ENDSTOPS[AXES.index(switch)],
+                clock=clock,
+                sample_ticks=self._clock.ticks(_ENDSTOP_SAMPLE),
+                sample_count=_ENDSTOP_SAMPLE_COUNT,
+                rest_ticks=self._clock.ticks(_ENDSTOP_REST),
+                pin_value=self.axis(switch).endstop_pressed_level,
+                trsync_oid=_TRSYNC,
+                trigger_reason=_SWITCH_REASON[switch],
+            )
+        if contact:
+            assert load_settings is not None
+            self._send(
+                "trigger_analog_home",
+                oid=_TRIGGER_ANALOG,
+                trsync_oid=_TRSYNC,
+                trigger_reason=_CONTACT_REASON,
+                error_reason=_SENSOR_ERROR_REASON,
+                clock=clock,
+                monitor_ticks=self._clock.ticks(1 / load_settings.sample_rate),
+                monitor_max=_MONITOR_MAX,
+            )
+            self._contact_armed = True
+        self._armed = True
+
+    def _disarm_contact(self) -> None:
+        self._send(
+            "trigger_analog_home",
+            oid=_TRIGGER_ANALOG,
+            trsync_oid=_TRSYNC,
+            trigger_reason=0,
+            error_reason=0,
+            clock=0,
+            monitor_ticks=0,
+            monitor_max=0,
+        )
+        self._contact_armed = False
+
+    def _raise_load_cell_stop(self, reason: int | None) -> None:
+        """Trsync の理由がロードセルの接触か異常なら、それを例外にする（異常なら理由を忘れて外す）."""
+        if self.is_contact(reason):
+            raise ContactStop("ロードセルの接触で止まった")
+        if (error := self.sensor_error(reason)) is not None:
+            self.clear_trigger()
+            raise LoadCellFault(f"ロードセルの異常で止めた（{error}）")
+
     def _send(self, name: str, **params: ParamValue | str) -> None:
         self._transport.send(name, **params)
 
@@ -668,16 +864,37 @@ class PnpMotionFirmware:
 
     # 以下、受信スレッド
 
+    def _send_tare(self, counts: int) -> None:
+        """ロードセルの風袋を ``sos_filter`` の offset にする（LoadCell
+        のロックの中で、どのスレッドからも）."""
+        load_cell = self._settings.load_cell
+        assert load_cell is not None
+        self._transport.send(
+            "sos_filter_set_offset_scale",
+            oid=_SOS_FILTER,
+            offset=-counts,
+            scale=-1 if load_cell.inverted else 1,
+            scale_frac_bits=0,
+            auto_offset=0,
+        )
+
     def _on_state(self, message: Message, _received: float) -> None:
         try:
-            self._latest = self._report(message)
+            report = self._report(message)
         except (McuError, ValueError) as error:
             _logger.debug("読めない velocity_stream_state を捨てた: %s", error)
+            return
+        self._latest = report
+        if report.state is StreamState.CONTACT:
+            self._streaming = False
 
     def _on_trsync(self, message: Message, _received: float) -> None:
         reason = message.params["trigger_reason"]
         if not message.params["can_trigger"] and isinstance(reason, int):
             self._trigger_reason = reason
+            if self.is_contact(reason) and self._load_cell is not None:
+                # 押し当てた荷重を、ホストが保持に入るまでの間に風袋へ取り込まない
+                self._load_cell.pause_auto_tare(True)
 
     def _on_shutdown(self, message: Message, _received: float) -> None:
         if self._shutdown_reason is not None:
@@ -850,15 +1067,40 @@ def _config_commands(
                 "max_duration": 0,
             },
         )
-    if settings.load_cell is not None:
+    if (load_cell := settings.load_cell) is not None:
         yield (
             "config_hx71x",
             {
                 "oid": _HX71X,
-                "gain_channel": settings.load_cell.gain_channel,
-                "dout_pin": settings.load_cell.dout_pin,
-                "sclk_pin": settings.load_cell.sclk_pin,
+                "gain_channel": load_cell.gain_channel,
+                "dout_pin": load_cell.dout_pin,
+                "sclk_pin": load_cell.sclk_pin,
             },
+        )
+        yield "config_sos_filter", {"oid": _SOS_FILTER, "max_sections": 0}
+        yield (
+            "config_trigger_analog",
+            {"oid": _TRIGGER_ANALOG, "sos_filter_oid": _SOS_FILTER},
+        )
+        yield (
+            "trigger_analog_set_raw_range",
+            {"oid": _TRIGGER_ANALOG, "raw_min": _RAW_MIN, "raw_max": _RAW_MAX},
+        )
+        yield (
+            "trigger_analog_set_trigger",
+            {
+                "oid": _TRIGGER_ANALOG,
+                "trigger_analog_type": transport.dictionary.enum_value(
+                    "trigger_analog_type", "gt"
+                ),
+                "trigger_value": round(
+                    load_cell.contact.trigger_force * load_cell.counts_per_gram
+                ),
+            },
+        )
+        yield (
+            "hx71x_attach_trigger_analog",
+            {"oid": _HX71X, "trigger_analog_oid": _TRIGGER_ANALOG},
         )
     frequency = transport.dictionary.constant("CLOCK_FREQ")
     assert isinstance(frequency, int)

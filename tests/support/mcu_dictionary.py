@@ -6,7 +6,8 @@ tests の中で組み立て、zlib で圧縮して使う。標準ライブラリ
 
 コマンドと応答の書式は、ファームの C ソースの ``DECL_COMMAND`` と ``sendf`` の書式どおりに書く
 （``src/firmware/pnp-motion/module/velocity_stream.c`` と ``klipper/src`` の ``basecmd.c``・``sched.c``・
-``stepper.c``・``endstop.c``・``trsync.c``・``tmcuart.c``・``gpiocmds.c``・``sensor_hx71x.c``・``sensor_bulk.c``）。ID は辞書ごとにビルドが振るものなので、ここでは
+``stepper.c``・``endstop.c``・``trsync.c``・``tmcuart.c``・``gpiocmds.c``・``sensor_hx71x.c``・``sensor_bulk.c``・
+``sos_filter.c``・``trigger_analog.c``）。ID は辞書ごとにビルドが振るものなので、ここでは
 負の ID と 128 以上の ID を含むように選んだ。``identify`` と ``identify_response`` の ID（1 と 0）だけは
 プロトコルで固定（``klipper/docs/Protocol.md``）。
 
@@ -70,6 +71,19 @@ COMMANDS: dict[str, int] = {
     "update_digital_out oid=%c value=%c": 41,
     "config_hx71x oid=%c gain_channel=%c dout_pin=%u sclk_pin=%u": 66,
     "query_hx71x oid=%c rest_ticks=%u": 67,
+    "hx71x_attach_trigger_analog oid=%c trigger_analog_oid=%c": 68,
+    "config_sos_filter oid=%c max_sections=%c": 70,
+    (
+        "sos_filter_set_offset_scale oid=%c offset=%i scale=%i scale_frac_bits=%c"
+        " auto_offset=%c"
+    ): 71,
+    "config_trigger_analog oid=%c sos_filter_oid=%c": 72,
+    "trigger_analog_set_raw_range oid=%c raw_min=%i raw_max=%i": 73,
+    "trigger_analog_set_trigger oid=%c trigger_analog_type=%c trigger_value=%i": 74,
+    (
+        "trigger_analog_home oid=%c trsync_oid=%c trigger_reason=%c"
+        " error_reason=%c clock=%u monitor_ticks=%u monitor_max=%u"
+    ): 75,
 }
 
 # 応答の書式 → ID
@@ -99,6 +113,7 @@ ENUMERATIONS: dict[str, dict[str, Any]] = {
     "pin": {"ADC_TEMPERATURE": 254, "gpio0": [0, 30]},
     "velocity_stream_kinematics": {"cartesian": 0, "corexy": 1, "inversed_corexy": 2},
     "velocity_stream_state": {"idle": 0, "stream": 1, "stopping": 2, "contact": 3},
+    "trigger_analog_type": {"abs_ge": 0, "gt": 1, "diff_peak_gt": 2},
     "static_string_id": {
         "Command request": 5,
         "Can't set velocity_stream limits while running": 70,

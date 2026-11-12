@@ -328,6 +328,10 @@ class LoadCellConfig:
         sample_rate: 出力レート [SPS]（HX711 の RATE ピンで決まる 10 か 80）
         counts_per_gram: 1 g あたりの HX711 の値（機体ごとに校正する）
         sensor_orientation: 荷重が掛かると値が減る向きにつないだなら ``inverted``
+        trigger_force: 動いている間に、これを超える荷重 [g] で止める（接触停止）
+        release_force: 接触して止まった後、荷重がこれを下回ったら離したとみなす [g]（``trigger_force`` より小さい）
+        press_positive: Z+ へ動くとピンセットに押し当たる。kurousagi はステージが上がる Z− で押し当たるので
+            false（:mod:`pcbasm.hal.motion` の「向き」）
     """
 
     sclk_pin: str
@@ -338,6 +342,21 @@ class LoadCellConfig:
     )
     counts_per_gram: float = attrs.field(validator=_positive)
     sensor_orientation: SensorOrientation = "normal"
+    trigger_force: float = attrs.field(default=50.0, validator=_positive)
+    release_force: float = attrs.field(default=15.0, validator=_positive)
+    press_positive: bool = False
+
+    def __attrs_post_init__(self) -> None:
+        if error := self._validate_relations():
+            raise ValueError(error)
+
+    def _validate_relations(self) -> str | None:
+        if not self.release_force < self.trigger_force:
+            return (
+                f"release_force（{self.release_force:g} g）は trigger_force"
+                f"（{self.trigger_force:g} g）より小さい必要があります"
+            )
+        return None
 
 
 @attrs.frozen(kw_only=True)

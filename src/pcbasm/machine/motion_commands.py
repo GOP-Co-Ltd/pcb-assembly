@@ -76,10 +76,17 @@ def motion_homed_axes(status: MotionStatus) -> str:
 
 
 def motion_load_label(status: MotionStatus) -> str | None:
-    """荷重を小数 1 桁で書く（``荷重 12.3 g``）。読めなければ理由を書き、ロードセルが無いか読み始めなら None."""
+    """荷重を小数 1 桁で書く（``荷重 12.3 g``）。読めなければ理由を書き、ロードセルが無いか読み始めなら None.
+
+    接触保持の間は「（接触中）」を付ける。
+    """
     if status.load_error is not None:
-        return f"ロードセル: {status.load_error}"
-    if status.load is None:
-        return None
-    # -0.04 を「-0.0」と書かない
-    return f"荷重 {round(status.load, 1) + 0.0:.1f} g"
+        label = f"ロードセル: {status.load_error}"
+    elif status.load is None:
+        label = None
+    else:
+        # -0.04 を「-0.0」と書かない
+        label = f"荷重 {round(status.load, 1) + 0.0:.1f} g"
+    if status.contact:
+        return "接触中" if label is None else f"{label}（接触中）"
+    return label

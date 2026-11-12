@@ -14,6 +14,7 @@ from typing import Literal
 import attrs
 
 from pcbasm.hal.mcu.tmc2209 import TmcSettings
+from pcbasm.hal.motion import ContactSettings
 
 type Kinematics = Literal["cartesian", "corexy", "inversed_corexy"]
 
@@ -132,6 +133,7 @@ class LoadCellSettings:
         sample_rate: 出力レート [SPS]
         counts_per_gram: 1 g あたりの値
         inverted: 荷重が掛かると値が減る（グラムに直すときに符号を反す）
+        contact: 接触停止のしきい値と、押す向き
     """
 
     sclk_pin: str
@@ -140,6 +142,7 @@ class LoadCellSettings:
     sample_rate: int
     counts_per_gram: float
     inverted: bool = False
+    contact: ContactSettings = ContactSettings()
 
     def __attrs_post_init__(self) -> None:
         # sensor_hx71x.c は 1〜4 を受け付ける（4 は HX717 だけ）。外れると shutdown する

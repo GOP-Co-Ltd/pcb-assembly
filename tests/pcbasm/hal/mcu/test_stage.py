@@ -12,7 +12,7 @@ from collections.abc import Iterator
 import attrs
 import pytest
 
-from pcbasm.hal import MotionError, MotionState, Velocity
+from pcbasm.hal import ContactStopped, MotionError, MotionState, Velocity
 from pcbasm.hal.mcu.settings import LoadCellSettings, McuMotionSettings
 from pcbasm.hal.mcu.stage import McuMotionStage
 from tests.support.polling import before_deadline, wait_until
@@ -323,8 +323,9 @@ class TestLoad:
     def test_moving_z_keeps_the_auto_tare_from_taking_in_the_load(
         self, mcu: WireMcu, load_stage: McuMotionStage, caplog: pytest.LogCaptureFixture
     ):
-        load_stage.home(["z"])
+        # 風袋を取るまでは接触停止を張れないので動かさない
         wait_until(lambda: load_stage.status().load == 0.0, what="風袋引き")
+        load_stage.home(["z"])
         mcu.control("load", counts=100)
         end = time.monotonic() + 2.5
 
@@ -367,3 +368,269 @@ class TestLoad:
         assert load_stage.status().load is None
         with pytest.raises(MotionError):
             load_stage.tare()
+
+
+# 接触停止（load_stage は 100 counts/g、しきい値は既定の 50 g、戻るのは 15 g 未満。Z− で押し当たる）
+_PRESS = 6000  # 60 g
+_LIGHT = 1000  # 10 g
+
+
+def _tared(stage: McuMotionStage) -> None:
+    wait_until(lambda: stage.status().load == 0.0, what="風袋引き")
+
+
+def _limits(mcu: WireMcu, since: int) -> list[tuple[int, int, int]]:
+    return [
+        (params["axis"], params["min_pos"], params["max_pos"])
+        for name, params in mcu.accepted()[since:]
+        if name == "velocity_stream_set_limits"
+    ]
+
+
+def _armed(mcu: WireMcu, since: int) -> list[int]:
+    """張った（1）と外した（0）の trigger_analog_home の列."""
+    return [
+        int(params["monitor_ticks"] > 0)
+        for name, params in mcu.accepted()[since:]
+        if name == "trigger_analog_home"
+    ]
+
+
+def _press_with_the_stick(mcu: WireMcu, stage: McuMotionStage) -> None:
+    """Z を原点に出し、スティックで Z− へ動かしている間に押させ、接触で止まるまで待つ."""
+    _tared(stage)
+    stage.home(["z"])
+
+    def moving() -> bool:
+        stage.set_velocity(Velocity(z=-20.0))
+        return stage.status().position.z < -3.0
+
+    wait_until(moving, what="Z が動き出すこと")
+    mcu.control("load", counts=_PRESS)
+
+    def stopped() -> bool:
+        stage.set_velocity(Velocity(z=-20.0))
+        return stage.status().contact and stage.status().state is MotionState.IDLE
+
+    wait_until(stopped, what="接触で止まること")
+    # MCU が止めたことには次の操作の最初で気づき、保持に入る（status は気づく前から接触中を返す）
+    stage.stop()
+
+
+class TestContactStop:
+    def test_the_stick_stops_on_a_press_and_holds(
+        self, mcu: WireMcu, load_stage: McuMotionStage
+    ):
+        _press_with_the_stick(mcu, load_stage)
+        z = load_stage.status().position.z
+        since = len(mcu.accepted())
+
+        # X は原点が未だが、捨てるので拒まれない。Z− も捨て、Z+ だけ流す
+        load_stage.set_velocity(Velocity(x=10.0, z=-5.0))
+
+        def lifted() -> bool:
+            load_stage.set_velocity(Velocity(x=10.0, z=5.0))
+            return load_stage.status().position.z > z + 0.1
+
+        wait_until(lifted, what="Z+ に動くこと")
+        load_stage.stop()
+
+        commands = mcu.accepted()[since:]
+        sent = {
+            (params["vx"], params["vy"], params["vz"])
+            for name, params in commands
+            if name == "velocity_stream_set_velocity"
+        }
+        assert sent == {(0, 0, 400)}
+        # 保持の間は張らずに流す
+        assert "trigger_analog_home" not in [name for name, _ in commands]
+        assert "trsync_start" not in [name for name, _ in commands]
+        assert load_stage.status().contact
+
+    def test_holding_narrows_the_mcu_limits(
+        self, mcu: WireMcu, load_stage: McuMotionStage
+    ):
+        since = len(mcu.accepted())
+
+        _press_with_the_stick(mcu, load_stage)
+
+        position = load_stage.status().position
+        x, y, z = (round(value * 80) for value in (position.x, position.y, position.z))
+        # X・Y は今の位置の ±1 step、Z は接触した位置より下（押す側）へ行けない。送るだけで応答を
+        # 待たないので、MCU 役が受けたのを待つ
+        wait_until(
+            lambda: _limits(mcu, since)[-3:]
+            == [(0, x - 1, x + 1), (1, y - 1, y + 1), (2, z, 0)],
+            what="保持の可動域",
+        )
+
+    def test_releasing_restores_the_limits_and_arms_again(
+        self, mcu: WireMcu, load_stage: McuMotionStage
+    ):
+        _press_with_the_stick(mcu, load_stage)
+        mcu.control("load", counts=_LIGHT)
+        wait_until(lambda: not load_stage.status().contact, what="接触中が消えること")
+        since = len(mcu.accepted())
+
+        load_stage.set_velocity(Velocity(z=-5.0))
+        load_stage.stop()
+
+        # 可動域を戻し（X・Y は原点出しの前の広い範囲、Z は原点出しの後の範囲）、張り直して流す
+        assert _limits(mcu, since) == [
+            (0, -3200, 3200),
+            (1, -3200, 3200),
+            (2, -800, 0),
+        ]
+        wait_until(lambda: _armed(mcu, since) == [1, 0], what="張って、止めたら外す")
+
+    def test_a_load_while_idle_does_not_stop_or_hold(
+        self, mcu: WireMcu, load_stage: McuMotionStage
+    ):
+        _tared(load_stage)
+        load_stage.home(["z"])
+
+        mcu.control("load", counts=_PRESS)
+        wait_until(lambda: load_stage.status().load == 60.0, what="60 g")
+
+        assert not load_stage.status().contact
+
+    def test_a_move_into_the_load_raises_contact_stopped(
+        self, mcu: WireMcu, load_stage: McuMotionStage
+    ):
+        _tared(load_stage)
+        load_stage.home(["z"])
+        mcu.control("load", counts=_PRESS)
+        wait_until(lambda: load_stage.status().load == 60.0, what="60 g")
+
+        with pytest.raises(ContactStopped):
+            load_stage.move_to(z=-5.0)
+
+        assert load_stage.status().contact
+
+    def test_holding_at_the_end_keeps_one_step_of_limits(
+        self, mcu: WireMcu, load_stage: McuMotionStage
+    ):
+        # Z は原点（可動域の上端 0）にいて、離す向き（Z+）にはもう動けない
+        _tared(load_stage)
+        load_stage.home(["z"])
+        mcu.control("load", counts=_PRESS)
+        wait_until(lambda: load_stage.status().load == 60.0, what="60 g")
+        since = len(mcu.accepted())
+
+        def held() -> bool:
+            load_stage.set_velocity(Velocity(z=5.0))
+            return load_stage.status().contact
+
+        wait_until(held, what="接触で止まること")
+        load_stage.stop()
+
+        wait_until(
+            lambda: _limits(mcu, since)[-1:] == [(2, -1, 0)], what="保持の可動域"
+        )
+
+    def test_holding_refuses_homing_tare_and_pressing_moves(
+        self, mcu: WireMcu, load_stage: McuMotionStage
+    ):
+        _press_with_the_stick(mcu, load_stage)
+        z = load_stage.status().position.z
+
+        with pytest.raises(ValueError, match="接触中は原点出し"):
+            load_stage.home(["z"])
+        with pytest.raises(ValueError, match="接触中は風袋引き"):
+            load_stage.tare()
+        with pytest.raises(ValueError, match="Z\\+"):
+            load_stage.move_to(z=z - 1.0)
+
+        load_stage.move_to(z=z + 1.0)
+        assert load_stage.status().position.z == pytest.approx(z + 1.0, abs=_STEP)
+
+    def test_homing_into_a_press_leaves_the_axis_unhomed(
+        self, mcu: WireMcu, load_stage: McuMotionStage
+    ):
+        _tared(load_stage)
+        load_stage.home(["z"])
+        mcu.control("load", counts=_PRESS)
+        wait_until(lambda: load_stage.status().load == 60.0, what="60 g")
+
+        with pytest.raises(ContactStopped, match="X"):
+            load_stage.home(["x"])
+
+        status = load_stage.status()
+        assert status.homed == frozenset({"z"})
+        assert status.contact
+
+    def test_relax_drops_the_hold(self, mcu: WireMcu, load_stage: McuMotionStage):
+        _press_with_the_stick(mcu, load_stage)
+
+        load_stage.relax()
+
+        assert not load_stage.status().contact
+
+    def test_without_a_load_cell_nothing_is_armed(
+        self, mcu: WireMcu, stage: McuMotionStage
+    ):
+        stage.home(["z"])
+        since = len(mcu.accepted())
+
+        stage.set_velocity(Velocity(z=-5.0))
+        stage.stop()
+
+        names = _names(mcu, since)
+        assert "trsync_start" not in names
+        assert "trigger_analog_home" not in names
+
+
+class TestLoadCellFault:
+    def test_refuses_to_move_before_the_tare(
+        self, mcu: WireMcu, settings: McuMotionSettings
+    ):
+        mcu.control("hx71x_stall")
+        stage = McuMotionStage(
+            attrs.evolve(
+                settings,
+                load_cell=LoadCellSettings(
+                    sclk_pin="gpio0",
+                    dout_pin="gpio1",
+                    gain_channel=1,
+                    sample_rate=80,
+                    counts_per_gram=100.0,
+                ),
+            )
+        )
+        try:
+            with pytest.raises(MotionError, match="ロードセルが読めない"):
+                stage.home(["z"])
+        finally:
+            stage.close()
+
+    @pytest.mark.parametrize(
+        ("op", "params", "name"),
+        [
+            ("hx71x_stall", {}, "MONITOR"),
+            ("load", {"counts": -(1 << 23)}, "RAW_RANGE"),
+        ],
+        ids=["no-samples", "stuck"],
+    )
+    def test_a_fault_while_moving_is_an_error_not_a_hold(
+        self,
+        mcu: WireMcu,
+        load_stage: McuMotionStage,
+        op: str,
+        params: dict,
+        name: str,
+    ):
+        _tared(load_stage)
+        load_stage.home(["z"])
+        load_stage.set_velocity(Velocity(z=-5.0))
+        mcu.control(op, **params)
+
+        def failed() -> bool:
+            try:
+                load_stage.set_velocity(Velocity(z=-5.0))
+            except MotionError as error:
+                assert name in str(error)
+                return True
+            return False
+
+        wait_until(failed, what=f"{name} の異常")
+        assert not load_stage.status().contact

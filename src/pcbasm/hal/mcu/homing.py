@@ -24,6 +24,9 @@
 止まったのがスイッチのせいかは、``contact`` の報告と、同じ trsync の ``trsync_state`` が知らせる理由の
 両方が揃うのを、速度を送り直す同じ待ちの中で待って確かめる。
 軸を出す順（Z を先に出す）は :func:`pcbasm.hal.motion.homing_order` が決める。
+
+``contact`` なら、スイッチへ向かうときも離れるときも、ロードセルの接触停止を同じ trsync に張る。途中で接触すると
+:class:`~pcbasm.hal.mcu.firmware.ContactStop` をそのまま投げる（軸の原点は「未」のまま。張ったものは外してある）。
 """
 
 from __future__ import annotations
@@ -41,10 +44,19 @@ from pcbasm.hal.motion import Axis
 _SEEK_SLACK = 0.5
 
 
-def home_axis(firmware: PnpMotionFirmware, axis: Axis) -> None:
+def home_axis(
+    firmware: PnpMotionFirmware, axis: Axis, *, contact: bool = False
+) -> None:
     """軸 ``axis`` の原点を出す（終わるまで待つ）.
 
+    Args:
+        firmware: ファーム
+        axis: 原点を出す軸
+        contact: ロードセルの接触停止を張る
+
     Raises:
+        ContactStop: ロードセルの接触で止まった
+        LoadCellFault: ロードセルの異常で止まった、または読めないので張れない
         ProcedureError: スイッチに届かない、スイッチ以外の理由で止まった、離れてもスイッチが押されたまま
         McuError: MCU と話せない、shutdown した
     """
@@ -54,17 +66,21 @@ def home_axis(firmware: PnpMotionFirmware, axis: Axis) -> None:
         firmware.stop()
     firmware.forget_origin(axis)
     if settings.homing_retract > 0 and firmware.endstop_pressed(axis):
-        _leave_switch(firmware, axis, toward)
-    _seek_switch(firmware, axis, toward * settings.homing_speed)
+        _leave_switch(firmware, axis, toward, contact=contact)
+    _seek_switch(firmware, axis, toward * settings.homing_speed, contact=contact)
     if settings.homing_retract > 0:
-        _leave_switch(firmware, axis, toward)
-        _seek_switch(firmware, axis, toward * settings.second_homing_speed)
+        _leave_switch(firmware, axis, toward, contact=contact)
+        _seek_switch(
+            firmware, axis, toward * settings.second_homing_speed, contact=contact
+        )
     firmware.set_limits(axis, *firmware.homed_limits(axis))
     firmware.set_position(axis, settings.to_steps(settings.position_endstop))
     firmware.query()  # 報告の位置を、付け替えた座標にする
 
 
-def _seek_switch(firmware: PnpMotionFirmware, axis: Axis, speed: float) -> None:
+def _seek_switch(
+    firmware: PnpMotionFirmware, axis: Axis, speed: float, *, contact: bool
+) -> None:
     """その軸のスイッチだけを張って ``speed`` [mm/s]（符号は向き）で流し、スイッチが止めた位置を 0 とする."""
     settings = firmware.axis(axis)
     reach = settings.to_mm(
@@ -80,12 +96,11 @@ def _seek_switch(firmware: PnpMotionFirmware, axis: Axis, speed: float) -> None:
             report.state is StreamState.CONTACT and firmware.trigger_reason is not None
         )
 
-    firmware.arm_homing(axis)
     try:
-        firmware.start()
+        firmware.start(switch=axis, contact=contact)
         report = firmware.drive((velocity[0], velocity[1], velocity[2]), stopped, limit)
     finally:
-        firmware.disarm_homing()
+        firmware.disarm()
     if report is None:
         firmware.stop()
         raise ProcedureError(
@@ -101,13 +116,16 @@ def _seek_switch(firmware: PnpMotionFirmware, axis: Axis, speed: float) -> None:
     firmware.set_position(axis, 0)
 
 
-def _leave_switch(firmware: PnpMotionFirmware, axis: Axis, toward: int) -> None:
+def _leave_switch(
+    firmware: PnpMotionFirmware, axis: Axis, toward: int, *, contact: bool
+) -> None:
     """スイッチと逆の向きへ ``homing_retract`` だけ動き、スイッチが離れたことを確かめる."""
     settings = firmware.axis(axis)
     here = firmware.query().position[AXES.index(axis)]
     firmware.travel(
         {axis: here - toward * settings.to_steps(settings.homing_retract)},
         speed=settings.homing_speed,
+        contact=contact,
     )
     if firmware.endstop_pressed(axis):
         raise ProcedureError(

@@ -4,6 +4,8 @@ import pytest
 
 from pcbasm.geometry import Point3d
 from pcbasm.hal import (
+    ContactSettings,
+    ContactStopped,
     Limits,
     MotionError,
     MotionStage,
@@ -411,3 +413,97 @@ class TestFakeMotionStageLoad:
         assert stage.status().load is None
         with pytest.raises(MotionError):
             stage.tare()
+
+
+class TestFakeMotionStageContact:
+    """接触停止（風袋からの荷重が trigger_force 以上で止める）と接触保持（kurousagi と同じく Z− で押し当たる）."""
+
+    def _contact_stage(self, clock: _Clock) -> FakeMotionStage:
+        return FakeMotionStage(
+            LIMITS,
+            MAX_VELOCITY,
+            homed=True,
+            clock=clock,
+            load_cell=True,
+            contact=ContactSettings(trigger_force=50.0, release_force=15.0),
+        )
+
+    def _press(self, stage: FakeMotionStage, clock: _Clock) -> None:
+        stage.set_velocity(Velocity(z=-5.0))
+        clock.now += 0.1
+        stage.set_load(60.0)
+
+    def test_stops_and_holds_when_pressed_while_moving(self, clock: _Clock):
+        stage = self._contact_stage(clock)
+
+        self._press(stage, clock)
+
+        status = stage.status()
+        assert status.state is MotionState.IDLE
+        assert status.contact
+        assert status.position.z == pytest.approx(-0.5)
+
+    def test_a_load_while_idle_does_not_hold(self, clock: _Clock):
+        stage = self._contact_stage(clock)
+
+        stage.set_load(60.0)
+
+        assert not stage.status().contact
+
+    def test_holding_drops_xy_and_the_pressing_direction(self, clock: _Clock):
+        stage = self._contact_stage(clock)
+        self._press(stage, clock)
+        sent = len(stage.velocities)
+
+        stage.set_velocity(Velocity(x=10.0, y=10.0, z=-5.0))
+        stage.set_velocity(Velocity(x=10.0, z=5.0))
+
+        # 捨てて全軸 0 になった指令は、止まっているので送らない
+        assert [velocity for _, velocity in stage.velocities[sent:]] == [
+            Velocity(z=5.0)
+        ]
+
+    def test_holding_refuses_home_tare_and_moves_toward_the_tweezers(
+        self, clock: _Clock
+    ):
+        stage = self._contact_stage(clock)
+        self._press(stage, clock)
+
+        with pytest.raises(ValueError, match="接触中"):
+            stage.home()
+        with pytest.raises(ValueError, match="接触中"):
+            stage.tare()
+        with pytest.raises(ValueError, match="X・Y"):
+            stage.move_to(x=1.0)
+        with pytest.raises(ValueError, match="Z+"):
+            stage.move_to(z=-1.0)
+        stage.move_to(z=0.0)
+        assert stage.status().position.z == 0.0
+
+    def test_releases_on_the_next_operation_after_the_load_drops(self, clock: _Clock):
+        stage = self._contact_stage(clock)
+        self._press(stage, clock)
+
+        stage.set_load(10.0)
+
+        assert not stage.status().contact
+        stage.set_velocity(Velocity(x=10.0))
+        assert stage.velocities[-1][1] == Velocity(x=10.0)
+
+    def test_moving_into_a_load_raises_contact_stopped(self, clock: _Clock):
+        stage = self._contact_stage(clock)
+        stage.set_load(60.0)
+
+        with pytest.raises(ContactStopped):
+            stage.move_to(z=-10.0)
+
+        assert stage.status().contact
+        assert stage.status().position.z == 0.0
+
+    def test_relax_drops_the_hold(self, clock: _Clock):
+        stage = self._contact_stage(clock)
+        self._press(stage, clock)
+
+        stage.relax()
+
+        assert not stage.status().contact

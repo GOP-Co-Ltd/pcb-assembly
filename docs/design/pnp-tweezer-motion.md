@@ -141,6 +141,7 @@ patch（`stepper_oid_lookup`・`stepper_queue_move`・`stepper_set_next_dir`・`
 - **接触停止:** HX711 → `trigger_analog` → `trsync` → `stepper_stop`。`velocity_stream` も同じ `trsync` に
     シグナルを登録し、トリガで目標速度を 0 に戻す。止め方は homing と同じで、減速を挟まない
     （接触を探るときは遅く動かすので、即時に止めてよい）
+- **原点出しと接触:** 接触停止の張り方、trsync の理由、接触の後の保持は下の「接触停止と接触保持」
 - **原点出し:** Pi が行う。`velocity_stream` で流し、リミットスイッチの `endstop` を `trsync` につないで止める（`pcbasm.hal.mcu.homing`）。
     生の `queue_step` は使わない。遅延の要件がないので、MCU 側に新しく書かない
 
@@ -158,6 +159,32 @@ patch（`stepper_oid_lookup`・`stepper_queue_move`・`stepper_set_next_dir`・`
 どちらへ離れるかは MCU には分からないので、`CONTACT` のあとの速度指令は無視し、ホストが向きを決めて開始し直す。
 `FAULT` は Klipper の shutdown をそのまま使う。
 原点出しと目標位置への移動は、今のファームでは MCU の状態に持たない（原点出しは Pi が行い、位置への移動は Pi 側を作るときに決める）。
+
+### 接触停止と接触保持
+
+pcbasm 側（`pcbasm.hal.mcu.firmware`・`pcbasm.hal.mcu.stage`）の決めたこと。
+
+- **Z の向き:** kurousagi はステージが動き、ピンセットは動かない。ステージが上がるとピンセットに近づいて Z が減り（Z−）、
+    下がると離れて Z が増える（Z+）。Z=0 が原点で、原点出しは Z+ の向き、可動域は −40〜0 mm。
+    押す向きは `[pnp.motion.load_cell]` の `press_positive` で明示する（kurousagi は Z− なので `false`）。
+    原点出しの逆と推し量らないのは、それが成り立たない機体がありうるため
+- **経路:** HX711 のサンプル → `trigger_analog`（`sos_filter` で `(値 − 風袋) × 符号` にし、片側の `gt` で
+    `trigger_force × counts_per_gram` を超えたら）→ 原点出しと同じ `trsync` → 3 軸の `stepper_stop` と `velocity_stream` の `CONTACT`。
+    原点出し・座標指定の移動・ジョグ・スティックのどれでも、流し始める直前に張る。フィルタの断面は使わない（遅れが増えるため。
+    受け入れ試験 A34・A35 の実測で加速度の見かけの荷重が足りなければ、しきい値を上げるか断面を足す）
+- **trsync の理由:** 1〜3 がリミットスイッチ、4 が接触、5〜8 がロードセルの異常（`RAW_RANGE`・`OVERFLOW`・`MONITOR`・
+    `SENSOR_SPECIFIC`）。異常（サンプルが約 60 ms 来ない、HX711 の値が張り付いた）は接触ではなくエラーとして止め、保持に入らない
+- **風袋:** pcbasm が取った風袋を `sos_filter` の offset として MCU に送る。風袋を取るまでは動かさない（fail closed）
+- **接触保持:** 接触で止まったら、荷重が `release_force` 以上の間は Z の離す向きにだけ動かせる。XY と押す向き、
+    原点出し、風袋引きは受け付けない。ホストが指令を捨て、MCU の可動域も縮めて二重に守る（X・Y は今の位置の ±1 step、
+    Z は接触した位置より押す側へ行けない範囲）。保持の間は接触停止を張らない（荷重がしきい値の近くにあり、すぐに引かれる）
+- **保持から戻る:** 保持に入った後の荷重が `release_force` を 100 ms 下回り続けたら、次の操作で可動域を戻し、次に動かすときに張り直す。
+    加速度による誤判定でも、荷重がすぐ消えれば一瞬止まるだけで戻る。解除をバックグラウンドのスレッドで行わないのは、
+    操作の直列化（`set_limits` は止まっているときだけ）を崩さないため
+- **押し込み量と Z の速さ:** HX711 は 80 SPS なので、接触してから止まるまでに 1〜2 サンプル（12.5〜25 ms）かかる。
+    押し込み量はおよそ v × 12.5〜25 ms で、10 mm/s なら 0.13〜0.25 mm、50 mm/s なら 0.6〜1.25 mm。
+    止めるときは減速しない（積んだステップを捨てる）ので、速いと脱調もしうる。Z の `max_velocity` は 10 mm/s 程度に下げる
+    （kurousagi の雛形の値）。押し込み量の実測は受け入れ試験 A35
 
 ### 通信
 

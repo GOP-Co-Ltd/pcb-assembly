@@ -167,6 +167,10 @@ PnP 機（kurousagi）の Pi で行う。bench と Klippy は同じ MCU を同�
 - **接触で止める:** 同じ trsync に、3 軸すべての `stepper_stop_on_trigger` と `velocity_stream_stop_on_trigger` を登録する。
     `velocity_stream` は stepper を止めない。止めるのは trsync の stepper の側で、`velocity_stream` は `CONTACT` になって位置を合わせ直すだけ。
     登録しない軸は、先読みの分だけ動き続け、位置がずれる
+- **ロードセルを同じ trsync に張る:** `trigger_analog_set_raw_range` を必ず送る（oid は 0 で埋まるので、送らないと範囲が 0〜0 になり、
+    どのサンプルも `RAW_RANGE` の誤りで引かれる）。`sos_filter` の scale は、設定した直後は 0 で出力も 0 なので、風袋を
+    `sos_filter_set_offset_scale` で送るまでは `trigger_analog_home` で張っても接触を検知しない。ホスト（`pcbasm.hal.mcu.firmware`）は
+    風袋を送るまで張らない
 - **再開:** `CONTACT` のあとの速度指令は無視する。ホストが離れる向きを決め、`velocity_stream_start` で開始し直す
 - **期限:** 速度指令の `expire_clock` を過ぎると、目標を 0 にして減速する。期限は受け取った時点から `ttl_ticks` までに切られる。
     期限は区間の開始時刻と比べる。ホストが固まってから減速し始めるまでの時間は、最後の指令から `ttl_ticks` ほど。

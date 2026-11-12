@@ -39,6 +39,11 @@ pnp-motion ファームの ``hx71x`` が送る ``sensor_bulk_data`` を受け、
   上限を超えてずれたら（たとえば起動したときに何かが当たっていた）、手で風袋を取る
 - **手で風袋引き:** 最後のサンプルから 0.25 s の間の正しいサンプルの平均。最後のサンプルが古いか、
   誤りが出ていれば受けない。安定かどうかは問わない
+- **MCU の風袋:** 風袋が変わるたびに（最初、自動、手で）``on_tare`` に丸めた counts を渡す。ファームはそれを
+  ``sos_filter`` の offset にして、接触停止の判定に使う（:mod:`pcbasm.hal.mcu.firmware` の「接触停止」）
+- **接触保持の間:** 自動の風袋引きをしない（:meth:`LoadCell.pause_auto_tare`。押し当てた荷重を取り込まない）。
+  離したかは、保持に入ってから後の連続 100 ms（80 SPS で 8 個）のサンプルが、すべて ``release_force`` を
+  下回ったかで見る（:meth:`LoadTracker.released`）
 - **区間の荷重の幅:** Z が止まっている区間と動いている区間（Z の指令から 1 s まで）の、荷重の最小と最大を
   区間が終わるたびに info ログに出す。操作パネルは最後の 1 サンプルを間をおいて出すだけなので、加速で出る
   一瞬の見かけの荷重は、このログで読む（受け入れ試験 A34）。誤りのサンプルや読み直しでは、その区間を捨てる
@@ -55,7 +60,7 @@ import math
 import threading
 import time
 from collections import deque
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 import attrs
 
@@ -72,6 +77,7 @@ _INITIAL_TARE_SAMPLES = 16
 _QUIET_SPAN = 1.0  # 自動の風袋引きに要る、止まっている長さ [s]
 _QUIET_AFTER_MOTION = 1.0  # Z を動かす指令のあと、止まったとみなすまで [s]
 _MANUAL_TARE_SPAN = 0.25  # [s]
+_RELEASE_SPAN = 0.1  # 離したとみなすのに要る、release_force を下回り続ける長さ [s]
 _STALE_AFTER = 0.5  # 古いとみなす時間の下限 [s]
 _SAMPLES_PER_MESSAGE = 12  # sensor_bulk.h の data[51] に入るサンプルの数
 _REQUERY_INTERVAL = 1.0  # [s]
@@ -155,6 +161,7 @@ class LoadTracker:
         self._settings = settings
         self._sign = -1.0 if settings.inverted else 1.0
         self._quiet_count = math.ceil(settings.sample_rate * _QUIET_SPAN)
+        self._release_count = math.ceil(settings.sample_rate * _RELEASE_SPAN)
         self._stale_after = max(
             _STALE_AFTER, 2 * _SAMPLES_PER_MESSAGE / settings.sample_rate
         )
@@ -177,13 +184,21 @@ class LoadTracker:
         self._quiet.clear()
         self._section = None
 
-    def feed(self, samples: Sequence[int], at: float, *, quiet: bool) -> int | None:
+    def feed(
+        self,
+        samples: Sequence[int],
+        at: float,
+        *,
+        quiet: bool,
+        auto_tare: bool = True,
+    ) -> int | None:
         """正しいサンプルを足す.
 
         Args:
             samples: 古い順のサンプル
             at: 最後のサンプルの時刻 [s]
             quiet: Z が止まっている間のサンプルか
+            auto_tare: 自動の風袋引きをしてよいか（接触保持の間は False）
 
         Returns:
             風袋が変わったら、新しい風袋の値（丸めた counts）。変わらなければ None
@@ -211,7 +226,7 @@ class LoadTracker:
             at,
             quiet=quiet,
         )
-        if not quiet:
+        if not (quiet and auto_tare):
             self._quiet.clear()
             return None
         changed: float | None = None
@@ -274,6 +289,30 @@ class LoadTracker:
         self._quiet.clear()
         return round(self._tare)
 
+    def ready(self, now: float) -> bool:
+        """風袋を取ってあり、誤りが無く、最後の正しいサンプルが古くない."""
+        return (
+            self._tare is not None
+            and self._error is None
+            and bool(self._recent)
+            and now - self._recent[-1][0] <= self._stale_after
+        )
+
+    def released(self, since: float, now: float) -> bool:
+        """``since`` より後のサンプルの最後の 100 ms ぶんが、すべて ``release_force`` を下回ったか.
+
+        誤りが出ているか、最後の正しいサンプルが古ければ偽（離したとみなさない）。
+        """
+        if not self.ready(now):
+            return False
+        after = [sample for at, sample in self._recent if at > since]
+        if len(after) < self._release_count:
+            return False
+        release = self._settings.contact.release_force
+        return all(
+            self._grams(sample) < release for sample in after[-self._release_count :]
+        )
+
     def reading(self, now: float) -> LoadReading:
         """今の荷重（最後の正しいサンプル）."""
         if self._error is not None:
@@ -328,7 +367,16 @@ class _Section:
 class LoadCell:
     """MCU の ``hx71x`` を動かし、受けたサンプルを :class:`LoadTracker` に渡す.
 
-    :meth:`reading`・:meth:`tare`・:meth:`note_z_motion` はどのスレッドからでも呼べる。
+    :meth:`reading`・:meth:`tare`・:meth:`note_z_motion`・:attr:`ready`・:meth:`released`・
+    :meth:`pause_auto_tare` はどのスレッドからでも呼べる。
+
+    Args:
+        transport: MCU との接続
+        settings: ロードセルの設定
+        oid: ``hx71x`` の oid
+        clock_freq: MCU の ``CLOCK_FREQ``
+        on_tare: 風袋が変わるたびに、新しい風袋（丸めた counts）で呼ぶ。:class:`LoadCell` のロックの中で、
+            受信スレッドか :meth:`tare` を呼んだスレッドから呼ぶので、``transport.send`` だけを使う
     """
 
     def __init__(
@@ -338,10 +386,13 @@ class LoadCell:
         *,
         oid: int,
         clock_freq: int,
+        on_tare: Callable[[int], None],
     ) -> None:
         self._transport = transport
         self._settings = settings
         self._oid = oid
+        self._on_tare = on_tare
+        self._paused = False
         self._rest_ticks = clock_freq // (settings.sample_rate * _REST_DIVISOR)
         self._lock = threading.Lock()
         self._tracker = LoadTracker(settings)
@@ -370,6 +421,23 @@ class LoadCell:
         with self._lock:
             return self._tracker.reading(time.monotonic())
 
+    @property
+    def ready(self) -> bool:
+        """接触停止に使える: 風袋を取ってあり（MCU にも送ってあり）、誤りが無く、値が来ている."""
+        with self._lock:
+            return self._tracker.ready(time.monotonic())
+
+    def released(self, since: float) -> bool:
+        """``since``（``time.monotonic()`` の時刻）より後、荷重が ``release_force`` を 100
+        ms 下回り続けた."""
+        with self._lock:
+            return self._tracker.released(since, time.monotonic())
+
+    def pause_auto_tare(self, paused: bool) -> None:
+        """自動の風袋引きを止める・再び許す（接触保持の間は止める）."""
+        with self._lock:
+            self._paused = paused
+
     def tare(self) -> None:
         """今の荷重を 0 にする.
 
@@ -378,6 +446,7 @@ class LoadCell:
         """
         with self._lock:
             counts = self._tracker.tare(time.monotonic())
+            self._on_tare(counts)
         _logger.info("ロードセルの風袋を取った: %d counts", counts)
 
     def note_z_motion(self) -> None:
@@ -420,8 +489,11 @@ class LoadCell:
                 )
                 first = last - (len(valid) - 1) / self._settings.sample_rate
                 quiet = first - self._z_moved_at >= _QUIET_AFTER_MOTION
-                counts = self._tracker.feed(valid, last, quiet=quiet)
+                counts = self._tracker.feed(
+                    valid, last, quiet=quiet, auto_tare=not self._paused
+                )
                 if counts is not None:
+                    self._on_tare(counts)
                     _logger.debug("ロードセルの風袋を取った: %d counts", counts)
                 section = self._tracker.take_section()
                 if section is not None:
