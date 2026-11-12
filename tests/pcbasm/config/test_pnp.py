@@ -601,6 +601,7 @@ class TestPnpMotionLedAndLoadCell:
             trigger_force=50.0,
             release_force=15.0,
             press_positive=False,
+            free_tare_zone=5.0,
         )
 
     def test_reads_every_key(self, tmp_path: Path):
@@ -611,6 +612,7 @@ class TestPnpMotionLedAndLoadCell:
             trigger_force=80.0,
             release_force=20.0,
             press_positive=True,
+            free_tare_zone=0.0,
         )
 
         motion = load_motion(_motion_machine(tmp_path, _motion_with(load_cell=table)))
@@ -622,6 +624,7 @@ class TestPnpMotionLedAndLoadCell:
         assert motion.load_cell.trigger_force == 80.0
         assert motion.load_cell.release_force == 20.0
         assert motion.load_cell.press_positive
+        assert motion.load_cell.free_tare_zone == 0.0
 
     @pytest.mark.parametrize("key", ["sclk_pin", "dout_pin", "counts_per_gram"])
     def test_keys_without_a_default_are_required(self, tmp_path: Path, key: str):
@@ -643,6 +646,7 @@ class TestPnpMotionLedAndLoadCell:
             ("sensor_orientation", "reversed"),
             ("trigger_force", 0),
             ("release_force", -1.0),
+            ("free_tare_zone", -0.1),
         ],
     )
     def test_values_out_of_range_are_config_errors(

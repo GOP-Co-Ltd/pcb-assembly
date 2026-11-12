@@ -572,6 +572,7 @@ def _load_cell_settings(config: LoadCellConfig) -> LoadCellSettings:
         counts_per_gram=config.counts_per_gram,
         inverted=config.sensor_orientation == "inverted",
         contact=_contact_settings(config),
+        free_tare_zone=config.free_tare_zone,
     )
 
 

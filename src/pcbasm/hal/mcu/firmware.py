@@ -31,7 +31,8 @@
   shutdown しても消さない）。ホストから点け消しはしない。MCU を reset すると（再起動、設定が変わったとき、
   この版で最初に接続したとき）、設定し直すまでの間はピンが既定の状態に戻って消える（ファームの外の話）
 - **ロードセル:** 接続の最後（設定し直したときも、使い回したときも）に ``query_hx71x`` で読み始め、:meth:`close`
-  で止める。Z の速度が 0 でない指令を送るたびに、自動の風袋引きを 1 s 止める
+  で止める。Z の速度が 0 でない指令を送るたびに、自動のタールを 1 s 止める。ステージに載せた荷重を差の大きさを問わず
+  タールに取り込む範囲（``free_tare_zone``）の判定は :class:`~pcbasm.hal.mcu.stage.McuMotionStage` が Z の位置から答える
 - **step:** TMC2209 を dedge=1（両エッジで 1 microstep）で書くので、stepper は両エッジで step を出す
   （``invert_step=-1``、``step_pulse_ticks=0``）
 - **crc:** ``finalize_config`` には、設定の列を符号化したバイト列の CRC32 を入れる。接続したとき、MCU が
@@ -55,16 +56,16 @@
 接触停止（ロードセルがある機体）:
 
 - **経路:** MCU の中で完結させる。``hx71x`` のサンプル → ``trigger_analog``（``sos_filter`` で
-  ``(値 − 風袋) × 符号`` にする）→ 原点出しと同じ trsync（oid 10）→ 3 軸の stepper を即座に止め、``velocity_stream``
+  ``(値 − タール値) × 符号`` にする）→ 原点出しと同じ trsync（oid 10）→ 3 軸の stepper を即座に止め、``velocity_stream``
   を ``contact`` にする。ホストを待たないので、止まるまでの遅れはサンプルの周期（80 SPS で 12.5 ms）の 1〜2 個分
 - **設定の列:** ``config_sos_filter``（断面 0 個。フィルタは掛けない: 80 SPS では遅れが増えるので、受け入れ試験
   A34・A35 の実測を見て要れば足す）→ ``config_trigger_analog`` → ``trigger_analog_set_raw_range``（HX711 が
   張り付いた ±2^23 の端を誤りにする。oid は 0 で埋まるので、送らないと範囲が 0〜0 になり全サンプルが誤りになる）→
   ``trigger_analog_set_trigger``（``gt`` で ``round(trigger_force × counts_per_gram)`` を超えたら。押される向き
   だけを見る）→ ``hx71x_attach_trigger_analog``
-- **風袋:** :class:`~pcbasm.hal.mcu.load_cell.LoadCell` が風袋を変えるたびに ``sos_filter_set_offset_scale`` で
-  ``offset = −風袋``、``scale = ±1``（``inverted`` で −1）を送る。設定したばかりの scale は 0 で出力も 0 なので、
-  風袋を取るまでは張らない（張ろうとしたら :class:`LoadCellFault`）
+- **タール:** :class:`~pcbasm.hal.mcu.load_cell.LoadCell` がタール値を変えるたびに ``sos_filter_set_offset_scale`` で
+  ``offset = −タール値``、``scale = ±1``（``inverted`` で −1）を送る。設定したばかりの scale は 0 で出力も 0 なので、
+  タールするまでは張らない（張ろうとしたら :class:`LoadCellFault`）
 - **trsync の理由（reason）:**
 
   ====  ==============================================================
@@ -403,7 +404,7 @@ class PnpMotionFirmware:
             contact: ロードセルの接触停止を張る
 
         Raises:
-            LoadCellFault: ``contact`` だが、ロードセルが無いか、風袋がまだか、読めない
+            LoadCellFault: ``contact`` だが、ロードセルが無いか、タールがまだか、読めない
         """
         if switch is not None or contact:
             self._arm(switch, contact=contact)
@@ -803,7 +804,7 @@ class PnpMotionFirmware:
         load_settings = self._settings.load_cell
         if contact and (load_cell is None or not load_cell.ready):
             raise LoadCellFault(
-                "ロードセルが読めないので動かさない（風袋がまだか、値が来ていない）"
+                "ロードセルが読めないので動かさない（タールがまだか、値が来ていない）"
             )
         self._trigger_reason = None
         self._send(
@@ -880,7 +881,7 @@ class PnpMotionFirmware:
     # 以下、受信スレッド
 
     def _send_tare(self, counts: int) -> None:
-        """ロードセルの風袋を ``sos_filter`` の offset にする（LoadCell
+        """ロードセルのタール値を ``sos_filter`` の offset にする（LoadCell
         のロックの中で、どのスレッドからも）."""
         load_cell = self._settings.load_cell
         assert load_cell is not None
@@ -908,7 +909,7 @@ class PnpMotionFirmware:
         if not message.params["can_trigger"] and isinstance(reason, int):
             self._trigger_reason = reason
             if self.is_contact(reason) and self._load_cell is not None:
-                # 押し当てた荷重を、ホストが保持に入るまでの間に風袋へ取り込まない
+                # 押し当てた荷重を、ホストが保持に入るまでの間にタールへ取り込まない
                 self._load_cell.pause_auto_tare(True)
 
     def _on_shutdown(self, message: Message, _received: float) -> None:

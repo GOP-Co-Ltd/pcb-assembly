@@ -110,6 +110,7 @@ counts_per_gram = 2666.98
 # sensor_orientation = "normal" # ピンセットを押すと荷重が負になるなら "inverted"
 # trigger_force = 50.0        # [g]。動いている間に、これを超えたら止める（接触停止）
 # release_force = 15.0        # [g]。接触して止まった後、これを下回ったら離したとみなす（trigger_force より小さく）
+# free_tare_zone = 5.0        # [mm]。Z がピンセットから離す向きの端（Z=0）からここまでの範囲で止まっていれば、載せた基板などの荷重もタールに取り込む。0 で無効。ピンセットに届かない範囲にする
 press_positive = false        # ステージが上がる Z− でピンセットに押し当たる（Z+ で押し当たる機体なら true）
 
 # X 軸 - GT2 16T プーリー（16 × 2 mm = 32 mm/回転）

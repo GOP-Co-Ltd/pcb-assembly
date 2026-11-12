@@ -343,11 +343,11 @@ class TestLedAndLoadCell:
 
 @pytest.fixture
 def load_firmware(settings: McuMotionSettings) -> Iterator[PnpMotionFirmware]:
-    """ロードセル（2666.98 counts/g、しきい値 50 g）を持つファーム。風袋を取るまで待つ."""
+    """ロードセル（2666.98 counts/g、しきい値 50 g）を持つファーム。タールするまで待つ."""
     opened = open_firmware(_with_led_and_load_cell(settings))
     load_cell = opened.load_cell
     assert load_cell is not None
-    wait_until(lambda: load_cell.ready, what="風袋引き")
+    wait_until(lambda: load_cell.ready, what="タール")
     yield opened
     opened.close()
 
@@ -370,7 +370,7 @@ class TestContactStop:
         load_cell = load_firmware.load_cell
         assert load_cell is not None
         wait_until(lambda: load_cell.reading().grams != 0.0, what="荷重の変化")
-        time.sleep(0.3)  # 手の風袋引きの 0.25 s の窓を、新しい値だけにする
+        time.sleep(0.3)  # 手のタールの 0.25 s の窓を、新しい値だけにする
         since = len(mcu.accepted())
 
         load_cell.tare()
@@ -454,7 +454,7 @@ class TestContactStop:
     def test_refuses_to_arm_before_the_tare(
         self, mcu: WireMcu, settings: McuMotionSettings
     ):
-        # 値が来ない（風袋を取れない）ロードセル
+        # 値が来ない（タールできない）ロードセル
         mcu.control("hx71x_stall")
         firmware = open_firmware(_with_led_and_load_cell(settings))
         try:

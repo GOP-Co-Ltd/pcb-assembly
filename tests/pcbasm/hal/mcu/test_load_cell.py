@@ -52,13 +52,16 @@ class _Feeder:
         self.now = 0.0
         self._period = 1 / rate
 
-    def feed(self, value: int, count: int, *, quiet: bool = True) -> list[int]:
-        """``value`` を ``count`` 個送り、取り直した風袋の値を返す."""
+    def feed(
+        self, value: int, count: int, *, quiet: bool = True, free: bool = False
+    ) -> list[int]:
+        """``value`` を ``count`` 個送り、取り直したタール値を返す."""
         changes = []
         for start in range(0, count, 12):
             batch = [value] * min(12, count - start)
             self.now += len(batch) * self._period
-            if (changed := self.tracker.feed(batch, self.now, quiet=quiet)) is not None:
+            changed = self.tracker.feed(batch, self.now, quiet=quiet, free=free)
+            if changed is not None:
                 changes.append(changed)
         return changes
 
@@ -106,6 +109,7 @@ class TestLoadCellSettings:
             {"sample_rate": 0},
             {"counts_per_gram": 0.0},
             {"counts_per_gram": -1.0},
+            {"free_tare_zone": -0.1},
         ],
         ids=repr,
     )
@@ -205,7 +209,7 @@ class TestAutoTare:
         assert feeder.feed(2000, 80) == [2000]
 
     def test_does_not_take_in_a_steady_load_over_two_grams(self):
-        # 押し続けた荷重や載せたものは、止まって安定していても風袋にしない
+        # 押し続けた荷重や載せたものは、止まって安定していてもタールにしない
         feeder = _tared(0)
 
         assert feeder.feed(20_000, 400) == []
@@ -354,6 +358,50 @@ class TestReadingErrors:
         assert tracker.reading(10.6).error == "ロードセルの値が来ない"
 
 
+class TestFreeTare:
+    """Z がピンセットから離れた範囲にあるときは、差の大きさを問わずタールに取り込む."""
+
+    def test_takes_in_a_load_far_over_the_drift_limit(self):
+        feeder = _tared(0)
+
+        assert feeder.feed(30_000, 80, free=True) == [30_000]
+
+        assert feeder.reading() == LoadReading(0.0)
+
+    def test_outside_the_zone_the_drift_limit_stays(self):
+        feeder = _tared(0)
+
+        assert feeder.feed(30_000, 240, free=False) == []
+
+        assert feeder.reading() == LoadReading(30.0)
+
+    def test_still_needs_a_quiet_and_steady_second(self):
+        feeder = _tared(0)
+
+        assert feeder.feed(30_000, 240, quiet=False, free=True) == []
+        for _ in range(14):
+            feeder.now += 12 * _PERIOD
+            # 0.6 g の幅で揺れる
+            assert (
+                feeder.tracker.feed(
+                    [30_000, 30_600] * 6, feeder.now, quiet=True, free=True
+                )
+                is None
+            )
+
+    def test_does_not_tare_while_paused(self):
+        feeder = _tared(0)
+
+        for _ in range(20):
+            feeder.now += 12 * _PERIOD
+            assert (
+                feeder.tracker.feed(
+                    [30_000] * 12, feeder.now, quiet=True, auto_tare=False, free=True
+                )
+                is None
+            )
+
+
 class TestPausedAutoTare:
     def test_does_not_tare_while_paused_even_if_quiet(self):
         feeder = _tared(0)
@@ -500,7 +548,7 @@ def _load_cell(firmware: PnpMotionFirmware) -> LoadCell:
 
 
 def _keep_z_moving(load_cell: LoadCell, seconds: float) -> None:
-    """Z を動かし続けたことにして（自動の風袋引きを止めて）``seconds`` 秒待つ."""
+    """Z を動かし続けたことにして（自動のタールを止めて）``seconds`` 秒待つ."""
     end = time.monotonic() + seconds
 
     def waited() -> bool:
@@ -521,7 +569,7 @@ class TestLoadCellOverTheWire:
         self, mcu: WireMcu, firmware: PnpMotionFirmware
     ):
         load_cell = _load_cell(firmware)
-        wait_until(lambda: load_cell.reading() == LoadReading(0.0), what="風袋引き")
+        wait_until(lambda: load_cell.reading() == LoadReading(0.0), what="タール")
 
         mcu.control("load", counts=1250)
 
@@ -531,9 +579,9 @@ class TestLoadCellOverTheWire:
         self, mcu: WireMcu, firmware: PnpMotionFirmware
     ):
         load_cell = _load_cell(firmware)
-        wait_until(lambda: load_cell.reading() == LoadReading(0.0), what="風袋引き")
+        wait_until(lambda: load_cell.reading() == LoadReading(0.0), what="タール")
         mcu.control("load", counts=1250)
-        # 手の風袋引きは直近 0.25 s の平均なので、押した値だけになるまで待つ（その間、自動では取らせない）
+        # 手のタールは直近 0.25 s の平均なので、押した値だけになるまで待つ（その間、自動では取らせない）
         _keep_z_moving(load_cell, 0.6)
         assert load_cell.reading() == LoadReading(12.5)
 
@@ -545,7 +593,7 @@ class TestLoadCellOverTheWire:
         self, mcu: WireMcu, firmware: PnpMotionFirmware
     ):
         load_cell = _load_cell(firmware)
-        wait_until(lambda: load_cell.reading() == LoadReading(0.0), what="風袋引き")
+        wait_until(lambda: load_cell.reading() == LoadReading(0.0), what="タール")
         before = len(_queries(mcu))
 
         mcu.control("hx71x_error")
@@ -558,7 +606,7 @@ class TestLoadCellOverTheWire:
         self, mcu: WireMcu, firmware: PnpMotionFirmware
     ):
         load_cell = _load_cell(firmware)
-        wait_until(lambda: load_cell.reading() == LoadReading(0.0), what="風袋引き")
+        wait_until(lambda: load_cell.reading() == LoadReading(0.0), what="タール")
 
         mcu.control("hx71x_skip")
         mcu.control("load", counts=-500)
@@ -569,7 +617,7 @@ class TestLoadCellOverTheWire:
         self, mcu: WireMcu, firmware: PnpMotionFirmware
     ):
         load_cell = _load_cell(firmware)
-        wait_until(lambda: load_cell.reading() == LoadReading(0.0), what="風袋引き")
+        wait_until(lambda: load_cell.reading() == LoadReading(0.0), what="タール")
 
         mcu.control("shutdown", reason=5)
 

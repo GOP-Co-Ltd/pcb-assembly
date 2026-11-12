@@ -12,10 +12,10 @@
       <span id="mc-homed">homed: ---</span>
     </div>
     {% if stage == "motion" %}
-    {# ピンセットのロードセルの荷重と風袋引き。backend が load_label を返す機体（[pnp.motion.load_cell]）だけ JS が出す #}
+    {# ステージのロードセルの荷重とタール。backend が load_label を返す機体（[pnp.motion.load_cell]）だけ JS が出す #}
     <div id="mc-load-row" class="mc-load" data-testid="mc-load-row" hidden>
       <span id="mc-load" data-testid="mc-load"></span>
-      <button id="mc-tare" type="button" title="今の荷重を 0 g にする（風袋引き）">TARE</button>
+      <button id="mc-tare" type="button" title="今の荷重を 0 g にする（タール）">TARE</button>
     </div>
     {% endif %}
     <div class="mc-group">

@@ -1,6 +1,6 @@
-"""ロードセル（HX711）の値の読み取り、グラムへの換算、風袋引き.
+"""ロードセル（HX711）の値の読み取り、グラムへの換算、タール.
 
-pnp-motion ファームの ``hx71x`` が送る ``sensor_bulk_data`` を受け、ピンセットに掛かる荷重 [g] にする。
+pnp-motion ファームの ``hx71x`` が送る ``sensor_bulk_data`` を受け、ステージに掛かる荷重 [g] にする。
 :class:`LoadTracker` は時刻を引数で受ける純粋なロジック、:class:`LoadCell` は MCU との I/O の包み。
 
 仕様として読んだもの（コードは写していない。pcbasm は MIT、出典は GPLv3）:
@@ -30,18 +30,24 @@ pnp-motion ファームの ``hx71x`` が送る ``sensor_bulk_data`` を受け、
   正しいサンプルが来たら誤りを消す
 - **値が来ない:** 最後のサンプル（か読み始め）から「古いとみなす時間」来なければ「値が来ない」とする。
   古いとみなす時間は 0.5 s と、1 通の間隔（12 サンプル）の 2 倍の長いほう（80 SPS で 0.5 s、10 SPS で 2.4 s）
-- **グラム:** ``sign × (値 − 風袋) / counts_per_gram``。sign は normal が +1、inverted が −1
-- **最初の風袋引き:** 読み始めて最初の 16 サンプルの平均（安定かどうかは問わない）。それまでは None
-- **自動の風袋引き:** Z が止まっている（Z を動かす指令から 1 s たった）間のサンプルが 1 s ぶん続き、その幅
-  （最大 − 最小）が 0.5 g 以下で、平均と今の風袋の差が 2 g 以下なら、平均を新しい風袋にして窓を空にする。
+- **グラム:** ``sign × (値 − タール値) / counts_per_gram``。sign は normal が +1、inverted が −1
+- **最初のタール:** 読み始めて最初の 16 サンプルの平均（安定かどうかは問わない）。それまでは None
+- **自動のタール:** Z が止まっている（Z を動かす指令から 1 s たった）間のサンプルが 1 s ぶん続き、その幅
+  （最大 − 最小）が 0.5 g 以下で、平均と今のタール値の差が 2 g 以下なら、平均を新しいタールにして窓を空にする。
   止まっている間はおよそ 1 秒ごとに取り直す（Z の指令からは約 2 s）。差の上限は「接触していない」の近似で、
-  押し続けた荷重や載せたものを風袋に取り込まないためのもの。温度などのゆっくりしたずれだけを追う。
-  上限を超えてずれたら（たとえば起動したときに何かが当たっていた）、手で風袋を取る
-- **手で風袋引き:** 最後のサンプルから 0.25 s の間の正しいサンプルの平均。最後のサンプルが古いか、
+  押し続けた荷重をタールに取り込まないためのもの。温度などのゆっくりしたずれだけを追う。
+  上限を超えてずれたら（たとえば起動したときに何かが当たっていた）、手でタールする
+- **ピンセットから離れた範囲のタール:** Z が、ピンセットから離す向きの端から ``free_tare_zone`` [mm] 以内（kurousagi は
+  Z ≥ 上端 − N）で止まっていれば、ステージに載せた基板やトレイは押す向きの荷重になっても接触ではないので、
+  差の上限を外して（安定の幅 0.5 g の条件は残す）タールに取り込む。そうしないと、載せた荷重が ``trigger_force`` を
+  超えたとき、次に動いたときに接触停止して保持から抜けられない。Z の位置は :class:`LoadCell` の ``free_zone`` が
+  ホストの最新の報告から答える（原点を出していない Z は離れた範囲とみなさない）。範囲の外では ±2 g の上限が残る。
+  ``free_tare_zone`` が 0 なら使わない
+- **手でタール:** 最後のサンプルから 0.25 s の間の正しいサンプルの平均。最後のサンプルが古いか、
   誤りが出ていれば受けない。安定かどうかは問わない
-- **MCU の風袋:** 風袋が変わるたびに（最初、自動、手で）``on_tare`` に丸めた counts を渡す。ファームはそれを
+- **MCU のタール値:** タール値が変わるたびに（最初、自動、手で）``on_tare`` に丸めた counts を渡す。ファームはそれを
   ``sos_filter`` の offset にして、接触停止の判定に使う（:mod:`pcbasm.hal.mcu.firmware` の「接触停止」）
-- **接触保持の間:** 自動の風袋引きをしない（:meth:`LoadCell.pause_auto_tare`。押し当てた荷重を取り込まない）。
+- **接触保持の間:** 自動のタールをしない（:meth:`LoadCell.pause_auto_tare`。押し当てた荷重を取り込まない）。
   離したかは、保持に入ってから後の連続 100 ms（80 SPS で 8 個）のサンプルが、すべて ``release_force`` を
   下回ったかで見る（:meth:`LoadTracker.released`）
 - **校正の間:** 自動の風袋引きをしない（:meth:`LoadCell.suspend_auto_tare`。接触保持の止め方とは別に持ち、
@@ -80,7 +86,7 @@ _BYTES_PER_SAMPLE = 4
 _SEQUENCE_MASK = 0xFFFF
 _REST_DIVISOR = 16  # rest_ticks = 1 サンプルの周期の 16 分の 1
 _INITIAL_TARE_SAMPLES = 16
-_QUIET_SPAN = 1.0  # 自動の風袋引きに要る、止まっている長さ [s]
+_QUIET_SPAN = 1.0  # 自動のタールに要る、止まっている長さ [s]
 _QUIET_AFTER_MOTION = 1.0  # Z を動かす指令のあと、止まったとみなすまで [s]
 _MANUAL_TARE_SPAN = 0.25  # [s]
 _RELEASE_SPAN = 0.1  # 離したとみなすのに要る、release_force を下回り続ける長さ [s]
@@ -88,9 +94,9 @@ _STALE_AFTER = 0.5  # 古いとみなす時間の下限 [s]
 _SAMPLES_PER_MESSAGE = 12  # sensor_bulk.h の data[51] に入るサンプルの数
 _REQUERY_INTERVAL = 1.0  # [s]
 _NOT_ARRIVING = "ロードセルの値が来ない"
-# 自動の風袋引きで、安定とみなす 1 s の間の荷重の幅 [g]（仮の値。受け入れ試験 A34 で測って直す）
+# 自動のタールで、安定とみなす 1 s の間の荷重の幅 [g]（仮の値。受け入れ試験 A34 で測って直す）
 _TARE_SPREAD = 0.5
-# 自動の風袋引きで追う、今の風袋からの差の上限 [g]（仮の値。受け入れ試験 A34 で測って直す）
+# 自動のタールで追う、今のタール値からの差の上限 [g]（仮の値。受け入れ試験 A34 で測って直す）
 _TARE_DRIFT = 2.0
 
 
@@ -158,7 +164,7 @@ class LoadReading:
 
 
 class LoadTracker:
-    """HX711 のサンプルから荷重を出し、風袋を取る（時刻は引数で受ける。スレッドを守らない）.
+    """HX711 のサンプルから荷重を出し、タールする（時刻は引数で受ける。スレッドを守らない）.
 
     進め方はモジュールの docstring の「決めたこと」。
     """
@@ -205,6 +211,7 @@ class LoadTracker:
         *,
         quiet: bool,
         auto_tare: bool = True,
+        free: bool = False,
     ) -> int | None:
         """正しいサンプルを足す.
 
@@ -212,10 +219,11 @@ class LoadTracker:
             samples: 古い順のサンプル
             at: 最後のサンプルの時刻 [s]
             quiet: Z が止まっている間のサンプルか
-            auto_tare: 自動の風袋引きをしてよいか（接触保持の間は False）
+            auto_tare: 自動のタールをしてよいか（接触保持の間は False）
+            free: Z がピンセットから離れた範囲にあるか。そうなら自動のタールで、今のタール値との差を問わない
 
         Returns:
-            風袋が変わったら、新しい風袋の値（丸めた counts）。変わらなければ None
+            タールが変わったら、新しいタール値（丸めた counts）。変わらなければ None
         """
         if not samples:
             return None
@@ -254,7 +262,7 @@ class LoadTracker:
             ) / self._settings.counts_per_gram
             mean = _mean(self._quiet)
             drift = abs(mean - self._tare) / self._settings.counts_per_gram
-            if spread <= _TARE_SPREAD and drift <= _TARE_DRIFT:
+            if spread <= _TARE_SPREAD and (free or drift <= _TARE_DRIFT):
                 changed = mean
                 self._quiet.clear()
         if changed is None:
@@ -285,10 +293,10 @@ class LoadTracker:
         self._section = None
 
     def tare(self, now: float) -> int:
-        """最後のサンプルから 0.25 s の間の平均を風袋にする.
+        """最後のサンプルから 0.25 s の間の平均をタールにする.
 
         Returns:
-            新しい風袋の値（丸めた counts）
+            新しいタール値（丸めた counts）
 
         Raises:
             ValueError: 誤りが出ている、または最後の正しいサンプルが古い
@@ -325,7 +333,7 @@ class LoadTracker:
         return self._sign * (_mean(self._mean_samples) - self._tare)
 
     def ready(self, now: float) -> bool:
-        """風袋を取ってあり、誤りが無く、最後の正しいサンプルが古くない."""
+        """タールしてあり、誤りが無く、最後の正しいサンプルが古くない."""
         return (
             self._tare is not None
             and self._error is None
@@ -363,7 +371,7 @@ class LoadTracker:
         return LoadReading(self._grams(self._recent[-1][1]))
 
     def _grams(self, sample: int) -> float:
-        """今の風袋からの荷重 [g]（風袋を取ってから呼ぶ）."""
+        """今のタール値からの荷重 [g]（タールしてから呼ぶ）."""
         assert self._tare is not None
         return self._sign * (sample - self._tare) / self._settings.counts_per_gram
 
@@ -411,7 +419,7 @@ class LoadCell:
         settings: ロードセルの設定
         oid: ``hx71x`` の oid
         clock_freq: MCU の ``CLOCK_FREQ``
-        on_tare: 風袋が変わるたびに、新しい風袋（丸めた counts）で呼ぶ。:class:`LoadCell` のロックの中で、
+        on_tare: タール値が変わるたびに、新しいタール値（丸めた counts）で呼ぶ。:class:`LoadCell` のロックの中で、
             受信スレッドか :meth:`tare` を呼んだスレッドから呼ぶので、``transport.send`` だけを使う
     """
 
@@ -430,6 +438,7 @@ class LoadCell:
         self._on_tare = on_tare
         self._paused = False
         self._suspended = False
+        self._free_zone: Callable[[], bool] = _never
         self._rest_ticks = clock_freq // (settings.sample_rate * _REST_DIVISOR)
         self._lock = threading.Lock()
         # サンプルが届くたびに知らせる（:meth:`mean_counts` が待つ）
@@ -462,7 +471,7 @@ class LoadCell:
 
     @property
     def ready(self) -> bool:
-        """接触停止に使える: 風袋を取ってあり（MCU にも送ってあり）、誤りが無く、値が来ている."""
+        """接触停止に使える: タールしてあり（MCU にも送ってあり）、誤りが無く、値が来ている."""
         with self._lock:
             return self._tracker.ready(time.monotonic())
 
@@ -475,14 +484,22 @@ class LoadCell:
             return self._tracker.released(since, time.monotonic())
 
     def pause_auto_tare(self, paused: bool) -> None:
-        """自動の風袋引きを止める・再び許す（接触保持の間は止める）."""
+        """自動のタールを止める・再び許す（接触保持の間は止める）."""
         with self._lock:
             self._paused = paused
 
     def suspend_auto_tare(self, suspended: bool) -> None:
-        """校正の間、自動の風袋引きを止める・再び許す（:meth:`pause_auto_tare` とは別に持つ）."""
+        """校正の間、自動のタールを止める・再び許す（:meth:`pause_auto_tare` とは別に持つ）."""
         with self._lock:
             self._suspended = suspended
+
+    def watch_free_zone(self, free_zone: Callable[[], bool]) -> None:
+        """Z がピンセットから離れた範囲にあるかを答える関数を設定する（既定は常に偽）.
+
+        受信スレッドが :class:`LoadCell` のロックの中で呼ぶので、ロックを取らず、すぐ返すこと。
+        """
+        with self._lock:
+            self._free_zone = free_zone
 
     def tare(self) -> None:
         """今の荷重を 0 にする.
@@ -493,7 +510,7 @@ class LoadCell:
         with self._lock:
             counts = self._tracker.tare(time.monotonic())
             self._on_tare(counts)
-        _logger.info("ロードセルの風袋を取った: %d counts", counts)
+        _logger.info("ロードセルをタールした: %d counts", counts)
 
     def mean_counts(self, seconds: float) -> float:
         """呼んでから届いたサンプル ``seconds`` 秒ぶんの平均を、今の風袋からの差 [counts] で返す（押す向きが正）.
@@ -515,7 +532,7 @@ class LoadCell:
             return mean
 
     def note_z_motion(self) -> None:
-        """Z を動かす指令を送った（ここから 1 s は自動の風袋引きをしない）."""
+        """Z を動かす指令を送った（ここから 1 s は自動のタールをしない）."""
         with self._lock:
             self._z_moved_at = time.monotonic()
 
@@ -559,10 +576,11 @@ class LoadCell:
                     last,
                     quiet=quiet,
                     auto_tare=not (self._paused or self._suspended),
+                    free=self._settings.free_tare_zone > 0 and self._free_zone(),
                 )
                 if counts is not None:
                     self._on_tare(counts)
-                    _logger.debug("ロードセルの風袋を取った: %d counts", counts)
+                    _logger.debug("ロードセルをタールした: %d counts", counts)
                 section = self._tracker.take_section()
                 if section is not None:
                     _logger.info(
@@ -581,6 +599,10 @@ class LoadCell:
                     self._requeried_at = received
                     self._query()
             self._received.notify_all()
+
+
+def _never() -> bool:
+    return False
 
 
 def _mean(values: Sequence[int]) -> float:
