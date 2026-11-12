@@ -10,6 +10,7 @@ from __future__ import annotations
 import enum
 from abc import ABC, abstractmethod
 from collections.abc import Collection
+from contextlib import AbstractContextManager
 from typing import Literal
 
 import attrs
@@ -185,6 +186,17 @@ class MotionStage(ABC):
 
         Raises:
             MotionError: shutdown している
+        """
+
+    @abstractmethod
+    def keep_energized(self) -> AbstractContextManager[None]:
+        """抜けるまで、励磁したまま止まっていても自動で脱力させない（入れ子にできる）.
+
+        人の確認待ちなど、ジョブの途中で止まったまま待つ間に、原点を失ったり Z が落ちたりしないよう囲む。
+        抜けると（例外で抜けても）、そこから設定の時間を数え直す。
+
+        Raises:
+            MotionError: 入るときに shutdown している
         """
 
     @abstractmethod

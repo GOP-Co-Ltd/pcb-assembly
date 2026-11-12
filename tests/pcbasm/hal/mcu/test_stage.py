@@ -308,3 +308,86 @@ class TestIdleTimeout:
         quick.move_to(z=-5.0)
 
         assert quick.status().position.z == pytest.approx(-5.0, abs=_STEP)
+
+
+def _expect_idle_timeouts(mcu: WireMcu, since: int, expected: list[int]) -> None:
+    """MCU 役が ``since`` の後に受けた脱力までの秒数が ``expected`` になるのを待つ（受けた記録は遅れて届く）."""
+
+    def sent() -> list[int]:
+        return [
+            params["seconds"]
+            for name, params in mcu.accepted()[since:]
+            if name == "velocity_stream_set_idle_timeout"
+        ]
+
+    wait_until(lambda: sent() == expected, what=f"脱力までの秒数 {expected}")
+
+
+class TestKeepEnergized:
+    def test_turns_the_auto_relax_off_and_back_on(
+        self, mcu: WireMcu, stage: McuMotionStage
+    ):
+        since = len(mcu.accepted())
+
+        with stage.keep_energized():
+            _expect_idle_timeouts(mcu, since, [0])
+
+        # 抜けると設定の秒数（既定の 5 分）で数え直す
+        _expect_idle_timeouts(mcu, since, [0, 300])
+
+    def test_nested_only_the_outermost_sends(self, mcu: WireMcu, stage: McuMotionStage):
+        since = len(mcu.accepted())
+
+        with stage.keep_energized():
+            with stage.keep_energized():
+                pass
+            stage.home(["z"])
+
+        # 記録は送った順に届くので、原点出しの記録が届いた時点でそれより前の記録はそろっている
+        wait_until(lambda: "endstop_home" in _names(mcu, since), what="原点出しの記録")
+        before_home = _names(mcu, since)[: _names(mcu, since).index("endstop_home")]
+        assert before_home.count("velocity_stream_set_idle_timeout") == 1
+        _expect_idle_timeouts(mcu, since, [0, 300])
+
+    def test_turns_it_back_on_when_the_body_raises(
+        self, mcu: WireMcu, stage: McuMotionStage
+    ):
+        since = len(mcu.accepted())
+
+        with pytest.raises(RuntimeError), stage.keep_energized():
+            raise RuntimeError
+
+        _expect_idle_timeouts(mcu, since, [0, 300])
+
+    def test_restart_inside_keeps_it_off(self, mcu: WireMcu, stage: McuMotionStage):
+        since = len(mcu.accepted())
+        with stage.keep_energized():
+            stage.restart()
+
+            # 接続し直すと設定の秒数を送るので、続けて 0 を送り直す
+            _expect_idle_timeouts(mcu, since, [0, 300, 0])
+
+    def test_does_not_send_after_a_shutdown(self, mcu: WireMcu, stage: McuMotionStage):
+        since = len(mcu.accepted())
+        with stage.keep_energized():
+            stage.emergency_stop()
+            wait_until(
+                lambda: stage.status().state is MotionState.SHUTDOWN, what="shutdown"
+            )
+
+        # shutdown した MCU には送れない（restart で設定の秒数を送り直す）
+        stage.restart()
+        wait_until(lambda: "reset" in _names(mcu, since), what="reset の記録")
+        before_reset = _names(mcu, since)[: _names(mcu, since).index("reset")]
+        assert before_reset.count("velocity_stream_set_idle_timeout") == 1
+        _expect_idle_timeouts(mcu, since, [0, 300])
+
+    def test_exits_quietly_after_the_cable_is_pulled(
+        self, mcu: WireMcu, stage: McuMotionStage
+    ):
+        with pytest.raises(RuntimeError), stage.keep_energized():
+            mcu.unplug()
+            # 接続が切れたのを知ってから抜ける
+            with pytest.raises(MotionError):
+                before_deadline(stage.relax, what="relax")
+            raise RuntimeError  # 抜けるときに送れなくても、本体の例外のまま

@@ -138,7 +138,7 @@ class McuMotionSettings:
         stream_lead: 先読みの長さ [s]
         stream_ttl: 速度指令の期限 [s]
         report_interval: 動いている間に状態を報告させる間隔 [s]
-        idle_timeout: 励磁したまま止まっていたら、ファームが脱力するまでの時間 [s]（秒に丸めて送る）
+        idle_timeout: 励磁したまま止まっていたら、ファームが脱力するまでの時間 [s]（秒に丸めて送る。0 なら脱力しない）
     """
 
     device: str
@@ -173,9 +173,9 @@ class McuMotionSettings:
             )
         if not self.report_interval > 0:
             raise ValueError("report_interval は正にする")
-        if not 1 <= self.idle_timeout <= _MAX_IDLE_TIMEOUT:
+        if self.idle_timeout != 0 and not 1 <= self.idle_timeout <= _MAX_IDLE_TIMEOUT:
             raise ValueError(
-                f"idle_timeout は 1 s 以上、{_MAX_IDLE_TIMEOUT} s 以下にする"
+                f"idle_timeout は 0（脱力しない）か、1 s 以上 {_MAX_IDLE_TIMEOUT} s 以下にする"
             )
         if self.kinematics != "cartesian":
             # corexy は X と Y の 1 ステップを、モーターの 1 ステップとして写す

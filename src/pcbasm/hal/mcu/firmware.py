@@ -22,7 +22,7 @@
 
 - **oid:** ``velocity_stream`` が 0、stepper が 1〜3、endstop が 4〜6、trsync が 10、tmcuart が 11（7〜9 は空き。
   enable のピンは ``config_velocity_stream`` で ``velocity_stream`` に渡す）
-- **脱力までの時間:** 接続するたびに ``idle_timeout`` を秒に丸めて送る。設定の列（crc）に入れないので、
+- **脱力までの時間:** 接続するたびに ``idle_timeout`` を秒に丸めて送る（0 なら自動で脱力しない）。設定の列（crc）に入れないので、
   変えても reset しない
 - **step:** TMC2209 を dedge=1（両エッジで 1 microstep）で書くので、stepper は両エッジで step を出す
   （``invert_step=-1``、``step_pulse_ticks=0``）
@@ -262,6 +262,15 @@ class PnpMotionFirmware:
     def set_enabled(self, enabled: bool) -> None:
         """3 軸のモーターの励磁を入れる・切る（切るのは止まっているときだけ）."""
         self._send("velocity_stream_set_enable", oid=_STREAM, enable=int(enabled))
+
+    def set_idle_timeout(self, seconds: float) -> None:
+        """励磁したまま止まっていたら脱力するまでの時間 [s] を、秒に丸めて送る（0 なら脱力しない）.
+
+        送るとそこから数え直す。
+        """
+        self._send(
+            "velocity_stream_set_idle_timeout", oid=_STREAM, seconds=round(seconds)
+        )
 
     def set_limits(self, axis: Axis, low: int, high: int) -> None:
         """軸の可動域 [steps] を送る（速度と加速度の上限は設定の値）。止まっているときだけ送る.
@@ -566,11 +575,7 @@ class PnpMotionFirmware:
             self._reconfigured = True
         self._program_drivers()
         self.forget_origin(*AXES)
-        self._send(
-            "velocity_stream_set_idle_timeout",
-            oid=_STREAM,
-            seconds=round(self._settings.idle_timeout),
-        )
+        self.set_idle_timeout(self._settings.idle_timeout)
         self.query()
 
     def _configure(self, crc: int) -> None:

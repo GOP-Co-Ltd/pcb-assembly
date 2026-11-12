@@ -388,7 +388,12 @@ class TestEnable:
 
 
 class TestSettings:
-    @pytest.mark.parametrize("seconds", [0, 0.5, 2.0**32, math.inf])
+    def test_zero_idle_timeout_turns_the_auto_relax_off(
+        self, settings: McuMotionSettings
+    ):
+        assert attrs.evolve(settings, idle_timeout=0).idle_timeout == 0
+
+    @pytest.mark.parametrize("seconds", [-1, 0.5, 2.0**32, math.inf])
     def test_idle_timeout_outside_the_firmware_range_is_rejected(
         self, settings: McuMotionSettings, seconds: float
     ):
@@ -437,6 +442,20 @@ class TestIdleTimeout:
         assert report.enabled
         assert report.relaxes == 0
         quick.stop()
+
+    def test_holds_while_the_timeout_is_zero(self, quick: PnpMotionFirmware):
+        quick.set_idle_timeout(0)
+        quick.set_enabled(True)
+        started = quick.query().clock
+
+        wait_until(
+            lambda: quick.query().clock > started + 0.6 * _TICKS_PER_SECOND,
+            what="設定の脱力までの時間の 3 倍が過ぎること",
+        )
+
+        report = quick.query()
+        assert report.enabled
+        assert report.relaxes == 0
 
 
 class TestStream:

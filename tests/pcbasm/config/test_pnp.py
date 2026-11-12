@@ -328,7 +328,13 @@ class TestPnpMotion:
         assert machine.pnp is not None and machine.pnp.motion is not None
         assert machine.pnp.motion.idle_timeout == 60.0
 
-    @pytest.mark.parametrize("value", [0, 0.5, -1, 2**32])
+    def test_zero_idle_timeout_turns_the_auto_relax_off(self, tmp_path: Path):
+        machine = load_machine(_motion_machine(tmp_path, _motion_with(idle_timeout=0)))
+
+        assert machine.pnp is not None and machine.pnp.motion is not None
+        assert machine.pnp.motion.idle_timeout == 0
+
+    @pytest.mark.parametrize("value", [0.5, -1, 2**32])
     def test_idle_timeout_outside_the_firmware_range_is_a_config_error(
         self, tmp_path: Path, value: float
     ):

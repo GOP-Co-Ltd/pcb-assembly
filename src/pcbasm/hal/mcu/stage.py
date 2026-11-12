@@ -21,6 +21,10 @@ mm と mm/s をステップに直して :class:`~pcbasm.hal.mcu.firmware.PnpMoti
   脱力の報告が届く前に励磁し直したときに見落とす）。変わっていれば、:meth:`~McuMotionStage.status` は
   すぐに原点を「未」として返し、次の操作の前に止めてから
   :meth:`~pcbasm.hal.mcu.firmware.PnpMotionFirmware.forget_origin` する（脱力の間に軸が動いたかもしれない）
+- **脱力させない間:** :meth:`~McuMotionStage.keep_energized` の入れ子の深さを数え、いちばん外側で入るときに
+  ``idle_timeout`` を 0 にし、抜けるときに設定の秒数に戻す。中で :meth:`~McuMotionStage.restart` したら 0 を
+  送り直す。抜けるときに MCU が shutdown しているか接続が切れていれば、送らずに抜ける（restart で設定の秒数に戻る）。
+  中で backend が落ちると 0 のまま残るが、起動し直して接続すると設定の秒数を送る
 - **座標指定の移動:** mm をステップに直して :meth:`PnpMotionFirmware.travel` に任せる（直線に動き、
   速さを省けばどの軸も ``max_velocity`` を超えない最も速い動き。1 ステップ以内の差は動かさない）
 - **緊急停止が届かない間:** 次の間の :meth:`~McuMotionStage.emergency_stop` は :class:`MotionError` になる。
@@ -72,6 +76,7 @@ class McuMotionStage(MotionStage):
         self._settings = settings
         self._lock = threading.Lock()
         self._homed: frozenset[Axis] = frozenset()
+        self._keep_energized = 0  # keep_energized の入れ子の深さ
         self._failure: str | None = None
         self._limits = Limits(
             x=ScalarLimits(settings.x.position_min, settings.x.position_max),
@@ -216,6 +221,30 @@ class McuMotionStage(MotionStage):
             firmware.query()
 
     @override
+    @contextlib.contextmanager
+    def keep_energized(self) -> Iterator[None]:
+        with self._lock, self._translate():
+            firmware = self._ready()
+            if not self._keep_energized:
+                firmware.set_idle_timeout(0)
+            self._keep_energized += 1
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._keep_energized -= 1
+                firmware = self._firmware
+                if (
+                    not self._keep_energized
+                    and self._failure is None
+                    and firmware.shutdown_reason is None
+                ):
+                    # 送れなくても投げない（本体の例外を隠さない）。切れたことは _translate が覚え、
+                    # restart で設定の秒数に戻る
+                    with contextlib.suppress(MotionError), self._translate():
+                        firmware.set_idle_timeout(self._settings.idle_timeout)
+
+    @override
     def restart(self) -> None:
         with self._lock:
             self._firmware.close()
@@ -225,6 +254,8 @@ class McuMotionStage(MotionStage):
             try:
                 with self._translate():
                     self._firmware = open_firmware(self._settings, reset=True)
+                    if self._keep_energized:
+                        self._firmware.set_idle_timeout(0)
                 self._relaxes = self._latest_relaxes()
             except MotionError as error:
                 self._failure = (
