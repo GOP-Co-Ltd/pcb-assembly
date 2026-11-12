@@ -43,6 +43,7 @@ from web.contract.models import (
     MachineInfo,
     ReadinessResponse,
     SettingsField,
+    StageKind,
     StateResponse,
 )
 from web.ui.features import (
@@ -210,12 +211,12 @@ def _capabilities(info: MachineInfo) -> tuple[Capability, ...]:
 
 
 def _nav_tabs(
-    base: str, capabilities: Sequence[Capability]
+    base: str, capabilities: Sequence[Capability], stage: StageKind
 ) -> list[tuple[str, str, str]]:
     """機体のトップバーのタブ（slug、表示名、リンク先 = タブの先頭の機能）."""
     return [
-        (tab, label, f"{base}/{tab_features(tab, capabilities)[0].slug}")
-        for tab, label in machine_tabs(capabilities).items()
+        (tab, label, f"{base}/{tab_features(tab, capabilities, stage)[0].slug}")
+        for tab, label in machine_tabs(capabilities, stage).items()
     ]
 
 
@@ -235,7 +236,8 @@ def _chrome_context(
         "machines": _registry(request).list(),
         "current_suffix": current_suffix,
         # 機体の機能はページを描くときに backend から取るので、取れないページではどの機体にもあるタブだけを出す
-        "tabs": _nav_tabs(base, ()) if machine_id else [],
+        # （stage で分かれるページはどれも機能も限るので、機能が無ければ stage は効かない）
+        "tabs": _nav_tabs(base, (), "klipper") if machine_id else [],
         "active_tab": None,
         "active_feature": None,
         # 更新専用ページでは、中継されない機体コマンド（操作権・PCB・再起動）を出さない
@@ -261,7 +263,7 @@ def _base_context(
     )
     capabilities = _capabilities(info)
     context.update(
-        tabs=_nav_tabs(context["base"], capabilities),
+        tabs=_nav_tabs(context["base"], capabilities, info.stage),
         capabilities=capabilities,
         selected_pcb=state.pcb_file,
         fb_start=info.fb_start,
@@ -282,10 +284,11 @@ def _sidebar_context(
     feature: Feature,
     jobs: Mapping[str, JobSpecInfo],
     capabilities: Sequence[Capability],
+    stage: StageKind,
 ) -> dict[str, Any]:
     """機能のページのタブとサイドバー（同じタブにある機体の機能を、グループごとに表の順で並べる）."""
     groups: dict[str, list[tuple[str, str]]] = {}
-    for item in tab_features(feature.tab, capabilities):
+    for item in tab_features(feature.tab, capabilities, stage):
         groups.setdefault(item.group, []).append(
             (item.slug, _feature_label(jobs, item))
         )
@@ -465,7 +468,8 @@ async def machine_entry(machine_id: str, request: Request) -> RedirectResponse:
     _, client = _resolve(request, machine_id)
     info = await client.machine_info()
     return RedirectResponse(
-        url=f"/m/{machine_id}/{landing(_capabilities(info))}", status_code=307
+        url=f"/m/{machine_id}/{landing(_capabilities(info), info.stage)}",
+        status_code=307,
     )
 
 
@@ -578,13 +582,14 @@ async def feature_page(machine_id: str, slug: str, request: Request) -> Response
         _machine_settings(endpoint, client, slug in _MACHINE_SETTINGS_FEATURES),
     )
     capabilities = _capabilities(info)
-    if not feature.is_available(capabilities):
+    if not feature.is_available(capabilities, info.stage):
         return RedirectResponse(
-            url=f"/m/{machine_id}/{landing(capabilities)}", status_code=307
+            url=f"/m/{machine_id}/{landing(capabilities, info.stage)}",
+            status_code=307,
         )
     jobs = _jobs_by_name(catalog)
     context = _base_context(request, machine_id, slug, info, state, readiness)
-    context.update(_sidebar_context(feature, jobs, capabilities))
+    context.update(_sidebar_context(feature, jobs, capabilities, info.stage))
     if feature.is_job:
         job = _job_spec(endpoint, jobs, slug)
         # preview ペインとローディング欄の有無は backend 側で決まる事実（フレーム

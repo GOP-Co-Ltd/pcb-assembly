@@ -74,7 +74,7 @@ _OVERLAY_RADIO_RE = re.compile(r"<input[^>]*name=\"overlay\"[^>]*>")
 JOB_PAGES = sorted(
     feature.slug
     for feature in FEATURES
-    if feature.is_job and feature.is_available(("solder",))
+    if feature.is_job and feature.is_available(("solder",), "klipper")
 )
 
 
@@ -218,11 +218,11 @@ class TestPages:
         assert response.headers["location"] == f"/m/{machine_id}"
         assert landing.headers["location"] == f"/m/{machine_id}/paste_solder"
 
-    @pytest.mark.parametrize("tab", list(machine_tabs(("solder",))))
+    @pytest.mark.parametrize("tab", list(machine_tabs(("solder",), "klipper")))
     def test_tab_landing_renders_with_common_chrome(
         self, client: TestClient, backend_settings: ApiEnv, tab: str
     ):
-        response = client.get(f"/{tab_features(tab, ('solder',))[0].slug}")
+        response = client.get(f"/{tab_features(tab, ('solder',), 'klipper')[0].slug}")
 
         assert response.status_code == 200
         assert "緊急停止" in response.text

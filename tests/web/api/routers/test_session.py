@@ -10,7 +10,7 @@
   （machine_id が既にドットを含むなら `.local` を重ねない）
   fake の機体（`Env.fake`）は実機の Mainsail へ導かないよう空文字を返す
 - stage は XYZ を動かす仕組み（``[pnp.motion]`` があれば "motion"、無ければ "klipper"）。
-  "motion" の機体には Mainsail が無いので mainsail_url は空
+  "motion" の機体には Mainsail が無いので mainsail_url は空。ジョブの一覧と同じく、起動したときに決めて再起動まで変えない
 - StateResponse に nozzle_cap を追加。`[solder.nozzle.cap]` が x/y/z を揃えていない
   machine.toml でも 200 + null（防御しないと全クライアントのポーリングが 500 する）
 
@@ -157,7 +157,7 @@ class TestMachineInfoApi:
             # frontend / discovery の互換判定に使う値なので、`web.contract.discovery.API_VERSION`
             # を import せずリテラルで固定する（import すると同語反復になり、うっかりの
             # バンプが無音で通る）。バンプは意図的な契約変更なのでここも同時に更新する
-            "api_version": 20,
+            "api_version": 21,
             "capabilities": [{"name": "solder", "label": "はんだ塗布"}],
             "stage": "klipper",
         }
@@ -172,6 +172,16 @@ class TestMachineInfoApi:
 
         assert info["stage"] == "motion"
         assert info["mainsail_url"] == ""
+
+    def test_stage_is_fixed_at_startup_like_the_job_catalog(self, webui_settings: Env):
+        """起動の後に [pnp.motion] を足しても、再起動まで stage もジョブも変えない（ページとジョブを食い違わせない）."""
+        with TestClient(create_app(webui_settings)) as client:
+            use_motion_machine(webui_settings.config_dir)
+            info = client.get("/api/session/machine-info").json()
+            jobs = {job["name"] for job in client.get("/api/jobs").json()["jobs"]}
+
+        assert info["stage"] == "klipper"
+        assert "gamepad_motion" not in jobs
 
     def test_mainsail_url_resolves_from_machine_id_not_request_host(
         self, webui_settings: Env

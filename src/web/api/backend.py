@@ -12,7 +12,7 @@ import attrs
 from shapely import Polygon
 
 from pcbasm.align.scene import board_scene, placed_on_reference
-from pcbasm.config import Capability
+from pcbasm.config import Capability, ConfigError
 from pcbasm.machine.devices import Devices, open_devices
 from pcbasm.pasting.overrides import BoardOverrides
 from pcbasm.pasting.test_board.generator import BoardGenerator
@@ -32,6 +32,7 @@ from web.api.jobs.runtime.manager import JobManager
 from web.api.lock import MachineLock
 from web.api.machine_config import MachineConfigFile
 from web.api.selection import Selection
+from web.contract.models import StageKind
 from web.selfupdate.runner import UpdateRunner
 from web.selfupdate.settings import UpdateSettings
 
@@ -51,6 +52,7 @@ class Backend:
         camera: FrameHub の貸し出しと MJPEG 配信
         events: WS 購読者へのイベント配信
         catalog: ジョブ定義カタログ
+        stage: XYZ を動かす仕組み（起動したときに決め、catalog のジョブと同じく再起動まで変えない）
         paste_stores: 塗布の永続データ（catalog の塗布ジョブと HTTP 経路が同じものを使う）
         jobs: ジョブの起動と直近 1 件の状態
         control: 操作権リース（自動解放しない。プロセス再起動で空きに戻る）
@@ -67,6 +69,7 @@ class Backend:
     camera: CameraFeed
     events: EventBus
     catalog: JobCatalog
+    stage: StageKind
     paste_stores: PasteStores
     jobs: JobManager
     control: ControlLease
@@ -136,8 +139,12 @@ def open_backend(
         paste_dataset_dir=env.paste_dataset_dir,
         paste_volume_calibration_dir=env.paste_volume_calibration_dir,
     )
+    stage = _stage_kind(devices)
     catalog = default_catalog(
-        machine_config.capabilities, paste_stores, env.machine_check_file
+        machine_config.capabilities,
+        paste_stores,
+        env.machine_check_file,
+        motion_stage=stage == "motion",
     )
     control = ControlLease(on_change=lambda: events.publish(control_changed_event()))
     return Backend(
@@ -149,6 +156,7 @@ def open_backend(
         camera=camera,
         events=events,
         catalog=catalog,
+        stage=stage,
         paste_stores=paste_stores,
         jobs=JobManager(
             catalog,
@@ -169,6 +177,14 @@ def open_backend(
             else None
         ),
     )
+
+
+def _stage_kind(devices: Devices) -> StageKind:
+    """XYZ を動かす仕組み（machine.toml か [pnp.motion] が読めなければ、これまでどおり klipper）."""
+    try:
+        return "motion" if devices.uses_motion_stage() else "klipper"
+    except ConfigError:
+        return "klipper"
 
 
 def _scene(selection: Selection, machine_config: MachineConfigFile) -> list[Polygon]:

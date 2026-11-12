@@ -129,6 +129,19 @@ class MachineCommandRequest(
     """マシン操作パネルの命令（REST の /api/machine/command と、対話ジョブの WS command が同じ形で送る）."""
 
 
+class StickCommand(BaseModel):
+    """画面の仮想スティックの入力（コントローラ操作のジョブへ WS command で送る）.
+
+    倒し具合は -1〜1 で、スティックの座標（右 = +x、上 = +y、上 = +z）で持つ。機体の向き（上 = Y−）への
+    直しと、各軸の最高速度を掛けるのは pcbasm がする。
+    """
+
+    type: Literal["stick"]
+    x: float = Field(ge=-1, le=1)
+    y: float = Field(ge=-1, le=1)
+    z: float = Field(ge=-1, le=1)
+
+
 class PromptInfo(BaseModel):
     """応答待ちプロンプトの公開表現（REST / WS 共用）."""
 
