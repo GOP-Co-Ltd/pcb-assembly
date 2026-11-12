@@ -96,6 +96,7 @@ serial = "/dev/serial/by-id/usb-Klipper_rp2040_<your-mcu-id>-if00" # ls /dev/ser
 kinematics = "inversed_corexy"
 tmc_rx_pin = "gpio9" # TMC2209 の UART（printer.cfg の uart_pin）
 tmc_tx_pin = "gpio8" # printer.cfg の tx_pin
+idle_timeout = 300 # 励磁したまま止めておくと、ファームがこの秒数で脱力する（原点は「未」に戻る）
 
 # X 軸 - GT2 16T プーリー（16 × 2 mm = 32 mm/回転）
 [pnp.motion.x]

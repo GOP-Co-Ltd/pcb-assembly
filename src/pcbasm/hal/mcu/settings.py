@@ -24,6 +24,7 @@ _MIN_PERIOD = 0.0005  # [s]
 _MAX_LEAD = 0.1  # [s]
 _MAX_SEGMENTS_AHEAD = 64
 _MAX_TTL = 1.0  # [s]
+_MAX_IDLE_TIMEOUT = 2**32 - 1  # [s]。ファームは 32 bit の秒数で数える
 
 
 @attrs.frozen(kw_only=True)
@@ -137,6 +138,7 @@ class McuMotionSettings:
         stream_lead: 先読みの長さ [s]
         stream_ttl: 速度指令の期限 [s]
         report_interval: 動いている間に状態を報告させる間隔 [s]
+        idle_timeout: 励磁したまま止まっていたら、ファームが脱力するまでの時間 [s]（秒に丸めて送る）
     """
 
     device: str
@@ -152,6 +154,7 @@ class McuMotionSettings:
     stream_lead: float = 0.010
     stream_ttl: float = 0.200
     report_interval: float = 0.100
+    idle_timeout: float = 300.0
 
     def __attrs_post_init__(self) -> None:
         if self.stream_period < _MIN_PERIOD:
@@ -170,6 +173,10 @@ class McuMotionSettings:
             )
         if not self.report_interval > 0:
             raise ValueError("report_interval は正にする")
+        if not 1 <= self.idle_timeout <= _MAX_IDLE_TIMEOUT:
+            raise ValueError(
+                f"idle_timeout は 1 s 以上、{_MAX_IDLE_TIMEOUT} s 以下にする"
+            )
         if self.kinematics != "cartesian":
             # corexy は X と Y の 1 ステップを、モーターの 1 ステップとして写す
             if self.x.steps_per_mm != self.y.steps_per_mm:

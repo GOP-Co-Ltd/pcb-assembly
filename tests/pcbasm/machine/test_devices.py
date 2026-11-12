@@ -985,6 +985,14 @@ class TestMotionSettings:
             invert,
         )
 
+    def test_idle_timeout_is_passed_on(self, tmp_path: Path):
+        motion = motion_table()
+        motion["idle_timeout"] = 120.0
+
+        settings = motion_settings(_load_motion(tmp_path, motion))
+
+        assert settings.idle_timeout == 120.0
+
     def test_tmc_rx_pin_takes_pull_up(self, tmp_path: Path):
         motion = motion_table()
         motion["tmc_rx_pin"] = "^gpio9"

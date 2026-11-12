@@ -7,9 +7,12 @@
 // 軸からモーターへの写し方（cartesian・corexy・inversed_corexy）は設定時に受け取る。
 // 期限が切れたら目標を 0 にして減速する。trsync が引かれたら（接触）、stepper は
 // trsync の側で即時に止まり、このモジュールは CONTACT になって位置を stepper に合わせ直す。
+// モーターの励磁（enable のピン）もこのモジュールが持ち、励磁したまま流さずに置かれた時間が
+// 設定した秒数を超えたら、自分で励磁を切る（ホストが落ちていても、止まったモーターを温め続けない）。
 
 #include "autoconf.h"  // CONFIG_CLOCK_FREQ
 #include "basecmd.h"  // oid_alloc
+#include "board/gpio.h"  // gpio_out_write
 #include "board/irq.h"  // irq_disable
 #include "board/misc.h"  // timer_read_time
 #include "command.h"  // DECL_COMMAND
@@ -35,7 +38,7 @@
 #define MAX_VELOCITY (CONFIG_CLOCK_FREQ / VS_MIN_GAP_TICKS(CONFIG_CLOCK_FREQ))
 #define MAX_ACCEL 1000000000
 
-DECL_CONSTANT("VELOCITY_STREAM_PROTOCOL", 1);
+DECL_CONSTANT("VELOCITY_STREAM_PROTOCOL", 2);
 DECL_ENUMERATION("velocity_stream_kinematics", "cartesian", VS_CARTESIAN);
 DECL_ENUMERATION("velocity_stream_kinematics", "corexy", VS_COREXY);
 DECL_ENUMERATION("velocity_stream_kinematics", "inversed_corexy", VS_INVERSED_COREXY);
@@ -47,10 +50,13 @@ DECL_ENUMERATION("velocity_stream_state", "stream", VS_STREAM);
 DECL_ENUMERATION("velocity_stream_state", "stopping", VS_STOPPING);
 DECL_ENUMERATION("velocity_stream_state", "contact", VS_CONTACT);
 
-enum { VSF_TRIGGERED = 1<<0 };
+enum { VSF_TRIGGERED = 1<<0, VSF_IDLE_TIMEOUT = 1<<1 };
 
 struct velocity_stream {
     struct timer timer;
+    // 励磁したまま止まっている秒数を数える 1 秒ごとのタイマ（32 bit の clock は数分を比べられない）
+    struct timer idle_timer;
+    struct gpio_out enables[AXES];
     struct trsync_signal stop_signal;
     struct stepper *steppers[AXES];
     struct vs_stage stage;
@@ -60,9 +66,14 @@ struct velocity_stream {
     uint32_t expire_clock, next_report;
     // STOPPING で全軸が止まったら、積んだステップが出尽くすこの時刻を待って IDLE にする
     uint32_t drain_clock;
+    // 励磁したまま止まっていたら励磁を切るまでの秒数（0 なら切らない）と、いま数えている秒数
+    uint32_t idle_timeout, idle_seconds;
     uint16_t seq;
-    uint8_t invert_dir, state, limits_set, draining;
-    // VSF_TRIGGERED は trsync の割り込みから立つ
+    uint8_t invert_dir, invert_enable, enabled, state, limits_set, draining;
+    // 自分で脱力した回数（255 の次は 0）。ホストは報告の enabled ではなくこの数の変化で脱力を知る
+    // （脱力の報告が届く前に励磁し直すと、enabled だけでは見落とす）
+    uint8_t relaxes;
+    // VSF_TRIGGERED は trsync の割り込みから、VSF_IDLE_TIMEOUT は idle_timer から立つ
     volatile uint8_t flags;
 };
 
@@ -106,11 +117,59 @@ velocity_stream_stop_signal(struct trsync_signal *tss, uint8_t reason)
     sched_wake_task(&velocity_stream_wake);
 }
 
+static int
+is_running(struct velocity_stream *vs)
+{
+    return vs->state == VS_STREAM || vs->state == VS_STOPPING;
+}
+
+static uint_fast8_t
+velocity_stream_idle_event(struct timer *t)
+{
+    struct velocity_stream *vs = container_of(
+        t, struct velocity_stream, idle_timer);
+    if (!vs->enabled || !vs->idle_timeout || is_running(vs)) {
+        vs->idle_seconds = 0;
+    } else if (++vs->idle_seconds > vs->idle_timeout) {
+        // 止まったのは tick と tick の間なので、超えたと言えるのは idle_timeout + 1 回目の tick
+        vs->idle_seconds = 0;
+        vs->flags |= VSF_IDLE_TIMEOUT;
+        sched_wake_task(&velocity_stream_wake);
+    }
+    vs->idle_timer.waketime += CONFIG_CLOCK_FREQ;
+    return SF_RESCHEDULE;
+}
+
+// enable のピンを書く（invert_enable の bit が立ったモーターは 0 で励磁）
+static void
+write_enables(struct velocity_stream *vs, uint8_t on)
+{
+    for (int i = 0; i < AXES; i++)
+        gpio_out_write(vs->enables[i], on ^ ((vs->invert_enable >> i) & 1));
+}
+
+static void
+set_enabled(struct velocity_stream *vs, uint8_t on)
+{
+    irq_disable();
+    write_enables(vs, on);
+    vs->enabled = on;
+    // 数え直す（タイマが立てたばかりの印も捨て、入れ直した直後に切らない）
+    vs->idle_seconds = 0;
+    vs->flags &= ~VSF_IDLE_TIMEOUT;
+    irq_enable();
+}
+
 void
 command_config_velocity_stream(uint32_t *args)
 {
     struct velocity_stream *vs = oid_alloc(
         args[0], command_config_velocity_stream, sizeof(*vs));
+    // shutdown のハンドラが書くので、shutdown しうる検査より先に設定する。設定した直後は脱力させておく
+    vs->invert_enable = args[9];
+    for (int i = 0; i < AXES; i++)
+        vs->enables[i] = gpio_out_setup(
+            args[6 + i], (vs->invert_enable >> i) & 1);
     for (int i = 0; i < AXES; i++)
         vs->steppers[i] = stepper_oid_lookup(args[1 + i]);
     vs->invert_dir = args[4];
@@ -118,21 +177,17 @@ command_config_velocity_stream(uint32_t *args)
         shutdown("Invalid velocity_stream kinematics");
     vs->stage.kinematics = args[5];
     vs->timer.func = velocity_stream_event;
+    vs->idle_timer.func = velocity_stream_idle_event;
 }
 DECL_COMMAND(command_config_velocity_stream,
              "config_velocity_stream oid=%c stepper_x_oid=%c stepper_y_oid=%c"
-             " stepper_z_oid=%c invert_dir=%c kinematics=%c");
+             " stepper_z_oid=%c invert_dir=%c kinematics=%c enable_x_pin=%u"
+             " enable_y_pin=%u enable_z_pin=%u invert_enable=%c");
 
 static struct velocity_stream *
 velocity_stream_oid_lookup(uint8_t oid)
 {
     return oid_lookup(oid, command_config_velocity_stream);
-}
-
-static int
-is_running(struct velocity_stream *vs)
-{
-    return vs->state == VS_STREAM || vs->state == VS_STOPPING;
 }
 
 static int
@@ -189,12 +244,12 @@ static void
 send_state(uint8_t oid, struct velocity_stream *vs, uint32_t clock)
 {
     sendf("velocity_stream_state oid=%c clock=%u seq=%hu state=%c"
-          " x=%i y=%i z=%i vx=%i vy=%i vz=%i"
+          " x=%i y=%i z=%i vx=%i vy=%i vz=%i enabled=%c relaxes=%c"
           , oid, clock, vs->seq, vs->state
           , actual_position(vs, 0), actual_position(vs, 1)
           , actual_position(vs, 2)
           , vs->stage.axes[0].velocity, vs->stage.axes[1].velocity
-          , vs->stage.axes[2].velocity);
+          , vs->stage.axes[2].velocity, vs->enabled, vs->relaxes);
 }
 
 void
@@ -241,7 +296,8 @@ command_velocity_stream_start(uint32_t *args)
         vs->target[i] = 0;
     }
     irq_disable();
-    vs->flags &= ~VSF_TRIGGERED;
+    vs->flags &= ~(VSF_TRIGGERED | VSF_IDLE_TIMEOUT);
+    vs->idle_seconds = 0;
     vs->state = VS_STREAM;
     sched_del_timer(&vs->timer);
     // すぐに最初の計画を走らせ、以降は period ごと
@@ -290,6 +346,34 @@ command_velocity_stream_stop_on_trigger(uint32_t *args)
 }
 DECL_COMMAND(command_velocity_stream_stop_on_trigger,
              "velocity_stream_stop_on_trigger oid=%c trsync_oid=%c");
+
+void
+command_velocity_stream_set_enable(uint32_t *args)
+{
+    struct velocity_stream *vs = velocity_stream_oid_lookup(args[0]);
+    uint8_t on = !!args[1];
+    // 流している間に切ると、積んだステップを励磁なしで出してしまう
+    if (!on && is_running(vs))
+        shutdown("Can't disable velocity_stream while running");
+    set_enabled(vs, on);
+}
+DECL_COMMAND(command_velocity_stream_set_enable,
+             "velocity_stream_set_enable oid=%c enable=%c");
+
+void
+command_velocity_stream_set_idle_timeout(uint32_t *args)
+{
+    struct velocity_stream *vs = velocity_stream_oid_lookup(args[0]);
+    irq_disable();
+    vs->idle_timeout = args[1];
+    vs->idle_seconds = 0;
+    sched_del_timer(&vs->idle_timer);
+    vs->idle_timer.waketime = timer_read_time() + CONFIG_CLOCK_FREQ;
+    sched_add_timer(&vs->idle_timer);
+    irq_enable();
+}
+DECL_COMMAND(command_velocity_stream_set_idle_timeout,
+             "velocity_stream_set_idle_timeout oid=%c seconds=%u");
 
 void
 command_velocity_stream_query(uint32_t *args)
@@ -379,6 +463,17 @@ velocity_stream_task(void)
     uint8_t oid;
     struct velocity_stream *vs;
     foreach_oid(oid, vs, command_config_velocity_stream) {
+        if (vs->flags & VSF_IDLE_TIMEOUT) {
+            irq_disable();
+            vs->flags &= ~VSF_IDLE_TIMEOUT;
+            irq_enable();
+            // タイマが立ててから流し始めていなければ切る
+            if (vs->enabled && !is_running(vs)) {
+                set_enabled(vs, 0);
+                vs->relaxes++;
+                send_state(oid, vs, timer_read_time());
+            }
+        }
         if (!is_running(vs))
             continue;
         uint32_t now = timer_read_time();
@@ -407,6 +502,8 @@ velocity_stream_shutdown(void)
     uint8_t oid;
     struct velocity_stream *vs;
     foreach_oid(oid, vs, command_config_velocity_stream) {
+        write_enables(vs, 0);
+        vs->enabled = 0;
         vs->state = VS_IDLE;
         vs->flags = 0;
     }

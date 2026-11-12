@@ -44,6 +44,7 @@ MCU を開く口は `open_motion_stage` と `send_emergency_stop` だけで、�
 - ファームの仕様（`Protocol.md`、`MCU_Commands.md`、C ソース）は GPLv3。pcbasm は MIT なので、Klippy（`klippy/`）のコードは読まず、構造も写さない。各モジュールの docstring に、仕様として読んだ出典を書く
 - テストは実機に触れない。`tests/support/wire_mcu.py` の MCU 役（子プロセス）と pty で話し、辞書は `tests/support/mcu_dictionary.py` で合成する（ファームのビルド出力はリポジトリに置かない）
 - 原点出しや座標指定の移動の手順は、ファームの README と C ソースを仕様として読んで組み立てた。`tools/bench.py`（GPLv3）は、ホストが送るコマンドの順を確かめるためにだけ読み、名前・構造・コメント・式の形は写していない（`firmware.py` と `homing.py` の docstring にも書く）
+- 励磁したまま `idle_timeout`（既定 5 分）止めておくと、ファームが自分で脱力し、原点は「未」に戻る（backend が落ちていても脱力する）
 - 原点は MCU が覚えないので、backend を起動し直したときや `restart` の後は「未」から始まる。MCU が同じ設定で設定済みなら reset せず（励磁を切らず、Z を落とさない）、流れを止めて可動域を戻してから使う
 
 ## 機械を動かす流れ

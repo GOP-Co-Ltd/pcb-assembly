@@ -5,6 +5,7 @@ MCU 役はファームの設定・``velocity_stream``・TMC2209 を模擬し、�
 shutdown するので、送る順番の誤り（止まりきる前の ``set_limits`` など）はテストの失敗として現れる。
 """
 
+import math
 from collections.abc import Iterator
 from typing import Any
 
@@ -27,8 +28,8 @@ from tests.support.wire_mcu import WireMcu
 # 1 MHz あたりの tick（CLOCK_FREQ は 12 MHz）
 _TICKS_PER_SECOND = 12_000_000
 
-# 設定の列（golden）。oid は velocity_stream が 0、stepper が 1〜3、endstop が 4〜6、enable が 7〜9、trsync が 10、
-# tmcuart が 11。enable_pin は反転（!）なので、励磁を切った値は 1
+# 設定の列（golden）。oid は velocity_stream が 0、stepper が 1〜3、endstop が 4〜6、trsync が 10、tmcuart が 11
+# （7〜9 は空き）。enable のピンは velocity_stream が持ち、3 軸とも反転（!）
 _CONFIG: list[tuple[str, dict[str, Any]]] = [
     ("allocate_oids", {"count": 12}),
     (
@@ -64,18 +65,6 @@ _CONFIG: list[tuple[str, dict[str, Any]]] = [
     ("config_endstop", {"oid": 4, "pin": 4, "pull_up": 1}),
     ("config_endstop", {"oid": 5, "pin": 3, "pull_up": 1}),
     ("config_endstop", {"oid": 6, "pin": 25, "pull_up": 1}),
-    (
-        "config_digital_out",
-        {"oid": 7, "pin": 12, "value": 1, "default_value": 1, "max_duration": 0},
-    ),
-    (
-        "config_digital_out",
-        {"oid": 8, "pin": 7, "value": 1, "default_value": 1, "max_duration": 0},
-    ),
-    (
-        "config_digital_out",
-        {"oid": 9, "pin": 2, "value": 1, "default_value": 1, "max_duration": 0},
-    ),
     ("config_trsync", {"oid": 10}),
     (
         "config_tmcuart",
@@ -90,6 +79,10 @@ _CONFIG: list[tuple[str, dict[str, Any]]] = [
             "stepper_z_oid": 3,
             "invert_dir": 7,
             "kinematics": 0,
+            "enable_x_pin": 12,
+            "enable_y_pin": 7,
+            "enable_z_pin": 2,
+            "invert_enable": 7,
         },
     ),
 ]
@@ -134,6 +127,9 @@ _SEARCH_LIMITS = [
     ("velocity_stream_set_position", {"oid": 0, "axis": 1, "pos": 0}),
     ("velocity_stream_set_position", {"oid": 0, "axis": 2, "pos": 0}),
 ]
+
+# 励磁したまま止まっていたら脱力するまでの秒数（既定の 5 分）
+_IDLE_TIMEOUT = ("velocity_stream_set_idle_timeout", {"oid": 0, "seconds": 300})
 
 # 張ったままかもしれない endstop を外す
 _DISARM = [
@@ -212,7 +208,7 @@ class TestConfigure:
         commands = _commands(mcu)
         finalize = [name for name, _ in commands].index("finalize_config")
 
-        assert commands[finalize + 1 :] == _SEARCH_LIMITS
+        assert commands[finalize + 1 :] == [*_SEARCH_LIMITS, _IDLE_TIMEOUT]
 
     def test_writes_the_drivers_before_moving(
         self, mcu: WireMcu, firmware: PnpMotionFirmware
@@ -262,7 +258,7 @@ class TestReuse:
         try:
             commands = _commands(mcu, since)
             assert commands[0] == ("velocity_stream_stop", {"oid": 0})
-            assert commands[1:] == [*_DISARM, *_SEARCH_LIMITS]
+            assert commands[1:] == [*_DISARM, *_SEARCH_LIMITS, _IDLE_TIMEOUT]
             assert second.query().state is StreamState.IDLE
             assert second.shutdown_reason is None
         finally:
@@ -332,7 +328,7 @@ class TestFirmwareCheck:
 
     def test_rejects_another_protocol(self):
         dictionary = dictionary_json()
-        dictionary["config"]["VELOCITY_STREAM_PROTOCOL"] = 2
+        dictionary["config"]["VELOCITY_STREAM_PROTOCOL"] = 1
         wire = WireMcu(dictionary)
         try:
             with pytest.raises(McuError) as error:
@@ -359,6 +355,88 @@ class TestDrivers:
 
         assert "TMC2209" in str(error.value)
         assert "2" in str(error.value)
+
+
+class TestEnable:
+    def test_energizes_and_relaxes_with_the_firmware_command(
+        self, mcu: WireMcu, firmware: PnpMotionFirmware
+    ):
+        assert not firmware.query().enabled
+        since = len(mcu.accepted())
+
+        firmware.set_enabled(True)
+        assert firmware.query().enabled
+        firmware.set_enabled(False)
+        assert not firmware.query().enabled
+
+        assert _commands(mcu, since) == [
+            ("velocity_stream_set_enable", {"oid": 0, "enable": 1}),
+            ("velocity_stream_set_enable", {"oid": 0, "enable": 0}),
+        ]
+
+    def test_sends_the_idle_timeout_in_whole_seconds(
+        self, mcu: WireMcu, settings: McuMotionSettings
+    ):
+        open_firmware(attrs.evolve(settings, idle_timeout=90.4)).close()
+
+        sent = [
+            params["seconds"]
+            for name, params in mcu.accepted()
+            if name == "velocity_stream_set_idle_timeout"
+        ]
+        assert sent == [90]
+
+
+class TestSettings:
+    @pytest.mark.parametrize("seconds", [0, 0.5, 2.0**32, math.inf])
+    def test_idle_timeout_outside_the_firmware_range_is_rejected(
+        self, settings: McuMotionSettings, seconds: float
+    ):
+        with pytest.raises(ValueError, match="idle_timeout"):
+            attrs.evolve(settings, idle_timeout=seconds)
+
+
+class TestIdleTimeout:
+    """MCU 役の 1 秒を 0.1 秒に縮め、脱力までの時間を 2 秒（実時間 0.2 秒）にする."""
+
+    @pytest.fixture
+    def quick(self) -> Iterator[PnpMotionFirmware]:
+        wire = open_wire(second=0.1)
+        opened = open_firmware(attrs.evolve(motion_settings(wire.path), idle_timeout=2))
+        yield opened
+        opened.close()
+        wire.close()
+
+    def test_relaxes_by_itself_after_holding_still(self, quick: PnpMotionFirmware):
+        quick.set_enabled(True)
+        report = quick.query()
+        assert report.enabled
+        assert report.relaxes == 0
+
+        # 脱力したときにファームが送る報告で知る（問い合わせない）
+        wait_until(
+            lambda: quick.latest is not None and quick.latest.relaxes == 1,
+            what="ファームが自分で脱力すること",
+        )
+        assert quick.latest is not None
+        assert not quick.latest.enabled
+        assert quick.query().state is StreamState.IDLE
+
+    def test_holds_while_streaming(self, quick: PnpMotionFirmware):
+        quick.set_enabled(True)
+        quick.start()
+        started = quick.query().clock
+
+        # 期限が切れても流したまま（速度 0）なので、速度を送り直さなくてよい
+        wait_until(
+            lambda: quick.query().clock > started + 0.6 * _TICKS_PER_SECOND,
+            what="脱力までの時間の 3 倍が過ぎること",
+        )
+
+        report = quick.query()
+        assert report.enabled
+        assert report.relaxes == 0
+        quick.stop()
 
 
 class TestStream:

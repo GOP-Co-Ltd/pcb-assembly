@@ -23,7 +23,7 @@ from dataclasses import dataclass
 reactor = serialhdl = clocksync = util = None
 tmc = tmc2208 = tmc2209 = tmc_uart = None
 
-PROTOCOL = 1  # VELOCITY_STREAM_PROTOCOL
+PROTOCOL = 2  # VELOCITY_STREAM_PROTOCOL
 REPO_ROOT = os.path.dirname(
     os.path.dirname(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -110,11 +110,10 @@ START_MARGIN = 0.05  # 開始の時刻を、先読みよりさらに先に置く
 # oid
 STEPPER = 0  # 0..2
 ENDSTOP = 3  # 3..5
-ENABLE = 6  # 6..8
-TRSYNC = 9
-TMCUART = 10
-VS = 11
-OID_COUNT = 12
+TRSYNC = 6
+TMCUART = 7
+VS = 8
+OID_COUNT = 9
 
 # trsync の理由。軸ごとに分けて、どのスイッチで止まったかを知る
 REASON_ENDSTOP = 10  # 10..12
@@ -464,12 +463,11 @@ class Bench:
                 f" dir_pin={a.dir_pin.name} invert_step=-1 step_pulse_ticks={self._ticks(1e-7)}",
                 f"config_endstop oid={ENDSTOP + i} pin={a.endstop_pin.name}"
                 f" pull_up={int(a.endstop_pin.pullup)}",
-                # 励磁を切った値で始め、shutdown でも切る
-                f"config_digital_out oid={ENABLE + i} pin={a.enable_pin.name}"
-                f" value={self._enable_value(a, False)}"
-                f" default_value={self._enable_value(a, False)} max_duration=0",
             ]
         invert = sum(1 << i for i, a in enumerate(AXES) if a.dir_pin.invert)
+        # enable のピンは velocity_stream が持つ（励磁を切って始め、shutdown でも切る）。
+        # bench は velocity_stream_set_idle_timeout を送らないので、置いたままでも脱力しない
+        invert_enable = sum(1 << i for i, a in enumerate(AXES) if a.enable_pin.invert)
         kinematics = self._ser.get_msgparser().get_enumerations()[
             "velocity_stream_kinematics"
         ][KINEMATICS_NAME]
@@ -480,7 +478,9 @@ class Bench:
             f" bit_time={self._ticks(1.0 / TMC_BAUD)}",
             f"config_velocity_stream oid={VS} stepper_x_oid={STEPPER}"
             f" stepper_y_oid={STEPPER + 1} stepper_z_oid={STEPPER + 2} invert_dir={invert}"
-            f" kinematics={kinematics}",
+            f" kinematics={kinematics} enable_x_pin={AXES[0].enable_pin.name}"
+            f" enable_y_pin={AXES[1].enable_pin.name} enable_z_pin={AXES[2].enable_pin.name}"
+            f" invert_enable={invert_enable}",
             "finalize_config crc=0",
         ]
         for cmd in cmds:
@@ -627,16 +627,8 @@ class Bench:
     def _homing_dist(axis):
         return HOMING_SPAN * (axis.position_max - axis.position_min)
 
-    @staticmethod
-    def _enable_value(axis, on):
-        """励磁のピンの値（enable_pin が反転（!）なら 0 で励磁）."""
-        return int(on) ^ int(axis.enable_pin.invert)
-
     def _enable(self, on):
-        for i, a in enumerate(AXES):
-            self._ser.send(
-                f"update_digital_out oid={ENABLE + i} value={self._enable_value(a, on)}"
-            )
+        self._ser.send(f"velocity_stream_set_enable oid={VS} enable={int(on)}")
 
     # ---- 流す・止める
 

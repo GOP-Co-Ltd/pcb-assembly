@@ -13,6 +13,7 @@ import pytest
 from pcbasm.hal import MotionError, MotionState, Velocity
 from pcbasm.hal.mcu.settings import McuMotionSettings
 from pcbasm.hal.mcu.stage import McuMotionStage
+from tests.support.motion_mcu import motion_settings, open_wire
 from tests.support.polling import before_deadline, wait_until
 from tests.support.wire_mcu import WireMcu
 
@@ -32,9 +33,9 @@ def _names(mcu: WireMcu, since: int = 0) -> list[str]:
 
 def _enable_values(mcu: WireMcu, since: int) -> list[int]:
     return [
-        params["value"]
+        params["enable"]
         for name, params in mcu.accepted()[since:]
-        if name == "update_digital_out"
+        if name == "velocity_stream_set_enable"
     ]
 
 
@@ -75,7 +76,7 @@ class TestSetVelocity:
 
         names = _names(mcu, since)
         assert "velocity_stream_start" not in names
-        assert "update_digital_out" not in names
+        assert "velocity_stream_set_enable" not in names
 
     def test_moves_right_after_homing(self, mcu: WireMcu, stage: McuMotionStage):
         # 原点出しの後、MCU は接触停止の状態だが、ステージは止まっているとみなして動かせる
@@ -108,8 +109,8 @@ class TestSetVelocity:
             if name == "velocity_stream_set_velocity"
         ]
         assert sent == [-200]
-        # 動き出すときに励磁を入れる（enable_pin は反転なので 0）
-        assert _enable_values(mcu, since) == [0, 0, 0]
+        # 動き出すときに励磁を入れる
+        assert _enable_values(mcu, since) == [1]
 
     def test_other_axes_stay_rejected_after_homing_one(self, stage: McuMotionStage):
         stage.home(["z"])
@@ -266,8 +267,44 @@ class TestRelax:
 
         stage.relax()
 
-        # enable_pin は反転なので、励磁を切る値は 1
-        assert _enable_values(mcu, since) == [1, 1, 1]
+        assert _enable_values(mcu, since) == [0]
         assert stage.status().homed == frozenset()
         with pytest.raises(ValueError):
             stage.set_velocity(Velocity(z=-1.0))
+
+
+class TestIdleTimeout:
+    """MCU 役の 1 秒を 0.1 秒に縮め、脱力までの時間を 5 秒（実時間 0.5 秒）にする.
+
+    原点出しから次の操作までに脱力しない程度に長くしてある。
+    """
+
+    @pytest.fixture
+    def quick(self) -> Iterator[McuMotionStage]:
+        wire = open_wire(second=0.1)
+        opened = McuMotionStage(
+            attrs.evolve(motion_settings(wire.path), idle_timeout=5)
+        )
+        yield opened
+        opened.close()
+        wire.close()
+
+    def test_forgets_the_origin_when_the_firmware_relaxes(self, quick: McuMotionStage):
+        quick.home(["z"])
+
+        wait_until(
+            lambda: quick.status().homed == frozenset(),
+            what="ファームが脱力して原点が「未」になること",
+        )
+        with pytest.raises(ValueError) as error:
+            quick.set_velocity(Velocity(z=-1.0))
+        assert "原点" in str(error.value)
+
+    def test_can_home_again_after_relaxing(self, quick: McuMotionStage):
+        quick.home(["z"])
+        wait_until(lambda: quick.status().homed == frozenset(), what="脱力")
+
+        quick.home(["z"])
+        quick.move_to(z=-5.0)
+
+        assert quick.status().position.z == pytest.approx(-5.0, abs=_STEP)

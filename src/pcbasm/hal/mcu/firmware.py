@@ -6,11 +6,13 @@
   開始の clock は今から ``lead_ticks`` 以上先）
 - ``src/firmware/pnp-motion/module/velocity_stream.c``（状態の遷移。``velocity_stream_stop`` は ``stream`` の
   ときだけ ``stopping`` にし、積んだステップが出尽くしてから ``idle`` にする。動いている間の
-  ``set_limits``・``set_position``・``start`` は shutdown。期限が切れても ``stream`` のまま速度 0 で流れ続ける）
+  ``set_limits``・``set_position``・``start`` は shutdown。期限が切れても ``stream`` のまま速度 0 で流れ続ける。
+  enable のピンを持ち、``velocity_stream_set_idle_timeout`` の秒数のあいだ励磁したまま流していなければ、
+  自分で励磁を切って ``velocity_stream_state`` を送る）
 - ファームの C ソース ``klipper/src`` の ``basecmd.c``（``allocate_oids``、``get_config`` と ``finalize_config`` の
   crc）、``stepper.c``（``config_stepper`` の ``invert_step=-1`` は両エッジで step を出す）、``endstop.c``
   （``endstop_home`` の ``sample_count=0`` で外す）、``trsync.c``（``trsync_start`` で登録を消してから張り直す）、
-  ``gpiocmds.c``（``config_digital_out`` の ``default_value`` は shutdown のときの値）、``tmcuart.c``
+  ``tmcuart.c``
 - TMC2209 Datasheet Rev 1.09 の「IFCNT」（UART の書き込みが正しく届くたびに 1 進む 8 bit の数）
 
 ``tools/bench.py``（GPLv3）は、ホストがどのコマンドをどの順に送るかを確かめるためにだけ読んだ。
@@ -18,7 +20,10 @@
 
 決めたこと:
 
-- **oid:** ``velocity_stream`` が 0、stepper が 1〜3、endstop が 4〜6、enable が 7〜9、trsync が 10、tmcuart が 11
+- **oid:** ``velocity_stream`` が 0、stepper が 1〜3、endstop が 4〜6、trsync が 10、tmcuart が 11（7〜9 は空き。
+  enable のピンは ``config_velocity_stream`` で ``velocity_stream`` に渡す）
+- **脱力までの時間:** 接続するたびに ``idle_timeout`` を秒に丸めて送る。設定の列（crc）に入れないので、
+  変えても reset しない
 - **step:** TMC2209 を dedge=1（両エッジで 1 microstep）で書くので、stepper は両エッジで step を出す
   （``invert_step=-1``、``step_pulse_ticks=0``）
 - **crc:** ``finalize_config`` には、設定の列を符号化したバイト列の CRC32 を入れる。接続したとき、MCU が
@@ -71,7 +76,7 @@ from pcbasm.hal.motion import Axis
 
 _logger = logging.getLogger(__name__)
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 _NOT_PNP_MOTION = "pnp-motion ファームではありません。`./install.sh firmware pnp-motion` で書き込んでください"
 _REQUIRED_COMMANDS = (
     "config_velocity_stream",
@@ -82,6 +87,8 @@ _REQUIRED_COMMANDS = (
     "velocity_stream_stop",
     "velocity_stream_stop_on_trigger",
     "velocity_stream_query",
+    "velocity_stream_set_enable",
+    "velocity_stream_set_idle_timeout",
 )
 
 AXES: tuple[Axis, ...] = ("x", "y", "z")
@@ -90,7 +97,6 @@ AXES: tuple[Axis, ...] = ("x", "y", "z")
 _STREAM = 0
 _STEPPERS = (1, 2, 3)
 _ENDSTOPS = (4, 5, 6)
-_ENABLES = (7, 8, 9)
 _TRSYNC = 10
 _TMCUART = 11
 _OID_COUNT = 12
@@ -155,6 +161,8 @@ class StreamReport:
         state: 状態
         position: X・Y・Z の位置 [steps]
         velocity: X・Y・Z の計画の速度 [steps/s]
+        enabled: モーターを励磁している（ファームが自分で脱力したら False）
+        relaxes: ファームが自分で脱力した回数（255 の次は 0。MCU を reset するまで数え続ける）
     """
 
     clock: int
@@ -162,6 +170,8 @@ class StreamReport:
     state: StreamState
     position: tuple[int, int, int]
     velocity: tuple[int, int, int]
+    enabled: bool
+    relaxes: int
 
 
 @attrs.frozen
@@ -250,11 +260,8 @@ class PnpMotionFirmware:
         )
 
     def set_enabled(self, enabled: bool) -> None:
-        """3 軸のモーターの励磁を入れる・切る."""
-        for oid, settings in zip(_ENABLES, self._settings.axes, strict=True):
-            self._send(
-                "update_digital_out", oid=oid, value=_enable_level(settings, enabled)
-            )
+        """3 軸のモーターの励磁を入れる・切る（切るのは止まっているときだけ）."""
+        self._send("velocity_stream_set_enable", oid=_STREAM, enable=int(enabled))
 
     def set_limits(self, axis: Axis, low: int, high: int) -> None:
         """軸の可動域 [steps] を送る（速度と加速度の上限は設定の値）。止まっているときだけ送る.
@@ -559,6 +566,11 @@ class PnpMotionFirmware:
             self._reconfigured = True
         self._program_drivers()
         self.forget_origin(*AXES)
+        self._send(
+            "velocity_stream_set_idle_timeout",
+            oid=_STREAM,
+            seconds=round(self._settings.idle_timeout),
+        )
         self.query()
 
     def _configure(self, crc: int) -> None:
@@ -633,6 +645,8 @@ class PnpMotionFirmware:
             state=StreamState(name),
             position=(_int(params, "x"), _int(params, "y"), _int(params, "z")),
             velocity=(_int(params, "vx"), _int(params, "vy"), _int(params, "vz")),
+            enabled=bool(_int(params, "enabled")),
+            relaxes=_int(params, "relaxes"),
         )
 
     # 以下、受信スレッド
@@ -794,19 +808,6 @@ def _config_commands(
             "config_endstop",
             {"oid": oid, "pin": axis.endstop_pin, "pull_up": int(axis.endstop_pull_up)},
         )
-    for oid, axis in zip(_ENABLES, axes, strict=True):
-        # 設定した直後も、shutdown したあとも、モーターは脱力させておく
-        off = _enable_level(axis, False)
-        yield (
-            "config_digital_out",
-            {
-                "oid": oid,
-                "pin": axis.enable_pin,
-                "value": off,
-                "default_value": off,
-                "max_duration": 0,
-            },
-        )
     yield "config_trsync", {"oid": _TRSYNC}
     frequency = transport.dictionary.constant("CLOCK_FREQ")
     assert isinstance(frequency, int)
@@ -832,12 +833,12 @@ def _config_commands(
             "kinematics": transport.dictionary.enum_value(
                 "velocity_stream_kinematics", settings.kinematics
             ),
+            # ファームは設定した直後も shutdown したあとも、モーターを脱力させておく
+            "enable_x_pin": axes[0].enable_pin,
+            "enable_y_pin": axes[1].enable_pin,
+            "enable_z_pin": axes[2].enable_pin,
+            "invert_enable": sum(
+                1 << i for i, axis in enumerate(axes) if axis.invert_enable
+            ),
         },
     )
-
-
-def _enable_level(settings: AxisSettings, energized: bool) -> int:
-    """モーターを ``energized`` にするときの enable のピンの値."""
-    if settings.invert_enable:
-        return 0 if energized else 1
-    return 1 if energized else 0

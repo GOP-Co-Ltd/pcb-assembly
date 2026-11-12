@@ -138,24 +138,27 @@ PnP 機（kurousagi）の Pi で行う。bench と Klippy は同じ MCU を同�
 
 単位は、位置がステップ、速度が steps/s、加速度が steps/s²、時刻と期間が MCU の clock tick（`CLOCK_FREQ`）。
 
-| コマンド                          | 引数                                                                           | いつ                   |
-| --------------------------------- | ------------------------------------------------------------------------------ | ---------------------- |
-| `config_velocity_stream`          | `oid`、3 つの stepper の oid、`invert_dir`（stepper ごとの bit）、`kinematics` | 設定時                 |
-| `velocity_stream_set_limits`      | `axis`、`min_pos`、`max_pos`、`max_velocity`、`accel`                          | 停止中                 |
-| `velocity_stream_set_position`    | `axis`、`pos`                                                                  | 停止中（原点出しの後） |
-| `velocity_stream_start`           | `clock`、`period_ticks`、`lead_ticks`、`report_ticks`、`ttl_ticks`             | 停止中・`CONTACT` の後 |
-| `velocity_stream_set_velocity`    | `seq`、`vx`・`vy`・`vz`、`expire_clock`                                        | `STREAM` 中            |
-| `velocity_stream_stop`            |                                                                                | `STREAM` 中            |
-| `velocity_stream_stop_on_trigger` | `trsync_oid`                                                                   | 開始の前               |
-| `velocity_stream_query`           |                                                                                | いつでも               |
+| コマンド                           | 引数                                                                                                                                        | いつ                   |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| `config_velocity_stream`           | `oid`、3 つの stepper の oid、`invert_dir`（stepper ごとの bit）、`kinematics`、3 つの enable のピン、`invert_enable`（stepper ごとの bit） | 設定時                 |
+| `velocity_stream_set_limits`       | `axis`、`min_pos`、`max_pos`、`max_velocity`、`accel`                                                                                       | 停止中                 |
+| `velocity_stream_set_position`     | `axis`、`pos`                                                                                                                               | 停止中（原点出しの後） |
+| `velocity_stream_start`            | `clock`、`period_ticks`、`lead_ticks`、`report_ticks`、`ttl_ticks`                                                                          | 停止中・`CONTACT` の後 |
+| `velocity_stream_set_velocity`     | `seq`、`vx`・`vy`・`vz`、`expire_clock`                                                                                                     | `STREAM` 中            |
+| `velocity_stream_stop`             |                                                                                                                                             | `STREAM` 中            |
+| `velocity_stream_stop_on_trigger`  | `trsync_oid`                                                                                                                                | 開始の前               |
+| `velocity_stream_query`            |                                                                                                                                             | いつでも               |
+| `velocity_stream_set_enable`       | `enable`（1 で励磁、0 で脱力）                                                                                                              | いつでも（0 は停止中） |
+| `velocity_stream_set_idle_timeout` | `seconds`（0 で無効。設定した直後は 0）                                                                                                     | いつでも               |
 
-応答は `velocity_stream_state`（`clock`、`seq`、`state`、`x`・`y`・`z`、`vx`・`vy`・`vz`）。
-`report_ticks` ごとと、`CONTACT` になったときと、`velocity_stream_query` に返す。
+応答は `velocity_stream_state`（`clock`、`seq`、`state`、`x`・`y`・`z`、`vx`・`vy`・`vz`、`enabled`、`relaxes`）。
+`report_ticks` ごとと、`CONTACT` になったときと、自動で脱力したときと、`velocity_stream_query` に返す。
 
 - `x`・`y`・`z` は報告時刻の stepper の位置から求めた直交座標の位置、`vx`・`vy`・`vz` は先読み（`lead_ticks`）の分だけ先の計画の速度。
     corexy では、2 つの stepper の位置の和が奇数のとき直交座標で半歩になり、floor で 1 ステップずれて見える
 - `seq` は最後に受け取った速度指令の連番（実行中の指令の連番ではない）
 - `state` は `velocity_stream_state` の列挙（`idle`・`stream`・`stopping`・`contact`）
+- `enabled` はモーターを励磁しているか（1 で励磁）。`relaxes` は自動で脱力した回数（255 の次は 0、reset まで数え続ける）
 - `kinematics` は `velocity_stream_kinematics` の列挙（`cartesian`・`corexy`・`inversed_corexy`）。
     stepper の oid は printer.cfg の `stepper_x`・`stepper_y`・`stepper_z` の順で渡す。
     corexy は Klipper と同じく `stepper_x` = x + y、`stepper_y` = x − y、inversed_corexy は `stepper_x` = x − y、`stepper_y` = x + y
@@ -171,6 +174,14 @@ PnP 機（kurousagi）の Pi で行う。bench と Klippy は同じ MCU を同�
 - **期限:** 速度指令の `expire_clock` を過ぎると、目標を 0 にして減速する。期限は受け取った時点から `ttl_ticks` までに切られる。
     期限は区間の開始時刻と比べる。ホストが固まってから減速し始めるまでの時間は、最後の指令から `ttl_ticks` ほど。
     区間は先読みの分だけ先に計画するので、指令が当たるのは受け取ってから `ttl_ticks` − `lead_ticks` ほどの間の区間
+- **励磁:** enable のピンは `velocity_stream` が持つ（`config_digital_out` で別に設定しない）。設定した直後と shutdown で脱力する。
+    `invert_enable` の bit が立った stepper は、0 で励磁する（Klippy の `!enable_pin` に当たる）。
+    流している間に `velocity_stream_set_enable` で脱力させると shutdown になる
+- **自動の脱力:** 励磁したまま流していない（`IDLE`・`CONTACT`）時間が `velocity_stream_set_idle_timeout` の秒数に達すると、
+    脱力して `velocity_stream_state` を送る。1 秒ごとに数えるので、脱力するのは止まってから `seconds` 秒〜`seconds` + 1 秒の間。
+    ホストが落ちていても脱力する。脱力の間に軸が動いたかもしれないので、ホストは原点出しからやり直す。
+    励磁を入れ直すか流すと数え直す。脱力の報告が届く前にホストが励磁し直すと `enabled` は 1 に戻るので、
+    脱力したかは `relaxes` の変化で見る
 - **向き:** `invert_dir` の bit が立った stepper は、正の向きで dir ピンを 0 にする（Klippy の `!dir_pin` に当たる）
 - **corexy の単位:** X と Y の 1 ステップを、モーターの 1 ステップとして写す。`stepper_x` と `stepper_y` の 1 mm あたりのステップ数を同じにする
 - **範囲:** 次を外れると shutdown になる

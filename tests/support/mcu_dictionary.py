@@ -50,8 +50,11 @@ COMMANDS: dict[str, int] = {
     ): 19,
     (
         "config_velocity_stream oid=%c stepper_x_oid=%c stepper_y_oid=%c"
-        " stepper_z_oid=%c invert_dir=%c kinematics=%c"
+        " stepper_z_oid=%c invert_dir=%c kinematics=%c enable_x_pin=%u"
+        " enable_y_pin=%u enable_z_pin=%u invert_enable=%c"
     ): 20,
+    "velocity_stream_set_enable oid=%c enable=%c": 21,
+    "velocity_stream_set_idle_timeout oid=%c seconds=%u": 22,
     "config_stepper oid=%c step_pin=%c dir_pin=%c invert_step=%c step_pulse_ticks=%u": 31,
     "stepper_stop_on_trigger oid=%c trsync_oid=%c": 26,
     "config_endstop oid=%c pin=%c pull_up=%c": 34,
@@ -82,7 +85,7 @@ RESPONSES: dict[str, int] = {
     "config is_config=%c crc=%u is_shutdown=%c move_count=%hu": 131,
     (
         "velocity_stream_state oid=%c clock=%u seq=%hu state=%c"
-        " x=%i y=%i z=%i vx=%i vy=%i vz=%i"
+        " x=%i y=%i z=%i vx=%i vy=%i vz=%i enabled=%c relaxes=%c"
     ): 134,
     "stepper_position oid=%c pos=%i": 135,
     "endstop_state oid=%c homing=%c next_clock=%u pin_value=%c": 136,
@@ -108,6 +111,7 @@ ENUMERATIONS: dict[str, dict[str, Any]] = {
         "Can't add signal that is already active": 77,
         "oids already allocated": 78,
         "Invalid velocity_stream limits": 79,
+        "Can't disable velocity_stream while running": 80,
     },
 }
 
@@ -116,7 +120,7 @@ CONSTANTS: dict[str, int | str] = {
     "CLOCK_FREQ": 12000000,
     "MCU": "rp2040",
     "STATS_SUMSQ_BASE": 256,
-    "VELOCITY_STREAM_PROTOCOL": 1,
+    "VELOCITY_STREAM_PROTOCOL": 2,
     "PNP_MOTION_VERSION": "0000000",
 }
 

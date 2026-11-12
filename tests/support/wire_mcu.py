@@ -47,6 +47,10 @@
   "above": bool}``。``above`` なら位置が ``at`` 以上、そうでなければ ``at`` 以下で押される（ピンの値は 1）。
   張った ``endstop_home`` の ``pin_value`` と一致したら trsync を引く。登録した ``velocity_stream`` は ``contact``
   になり、引いた軸は ``at`` ちょうどに置く。``trsync_state`` を送る
+- 励磁: ``velocity_stream_set_enable`` で入れ・切る（流している間に切ると shutdown）。``velocity_stream_set_idle_timeout``
+  の秒数を超えて励磁したまま流していなければ、励磁を切って脱力の回数（``relaxes``）を 1 進め、
+  ``velocity_stream_state`` を送る。shutdown でも励磁を切る。模擬の 1 秒の長さは
+  ``motion.second``（実時間の秒。既定 1.0）。テストが待つ時間を縮めるのに使う
 - 初めの物理的な位置は ``motion.positions``（X・Y・Z のステップ。既定は 0）
 - TMC2209: ``motion.tmc_addresses``（既定は 0〜3）のアドレスが UART に応える。書き込みでレジスタを覚えて
   IFCNT を 1 進め、読み出しにはレジスタの値を返す。応えないアドレスへの読み出しには 1 だけのビット列を返す
@@ -189,6 +193,10 @@ class _Stream:
         self.next_report = 0
         self.stop_at = 0
         self.updated = 0
+        self.enabled = False
+        self.idle_timeout = 0  # [s]。0 なら脱力しない
+        self.idle_since = 0  # 励磁したまま止まり始めた clock
+        self.relaxes = 0  # 自分で脱力した回数
 
     def running(self) -> bool:
         return self.state in ("stream", "stopping")
@@ -224,6 +232,7 @@ class _Mcu:
         }
         self._tmc_addresses = set(motion.get("tmc_addresses", [0, 1, 2, 3]))
         self._stop_delay = motion.get("stop_delay", 0.03)
+        self._second = motion.get("second", 1.0)
         # TMC2209 は MCU と別の部品なので、MCU の reset でレジスタは消えない
         self._tmc = {address: {_IFCNT: 0} for address in self._tmc_addresses}
         self._reset()
@@ -238,7 +247,6 @@ class _Mcu:
         self._armed: dict[int, dict[str, int]] = {}  # endstop の oid → 張った値
         self._trsyncs: dict[int, dict[str, Any]] = {}
         self._stream: _Stream | None = None
-        self._outputs: dict[int, int] = {}
 
     def serve(self) -> None:
         buffer = b""
@@ -419,10 +427,6 @@ class _Mcu:
             self._endstops[params["oid"]] = params["pin"]
         elif name == "config_trsync":
             self._trsyncs[params["oid"]] = {"can_trigger": False, "signals": []}
-        elif name == "config_digital_out":
-            self._outputs[params["oid"]] = params["value"]
-        elif name == "update_digital_out":
-            self._outputs[params["oid"]] = params["value"]
         elif name == "config_velocity_stream":
             self._stream = _Stream(params["oid"], self._positions)
         elif name == "tmcuart_send":
@@ -493,6 +497,15 @@ class _Mcu:
                 stream.stop_at = clock + int(self._stop_delay * self._frequency)
         elif name == "velocity_stream_query":
             self._report(stream, clock)
+        elif name == "velocity_stream_set_enable":
+            if not params["enable"] and stream.running():
+                self._fail("Can't disable velocity_stream while running")
+                return
+            stream.enabled = bool(params["enable"])
+            stream.idle_since = clock
+        elif name == "velocity_stream_set_idle_timeout":
+            stream.idle_timeout = params["seconds"]
+            stream.idle_since = clock
 
     def _start(self, stream: _Stream, params: dict[str, Any], clock: int) -> None:
         period, lead, ttl = (
@@ -543,11 +556,16 @@ class _Mcu:
             vx=round(stream.velocity[0]),
             vy=round(stream.velocity[1]),
             vz=round(stream.velocity[2]),
+            enabled=int(stream.enabled),
+            relaxes=stream.relaxes,
         )
 
     def _wait(self) -> float | None:
         stream = self._stream
-        if self._armed or (stream is not None and stream.running()):
+        if self._armed or (
+            stream is not None
+            and (stream.running() or stream.enabled and stream.idle_timeout)
+        ):
             return _TICK
         return None
 
@@ -559,6 +577,8 @@ class _Mcu:
         if stream is not None and stream.running():
             self._advance(stream, clock)
         self._check_endstops(clock)
+        if stream is not None:
+            self._check_idle(stream, clock)
         if stream is not None and stream.running() and stream.report_ticks:
             if clock >= stream.next_report:
                 self._report(stream, clock)
@@ -583,6 +603,17 @@ class _Mcu:
         if stream.state == "stopping" and clock >= stream.stop_at:
             stream.state = "idle"
             stream.velocity = [0.0] * _AXES
+
+    def _check_idle(self, stream: _Stream, clock: int) -> None:
+        """励磁したまま流していない時間が ``idle_timeout`` を超えたら、励磁を切って知らせる."""
+        if stream.running() or not stream.enabled:
+            stream.idle_since = clock
+            return
+        timeout = stream.idle_timeout * self._second * self._frequency
+        if stream.idle_timeout and clock - stream.idle_since > timeout:
+            stream.enabled = False
+            stream.relaxes = (stream.relaxes + 1) % 256
+            self._report(stream, clock)
 
     def _pin_value(self, pin: int) -> int:
         switch = self._switches.get(pin)
@@ -663,6 +694,9 @@ class _Mcu:
         if self._stream is not None:
             self._stream.state = "idle"
             self._stream.velocity = [0.0] * _AXES
+            # ファームは shutdown で脱力し、数えるタイマも消える
+            self._stream.enabled = False
+            self._stream.idle_timeout = 0
         self._armed.clear()
         for trsync in self._trsyncs.values():
             trsync.update(can_trigger=False, signals=[])

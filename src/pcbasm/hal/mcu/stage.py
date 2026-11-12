@@ -16,6 +16,11 @@ mm と mm/s をステップに直して :class:`~pcbasm.hal.mcu.firmware.PnpMoti
   速度指令を受けたら ``velocity_stream_start`` で開始し直す
 - **止まっているときの全軸 0:** 何も送らない（流し始めず、励磁も入れない）。脱力の後に 0 を送り続けても、
   脱力が取り消されない
+- **ファームの脱力:** 励磁したまま ``idle_timeout`` のあいだ止めておくと、ファームが自分で脱力して報告する。
+  脱力したかは、報告の脱力の回数（``relaxes``）が接続したときから変わったかで見る（``enabled`` で見ると、
+  脱力の報告が届く前に励磁し直したときに見落とす）。変わっていれば、:meth:`~McuMotionStage.status` は
+  すぐに原点を「未」として返し、次の操作の前に止めてから
+  :meth:`~pcbasm.hal.mcu.firmware.PnpMotionFirmware.forget_origin` する（脱力の間に軸が動いたかもしれない）
 - **座標指定の移動:** mm をステップに直して :meth:`PnpMotionFirmware.travel` に任せる（直線に動き、
   速さを省けばどの軸も ``max_velocity`` を超えない最も速い動き。1 ステップ以内の差は動かさない）
 - **緊急停止が届かない間:** 次の間の :meth:`~McuMotionStage.emergency_stop` は :class:`MotionError` になる。
@@ -79,6 +84,7 @@ class McuMotionStage(MotionStage):
         )
         with self._translate():
             self._firmware = open_firmware(settings)
+        self._relaxes = self._latest_relaxes()
 
     @property
     @override
@@ -106,12 +112,13 @@ class McuMotionStage(MotionStage):
                 for axis, steps in zip(axes, report.position, strict=True)
             )
         )
+        homed = self._homed if report.relaxes == self._relaxes else frozenset()
         if reason is not None:
             return MotionStatus(
                 position=position,
                 velocity=Velocity(),
                 state=MotionState.SHUTDOWN,
-                homed=self._homed,
+                homed=homed,
                 shutdown_reason=reason,
             )
         return MotionStatus(
@@ -123,7 +130,7 @@ class McuMotionStage(MotionStage):
                 )
             ),
             state=MotionState.MOVING if report.state.running else MotionState.IDLE,
-            homed=self._homed,
+            homed=homed,
         )
 
     @override
@@ -218,6 +225,7 @@ class McuMotionStage(MotionStage):
             try:
                 with self._translate():
                     self._firmware = open_firmware(self._settings, reset=True)
+                self._relaxes = self._latest_relaxes()
             except MotionError as error:
                 self._failure = (
                     f"ファームを立て直せなかった（{error}）。再起動をやり直してください"
@@ -260,7 +268,21 @@ class McuMotionStage(MotionStage):
             raise MotionError(
                 f"MCU が shutdown している: {firmware.shutdown_reason}（ファームの再起動が要る）"
             )
+        report = firmware.latest
+        if report is not None and report.relaxes != self._relaxes:
+            # ファームが自分で脱力した（モジュールの docstring）
+            self._relaxes = report.relaxes
+            self._homed = frozenset()
+            if firmware.streaming:
+                firmware.stop()
+            firmware.forget_origin(*AXES)
         return firmware
+
+    def _latest_relaxes(self) -> int:
+        """接続したときの、ファームが自分で脱力した回数."""
+        report = self._firmware.latest
+        assert report is not None  # 接続したときに問い合わせている
+        return report.relaxes
 
     def _require_homed(self, axes: Collection[Axis]) -> None:
         if unhomed := sorted(set(axes) - self._homed):
