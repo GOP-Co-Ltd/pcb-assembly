@@ -1,6 +1,6 @@
 "use strict";
 
-// 画面の仮想スティック（コントローラ操作のジョブのページ）。XY パッドと Z スライダーを押して倒している間、
+// 画面の仮想スティック（マシン操作パネルのコントローラ操作。新ファームの機体だけ）。XY パッドと Z スライダーを押して倒している間、
 // 倒し具合（-1〜1）を 20 Hz で WS command の stick として送り、離したら 0 を送る。
 // - 向きはスティックの座標で送る: パッドは右 = +x・上 = +y、スライダーは上 = +z。
 //   機体の向き（上 = Y−）への直しと、最高速度を掛けるのは backend（pcbasm.pnp.stick）がする
@@ -62,7 +62,7 @@
 
   function blockedReason() {
     if (!jobs.commandReady(jobs.currentJob(), { name: jobName })) {
-      return "コントローラ操作のジョブを実行してから操作してください";
+      return "「コントローラ操作」を押してから操作してください";
     }
     if (window.webui.control?.state() !== "held") {
       return "操作権が無いので送れません";
