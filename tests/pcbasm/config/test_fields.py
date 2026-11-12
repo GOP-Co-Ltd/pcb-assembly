@@ -122,6 +122,8 @@ class TestSettingFields:
             "pnp.servo.closed_angle",
             "pnp.servo.open_angle",
             "pnp.servo.rotation_speed",
+            "pnp.gamepad.deadzone_xy",
+            "pnp.gamepad.deadzone_z",
         ]
 
     def test_servo_setup_writes_only_setting_keys(self):

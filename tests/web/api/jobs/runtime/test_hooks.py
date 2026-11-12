@@ -1,6 +1,7 @@
 """`web.api.jobs.runtime.hooks`（ジョブの節目に装置へさせること）の仕様テスト.
 
 - 装置を動かすジョブの終了時に、ノズルキャップ（未記録なら PRESENT）へ退避して脱力する。失敗はログだけでジョブの結果を変えない
+- 新ファームの機体（[pnp.motion]）では、開いているステージを止めるだけにする（退避と脱力をしない。開いていなければ何もしない）
 - 装置を動かすジョブの成功・失敗を、機体スピーカーで 1 回だけ知らせる（中止は鳴らさない）
 - オペレータ待ちに入るたび、入力待ち音で作業者を呼び戻す
 
@@ -17,16 +18,19 @@ import pytest
 import tomlkit
 
 from pcbasm.config.audio import AudioConfig
-from pcbasm.hal import AudioPlaybackError
-from pcbasm.hal.fake import FakeAudioPlayer
+from pcbasm.hal import AudioPlaybackError, MotionState, Velocity
+from pcbasm.hal.fake import FakeAudioPlayer, FakeMotionStage
 from tests.support.polling import wait_until
 from tests.support.web import (
     ManagerFactory,
     answer_next_prompt,
+    job_manager,
+    motion_devices,
     register_gated as _register_gated,
     register_synthetic as _register,
 )
-from web.api.backend import Backend
+from web.api.backend import Backend, open_backend
+from web.api.env import Env
 from web.api.jobs.runtime.catalog import JobCatalog
 from web.api.jobs.runtime.context import JobContext
 from web.api.jobs.runtime.manager import JobManager
@@ -54,6 +58,29 @@ class TestPresentOnTermination:
         camera_backend: Backend,
     ):
         _register(catalog, lambda ctx: None, uses_machine=True)
+        record = manager.start("synthetic", {})
+        wait_until(lambda: record.status.terminal)
+        wait_until(lambda: camera_backend.lock.owner is None)
+
+        assert record.status == JobStatus.SUCCEEDED
+        log_text = "\n".join(record.log_lines)
+        assert "PRESENT" in log_text
+        assert "M84" in log_text
+
+    def test_parks_even_if_machine_toml_breaks_during_the_job(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        camera_backend: Backend,
+        config_dir: Path,
+    ):
+        """退避はジョブ開始時に読んだ設定で行い、終わりに machine.toml を読み直さない."""
+        path = config_dir / "machine.toml"
+
+        def run(ctx: JobContext) -> None:
+            path.write_text("[klipper\n", encoding="utf-8")
+
+        _register(catalog, run, uses_machine=True)
         record = manager.start("synthetic", {})
         wait_until(lambda: record.status.terminal)
         wait_until(lambda: camera_backend.lock.owner is None)
@@ -128,6 +155,67 @@ class TestPresentOnTermination:
         assert record.status == JobStatus.SUCCEEDED
         assert "PRESENT" not in "\n".join(record.log_lines)
         assert "M84" not in "\n".join(record.log_lines)
+
+
+class TestMotionStageOnTermination:
+    """新ファームの機体では、ジョブの終わりにステージを止めるだけにする."""
+
+    def test_stops_the_moving_stage_without_parking(
+        self,
+        motion_manager: JobManager,
+        motion_backend: Backend,
+        motion_stage: FakeMotionStage,
+    ):
+        motion_stage.home()
+
+        def run(ctx: JobContext) -> None:
+            ctx.devices.motion_stage().set_velocity(Velocity(x=5.0))
+
+        _register(motion_backend.catalog, run, uses_machine=True)
+        record = motion_manager.start("synthetic", {})
+        wait_until(lambda: record.status.terminal)
+        wait_until(lambda: motion_backend.lock.owner is None)
+
+        assert record.status == JobStatus.SUCCEEDED
+        assert motion_stage.commands[-1] == "stop"
+        assert motion_stage.status().state is MotionState.IDLE
+        assert motion_stage.status().homed == frozenset({"x", "y", "z"})
+        assert record.log_lines == ()
+
+    def test_shutdown_stage_is_logged_and_status_kept(
+        self,
+        motion_manager: JobManager,
+        motion_backend: Backend,
+        motion_stage: FakeMotionStage,
+    ):
+        motion_stage.emergency_stop()
+        _register(motion_backend.catalog, lambda ctx: None, uses_machine=True)
+        record = motion_manager.start("synthetic", {})
+        wait_until(lambda: record.status.terminal)
+        wait_until(lambda: motion_backend.lock.owner is None)
+
+        assert record.status == JobStatus.SUCCEEDED
+        assert "退避に失敗" in "\n".join(record.log_lines)
+
+    def test_unopened_stage_is_not_opened(
+        self, webui_settings: Env, audio_player: FakeAudioPlayer
+    ):
+        """開いていないステージは止めない（開けば root conftest がテストを落とす）."""
+        backend = open_backend(
+            webui_settings, devices=motion_devices(webui_settings, audio_player, None)
+        )
+        manager = job_manager(backend, backend.catalog)
+        try:
+            _register(backend.catalog, lambda ctx: None, uses_machine=True)
+            record = manager.start("synthetic", {})
+            wait_until(lambda: record.status.terminal)
+            wait_until(lambda: backend.lock.owner is None)
+        finally:
+            manager.shutdown()
+            backend.close()
+
+        assert record.status == JobStatus.SUCCEEDED
+        assert record.log_lines == ()
 
 
 @pytest.mark.usefixtures("unreachable_klipper")

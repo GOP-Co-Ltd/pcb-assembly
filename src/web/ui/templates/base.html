@@ -47,9 +47,16 @@
         {% endif %}
         {# 緊急停止や Klipper の異常から戻す操作。ファームウェアだけでなく WebUI のサービスも
            止まるので、誤クリックで LAN 中の画面が切断されないよう確認を挟む（緊急停止には付けない。即時性が要る） #}
+        {% if stage == "motion" %}
+        {# 新ファームの機体は XYZ の MCU だけを立て直す（WebUI のサービスは再起動しない） #}
+        <button id="firmware-restart" class="firmware-restart" title="XYZ の MCU を再起動して復旧する"
+                data-testid="firmware-restart" data-requires-control
+                data-confirm="XYZ の MCU を再起動します。実行中のジョブは止まり、原点は「未」に戻ります。実行しますか？">再起動（復旧）</button>
+        {% else %}
         <button id="firmware-restart" class="firmware-restart" title="Klipper と WebUI のサービスを再起動して復旧する"
                 data-testid="firmware-restart" data-requires-control
                 data-confirm="Klipper（FIRMWARE_RESTART）と、この機体の WebUI のサービスを再起動します。実行中のジョブは止まり、この画面も一時的に切れます。実行しますか？">再起動（復旧）</button>
+        {% endif %}
       </div>
     </details>
     {% endif %}

@@ -66,6 +66,8 @@ COMMANDS: dict[str, int] = {
     "trsync_trigger oid=%c reason=%c": 35,
     "config_tmcuart oid=%c rx_pin=%u pull_up=%c tx_pin=%u bit_time=%u": 59,
     "tmcuart_send oid=%c write=%*s read=%c": 58,
+    "config_digital_out oid=%c pin=%u value=%c default_value=%c max_duration=%u": 40,
+    "update_digital_out oid=%c value=%c": 41,
 }
 
 # 応答の書式 → ID
@@ -97,6 +99,15 @@ ENUMERATIONS: dict[str, dict[str, Any]] = {
     "static_string_id": {
         "Command request": 5,
         "Can't set velocity_stream limits while running": 70,
+        "Can't set velocity_stream position while running": 71,
+        "velocity_stream position outside limits": 72,
+        "velocity_stream already running": 73,
+        "velocity_stream limits not set": 74,
+        "Invalid velocity_stream period": 75,
+        "Invalid velocity_stream ttl": 76,
+        "Can't add signal that is already active": 77,
+        "oids already allocated": 78,
+        "Invalid velocity_stream limits": 79,
     },
 }
 

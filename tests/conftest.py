@@ -85,6 +85,30 @@ def forbid_real_gamepad(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(hal, "open_gamepad", refuse)
 
 
+@pytest.fixture(autouse=True)
+def forbid_real_motion(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`open_motion_stage` と `send_emergency_stop` を呼ぶとテストが落ちるようにし、実機の MCU
+    のシリアルを開かせない.
+
+    テストは本番機の上でも走るので、取りこぼした経路があっても実機の XYZ は動かない。
+    ステージが要るテストは `FakeMotionStage` を使う。`McuMotionStage` は疑似端末の MCU 役
+    （`tests/support/wire_mcu.py`）の slave を、モジュールの実物で開いて確かめる。
+    """
+    try:
+        from pcbasm.hal import mcu
+    except ImportError:
+        return  # hal を読めない環境では、どの src も MCU を開く口に届かない
+
+    def refuse_stage(*args: object, **kwargs: object) -> NoReturn:
+        pytest.fail("テストから open_motion_stage が呼ばれました")
+
+    def refuse_emergency_stop(*args: object, **kwargs: object) -> NoReturn:
+        pytest.fail("テストから send_emergency_stop が呼ばれました")
+
+    monkeypatch.setattr(mcu, "open_motion_stage", refuse_stage)
+    monkeypatch.setattr(mcu, "send_emergency_stop", refuse_emergency_stop)
+
+
 @pytest.fixture
 def unreachable_klipper(monkeypatch: pytest.MonkeyPatch) -> None:
     """`open_klipper` が接続先の無い Klipper を返すようにする（送信は httpx の接続エラーになる）.

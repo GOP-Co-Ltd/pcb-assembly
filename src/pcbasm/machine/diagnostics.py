@@ -75,6 +75,8 @@ def check_klipper(klipper: KlipperClient, machine: MachineConfig) -> list[Check]
 
     接続できなければ printer.cfg の項目は並べず、shutdown（MCU の切断など）では読めるので並べる。
     """
+    # [klipper] の無い機体（新ファーム）は、ジョブが Klipper を求めた時点で断るのでここへ来ない
+    assert machine.klipper is not None
     name = "Klipper の接続"
     endpoint = f"{machine.klipper.host}:{machine.klipper.port}"
     try:

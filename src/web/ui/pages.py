@@ -268,6 +268,8 @@ def _base_context(
         # mainsail_url は backend が解決した値（リクエストのホスト名から導出すると
         # frontend 機を指してしまう）
         mainsail_url=info.mainsail_url,
+        # XYZ を動かす仕組み（"motion" の機体では、マシン操作パネルの Klipper だけの項目を出さない）
+        stage=info.stage,
         focus_z=state.focus_z,
         config_error=state.config_error,
         pcb_notice=state.pcb_notice,

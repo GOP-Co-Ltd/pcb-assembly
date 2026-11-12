@@ -18,9 +18,12 @@ _HEADER = """\
 `[solder]` ははんだ塗布機だけが持つ節で、部品実装だけの機体（`[pnp]` だけ）の設定ページには出ない。
 同じく `[pnp]` は部品実装機だけが持ち、はんだ塗布だけの機体の設定ページには出ない。
 
-設定ページに出ない節が 1 つある。
+設定ページに出ない節が 2 つある。XYZ ステージをどちらで動かすかを表し、どちらか 1 つは必ず書く。
 
-- `[klipper]`: Moonraker の `host` と `port`。既定値は無く、必ず書く（テンプレートは `localhost` と `7125`）
+- `[klipper]`: Moonraker の `host` と `port`。Klipper で XYZ を動かす機体が書く。既定値は無い（テンプレートは `localhost` と `7125`）
+- `[pnp.motion]`: XYZ を新ファーム（pnp-motion）で動かす部品実装機の MCU（`serial`、`kinematics`、TMC2209 の UART のピン）と、
+    軸ごとの `[pnp.motion.x]`・`[pnp.motion.y]`・`[pnp.motion.z]`。項目の名前と意味は Klipper の printer.cfg と同じ。
+    この表があれば `[klipper]` は無くてよい。書き方は部品実装機 kurousagi の雛形（`deploy/templates/kurousagi/machine.toml`）を見る
 
 値の範囲は書込時と起動時に確かめ、範囲外なら設定エラーになる（[保守ガイド](../maintenance.md) の設定エラーからの復旧）。
 

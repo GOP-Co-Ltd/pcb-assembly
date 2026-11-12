@@ -24,7 +24,9 @@ class TestMachine:
     def test_loads_the_machine_toml_of_the_config_dir(
         self, machine_config: MachineConfigFile
     ):
-        assert machine_config.machine().klipper.port == 7126
+        klipper = machine_config.machine().klipper
+        assert klipper is not None
+        assert klipper.port == 7126
 
 
 class TestCapabilitySections:

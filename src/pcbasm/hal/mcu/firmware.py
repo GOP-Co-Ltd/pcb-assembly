@@ -1,0 +1,843 @@
+"""Pnp-motion ファームへの命令: 設定の列、TMC2209 の設定、``velocity_stream`` の型付きの操作.
+
+仕様として読んだもの（コードは写していない。pcbasm は MIT、出典は GPLv3）:
+
+- ``src/firmware/pnp-motion/README.md`` の「コマンド」と「ホストが守る前提」（設定の順序、範囲、期限、
+  開始の clock は今から ``lead_ticks`` 以上先）
+- ``src/firmware/pnp-motion/module/velocity_stream.c``（状態の遷移。``velocity_stream_stop`` は ``stream`` の
+  ときだけ ``stopping`` にし、積んだステップが出尽くしてから ``idle`` にする。動いている間の
+  ``set_limits``・``set_position``・``start`` は shutdown。期限が切れても ``stream`` のまま速度 0 で流れ続ける）
+- ファームの C ソース ``klipper/src`` の ``basecmd.c``（``allocate_oids``、``get_config`` と ``finalize_config`` の
+  crc）、``stepper.c``（``config_stepper`` の ``invert_step=-1`` は両エッジで step を出す）、``endstop.c``
+  （``endstop_home`` の ``sample_count=0`` で外す）、``trsync.c``（``trsync_start`` で登録を消してから張り直す）、
+  ``gpiocmds.c``（``config_digital_out`` の ``default_value`` は shutdown のときの値）、``tmcuart.c``
+- TMC2209 Datasheet Rev 1.09 の「IFCNT」（UART の書き込みが正しく届くたびに 1 進む 8 bit の数）
+
+``tools/bench.py``（GPLv3）は、ホストがどのコマンドをどの順に送るかを確かめるためにだけ読んだ。
+名前・構造・コメント・式の形は写していない。
+
+決めたこと:
+
+- **oid:** ``velocity_stream`` が 0、stepper が 1〜3、endstop が 4〜6、enable が 7〜9、trsync が 10、tmcuart が 11
+- **step:** TMC2209 を dedge=1（両エッジで 1 microstep）で書くので、stepper は両エッジで step を出す
+  （``invert_step=-1``、``step_pulse_ticks=0``）
+- **crc:** ``finalize_config`` には、設定の列を符号化したバイト列の CRC32 を入れる。接続したとき、MCU が
+  同じ crc で設定済みで shutdown していなければ reset せずに使い回す（reset で励磁が切れると Z が落ちうる）。
+  使い回すときは、前のプロセスが残したものを片付ける: ``velocity_stream_stop`` → ``idle`` を待つ →
+  endstop を外す → 原点出しの前の可動域に戻し、位置を 0 にする。原点は「未」になる
+- **開始の時刻:** ``velocity_stream_start`` と ``endstop_home`` の clock は、今から 50 ms（と先読み）先に置く。
+  時刻の推定の誤差と送る遅れで ``lead_ticks`` を割ると shutdown するため
+- **問い合わせ:** 応答を待つのは、実行し直しても結果の変わらないコマンド（``get_config``・
+  ``velocity_stream_query``・``endstop_query_state``・``tmcuart_send``）だけ。``velocity_stream_query`` の前には
+  ``get_config`` の応答を待つ（:meth:`PnpMotionFirmware.query`）
+- **TMC2209 の確認:** レジスタを 1 つ書くたびに IFCNT を読み、1 つだけ進んだことを確かめる。書き込みが
+  届かなかったときも、応答の欠落で 2 度実行されたときも、数が合わずに失敗として現れる
+- **座標指定の移動（:meth:`PnpMotionFirmware.travel`）:** ファームは位置の指令を持たないので、可動域の端で
+  減速して止まる性質を使う。動かす軸の可動域を「いまの位置〜行き先」の側だけ行き先で切り詰めて流し、
+  着いたら止めてから元の可動域に戻す（流している間の ``set_limits`` は shutdown）。行き先までの差が
+  ``_ARRIVAL_TOLERANCE`` 以下の軸は着いているとみなして動かさない。corexy では止まった位置が 1 ステップ
+  ずれて報告されることがあり（velocity_stream.c の開始の検査も 1 ステップの余裕をみる）、その差を
+  動かそうとすると切り詰めた可動域が空（``min_pos >= max_pos``）になって shutdown するため
+"""
+
+from __future__ import annotations
+
+import contextlib
+import enum
+import logging
+import math
+import threading
+import time
+import zlib
+from collections.abc import Callable, Iterator, Mapping
+from typing import Any
+
+import attrs
+
+from pcbasm.hal.mcu.clock import ClockSync, to_clock32
+from pcbasm.hal.mcu.dictionary import Message, ParamValue
+from pcbasm.hal.mcu.errors import McuError
+from pcbasm.hal.mcu.settings import AxisSettings, McuMotionSettings
+from pcbasm.hal.mcu.tmc2209 import (
+    IFCNT,
+    decode_read_reply,
+    encode_uart,
+    read_request,
+    register_values,
+    write_datagram,
+)
+from pcbasm.hal.mcu.transport import McuTransport
+from pcbasm.hal.motion import Axis
+
+_logger = logging.getLogger(__name__)
+
+PROTOCOL_VERSION = 1
+_NOT_PNP_MOTION = "pnp-motion ファームではありません。`./install.sh firmware pnp-motion` で書き込んでください"
+_REQUIRED_COMMANDS = (
+    "config_velocity_stream",
+    "velocity_stream_set_limits",
+    "velocity_stream_set_position",
+    "velocity_stream_start",
+    "velocity_stream_set_velocity",
+    "velocity_stream_stop",
+    "velocity_stream_stop_on_trigger",
+    "velocity_stream_query",
+)
+
+AXES: tuple[Axis, ...] = ("x", "y", "z")
+
+# oid
+_STREAM = 0
+_STEPPERS = (1, 2, 3)
+_ENDSTOPS = (4, 5, 6)
+_ENABLES = (7, 8, 9)
+_TRSYNC = 10
+_TMCUART = 11
+_OID_COUNT = 12
+
+# endstop_home の trigger_reason。trsync_state がこの値を返すので、止めたスイッチの軸が分かる
+_SWITCH_REASON: dict[Axis, int] = {
+    axis: 1 + index for index, axis in enumerate(("x", "y", "z"))
+}
+
+# 時刻を指定するコマンド（velocity_stream_start、endstop_home）を、今からどれだけ先に置くか [s]。
+# 時刻の推定の誤差と送る遅れを吸収する（ファームは lead_ticks より近い開始を shutdown にする）
+_SCHEDULE_AHEAD = 0.05
+_POLL = 0.02  # 状態を問い合わせる間隔 [s]
+_STOP_MARGIN = 2.0  # 止まるのを待つ長さ = 減速にかかる時間 + これ [s]
+# 原点出しの前の可動域は、いまの位置から前後に可動域の長さのこの倍。可動域の中のどこにいてもスイッチに
+# 届き、可動域の外へ手で押し出されていても同じ長さまでは探せる
+_SEARCH_SPAN = 2.0
+# 座標指定の移動で、行き先に着いたとみなす差 [steps]（モジュールの docstring）
+_ARRIVAL_TOLERANCE = 1
+_TRAVEL_SLACK = 1.0  # 座標指定の移動を待つ長さの余裕 [s]
+# endstop の見方: rest ごとにピンを見て、合えば sample の間隔で count 回続けて合えば引く
+_ENDSTOP_REST = 0.0005  # [s]
+_ENDSTOP_SAMPLE = 0.000025  # [s]
+_ENDSTOP_SAMPLE_COUNT = 4
+# TMC2209 の読み出しを試す回数。単線の UART はまれに 1 回乱れる（CRC の不一致）ので、続けて乱れるまで待つ。
+# 電源が無いときは毎回応えないので、回数を増やしても待つ時間が延びるだけ
+_TMC_READ_ATTEMPTS = 3
+_TMC_REPLY_BYTES = 10  # 応答の 8 byte に start と stop の bit を付けた 80 bit
+_RESET_SETTLE = 0.5  # reset のあと、USB が付き直すのを待ち始めるまで [s]
+_RECONNECT_TIMEOUT = 10.0  # reset のあと開き直せるまで待つ長さ [s]
+_RECONNECT_RETRY = 0.2  # [s]
+
+
+class ProcedureError(McuError):
+    """手順が終わらなかった（スイッチに届かない、行き先に着かない、止まらない、TMC2209 が応えない）.
+
+    MCU との接続は生きている。
+    """
+
+
+class StreamState(enum.Enum):
+    """``velocity_stream`` の状態（辞書の列挙 ``velocity_stream_state`` の名前）."""
+
+    IDLE = "idle"
+    STREAM = "stream"
+    STOPPING = "stopping"
+    CONTACT = "contact"
+
+    @property
+    def running(self) -> bool:
+        """流している（``set_limits``・``set_position``・``start`` を送れない）."""
+        return self in (StreamState.STREAM, StreamState.STOPPING)
+
+
+@attrs.frozen
+class StreamReport:
+    """``velocity_stream_state`` の報告.
+
+    Attributes:
+        clock: 報告した時刻（64 bit の MCU の clock）
+        seq: 最後に受けた速度指令の連番
+        state: 状態
+        position: X・Y・Z の位置 [steps]
+        velocity: X・Y・Z の計画の速度 [steps/s]
+    """
+
+    clock: int
+    seq: int
+    state: StreamState
+    position: tuple[int, int, int]
+    velocity: tuple[int, int, int]
+
+
+@attrs.frozen
+class _ConfigState:
+    is_config: bool
+    crc: int
+    is_shutdown: bool
+
+
+class PnpMotionFirmware:
+    """設定を済ませた pnp-motion ファームへの命令.
+
+    :func:`open_firmware` が、開いて identify した ``transport`` を渡して作る。作るときに時刻の同期を始め、
+    設定するか前の設定を使い回して、原点が「未」の止まった状態にする。
+    位置と速度はステップで扱う（mm との換算は呼び出し側）。
+    :meth:`emergency_stop` と :attr:`latest`・:attr:`shutdown_reason` はどのスレッドからでも呼べる。
+    ほかの操作は、呼び出し側が 1 つずつ呼ぶ。
+    """
+
+    def __init__(self, transport: McuTransport, settings: McuMotionSettings) -> None:
+        self._transport = transport
+        self._settings = settings
+        frequency = transport.dictionary.constant("CLOCK_FREQ")
+        if not isinstance(frequency, int):
+            raise McuError(f"CLOCK_FREQ が整数ではない: {frequency!r}")
+        self._clock = ClockSync(transport, frequency)
+        self._seq = 0
+        self._streaming = False
+        self._reconfigured = False
+        self._latest: StreamReport | None = None
+        self._shutdown_reason: str | None = None
+        self._bounds: dict[Axis, tuple[int, int]] = {}
+        self._trigger_reason: int | None = None
+        transport.subscribe("velocity_stream_state", self._on_state, oid=_STREAM)
+        transport.subscribe("trsync_state", self._on_trsync, oid=_TRSYNC)
+        transport.subscribe("shutdown", self._on_shutdown)
+        transport.subscribe("is_shutdown", self._on_shutdown)
+        try:
+            self._connect()
+        except BaseException:
+            self.close()
+            raise
+
+    @property
+    def settings(self) -> McuMotionSettings:
+        """設定."""
+        return self._settings
+
+    @property
+    def reconfigured(self) -> bool:
+        """接続したときに設定し直したか（False なら、前の設定を使い回した）."""
+        return self._reconfigured
+
+    @property
+    def streaming(self) -> bool:
+        """流しているか（:meth:`start` から :meth:`stop` か接触停止まで）."""
+        return self._streaming
+
+    @property
+    def latest(self) -> StreamReport | None:
+        """最後に受けた報告（定期の報告か、問い合わせの応答）."""
+        return self._latest
+
+    @property
+    def shutdown_reason(self) -> str | None:
+        """MCU が shutdown した理由（shutdown していなければ None）."""
+        return self._shutdown_reason
+
+    def axis(self, axis: Axis) -> AxisSettings:
+        """軸の設定."""
+        return getattr(self._settings, axis)
+
+    def search_limits(self, axis: Axis) -> tuple[int, int]:
+        """原点出しの前の可動域 [steps]: いまの位置を 0 として、スイッチを探す距離だけ前後に."""
+        settings = self.axis(axis)
+        span = settings.to_steps(
+            _SEARCH_SPAN * (settings.position_max - settings.position_min)
+        )
+        return -span, span
+
+    def homed_limits(self, axis: Axis) -> tuple[int, int]:
+        """原点出しの後の可動域 [steps]."""
+        settings = self.axis(axis)
+        return settings.to_steps(settings.position_min), settings.to_steps(
+            settings.position_max
+        )
+
+    def set_enabled(self, enabled: bool) -> None:
+        """3 軸のモーターの励磁を入れる・切る."""
+        for oid, settings in zip(_ENABLES, self._settings.axes, strict=True):
+            self._send(
+                "update_digital_out", oid=oid, value=_enable_level(settings, enabled)
+            )
+
+    def set_limits(self, axis: Axis, low: int, high: int) -> None:
+        """軸の可動域 [steps] を送る（速度と加速度の上限は設定の値）。止まっているときだけ送る.
+
+        Raises:
+            ValueError: ``low`` が ``high`` 以上（送ると MCU が shutdown するので送らない）
+        """
+        if low >= high:
+            raise ValueError(f"{axis.upper()} の可動域が空になる: {low}〜{high} steps")
+        settings = self.axis(axis)
+        self._bounds[axis] = (low, high)
+        self._send(
+            "velocity_stream_set_limits",
+            oid=_STREAM,
+            axis=AXES.index(axis),
+            min_pos=low,
+            max_pos=high,
+            max_velocity=settings.to_steps(settings.max_velocity),
+            accel=settings.to_steps(settings.max_accel),
+        )
+
+    def set_position(self, axis: Axis, steps: int) -> None:
+        """いまの位置を ``steps`` とする。止まっているときだけ、可動域の中の値を送る."""
+        self._send(
+            "velocity_stream_set_position",
+            oid=_STREAM,
+            axis=AXES.index(axis),
+            pos=steps,
+        )
+
+    def forget_origin(self, *axes: Axis) -> None:
+        """原点を「未」にする: 原点出しの前の可動域に広げ、いまの位置を 0 にする."""
+        for axis in axes:
+            self.set_limits(axis, *self.search_limits(axis))
+        for axis in axes:
+            self.set_position(axis, 0)
+
+    def start(self) -> None:
+        """流し始める（速度は 0 から）。止まっているか、接触停止の後に送る."""
+        settings = self._settings
+        clock = self._clock.now() + self._clock.ticks(
+            settings.stream_lead + _SCHEDULE_AHEAD
+        )
+        self._send(
+            "velocity_stream_start",
+            oid=_STREAM,
+            clock=to_clock32(clock),
+            period_ticks=self._clock.ticks(settings.stream_period),
+            lead_ticks=self._clock.ticks(settings.stream_lead),
+            report_ticks=self._clock.ticks(settings.report_interval),
+            ttl_ticks=self._clock.ticks(settings.stream_ttl),
+        )
+        self._streaming = True
+
+    def set_velocity(self, velocity: tuple[int, int, int]) -> None:
+        """速度 [steps/s] を、今から ``stream_ttl`` の期限付きで送る."""
+        self._seq = (self._seq + 1) & 0xFFFF
+        expire = self._clock.now() + self._clock.ticks(self._settings.stream_ttl)
+        vx, vy, vz = velocity
+        self._send(
+            "velocity_stream_set_velocity",
+            oid=_STREAM,
+            seq=self._seq,
+            vx=vx,
+            vy=vy,
+            vz=vz,
+            expire_clock=to_clock32(expire),
+        )
+
+    def stop(self) -> None:
+        """減速して止め、止まるまで待つ（``idle`` か、接触停止の ``contact``）.
+
+        Raises:
+            ProcedureError: 止まらない
+        """
+        self._send("velocity_stream_stop", oid=_STREAM)
+        timeout = _STOP_MARGIN + max(
+            settings.max_velocity / settings.max_accel
+            for settings in self._settings.axes
+        )
+        deadline = time.monotonic() + timeout
+        while self.query().state.running:
+            if time.monotonic() > deadline:
+                raise ProcedureError(f"{timeout:.1f} 秒待っても止まらない")
+            time.sleep(_POLL)
+
+    def query(self) -> StreamReport:
+        """今の状態を問い合わせる（それまでに送ったコマンドを MCU が実行した後の状態）.
+
+        ``velocity_stream_state`` は定期の報告と接触停止の報告でも届くので、問い合わせの応答と見分けられない。
+        問い合わせの待ちに先に届いた報告が入ると、その問い合わせの本当の応答は宙に浮き、次の問い合わせが
+        それを古いまま受けてしまう（``set_position`` の前の位置など）。そこで先に ``get_config`` の応答を待つ:
+        MCU は受けた順に実行して応答も順に届くので、その後に届く ``velocity_stream_state`` は、それまでに
+        送ったコマンドを実行した後のものになる。
+        """
+        self._transport.query("get_config", response="config")
+        message = self._transport.query(
+            "velocity_stream_query", response="velocity_stream_state", oid=_STREAM
+        )
+        report = self._report(message)
+        self._latest = report
+        self._streaming = report.state.running
+        return report
+
+    def drive(
+        self,
+        velocity: tuple[int, int, int],
+        until: Callable[[StreamReport], bool],
+        timeout: float,
+    ) -> StreamReport | None:
+        """流している間、速度を期限が切れる前に送り直しながら、報告が ``until`` を満たすまで待つ.
+
+        Returns:
+            ``until`` を満たした報告。``timeout`` 秒を過ぎたら None
+        """
+        deadline = time.monotonic() + timeout
+        resend_at = 0.0
+        while True:
+            now = time.monotonic()
+            if now >= resend_at:
+                self.set_velocity(velocity)
+                resend_at = now + self._settings.stream_ttl / 4
+            report = self.query()
+            if until(report):
+                return report
+            if now > deadline:
+                return None
+            time.sleep(_POLL)
+
+    def travel(self, targets: Mapping[Axis, int], speed: float | None = None) -> None:
+        """``targets`` の軸を行き先 [steps] へ直線に動かし、止まるまで待つ（止まっているときに呼ぶ）.
+
+        進め方はモジュールの docstring の「座標指定の移動」。``speed`` [mm/s] は直線の速さで、省けば
+        どの軸も ``max_velocity`` を超えない最も速い動き。行き先は、いまの可動域の中に置く。
+        失敗しても、shutdown していなければ止めてから可動域を戻す。
+
+        Raises:
+            ProcedureError: 待っても行き先に着かない
+        """
+        here = self.query().position
+        offsets: dict[Axis, int] = {
+            axis: target - here[AXES.index(axis)]
+            for axis, target in targets.items()
+            if abs(target - here[AXES.index(axis)]) > _ARRIVAL_TOLERANCE
+        }
+        if not offsets:
+            return
+        duration = self._travel_duration(offsets, speed)
+        velocity = [0, 0, 0]
+        for axis, offset in offsets.items():
+            # 0 に丸まるほど遅い軸も、向きを保って 1 steps/s で動かす（端で止まる）
+            velocity[AXES.index(axis)] = round(offset / duration) or (
+                1 if offset > 0 else -1
+            )
+        ramp = max(
+            self.axis(axis).to_mm(abs(velocity[AXES.index(axis)]))
+            / self.axis(axis).max_accel
+            for axis in offsets
+        )
+        # 台形の速度で距離を進むには、一定の速さのときより加速か減速の 1 回分だけ長くかかる
+        timeout = duration + ramp + _TRAVEL_SLACK
+        destinations: dict[Axis, int] = {axis: targets[axis] for axis in offsets}
+        with self._narrowed(destinations, offsets):
+            self.start()
+
+            def settled(report: StreamReport) -> bool:
+                return all(
+                    report.velocity[AXES.index(axis)] == 0
+                    and abs(report.position[AXES.index(axis)] - target)
+                    <= _ARRIVAL_TOLERANCE
+                    for axis, target in destinations.items()
+                )
+
+            if (
+                self.drive((velocity[0], velocity[1], velocity[2]), settled, timeout)
+                is None
+            ):
+                raise ProcedureError(f"{timeout:.1f} 秒たっても行き先に着かない")
+
+    def _travel_duration(
+        self, offsets: Mapping[Axis, int], speed: float | None
+    ) -> float:
+        """どの軸も同じ時間で動き終えるときの、その時間 [s]（直線に動く）."""
+        distances: dict[Axis, float] = {
+            axis: self.axis(axis).to_mm(offset) for axis, offset in offsets.items()
+        }
+        # いちばん時間のかかる軸が max_velocity で動く時間
+        duration = max(
+            abs(distance) / self.axis(axis).max_velocity
+            for axis, distance in distances.items()
+        )
+        if speed is not None:
+            duration = max(duration, math.hypot(*distances.values()) / speed)
+        return duration
+
+    @contextlib.contextmanager
+    def _narrowed(
+        self, destinations: Mapping[Axis, int], offsets: Mapping[Axis, int]
+    ) -> Iterator[None]:
+        """動かす軸の可動域の、向かう側を行き先で切り詰める。抜けるときに止めてから元に戻す."""
+        saved: dict[Axis, tuple[int, int]] = {
+            axis: self._bounds[axis] for axis in destinations
+        }
+        try:
+            for axis, destination in destinations.items():
+                low, high = saved[axis]
+                if offsets[axis] > 0:
+                    high = destination
+                else:
+                    low = destination
+                self.set_limits(axis, low, high)
+            yield
+        finally:
+            # shutdown の後は送れない。流している間に可動域を変えると shutdown するので、先に止める
+            if self._shutdown_reason is None:
+                self.stop()
+                for axis, (low, high) in saved.items():
+                    self.set_limits(axis, low, high)
+
+    def endstop_pressed(self, axis: Axis) -> bool:
+        """軸のリミットスイッチが押されているか."""
+        message = self._transport.query(
+            "endstop_query_state",
+            response="endstop_state",
+            oid=_ENDSTOPS[AXES.index(axis)],
+        )
+        return message.params["pin_value"] == self.axis(axis).endstop_pressed_level
+
+    def arm_homing(self, axis: Axis) -> None:
+        """軸のリミットスイッチだけを張る。押されたら 3 軸の stepper と ``velocity_stream`` が止まる.
+
+        同じ trsync に 3 軸の stepper と ``velocity_stream`` を登録し直す（``trsync_start`` が前の登録を消す）。
+        スイッチを見始めるのは今から ``_SCHEDULE_AHEAD`` 先（:meth:`start` の開始より前）。
+        """
+        self._trigger_reason = None
+        self._send(
+            "trsync_start", oid=_TRSYNC, report_clock=0, report_ticks=0, expire_reason=0
+        )
+        for oid in _STEPPERS:
+            self._send("stepper_stop_on_trigger", oid=oid, trsync_oid=_TRSYNC)
+        self._send("velocity_stream_stop_on_trigger", oid=_STREAM, trsync_oid=_TRSYNC)
+        clock = self._clock.now() + self._clock.ticks(_SCHEDULE_AHEAD)
+        self._send(
+            "endstop_home",
+            oid=_ENDSTOPS[AXES.index(axis)],
+            clock=to_clock32(clock),
+            sample_ticks=self._clock.ticks(_ENDSTOP_SAMPLE),
+            sample_count=_ENDSTOP_SAMPLE_COUNT,
+            rest_ticks=self._clock.ticks(_ENDSTOP_REST),
+            pin_value=self.axis(axis).endstop_pressed_level,
+            trsync_oid=_TRSYNC,
+            trigger_reason=_SWITCH_REASON[axis],
+        )
+
+    def disarm_homing(self) -> None:
+        """3 軸のリミットスイッチを外す."""
+        for oid in _ENDSTOPS:
+            self._send(
+                "endstop_home",
+                oid=oid,
+                clock=0,
+                sample_ticks=0,
+                sample_count=0,
+                rest_ticks=0,
+                pin_value=0,
+                trsync_oid=_TRSYNC,
+                trigger_reason=0,
+            )
+
+    @property
+    def trigger_reason(self) -> int | None:
+        """:meth:`arm_homing` のあと trsync が引かれた理由（``trsync_state`` がまだ来ていなければ
+        None）."""
+        return self._trigger_reason
+
+    @staticmethod
+    def switch_axis(reason: int | None) -> Axis | None:
+        """Trsync を引いた理由が、どの軸のリミットスイッチか（スイッチでなければ None）."""
+        for axis, value in _SWITCH_REASON.items():
+            if value == reason:
+                return axis
+        return None
+
+    def emergency_stop(self) -> None:
+        """即座に止める（MCU は shutdown する）。ほかの操作を待たずに送る."""
+        self._transport.send("emergency_stop")
+
+    def close(self) -> None:
+        """時刻の同期を止めて接続を閉じる."""
+        self._clock.close()
+        self._transport.close()
+
+    def _connect(self) -> None:
+        """時刻の同期を始め、設定するか使い回して、原点が「未」の止まった状態にする."""
+        config = _read_config(self._transport)
+        crc = _config_crc(self._transport, self._settings)
+        self._clock.start()
+        if config.is_config:
+            self._clean_up()
+        else:
+            self._configure(crc)
+            self._reconfigured = True
+        self._program_drivers()
+        self.forget_origin(*AXES)
+        self.query()
+
+    def _configure(self, crc: int) -> None:
+        for name, params in _config_commands(self._transport, self._settings):
+            self._send(name, **params)
+        self._send("finalize_config", crc=crc)
+        if not _read_config(self._transport).is_config:
+            raise McuError("MCU を設定できない")
+
+    def _clean_up(self) -> None:
+        """前のプロセスが残したもの（流したまま、張ったままの endstop）を片付ける."""
+        self.stop()
+        self.disarm_homing()
+
+    def _program_drivers(self) -> None:
+        """3 軸の TMC2209 にレジスタを書く。書くたびに IFCNT が 1 つだけ進んだことを確かめる."""
+        for settings in self._settings.axes:
+            address = settings.tmc_address
+            count = self._read_register(address, IFCNT)
+            for register, value in register_values(
+                settings.tmc, 1 / settings.steps_per_mm
+            ).items():
+                self._transport.query(
+                    "tmcuart_send",
+                    response="tmcuart_response",
+                    oid=_TMCUART,
+                    write=encode_uart(write_datagram(address, register, value)),
+                    read=0,
+                )
+                expected = (count + 1) % 256
+                count = self._read_register(address, IFCNT)
+                if count != expected:
+                    raise ProcedureError(
+                        f"TMC2209（アドレス {address}）のレジスタ {register:#04x} への書き込みが"
+                        f"数えられない（IFCNT が {expected} ではなく {count}）"
+                    )
+
+    def _read_register(self, address: int, register: int) -> int:
+        """TMC2209 のレジスタを読む（乱れた応答は読み直す）."""
+        attempts = 0
+        while attempts < _TMC_READ_ATTEMPTS:
+            attempts += 1
+            data = self._transport.query(
+                "tmcuart_send",
+                response="tmcuart_response",
+                oid=_TMCUART,
+                write=encode_uart(read_request(address, register)),
+                read=_TMC_REPLY_BYTES,
+            ).params["read"]
+            assert isinstance(data, bytes)
+            match decode_read_reply(data):
+                case (answered, value) if answered == register:
+                    return value
+                case _:
+                    continue
+        raise ProcedureError(
+            f"TMC2209（アドレス {address}）から {attempts} 回読んでも正しい応答が無い。"
+            "ドライバの電源（24 V）と UART の配線を確かめてください"
+        )
+
+    def _send(self, name: str, **params: ParamValue | str) -> None:
+        self._transport.send(name, **params)
+
+    def _report(self, message: Message) -> StreamReport:
+        params = message.params
+        name = self._transport.dictionary.enum_name(
+            "velocity_stream_state", _int(params, "state")
+        )
+        return StreamReport(
+            clock=self._clock.extend(_int(params, "clock")),
+            seq=_int(params, "seq"),
+            state=StreamState(name),
+            position=(_int(params, "x"), _int(params, "y"), _int(params, "z")),
+            velocity=(_int(params, "vx"), _int(params, "vy"), _int(params, "vz")),
+        )
+
+    # 以下、受信スレッド
+
+    def _on_state(self, message: Message, _received: float) -> None:
+        try:
+            self._latest = self._report(message)
+        except (McuError, ValueError) as error:
+            _logger.debug("読めない velocity_stream_state を捨てた: %s", error)
+
+    def _on_trsync(self, message: Message, _received: float) -> None:
+        reason = message.params["trigger_reason"]
+        if not message.params["can_trigger"] and isinstance(reason, int):
+            self._trigger_reason = reason
+
+    def _on_shutdown(self, message: Message, _received: float) -> None:
+        if self._shutdown_reason is not None:
+            return
+        value = message.params.get("static_string_id")
+        if not isinstance(value, int):
+            self._shutdown_reason = message.name
+            return
+        try:
+            self._shutdown_reason = self._transport.dictionary.enum_name(
+                "static_string_id", value
+            )
+        except McuError:
+            self._shutdown_reason = f"static_string_id {value}"
+
+
+def open_firmware(
+    settings: McuMotionSettings, *, reset: bool = False
+) -> PnpMotionFirmware:
+    """MCU を開いて設定し、原点が「未」の止まった状態で返す.
+
+    MCU が同じ設定（crc）で設定済みで shutdown していなければ、reset せずに使い回す。設定が違うとき、
+    shutdown しているとき、``reset`` のときは、reset してから設定する。TMC2209 は毎回書く。
+
+    Raises:
+        McuError: 開けない、pnp-motion ファームではない、設定できない、TMC2209 が応えない
+    """
+    transport = _open(settings.device)
+    try:
+        config = _read_config(transport)
+        crc = _config_crc(transport, settings)
+        if reset or config.is_shutdown or (config.is_config and config.crc != crc):
+            _logger.info("MCU を reset する（%s）", settings.device)
+            transport.send("reset")
+            transport.close()
+            transport = _reopen(settings.device)
+            config = _read_config(transport)
+            if config.is_config or config.is_shutdown:
+                raise McuError("MCU を reset できない")
+        return PnpMotionFirmware(transport, settings)
+    except BaseException:
+        transport.close()
+        raise
+
+
+def send_emergency_stop(device: str, *, timeout: float = 1.0) -> None:
+    """開いていない MCU に緊急停止を送る（identify と emergency_stop だけを送り、設定も reset もしない）.
+
+    MCU が shutdown を知らせるのを待ってから閉じる。
+
+    Raises:
+        McuError: 開けない、または ``timeout`` 秒で shutdown が知らされない
+    """
+    transport = McuTransport(device)
+    try:
+        transport.identify()
+        done = threading.Event()
+        transport.subscribe("shutdown", lambda _message, _at: done.set())
+        transport.subscribe("is_shutdown", lambda _message, _at: done.set())
+        transport.send("emergency_stop")
+        if not done.wait(timeout):
+            raise McuError(f"緊急停止のあと MCU が shutdown を {timeout} 秒知らせない")
+    finally:
+        transport.close()
+
+
+def _open(device: str) -> McuTransport:
+    """開いて identify し、pnp-motion ファームかを確かめる."""
+    transport = McuTransport(device)
+    try:
+        dictionary = transport.identify()
+        missing = [
+            name for name in _REQUIRED_COMMANDS if not dictionary.has_command(name)
+        ]
+        if missing:
+            raise McuError(f"{_NOT_PNP_MOTION}（{', '.join(missing)} が無い）")
+        protocol = dictionary.constant("VELOCITY_STREAM_PROTOCOL")
+        if protocol != PROTOCOL_VERSION:
+            raise McuError(
+                f"{_NOT_PNP_MOTION}（velocity_stream の版が {protocol}。{PROTOCOL_VERSION} が要る）"
+            )
+    except BaseException:
+        transport.close()
+        raise
+    return transport
+
+
+def _reopen(device: str) -> McuTransport:
+    """Reset した MCU が USB に付き直すのを待って開き直す."""
+    time.sleep(_RESET_SETTLE)
+    deadline = time.monotonic() + _RECONNECT_TIMEOUT
+    while True:
+        try:
+            return _open(device)
+        except McuError:
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(_RECONNECT_RETRY)
+
+
+def _int(params: Mapping[str, ParamValue], name: str) -> int:
+    value = params[name]
+    if not isinstance(value, int):
+        raise McuError(f"{name} が整数ではない: {value!r}")
+    return value
+
+
+def _read_config(transport: McuTransport) -> _ConfigState:
+    params = transport.query("get_config", response="config").params
+    return _ConfigState(
+        is_config=bool(params["is_config"]),
+        crc=_int(params, "crc"),
+        is_shutdown=bool(params["is_shutdown"]),
+    )
+
+
+def _config_crc(transport: McuTransport, settings: McuMotionSettings) -> int:
+    dictionary = transport.dictionary
+    encoded = b"".join(
+        dictionary.encode(name, **params)
+        for name, params in _config_commands(transport, settings)
+    )
+    return zlib.crc32(encoded)
+
+
+def _config_commands(
+    transport: McuTransport, settings: McuMotionSettings
+) -> Iterator[tuple[str, dict[str, Any]]]:
+    """設定の列（``finalize_config`` の前まで）."""
+    axes = settings.axes
+    yield "allocate_oids", {"count": _OID_COUNT}
+    for oid, axis in zip(_STEPPERS, axes, strict=True):
+        yield (
+            "config_stepper",
+            {
+                "oid": oid,
+                "step_pin": axis.step_pin,
+                "dir_pin": axis.dir_pin,
+                "invert_step": -1,
+                "step_pulse_ticks": 0,
+            },
+        )
+    for oid, axis in zip(_ENDSTOPS, axes, strict=True):
+        yield (
+            "config_endstop",
+            {"oid": oid, "pin": axis.endstop_pin, "pull_up": int(axis.endstop_pull_up)},
+        )
+    for oid, axis in zip(_ENABLES, axes, strict=True):
+        # 設定した直後も、shutdown したあとも、モーターは脱力させておく
+        off = _enable_level(axis, False)
+        yield (
+            "config_digital_out",
+            {
+                "oid": oid,
+                "pin": axis.enable_pin,
+                "value": off,
+                "default_value": off,
+                "max_duration": 0,
+            },
+        )
+    yield "config_trsync", {"oid": _TRSYNC}
+    frequency = transport.dictionary.constant("CLOCK_FREQ")
+    assert isinstance(frequency, int)
+    yield (
+        "config_tmcuart",
+        {
+            "oid": _TMCUART,
+            "rx_pin": settings.tmc_rx_pin,
+            "pull_up": int(settings.tmc_rx_pull_up),
+            "tx_pin": settings.tmc_tx_pin,
+            "bit_time": round(frequency / settings.tmc_baud),
+        },
+    )
+    yield (
+        "config_velocity_stream",
+        {
+            "oid": _STREAM,
+            "stepper_x_oid": _STEPPERS[0],
+            "stepper_y_oid": _STEPPERS[1],
+            "stepper_z_oid": _STEPPERS[2],
+            "invert_dir": sum(1 << i for i, axis in enumerate(axes) if axis.invert_dir),
+            # 列挙は encode が引数の名前から解けないので、値に直して渡す
+            "kinematics": transport.dictionary.enum_value(
+                "velocity_stream_kinematics", settings.kinematics
+            ),
+        },
+    )
+
+
+def _enable_level(settings: AxisSettings, energized: bool) -> int:
+    """モーターを ``energized`` にするときの enable のピンの値."""
+    if settings.invert_enable:
+        return 0 if energized else 1
+    return 1 if energized else 0

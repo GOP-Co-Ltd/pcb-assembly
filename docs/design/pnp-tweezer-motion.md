@@ -3,7 +3,7 @@
 部品実装（`[pnp]`）の機体の、運動制御の設計案。
 XYZ ステージを動かすファームウェアと、ピンセットのサーボ、強化学習（RL）の置き場所を扱う。
 
-ファーム（方式 C1）は `src/firmware/pnp-motion/` に実装した。実機での確認と、Pi 側（pcbasm）のクライアントはこれから。
+ファーム（方式 C1）は `src/firmware/pnp-motion/` に、Pi 側（pcbasm）のクライアントと XYZ ステージは `pcbasm.hal.mcu` に実装した。実機での確認はこれから。
 XYZ は、Klipper の MCU ファームに速度指令のモジュールを足したもの（[方式 C1](#%E6%96%B9%E5%BC%8F%E3%81%AE%E6%AF%94%E8%BC%83)）で動かす方針とする。
 言語は C とし、Zig は見送る（[言語](#%E8%A8%80%E8%AA%9E%E3%81%AE%E9%81%B8%E6%8A%9E)）。
 
@@ -141,7 +141,8 @@ patch（`stepper_oid_lookup`・`stepper_queue_move`・`stepper_set_next_dir`・`
 - **接触停止:** HX711 → `trigger_analog` → `trsync` → `stepper_stop`。`velocity_stream` も同じ `trsync` に
     シグナルを登録し、トリガで目標速度を 0 に戻す。止め方は homing と同じで、減速を挟まない
     （接触を探るときは遅く動かすので、即時に止めてよい）
-- **原点出し:** Klippy と同じく、Pi が `endstop`・`trsync`・`queue_step` で行う。遅延の要件がないので、MCU 側に新しく書かない
+- **原点出し:** Pi が行う。`velocity_stream` で流し、リミットスイッチの `endstop` を `trsync` につないで止める（`pcbasm.hal.mcu.homing`）。
+    生の `queue_step` は使わない。遅延の要件がないので、MCU 側に新しく書かない
 
 ### 状態
 
@@ -174,7 +175,7 @@ Klipper のプロトコル（`docs/Protocol.md`）をそのまま使い、コマ
 - **ウォッチドッグ:** 速度指令は有効期限を持つ。期限内に次の指令が来なければ、減速して止まる。
     ポリシーや Python が固まったときの安全装置。最後の砦として `trsync` の期限も張り、Pi が延長しなければ即時に止まる
 - **可動域と速度上限は MCU が持つ。** 速度指令と位置指令は、可動域の手前で止まるよう MCU が制限する。
-    原点出し以外では、Pi は生の `queue_step` を使わない
+    Pi は生の `queue_step` を使わない（原点出しも `velocity_stream` で行う）
 - **接触停止は MCU の中で完結させる。** Pi の Python で見張ると、Linux のスケジューリングで数十 ms の遅れが出得る
 
 ## ライセンスとリポジトリの構成

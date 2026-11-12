@@ -11,8 +11,15 @@ from collections.abc import Iterator
 
 import pytest
 
-from tests.support.web import ManagerFactory, job_manager
-from web.api.backend import Backend
+from pcbasm.hal.fake import FakeAudioPlayer, FakeMotionStage
+from tests.support.web import (
+    ManagerFactory,
+    fake_motion_stage,
+    job_manager,
+    motion_devices,
+)
+from web.api.backend import Backend, open_backend
+from web.api.env import Env
 from web.api.jobs.runtime.catalog import JobCatalog
 from web.api.jobs.runtime.manager import JobManager
 
@@ -44,3 +51,30 @@ def make_manager(camera_backend: Backend) -> Iterator[ManagerFactory]:
 @pytest.fixture
 def manager(make_manager: ManagerFactory, catalog: JobCatalog) -> JobManager:
     return make_manager(catalog)
+
+
+@pytest.fixture
+def motion_stage() -> FakeMotionStage:
+    """新ファームの機体のステージ（原点は「未」）."""
+    return fake_motion_stage()
+
+
+@pytest.fixture
+def motion_backend(
+    webui_settings: Env, audio_player: FakeAudioPlayer, motion_stage: FakeMotionStage
+) -> Iterator[Backend]:
+    """XYZ を新ファームの ``motion_stage`` で動かす部品実装機の Backend."""
+    backend = open_backend(
+        webui_settings,
+        devices=motion_devices(webui_settings, audio_player, motion_stage),
+    )
+    yield backend
+    backend.close()
+
+
+@pytest.fixture
+def motion_manager(motion_backend: Backend) -> Iterator[JobManager]:
+    """``motion_backend`` の装置で、そのカタログのジョブを走らせる JobManager."""
+    manager = job_manager(motion_backend, motion_backend.catalog)
+    yield manager
+    manager.shutdown()

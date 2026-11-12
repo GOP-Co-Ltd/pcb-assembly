@@ -1,0 +1,373 @@
+"""`pcbasm.hal.fake.FakeMotionStage` の仕様テスト."""
+
+import pytest
+
+from pcbasm.geometry import Point3d
+from pcbasm.hal import (
+    Limits,
+    MotionError,
+    MotionStage,
+    MotionState,
+    ScalarLimits,
+    Velocity,
+)
+from pcbasm.hal.fake import FakeMotionStage
+
+LIMITS = Limits(
+    x=ScalarLimits(0.0, 100.0),
+    y=ScalarLimits(0.0, 80.0),
+    z=ScalarLimits(-40.0, 0.0),
+    v=ScalarLimits(0.0, 50.0),
+)
+MAX_VELOCITY = Velocity(x=50.0, y=50.0, z=10.0)
+
+
+class _Clock:
+    """テストが手で進める時計."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+@pytest.fixture
+def clock() -> _Clock:
+    return _Clock()
+
+
+def _stage(clock: _Clock, *, homed: bool = True, ttl: float = 0.2) -> FakeMotionStage:
+    return FakeMotionStage(LIMITS, MAX_VELOCITY, ttl=ttl, homed=homed, clock=clock)
+
+
+class TestFakeMotionStageBasics:
+    """初期状態と、ABC としての値."""
+
+    def test_is_a_motion_stage(self, clock: _Clock):
+        assert isinstance(_stage(clock), MotionStage)
+
+    def test_exposes_limits_and_max_velocity(self, clock: _Clock):
+        stage = _stage(clock)
+
+        assert stage.limits == LIMITS
+        assert stage.max_velocity == MAX_VELOCITY
+
+    def test_starts_idle_at_origin_clamped_into_limits(self, clock: _Clock):
+        limits = Limits(
+            x=ScalarLimits(10.0, 100.0),
+            y=ScalarLimits(-20.0, -5.0),
+            z=ScalarLimits(-40.0, 0.0),
+            v=ScalarLimits(0.0, 50.0),
+        )
+        stage = FakeMotionStage(limits, MAX_VELOCITY, clock=clock)
+
+        status = stage.status()
+
+        assert status.position == Point3d(10.0, -5.0, 0.0)
+        assert status.velocity == Velocity()
+        assert status.state is MotionState.IDLE
+        assert status.homed == frozenset()
+        assert status.shutdown_reason is None
+
+    def test_homed_true_marks_all_axes_homed(self, clock: _Clock):
+        assert _stage(clock, homed=True).status().homed == {"x", "y", "z"}
+
+
+class TestFakeMotionStageVelocity:
+    """速度指令の積分・期限・クランプ."""
+
+    def test_integrates_velocity_over_clock(self, clock: _Clock):
+        stage = _stage(clock)
+        stage.move_to(10.0, 10.0, -20.0)
+
+        stage.set_velocity(Velocity(x=10.0, y=-5.0, z=2.0))
+        clock.now += 0.1
+
+        status = stage.status()
+        assert status.position.x == pytest.approx(11.0)
+        assert status.position.y == pytest.approx(9.5)
+        assert status.position.z == pytest.approx(-19.8)
+        assert status.velocity == Velocity(x=10.0, y=-5.0, z=2.0)
+        assert status.state is MotionState.MOVING
+
+    def test_records_each_send_with_time(self, clock: _Clock):
+        stage = _stage(clock)
+
+        stage.set_velocity(Velocity(x=1.0))
+        clock.now += 0.05
+        stage.set_velocity(Velocity(y=2.0))
+
+        assert stage.velocities == [(0.0, Velocity(x=1.0)), (0.05, Velocity(y=2.0))]
+
+    def test_velocity_expires_after_ttl(self, clock: _Clock):
+        stage = _stage(clock, ttl=0.2)
+        stage.move_to(10.0, 10.0, -20.0)
+
+        stage.set_velocity(Velocity(x=10.0))
+        clock.now += 1.0
+
+        status = stage.status()
+        assert status.position.x == pytest.approx(12.0)
+        assert status.velocity == Velocity()
+
+    def test_new_send_extends_ttl(self, clock: _Clock):
+        stage = _stage(clock, ttl=0.2)
+        stage.move_to(10.0, 10.0, -20.0)
+
+        stage.set_velocity(Velocity(x=10.0))
+        clock.now += 0.15
+        stage.set_velocity(Velocity(x=10.0))
+        clock.now += 0.15
+
+        assert stage.status().position.x == pytest.approx(13.0)
+
+    def test_clamps_position_into_limits(self, clock: _Clock):
+        stage = _stage(clock, ttl=10.0)
+        stage.move_to(95.0, 5.0, -1.0)
+
+        stage.set_velocity(Velocity(x=10.0, y=-10.0, z=10.0))
+        clock.now += 1.0
+
+        assert stage.status().position == Point3d(100.0, 0.0, 0.0)
+
+    def test_all_zero_while_idle_does_nothing(self, clock: _Clock):
+        stage = _stage(clock)
+
+        stage.set_velocity(Velocity())
+
+        assert stage.status().state is MotionState.IDLE
+        assert stage.velocities == []
+
+    def test_all_zero_while_moving_is_sent(self, clock: _Clock):
+        stage = _stage(clock)
+        stage.set_velocity(Velocity(x=1.0))
+
+        stage.set_velocity(Velocity())
+
+        assert stage.velocities[-1] == (0.0, Velocity())
+        assert stage.status().state is MotionState.MOVING
+
+    @pytest.mark.parametrize(
+        "velocity", [Velocity(x=1.0), Velocity(y=-1.0), Velocity(z=0.5)]
+    )
+    def test_rejects_nonzero_on_unhomed_axis(self, clock: _Clock, velocity: Velocity):
+        stage = _stage(clock, homed=False)
+
+        with pytest.raises(ValueError, match="原点"):
+            stage.set_velocity(velocity)
+        assert stage.velocities == []
+
+    def test_accepts_velocity_on_homed_axes_only(self, clock: _Clock):
+        stage = _stage(clock, homed=False)
+        stage.home(["z"])
+
+        stage.set_velocity(Velocity(z=-1.0))
+
+        assert stage.status().state is MotionState.MOVING
+
+    def test_stop_halts_and_returns_to_idle(self, clock: _Clock):
+        stage = _stage(clock)
+        stage.move_to(10.0, 10.0, -20.0)
+        stage.set_velocity(Velocity(x=10.0))
+        clock.now += 0.1
+
+        stage.stop()
+        clock.now += 0.1
+
+        status = stage.status()
+        assert status.position.x == pytest.approx(11.0)
+        assert status.velocity == Velocity()
+        assert status.state is MotionState.IDLE
+        assert stage.commands[-1] == "stop"
+
+
+class TestFakeMotionStageHome:
+    """原点出し."""
+
+    def test_home_all_in_z_x_y_order(self, clock: _Clock):
+        stage = _stage(clock, homed=False)
+
+        stage.home()
+
+        assert stage.commands == ["home z", "home x", "home y"]
+        assert stage.status().homed == {"x", "y", "z"}
+
+    def test_home_xy_homes_unhomed_z_first(self, clock: _Clock):
+        stage = _stage(clock, homed=False)
+
+        stage.home(["x", "y"])
+
+        assert stage.commands == ["home z", "home x", "home y"]
+
+    def test_home_puts_axis_at_origin_clamped_into_limits(self, clock: _Clock):
+        stage = _stage(clock)
+        stage.move_to(50.0, 50.0, -20.0)
+
+        stage.home(["x"])
+
+        assert stage.status().position == Point3d(0.0, 50.0, -20.0)
+
+    def test_home_stops_the_stream_and_velocity_can_restart(self, clock: _Clock):
+        stage = _stage(clock)
+        stage.set_velocity(Velocity(x=1.0))
+
+        stage.home(["x"])
+
+        assert stage.status().state is MotionState.IDLE
+        stage.set_velocity(Velocity(x=1.0))
+        assert stage.status().state is MotionState.MOVING
+
+
+class TestFakeMotionStageMoveTo:
+    """座標指定の移動."""
+
+    def test_moves_given_axes_only(self, clock: _Clock):
+        stage = _stage(clock)
+
+        stage.move_to(x=30.0, z=-5.0, speed=20.0)
+
+        assert stage.status().position == Point3d(30.0, 0.0, -5.0)
+        assert stage.commands == ["move_to"]
+
+    def test_stops_stream_and_ends_idle(self, clock: _Clock):
+        stage = _stage(clock)
+        stage.set_velocity(Velocity(x=1.0))
+
+        stage.move_to(x=30.0)
+
+        status = stage.status()
+        assert status.state is MotionState.IDLE
+        assert status.velocity == Velocity()
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [{"x": 101.0}, {"y": -0.1}, {"z": 1.0}, {"x": 10.0, "speed": 51.0}],
+    )
+    def test_rejects_outside_limits(self, clock: _Clock, kwargs: dict[str, float]):
+        stage = _stage(clock)
+
+        with pytest.raises(ValueError, match="可動域"):
+            stage.move_to(**kwargs)
+        assert stage.status().position == Point3d(0.0, 0.0, 0.0)
+
+    def test_rejects_unhomed_axis(self, clock: _Clock):
+        stage = _stage(clock, homed=False)
+        stage.home(["x"])
+
+        with pytest.raises(ValueError, match="原点"):
+            stage.move_to(x=10.0, y=10.0)
+
+
+class TestFakeMotionStageRelaxRestart:
+    """脱力と再起動で原点が未に戻る."""
+
+    def test_relax_stops_and_clears_homed(self, clock: _Clock):
+        stage = _stage(clock)
+        stage.set_velocity(Velocity(x=1.0))
+
+        stage.relax()
+
+        status = stage.status()
+        assert status.state is MotionState.IDLE
+        assert status.homed == frozenset()
+        assert stage.commands[-1] == "relax"
+
+    def test_restart_clears_shutdown_and_homed(self, clock: _Clock):
+        stage = _stage(clock)
+        stage.emergency_stop()
+
+        stage.restart()
+
+        status = stage.status()
+        assert status.state is MotionState.IDLE
+        assert status.homed == frozenset()
+        assert status.shutdown_reason is None
+
+
+class TestFakeMotionStageShutdown:
+    """緊急停止と MCU の shutdown."""
+
+    def test_emergency_stop_shuts_down(self, clock: _Clock):
+        stage = _stage(clock)
+        stage.set_velocity(Velocity(x=10.0))
+
+        stage.emergency_stop()
+        clock.now += 1.0
+
+        status = stage.status()
+        assert status.state is MotionState.SHUTDOWN
+        assert status.velocity == Velocity()
+        assert status.position == Point3d(0.0, 0.0, 0.0)
+        assert status.shutdown_reason is not None
+        assert stage.commands[-1] == "emergency_stop"
+
+    def test_shutdown_reports_reason(self, clock: _Clock):
+        stage = _stage(clock)
+
+        stage.shutdown("Timer too close")
+
+        status = stage.status()
+        assert status.state is MotionState.SHUTDOWN
+        assert status.shutdown_reason == "Timer too close"
+
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            lambda s: s.set_velocity(Velocity(x=1.0)),
+            lambda s: s.set_velocity(Velocity()),
+            lambda s: s.home(),
+            lambda s: s.move_to(x=1.0),
+            lambda s: s.stop(),
+            lambda s: s.relax(),
+        ],
+        ids=["set_velocity", "set_velocity_zero", "home", "move_to", "stop", "relax"],
+    )
+    def test_operations_after_shutdown_raise(self, clock: _Clock, operation):
+        stage = _stage(clock)
+        stage.shutdown("Timer too close")
+
+        with pytest.raises(MotionError, match="Timer too close"):
+            operation(stage)
+
+
+class TestFakeMotionStageDisconnect:
+    """USB が外れたとき."""
+
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            lambda s: s.status(),
+            lambda s: s.set_velocity(Velocity(x=1.0)),
+            lambda s: s.home(),
+            lambda s: s.move_to(x=1.0),
+            lambda s: s.stop(),
+            lambda s: s.relax(),
+            lambda s: s.restart(),
+            lambda s: s.emergency_stop(),
+        ],
+        ids=[
+            "status",
+            "set_velocity",
+            "home",
+            "move_to",
+            "stop",
+            "relax",
+            "restart",
+            "emergency_stop",
+        ],
+    )
+    def test_operations_after_disconnect_raise(self, clock: _Clock, operation):
+        stage = _stage(clock)
+
+        stage.disconnect()
+
+        with pytest.raises(MotionError):
+            operation(stage)
+
+    def test_close_is_recorded(self, clock: _Clock):
+        stage = _stage(clock)
+
+        stage.close()
+
+        assert stage.closed

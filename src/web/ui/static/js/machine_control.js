@@ -197,9 +197,13 @@
     sendControl({ type: "relax" });
   });
 
-  document.getElementById("mc-focus-z").addEventListener("click", () => {
-    sendControl({ type: "focus_z" });
-  });
+  // 新ファームの機体ではテンプレート側でボタンを出さない（null ガード）
+  const focusZButton = document.getElementById("mc-focus-z");
+  if (focusZButton) {
+    focusZButton.addEventListener("click", () => {
+      sendControl({ type: "focus_z" });
+    });
+  }
 
   // paste マシン以外ではテンプレート側でボタンを出さない（null ガード）
   const moveToCapButton = document.getElementById("mc-move-to-cap");
