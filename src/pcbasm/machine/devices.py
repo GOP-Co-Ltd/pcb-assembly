@@ -30,6 +30,7 @@ from pcbasm.hal import (
     AlsaAudioPlayer,
     AudioPlayer,
     Camera,
+    ContactSettings,
     FrameHub,
     Gamepad,
     KlipperClient,
@@ -570,6 +571,16 @@ def _load_cell_settings(config: LoadCellConfig) -> LoadCellSettings:
         sample_rate=config.sample_rate,
         counts_per_gram=config.counts_per_gram,
         inverted=config.sensor_orientation == "inverted",
+        contact=_contact_settings(config),
+        free_tare_zone=config.free_tare_zone,
+    )
+
+
+def _contact_settings(config: LoadCellConfig) -> ContactSettings:
+    return ContactSettings(
+        trigger_force=config.trigger_force,
+        release_force=config.release_force,
+        press_positive=config.press_positive,
     )
 
 
@@ -647,6 +658,9 @@ def _fake_motion_stage(config_path: Path) -> FakeMotionStage | None:
         _motion_limits(motion),
         Velocity(x.max_velocity, y.max_velocity, z.max_velocity),
         load_cell=motion.load_cell is not None,
+        contact=(
+            None if motion.load_cell is None else _contact_settings(motion.load_cell)
+        ),
     )
 
 

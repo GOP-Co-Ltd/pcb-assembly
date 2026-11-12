@@ -26,7 +26,7 @@ from typing import Any, override
 import pytest
 import tomlkit
 
-from pcbasm.hal import Axis, GamepadState, Velocity
+from pcbasm.hal import Axis, ContactSettings, GamepadState, Velocity
 from pcbasm.hal.fake import FakeAudioPlayer, FakeGamepad, FakeMotionStage
 from pcbasm.machine.devices import Devices
 from pcbasm.pnp.gamepad_control import VIRTUAL_TIMEOUT
@@ -269,6 +269,32 @@ class TestTare:
         _send(manager, record, {"type": "tare"})
 
         wait_until(lambda: stage.status().load == 0.0, what="タール")
+        assert record.status == JobStatus.RUNNING
+
+
+class TestContact:
+    """接触保持の間は、スティックの XY と押す向き（Z−）を捨て、荷重が下がれば戻る."""
+
+    @pytest.fixture
+    def stage(self) -> FakeMotionStage:
+        return fake_motion_stage(homed=True, load_cell=True, contact=ContactSettings())
+
+    def test_drops_xy_while_held_and_resumes_after_release(
+        self, manager: JobManager, record: JobRecord, stage: FakeMotionStage
+    ):
+        _send(manager, record, _stick(z=-1.0))
+        wait_until(lambda: _last(stage) == Velocity(z=-stage.max_velocity.z))
+        stage.set_load(60.0)
+        assert stage.status().contact
+        sent = len(stage.velocities)
+
+        _send(manager, record, _stick(x=1.0, z=1.0))
+
+        wait_until(lambda: _last(stage) == Velocity(z=stage.max_velocity.z))
+        assert all(v.x == 0.0 for _, v in stage.velocities[sent:])
+        stage.set_load(0.0)
+        _send(manager, record, _stick(x=1.0))
+        wait_until(lambda: _last(stage) == Velocity(x=stage.max_velocity.x))
         assert record.status == JobStatus.RUNNING
 
 

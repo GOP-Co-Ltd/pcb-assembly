@@ -1,8 +1,23 @@
 """速度指令で動かす XYZ ステージ（pnp-motion ファーム）の抽象.
 
 塗布機の Klipper 経路（:class:`~pcbasm.hal.stage.XYZStage`）とは別の HAL。速度を期限付きで送り続けて動かし、
-原点出し・座標指定の移動・脱力・再起動と、ステージのロードセルの荷重の読み取りとタールを持つ。実装は ``pcbasm.hal.mcu`` の MCU 版と
+原点出し・座標指定の移動・脱力・再起動と、ステージのロードセルの荷重の読み取りとタール、接触停止を持つ。実装は ``pcbasm.hal.mcu`` の MCU 版と
 ``pcbasm.hal.fake.FakeMotionStage``。
+
+接触停止と接触保持（ロードセルがある機体）:
+
+- **向き:** 部品実装機 kurousagi はステージが動き、ピンセットは動かない。ステージが上がるとピンセットに近づいて
+  Z が減り（Z−）、下がると離れて Z が増える（Z+）。Z=0 が原点（原点出しは Z+ の向き）で、可動域は −40〜0 mm。
+  押す向き（ピンセットに押し当たる向き）は設定で明示する（:attr:`ContactSettings.press_positive`。kurousagi は
+  Z− なので False）。「原点出しの逆」と推し量らないのは、それが成り立たない機体がありうるため
+- **接触停止:** 動いている間に荷重が ``trigger_force`` を超えたら、その場で止める。止まると「接触保持」に入り、
+  :attr:`MotionStatus.contact` が真になる
+- **接触保持:** 荷重が ``release_force`` 以上の間は、Z の離す向きにだけ動かせる（:func:`contact_velocity`、
+  :func:`contact_move_error`）。X・Y と押す向き、原点出し、タールは受け付けない。荷重が ``release_force`` を
+  下回ったら、次の操作で通常に戻る
+- **離れた範囲のタール:** MCU 版は、Z がピンセットから離す向きの端から ``free_tare_zone`` [mm] 以内で止まっていれば、
+  ステージに載せた基板などの荷重を差の大きさを問わず自動のタールに取り込む（原点を出していない Z と、接触保持の間は
+  取り込まない）。範囲の外では ±2 g 以内だけ。fake は自動のタールをしないので持たない
 """
 
 from __future__ import annotations
@@ -34,10 +49,36 @@ class Velocity:
     z: float = 0.0
 
 
+@attrs.frozen(kw_only=True)
+class ContactSettings:
+    """ロードセルの接触停止の設定.
+
+    Attributes:
+        trigger_force: これを超える荷重 [g] で止める（押される向きだけを見る）
+        release_force: 接触保持から戻る荷重 [g]（これを下回ったら戻る）
+        press_positive: Z+ へ動くとピンセットに押し当たる（kurousagi は Z− で押し当たるので False）
+    """
+
+    trigger_force: float = 50.0
+    release_force: float = 15.0
+    press_positive: bool = False
+
+    def __attrs_post_init__(self) -> None:
+        if not self.trigger_force > 0:
+            raise ValueError(f"trigger_force は正にする: {self.trigger_force}")
+        if not self.release_force > 0:
+            raise ValueError(f"release_force は正にする: {self.release_force}")
+        if not self.release_force < self.trigger_force:
+            raise ValueError(
+                f"release_force（{self.release_force}）は trigger_force（{self.trigger_force}）より小さくする"
+            )
+
+
 class MotionState(enum.Enum):
     """ステージの状態.
 
     原点出しで MCU が接触停止の状態になっても、ここでは ``IDLE`` として扱う（速度指令で再開できる）。
+    ロードセルの接触で止まったときも ``IDLE`` で、:attr:`MotionStatus.contact` が真になる。
 
     Attributes:
         IDLE: 止まっている。速度指令を受けると動き出す
@@ -63,6 +104,7 @@ class MotionStatus:
         load: ステージに掛かる荷重 [g]（押される向きが正）。ロードセルが無いか、まだ読めていないか、
             読めないか、shutdown していれば None
         load_error: ロードセルが読めない理由（読めているか、ロードセルが無ければ None）
+        contact: ロードセルの接触で止まり、まだ離していない（接触保持の間。モジュールの docstring）
     """
 
     position: Point3d
@@ -72,10 +114,62 @@ class MotionStatus:
     shutdown_reason: str | None = None
     load: float | None = None
     load_error: str | None = None
+    contact: bool = False
 
 
 class MotionError(DeviceError):
     """ステージが指令を受け付けない（shutdown している、切断した、など）."""
+
+
+class ContactStopped(MotionError):
+    """原点出しか座標指定の移動の途中で、ロードセルの接触で止まった（接触保持に入った）."""
+
+
+def release_direction(*, press_positive: bool) -> str:
+    """接触から離す Z の向き（表示用。``Z+`` か ``Z−``）.
+
+    Args:
+        press_positive: Z+ へ動くとピンセットに押し当たる
+    """
+    return "Z−" if press_positive else "Z+"
+
+
+def contact_velocity(velocity: Velocity, *, press_positive: bool) -> Velocity:
+    """接触保持の間に送ってよい速度: X・Y は 0、Z は離す向きだけを残す.
+
+    Args:
+        velocity: 求められた速度 [mm/s]
+        press_positive: Z+ へ動くとピンセットに押し当たる
+    """
+    releasing = velocity.z < 0 if press_positive else velocity.z > 0
+    return Velocity(z=velocity.z if releasing else 0.0)
+
+
+def contact_move_error(
+    here: Point3d,
+    x: float | None,
+    y: float | None,
+    z: float | None,
+    *,
+    press_positive: bool,
+) -> str | None:
+    """接触保持の間に、座標指定の移動を受け付けない理由（受け付けるなら None）.
+
+    X・Y を指定したら受け付けない。Z は、今の位置から押す向きへ動かす行き先なら受け付けない。
+
+    Args:
+        here: 今の位置 [mm]
+        x: X の行き先 [mm]（None なら動かさない）
+        y: Y の行き先 [mm]
+        z: Z の行き先 [mm]
+        press_positive: Z+ へ動くとピンセットに押し当たる
+    """
+    if x is not None or y is not None:
+        return "接触中は X・Y を動かせません。先に Z を離す向きに動かしてください"
+    if z is not None and (z > here.z if press_positive else z < here.z):
+        release = release_direction(press_positive=press_positive)
+        return f"接触中は押す向きに動かせません。{release} で離してください"
+    return None
 
 
 def homing_order(axes: Collection[Axis], homed: Collection[Axis]) -> tuple[Axis, ...]:
@@ -134,6 +228,8 @@ class MotionStage(ABC):
             axes: 原点出しをする軸
 
         Raises:
+            ValueError: 接触保持の間
+            ContactStopped: 途中でロードセルの接触で止まった（その軸の原点は未のまま）
             MotionError: shutdown している、または原点出しに失敗した
         """
 
@@ -142,14 +238,16 @@ class MotionStage(ABC):
         """速度を期限付きで 1 回送る.
 
         期限までに次の指令が来なければ速度は 0 になる。止まっているときに受けると動き出す。
-        止まっているときに全軸 0 を受けたら、何もしない（動き出さず、励磁も入れない）。
+        止まっているときに全軸 0 を受けたら、何もしない（動き出さず、励磁も入れない）。動いているときに全軸 0 を
+        受けたら、:meth:`stop` と同じく止まるまで待つ（接触停止は動いている間だけ効く）。
+        接触保持の間は :func:`contact_velocity` で絞ってから送る。
 
         Args:
             velocity: 各軸の速度 [mm/s]
 
         Raises:
             ValueError: 原点が未の軸に 0 以外を渡した
-            MotionError: shutdown している
+            MotionError: shutdown している、またはロードセルの異常で止まった
         """
 
     @abstractmethod
@@ -180,13 +278,14 @@ class MotionStage(ABC):
             speed: 速度 [mm/s]（None なら実装の既定）
 
         Raises:
-            ValueError: 可動域の外か、原点が未の軸を指定した
+            ValueError: 可動域の外か、原点が未の軸を指定した。接触保持の間に :func:`contact_move_error` が拒んだ
+            ContactStopped: 途中でロードセルの接触で止まった
             MotionError: shutdown している
         """
 
     @abstractmethod
     def relax(self) -> None:
-        """止めて励磁を切る。原点は「未」に戻る.
+        """止めて励磁を切る。原点は「未」に戻り、接触保持も消える.
 
         Raises:
             MotionError: shutdown している
@@ -215,7 +314,7 @@ class MotionStage(ABC):
         :meth:`status` と同じく、どのスレッドからでも呼べ、ほかの操作の終わりを待たない。
 
         Raises:
-            ValueError: ロードセルが無い、または値が来ていない
+            ValueError: ロードセルが無い、値が来ていない、または接触保持の間
             MotionError: shutdown している、またはステージと話せない
         """
 

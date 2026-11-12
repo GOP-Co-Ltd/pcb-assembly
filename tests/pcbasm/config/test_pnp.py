@@ -598,10 +598,22 @@ class TestPnpMotionLedAndLoadCell:
             sample_rate=80,
             counts_per_gram=2666.98,
             sensor_orientation="normal",
+            trigger_force=50.0,
+            release_force=15.0,
+            press_positive=False,
+            free_tare_zone=5.0,
         )
 
     def test_reads_every_key(self, tmp_path: Path):
-        table = _load_cell(gain="B-32", sample_rate=10, sensor_orientation="inverted")
+        table = _load_cell(
+            gain="B-32",
+            sample_rate=10,
+            sensor_orientation="inverted",
+            trigger_force=80.0,
+            release_force=20.0,
+            press_positive=True,
+            free_tare_zone=0.0,
+        )
 
         motion = load_motion(_motion_machine(tmp_path, _motion_with(load_cell=table)))
 
@@ -609,6 +621,10 @@ class TestPnpMotionLedAndLoadCell:
         assert motion.load_cell.gain == "B-32"
         assert motion.load_cell.sample_rate == 10
         assert motion.load_cell.sensor_orientation == "inverted"
+        assert motion.load_cell.trigger_force == 80.0
+        assert motion.load_cell.release_force == 20.0
+        assert motion.load_cell.press_positive
+        assert motion.load_cell.free_tare_zone == 0.0
 
     @pytest.mark.parametrize("key", ["sclk_pin", "dout_pin", "counts_per_gram"])
     def test_keys_without_a_default_are_required(self, tmp_path: Path, key: str):
@@ -628,6 +644,9 @@ class TestPnpMotionLedAndLoadCell:
             ("counts_per_gram", 0),
             ("counts_per_gram", -2666.98),
             ("sensor_orientation", "reversed"),
+            ("trigger_force", 0),
+            ("release_force", -1.0),
+            ("free_tare_zone", -0.1),
         ],
     )
     def test_values_out_of_range_are_config_errors(
@@ -773,6 +792,22 @@ class TestLoadMotion:
             load_motion(path)
 
 
+class TestPnpMotionContactForces:
+    @pytest.mark.parametrize(
+        ("trigger_force", "release_force"), [(50.0, 50.0), (15.0, 50.0)]
+    )
+    def test_release_force_must_be_below_the_trigger_force(
+        self, tmp_path: Path, trigger_force: float, release_force: float
+    ):
+        table = _load_cell(trigger_force=trigger_force, release_force=release_force)
+        path = _motion_machine(tmp_path, _motion_with(load_cell=table))
+
+        with pytest.raises(ConfigError, match="release_force") as raised:
+            load_machine(path)
+
+        assert raised.value.sections == {"pnp"}
+
+
 class TestKurousagiTemplate:
     """部品実装機 kurousagi の雛形は、Klipper を使わず新ファームで XYZ を動かす."""
 
@@ -792,7 +827,8 @@ class TestKurousagiTemplate:
             tmc_tx_pin="gpio8",
             x=_KUROUSAGI_X,
             y=_KUROUSAGI_Y,
-            z=_KUROUSAGI_Z,
+            # 押し込み量を抑えるため、雛形の Z は 10 mm/s にしてある
+            z=attrs.evolve(_KUROUSAGI_Z, max_velocity=10.0),
             led_pin="gpio17",
             load_cell=LoadCellConfig(
                 sclk_pin="gpio0", dout_pin="gpio1", counts_per_gram=2666.98

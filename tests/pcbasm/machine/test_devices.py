@@ -20,6 +20,7 @@ from pcbasm.config.klipper import KlipperConfig
 from pcbasm.config.pnp import MotionConfig
 from pcbasm.errors import DeviceError
 from pcbasm.hal import (
+    ContactSettings,
     FrameHub,
     GamepadState,
     Limits,
@@ -1046,6 +1047,28 @@ class TestMotionSettingsLedAndLoadCell:
             sample_rate=80,
             counts_per_gram=2666.98,
             inverted=False,
+            contact=ContactSettings(
+                trigger_force=50.0, release_force=15.0, press_positive=False
+            ),
+            free_tare_zone=5.0,
+        )
+
+    def test_contact_forces_and_direction(self, tmp_path: Path):
+        motion = motion_table()
+        motion["load_cell"] = {
+            "sclk_pin": "gpio0",
+            "dout_pin": "gpio1",
+            "counts_per_gram": 2666.98,
+            "trigger_force": 80.0,
+            "release_force": 20.0,
+            "press_positive": True,
+        }
+
+        load_cell = motion_settings(_load_motion(tmp_path, motion)).load_cell
+
+        assert load_cell is not None
+        assert load_cell.contact == ContactSettings(
+            trigger_force=80.0, release_force=20.0, press_positive=True
         )
 
     @pytest.mark.parametrize(

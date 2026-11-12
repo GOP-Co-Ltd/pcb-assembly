@@ -204,6 +204,7 @@ def _validate_deadzone(name: str, value: object) -> str | None:
 
 _positive = as_validator(validate_positive_number)
 _optional_positive = attrs.validators.optional(_positive)
+_non_negative = as_validator(validate_non_negative_number)
 
 
 @attrs.frozen(kw_only=True)
@@ -318,7 +319,8 @@ class LoadCellConfig:
     """ピンセットの荷重を測るロードセルの HX711（[pnp.motion.load_cell]）.
 
     HX711 は [pnp.motion] の MCU につなぐ。項目の名前と意味は Klipper の ``[load_cell]`` の hx711 に合わせる
-    （``klipper/docs/Config_Reference.md``）。ピンには ``!`` と ``^`` を付けられない（データ出力のピンのプルアップは
+    （``klipper/docs/Config_Reference.md``）。ただし ``release_force`` と ``press_positive`` は Klipper に無い、
+    接触保持のための自前の項目。ピンには ``!`` と ``^`` を付けられない（データ出力のピンのプルアップは
     ファームが常に掛ける）。
 
     Attributes:
@@ -328,6 +330,13 @@ class LoadCellConfig:
         sample_rate: 出力レート [SPS]（HX711 の RATE ピンで決まる 10 か 80）
         counts_per_gram: 1 g あたりの HX711 の値（機体ごとに校正する）
         sensor_orientation: 荷重が掛かると値が減る向きにつないだなら ``inverted``
+        trigger_force: 動いている間に、これを超える荷重 [g] で止める（接触停止）
+        release_force: 接触して止まった後、荷重がこれを下回ったら離したとみなす [g]（``trigger_force`` より小さい）
+        free_tare_zone: ピンセットから離す向きの端から、ここまでの範囲 [mm] で Z が止まっていて荷重が安定していれば、
+            ステージに載せた基板やトレイの荷重も、差の大きさを問わずタールに取り込む（0 で無効。それ以外の位置では、
+            タール値との差が 2 g 以内のときだけ取り込む）。離す向きの端は ``press_positive`` で決まる
+        press_positive: Z+ へ動くとピンセットに押し当たる。kurousagi はステージが上がる Z− で押し当たるので
+            false（:mod:`pcbasm.hal.motion` の「向き」）
     """
 
     sclk_pin: str
@@ -338,6 +347,22 @@ class LoadCellConfig:
     )
     counts_per_gram: float = attrs.field(validator=_positive)
     sensor_orientation: SensorOrientation = "normal"
+    trigger_force: float = attrs.field(default=50.0, validator=_positive)
+    release_force: float = attrs.field(default=15.0, validator=_positive)
+    press_positive: bool = False
+    free_tare_zone: float = attrs.field(default=5.0, validator=_non_negative)
+
+    def __attrs_post_init__(self) -> None:
+        if error := self._validate_relations():
+            raise ValueError(error)
+
+    def _validate_relations(self) -> str | None:
+        if not self.release_force < self.trigger_force:
+            return (
+                f"release_force（{self.release_force:g} g）は trigger_force"
+                f"（{self.trigger_force:g} g）より小さい必要があります"
+            )
+        return None
 
 
 @attrs.frozen(kw_only=True)

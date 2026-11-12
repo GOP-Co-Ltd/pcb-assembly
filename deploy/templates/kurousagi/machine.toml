@@ -106,6 +106,10 @@ dout_pin = "gpio1"
 # sample_rate = 80            # [SPS]。HX711 の RATE ピンに合わせて 10 か 80
 counts_per_gram = 2666.98     # 1 g あたりの値。機体ごとに校正する（この値は kurousagi の Klipper で求めたもの）
 # sensor_orientation = "normal" # ピンセットを押すと荷重が負になるなら "inverted"
+# trigger_force = 50.0        # [g]。動いている間に、これを超えたら止める（接触停止）
+# release_force = 15.0        # [g]。接触して止まった後、これを下回ったら離したとみなす（trigger_force より小さく）
+# free_tare_zone = 5.0        # [mm]。Z がピンセットから離す向きの端（Z=0）からここまでの範囲で止まっていれば、載せた基板などの荷重もタールに取り込む。0 で無効。ピンセットに届かない範囲にする
+press_positive = false        # ステージが上がる Z− でピンセットに押し当たる（Z+ で押し当たる機体なら true）
 
 # X 軸 - GT2 16T プーリー（16 × 2 mm = 32 mm/回転）
 [pnp.motion.x]
@@ -143,7 +147,9 @@ max_accel = 500.0
 tmc_address = 2
 run_current = 0.4
 
-# Z 軸 - GT2 16T プーリー（16 × 2 mm = 32 mm/回転）。Z=0 が最上部で、原点出しは上向き。
+# Z 軸 - GT2 16T プーリー（16 × 2 mm = 32 mm/回転）。動くのはステージで、ピンセットは動かない。
+# Z=0 はステージの最下部（ピンセットから最も遠い）で、原点出しは Z+（ステージを下げる向き）。
+# Z− でステージが上がり、ピンセットに近づく。
 # ノズルが引っかからないよう、原点出しは Z を先に出してから X・Y を出す
 [pnp.motion.z]
 step_pin = "gpio19"
@@ -158,7 +164,9 @@ position_endstop = 0.0
 homing_positive = true
 homing_speed = 10.0 # Z 軸は低速
 homing_retract = 3.0
-max_velocity = 50.0
+# [mm/s]。ロードセルは 80 SPS なので、接触してから止まるまでに 1〜2 サンプル（12.5〜25 ms）かかり、
+# その間に v × 12.5〜25 ms 押し込む（10 mm/s で 0.13〜0.25 mm、50 mm/s で 0.6〜1.25 mm）。速いと止まるときに脱調もしうる
+max_velocity = 10.0
 max_accel = 250.0
 tmc_address = 1
 run_current = 0.4

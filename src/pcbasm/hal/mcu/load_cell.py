@@ -35,10 +35,21 @@ pnp-motion ファームの ``hx71x`` が送る ``sensor_bulk_data`` を受け、
 - **自動のタール:** Z が止まっている（Z を動かす指令から 1 s たった）間のサンプルが 1 s ぶん続き、その幅
   （最大 − 最小）が 0.5 g 以下で、平均と今のタール値の差が 2 g 以下なら、平均を新しいタールにして窓を空にする。
   止まっている間はおよそ 1 秒ごとに取り直す（Z の指令からは約 2 s）。差の上限は「接触していない」の近似で、
-  押し続けた荷重や載せたものをタールに取り込まないためのもの。温度などのゆっくりしたずれだけを追う。
+  押し続けた荷重をタールに取り込まないためのもの。温度などのゆっくりしたずれだけを追う。
   上限を超えてずれたら（たとえば起動したときに何かが当たっていた）、手でタールする
+- **ピンセットから離れた範囲のタール:** Z が、ピンセットから離す向きの端から ``free_tare_zone`` [mm] 以内（kurousagi は
+  Z ≥ 上端 − N）で止まっていれば、ステージに載せた基板やトレイは押す向きの荷重になっても接触ではないので、
+  差の上限を外して（安定の幅 0.5 g の条件は残す）タールに取り込む。そうしないと、載せた荷重が ``trigger_force`` を
+  超えたとき、次に動いたときに接触停止して保持から抜けられない。Z の位置は :class:`LoadCell` の ``free_zone`` が
+  ホストの最新の報告から答える（原点を出していない Z は離れた範囲とみなさない）。範囲の外では ±2 g の上限が残る。
+  ``free_tare_zone`` が 0 なら使わない
 - **手でタール:** 最後のサンプルから 0.25 s の間の正しいサンプルの平均。最後のサンプルが古いか、
   誤りが出ていれば受けない。安定かどうかは問わない
+- **MCU のタール値:** タール値が変わるたびに（最初、自動、手で）``on_tare`` に丸めた counts を渡す。ファームはそれを
+  ``sos_filter`` の offset にして、接触停止の判定に使う（:mod:`pcbasm.hal.mcu.firmware` の「接触停止」）
+- **接触保持の間:** 自動のタールをしない（:meth:`LoadCell.pause_auto_tare`。押し当てた荷重を取り込まない）。
+  離したかは、保持に入ってから後の連続 100 ms（80 SPS で 8 個）のサンプルが、すべて ``release_force`` を
+  下回ったかで見る（:meth:`LoadTracker.released`）
 - **区間の荷重の幅:** Z が止まっている区間と動いている区間（Z の指令から 1 s まで）の、荷重の最小と最大を
   区間が終わるたびに info ログに出す。操作パネルは最後の 1 サンプルを間をおいて出すだけなので、加速で出る
   一瞬の見かけの荷重は、このログで読む（受け入れ試験 A34）。誤りのサンプルや読み直しでは、その区間を捨てる
@@ -55,7 +66,7 @@ import math
 import threading
 import time
 from collections import deque
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 import attrs
 
@@ -72,6 +83,7 @@ _INITIAL_TARE_SAMPLES = 16
 _QUIET_SPAN = 1.0  # 自動のタールに要る、止まっている長さ [s]
 _QUIET_AFTER_MOTION = 1.0  # Z を動かす指令のあと、止まったとみなすまで [s]
 _MANUAL_TARE_SPAN = 0.25  # [s]
+_RELEASE_SPAN = 0.1  # 離したとみなすのに要る、release_force を下回り続ける長さ [s]
 _STALE_AFTER = 0.5  # 古いとみなす時間の下限 [s]
 _SAMPLES_PER_MESSAGE = 12  # sensor_bulk.h の data[51] に入るサンプルの数
 _REQUERY_INTERVAL = 1.0  # [s]
@@ -155,6 +167,7 @@ class LoadTracker:
         self._settings = settings
         self._sign = -1.0 if settings.inverted else 1.0
         self._quiet_count = math.ceil(settings.sample_rate * _QUIET_SPAN)
+        self._release_count = math.ceil(settings.sample_rate * _RELEASE_SPAN)
         self._stale_after = max(
             _STALE_AFTER, 2 * _SAMPLES_PER_MESSAGE / settings.sample_rate
         )
@@ -177,13 +190,23 @@ class LoadTracker:
         self._quiet.clear()
         self._section = None
 
-    def feed(self, samples: Sequence[int], at: float, *, quiet: bool) -> int | None:
+    def feed(
+        self,
+        samples: Sequence[int],
+        at: float,
+        *,
+        quiet: bool,
+        auto_tare: bool = True,
+        free: bool = False,
+    ) -> int | None:
         """正しいサンプルを足す.
 
         Args:
             samples: 古い順のサンプル
             at: 最後のサンプルの時刻 [s]
             quiet: Z が止まっている間のサンプルか
+            auto_tare: 自動のタールをしてよいか（接触保持の間は False）
+            free: Z がピンセットから離れた範囲にあるか。そうなら自動のタールで、今のタール値との差を問わない
 
         Returns:
             タールが変わったら、新しいタール値（丸めた counts）。変わらなければ None
@@ -211,7 +234,7 @@ class LoadTracker:
             at,
             quiet=quiet,
         )
-        if not quiet:
+        if not (quiet and auto_tare):
             self._quiet.clear()
             return None
         changed: float | None = None
@@ -224,7 +247,7 @@ class LoadTracker:
             ) / self._settings.counts_per_gram
             mean = _mean(self._quiet)
             drift = abs(mean - self._tare) / self._settings.counts_per_gram
-            if spread <= _TARE_SPREAD and drift <= _TARE_DRIFT:
+            if spread <= _TARE_SPREAD and (free or drift <= _TARE_DRIFT):
                 changed = mean
                 self._quiet.clear()
         if changed is None:
@@ -273,6 +296,30 @@ class LoadTracker:
         self._initial.clear()
         self._quiet.clear()
         return round(self._tare)
+
+    def ready(self, now: float) -> bool:
+        """タールしてあり、誤りが無く、最後の正しいサンプルが古くない."""
+        return (
+            self._tare is not None
+            and self._error is None
+            and bool(self._recent)
+            and now - self._recent[-1][0] <= self._stale_after
+        )
+
+    def released(self, since: float, now: float) -> bool:
+        """``since`` より後のサンプルの最後の 100 ms ぶんが、すべて ``release_force`` を下回ったか.
+
+        誤りが出ているか、最後の正しいサンプルが古ければ偽（離したとみなさない）。
+        """
+        if not self.ready(now):
+            return False
+        after = [sample for at, sample in self._recent if at > since]
+        if len(after) < self._release_count:
+            return False
+        release = self._settings.contact.release_force
+        return all(
+            self._grams(sample) < release for sample in after[-self._release_count :]
+        )
 
     def reading(self, now: float) -> LoadReading:
         """今の荷重（最後の正しいサンプル）."""
@@ -328,7 +375,16 @@ class _Section:
 class LoadCell:
     """MCU の ``hx71x`` を動かし、受けたサンプルを :class:`LoadTracker` に渡す.
 
-    :meth:`reading`・:meth:`tare`・:meth:`note_z_motion` はどのスレッドからでも呼べる。
+    :meth:`reading`・:meth:`tare`・:meth:`note_z_motion`・:attr:`ready`・:meth:`released`・
+    :meth:`pause_auto_tare` はどのスレッドからでも呼べる。
+
+    Args:
+        transport: MCU との接続
+        settings: ロードセルの設定
+        oid: ``hx71x`` の oid
+        clock_freq: MCU の ``CLOCK_FREQ``
+        on_tare: タール値が変わるたびに、新しいタール値（丸めた counts）で呼ぶ。:class:`LoadCell` のロックの中で、
+            受信スレッドか :meth:`tare` を呼んだスレッドから呼ぶので、``transport.send`` だけを使う
     """
 
     def __init__(
@@ -338,10 +394,14 @@ class LoadCell:
         *,
         oid: int,
         clock_freq: int,
+        on_tare: Callable[[int], None],
     ) -> None:
         self._transport = transport
         self._settings = settings
         self._oid = oid
+        self._on_tare = on_tare
+        self._paused = False
+        self._free_zone: Callable[[], bool] = _never
         self._rest_ticks = clock_freq // (settings.sample_rate * _REST_DIVISOR)
         self._lock = threading.Lock()
         self._tracker = LoadTracker(settings)
@@ -370,6 +430,33 @@ class LoadCell:
         with self._lock:
             return self._tracker.reading(time.monotonic())
 
+    @property
+    def ready(self) -> bool:
+        """接触停止に使える: タールしてあり（MCU にも送ってあり）、誤りが無く、値が来ている."""
+        with self._lock:
+            return self._tracker.ready(time.monotonic())
+
+    def released(self, since: float) -> bool:
+        """荷重が ``release_force`` を 100 ms 下回り続けた.
+
+        ``since``（``time.monotonic()`` の時刻）より後のサンプルで見る.
+        """
+        with self._lock:
+            return self._tracker.released(since, time.monotonic())
+
+    def pause_auto_tare(self, paused: bool) -> None:
+        """自動のタールを止める・再び許す（接触保持の間は止める）."""
+        with self._lock:
+            self._paused = paused
+
+    def watch_free_zone(self, free_zone: Callable[[], bool]) -> None:
+        """Z がピンセットから離れた範囲にあるかを答える関数を設定する（既定は常に偽）.
+
+        受信スレッドが :class:`LoadCell` のロックの中で呼ぶので、ロックを取らず、すぐ返すこと。
+        """
+        with self._lock:
+            self._free_zone = free_zone
+
     def tare(self) -> None:
         """今の荷重を 0 にする.
 
@@ -378,6 +465,7 @@ class LoadCell:
         """
         with self._lock:
             counts = self._tracker.tare(time.monotonic())
+            self._on_tare(counts)
         _logger.info("ロードセルをタールした: %d counts", counts)
 
     def note_z_motion(self) -> None:
@@ -420,8 +508,15 @@ class LoadCell:
                 )
                 first = last - (len(valid) - 1) / self._settings.sample_rate
                 quiet = first - self._z_moved_at >= _QUIET_AFTER_MOTION
-                counts = self._tracker.feed(valid, last, quiet=quiet)
+                counts = self._tracker.feed(
+                    valid,
+                    last,
+                    quiet=quiet,
+                    auto_tare=not self._paused,
+                    free=self._settings.free_tare_zone > 0 and self._free_zone(),
+                )
                 if counts is not None:
+                    self._on_tare(counts)
                     _logger.debug("ロードセルをタールした: %d counts", counts)
                 section = self._tracker.take_section()
                 if section is not None:
@@ -440,6 +535,10 @@ class LoadCell:
                     _logger.warning("%s。HX711 を読み直す", error.message)
                     self._requeried_at = received
                     self._query()
+
+
+def _never() -> bool:
+    return False
 
 
 def _mean(values: Sequence[int]) -> float:

@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 from pcbasm.config import CAPABILITIES, Capability
-from pcbasm.hal import AudioPlayer, Limits, ScalarLimits, Velocity
+from pcbasm.hal import AudioPlayer, ContactSettings, Limits, ScalarLimits, Velocity
 from pcbasm.hal.fake import FakeMotionStage
 from pcbasm.machine.devices import Devices, open_devices
 from pcbasm.pasting.overrides import BoardOverrides
@@ -128,10 +128,13 @@ def devices_with_audio(env: Env, audio: AudioPlayer) -> Devices:
 
 
 def fake_motion_stage(
-    *, homed: bool = False, load_cell: bool = False
+    *,
+    homed: bool = False,
+    load_cell: bool = False,
+    contact: ContactSettings | None = None,
 ) -> FakeMotionStage:
     """``motion_table()`` の可動域と最高速度の FakeMotionStage（時計は実時間。``load_cell``
-    ならロードセルも）."""
+    ならロードセルも、``contact`` も与えれば接触停止も）."""
     table = motion_table()
     x, y, z = table["x"], table["y"], table["z"]
     return FakeMotionStage(
@@ -146,6 +149,7 @@ def fake_motion_stage(
         Velocity(x["max_velocity"], y["max_velocity"], z["max_velocity"]),
         homed=homed,
         load_cell=load_cell,
+        contact=contact,
     )
 
 
