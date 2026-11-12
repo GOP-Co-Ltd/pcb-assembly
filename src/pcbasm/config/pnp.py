@@ -25,6 +25,7 @@ from pcbasm.validators import (
 
 _SERVO = "ピンセットのサーボ"
 _GAMEPAD = "コントローラ"
+_LOAD_CELL = "ロードセル"
 
 _MAX_SERVO_ID = 253
 _FULL_TURN = 360.0
@@ -341,7 +342,13 @@ class LoadCellConfig:
     sample_rate: int = attrs.field(
         default=80, validator=as_validator(_validate_sample_rate)
     )
-    counts_per_gram: float = attrs.field(validator=_positive)
+    # 設定ページには感度だけを出す（校正のジョブ load_cell_calibrate の Apply が書くため。ほかの [pnp.motion] は出さない）
+    counts_per_gram: float = attrs.field(
+        validator=_positive,
+        metadata=setting(
+            label="ロードセルの感度", group=_LOAD_CELL, order=10, unit="counts/g"
+        ),
+    )
     sensor_orientation: SensorOrientation = "normal"
     trigger_force: float = attrs.field(default=50.0, validator=_positive)
     release_force: float = attrs.field(default=15.0, validator=_positive)

@@ -944,6 +944,9 @@ class FakeMotionStage(MotionStage):
     :meth:`home` は軸を 0（可動域の外なら近い端）へ、:meth:`move_to` は行き先へ、即座に置く。
     :meth:`shutdown` で MCU の shutdown を、:meth:`disconnect` で USB が外れたことを模擬する。
     ``load_cell`` なら、ロードセルの荷重を :meth:`set_load` で外から与える（:meth:`tare` がその時点の値を 0 にする）。
+    :meth:`measure_load_counts` は待たずに、風袋からの荷重に ``counts_per_gram`` を掛けて返す。自動の風袋引きは
+    模擬しないので、:meth:`suspend_auto_tare` は :attr:`commands` に ``suspend_auto_tare`` / ``resume_auto_tare``
+    を残すだけ。
     ``contact`` も与えると接触停止を模擬する（:mod:`pcbasm.hal.motion` の「接触停止と接触保持」）: 動いている間に
     風袋からの荷重が ``trigger_force`` 以上になったら（:meth:`set_load` か、その荷重のまま動き出したとき）止めて
     接触保持に入る。保持の間は、速度指令を :func:`~pcbasm.hal.motion.contact_velocity` で絞り、座標指定の移動は
@@ -962,6 +965,7 @@ class FakeMotionStage(MotionStage):
         clock: Callable[[], float] = time.monotonic,
         load_cell: bool = False,
         contact: ContactSettings | None = None,
+        counts_per_gram: float = 1000.0,
     ) -> None:
         """Fake のステージを作る.
 
@@ -973,6 +977,7 @@ class FakeMotionStage(MotionStage):
             clock: 時刻 [s] を返す時計
             load_cell: ロードセルを持つか（持てば荷重は 0 g で始まる）
             contact: 接触停止の設定（None なら接触で止めない。``load_cell`` のときだけ効く）
+            counts_per_gram: :meth:`measure_load_counts` が 1 g を何 counts とするか
         """
         self._limits = limits
         self._max_velocity = max_velocity
@@ -995,6 +1000,8 @@ class FakeMotionStage(MotionStage):
         self._load = 0.0
         self._tare = 0.0
         self._contact = contact if load_cell else None
+        self._counts_per_gram = counts_per_gram
+        self._load_error: str | None = None
         self._holding = False
         self._lock = threading.Lock()
 
@@ -1008,7 +1015,8 @@ class FakeMotionStage(MotionStage):
     def commands(self) -> list[str]:
         """速度指令以外の操作（送った順）.
 
-        ``home z``・``move_to``・``stop``・``relax``・``restart``・``emergency_stop``・``tare``。
+        ``home z``・``move_to``・``stop``・``relax``・``restart``・``emergency_stop``・``tare``・
+        ``suspend_auto_tare``・``resume_auto_tare``。
         """
         with self._lock:
             return list(self._commands)
@@ -1041,6 +1049,15 @@ class FakeMotionStage(MotionStage):
             if self._state is MotionState.MOVING:
                 self._check_contact()
 
+    def set_load_error(self, error: str | None) -> None:
+        """ロードセルの誤りのサンプルを模擬する（None で戻す）.
+
+        誤りの間は :meth:`status` の荷重が None で ``load_error`` に理由が出て、:meth:`measure_load_counts` は
+        :class:`MotionError` になる。
+        """
+        with self._lock:
+            self._load_error = error
+
     @property
     @override
     def limits(self) -> Limits:
@@ -1063,7 +1080,10 @@ class FakeMotionStage(MotionStage):
                 state=self._state,
                 homed=self._homed,
                 shutdown_reason=self._shutdown_reason,
-                load=self._load - self._tare if reads_load else None,
+                load=self._load - self._tare
+                if reads_load and self._load_error is None
+                else None,
+                load_error=self._load_error if reads_load else None,
                 contact=self._holding and not self._released(),
             )
 
@@ -1205,6 +1225,24 @@ class FakeMotionStage(MotionStage):
                 )
             self._tare = self._load
             self._commands.append("tare")
+
+    @override
+    def measure_load_counts(self, seconds: float) -> float:
+        with self._lock:
+            self._check_ready()
+            if not self._load_cell:
+                raise MotionError("この機体にはロードセルがありません")
+            if self._load_error is not None:
+                raise MotionError(f"ロードセルが読めない: {self._load_error}")
+            return (self._load - self._tare) * self._counts_per_gram
+
+    @override
+    def suspend_auto_tare(self, suspended: bool) -> None:
+        with self._lock:
+            if self._load_cell:
+                self._commands.append(
+                    "suspend_auto_tare" if suspended else "resume_auto_tare"
+                )
 
     @override
     def close(self) -> None:

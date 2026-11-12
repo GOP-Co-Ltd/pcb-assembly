@@ -132,6 +132,14 @@ FEATURES: tuple[Feature, ...] = (
     ),
     Feature("servo_setup", "calibration", "ピンセット", "job.html", capability="pnp"),
     Feature(
+        "load_cell_calibrate",
+        "calibration",
+        "ピンセット",
+        "job.html",
+        capability="pnp",
+        stage="motion",
+    ),
+    Feature(
         "nozzle_cap",
         "calibration",
         "ノズル・プローブ",

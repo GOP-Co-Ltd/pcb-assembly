@@ -104,7 +104,9 @@ sclk_pin = "gpio0"
 dout_pin = "gpio1"
 # gain = "A-128"              # A-128 / A-64 / B-32
 # sample_rate = 80            # [SPS]。HX711 の RATE ピンに合わせて 10 か 80
-counts_per_gram = 2666.98     # 1 g あたりの値。機体ごとに校正する（この値は kurousagi の Klipper で求めたもの）
+# 1 g あたりの値。機体ごとに校正する（この値は kurousagi の Klipper で求めたもの）。
+# WebUI の校正タブの「ロードセルの校正」ジョブで既知の重さから求め、Apply で書く
+counts_per_gram = 2666.98
 # sensor_orientation = "normal" # ピンセットを押すと荷重が負になるなら "inverted"
 # trigger_force = 50.0        # [g]。動いている間に、これを超えたら止める（接触停止）
 # release_force = 15.0        # [g]。接触して止まった後、これを下回ったら離したとみなす（trigger_force より小さく）

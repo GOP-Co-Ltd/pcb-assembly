@@ -11,7 +11,8 @@ mm と mm/s をステップに直して :class:`~pcbasm.hal.mcu.firmware.PnpMoti
 - **スレッド:** 操作は 1 つのロックで 1 つずつ実行する。:meth:`~McuMotionStage.emergency_stop` はロックを
   取らず（transport の送信のロックだけ）、原点出しや移動の待ちの最中でもすぐ送る。待っている操作は、
   MCU の shutdown を受けて :class:`MotionError` で終わる。:meth:`~McuMotionStage.status` はロックを取らず、
-  最後に受けた報告を読むだけ。:meth:`~McuMotionStage.tare` もロックを取らない（MCU に何も送らない）
+  最後に受けた報告を読むだけ。:meth:`~McuMotionStage.tare` と :meth:`~McuMotionStage.measure_load_counts` もロックを
+  取らない（風袋の offset のほかは MCU に何も送らない）
 - **原点出しの後:** MCU は ``contact`` のまま残るが、止まっている（``IDLE``）として扱う。
   速度指令を受けたら ``velocity_stream_start`` で開始し直す
 - **接触停止（ロードセルがある機体）:** 動かし始めるたびに（原点出し、座標指定の移動、ジョグ、速度指令）、
@@ -344,6 +345,26 @@ class McuMotionStage(MotionStage):
                 f"接触中は風袋引きできません。{self._release_direction()} で離してください"
             )
         load_cell.tare()
+
+    @override
+    def measure_load_counts(self, seconds: float) -> float:
+        # tare と同じくロックを取らない（受信スレッドが届けるサンプルを待つだけ）
+        load_cell = self._ready().load_cell
+        if load_cell is None:
+            raise MotionError(
+                "この機体にはロードセルがありません（[pnp.motion.load_cell]）"
+            )
+        try:
+            return load_cell.mean_counts(seconds)
+        except ValueError as error:
+            raise MotionError(str(error)) from error
+
+    @override
+    def suspend_auto_tare(self, suspended: bool) -> None:
+        # 後始末で呼ぶので _ready を見ない（フラグを立てるだけで MCU へは送らない）
+        load_cell = self._firmware.load_cell
+        if load_cell is not None:
+            load_cell.suspend_auto_tare(suspended)
 
     @override
     def close(self) -> None:

@@ -413,6 +413,49 @@ class TestFakeMotionStageLoad:
         assert stage.status().load is None
         with pytest.raises(MotionError):
             stage.tare()
+        with pytest.raises(MotionError):
+            stage.measure_load_counts(1.0)
+
+    def test_measure_load_counts_is_the_load_from_the_tare_in_counts(
+        self, clock: _Clock
+    ):
+        stage = FakeMotionStage(
+            LIMITS, MAX_VELOCITY, clock=clock, load_cell=True, counts_per_gram=2000.0
+        )
+        stage.set_load(3.0)
+        stage.tare()
+
+        stage.set_load(-2.0)
+
+        assert stage.measure_load_counts(1.0) == -10000.0
+
+    def test_measure_without_a_load_cell_is_a_motion_error(self, clock: _Clock):
+        with pytest.raises(MotionError):
+            _stage(clock).measure_load_counts(1.0)
+
+    def test_a_load_error_hides_the_load_and_refuses_measuring(self, clock: _Clock):
+        stage = FakeMotionStage(LIMITS, MAX_VELOCITY, clock=clock, load_cell=True)
+        stage.set_load(3.0)
+
+        stage.set_load_error("READ_TOO_LONG")
+        status = stage.status()
+        assert (status.load, status.load_error) == (None, "READ_TOO_LONG")
+        with pytest.raises(MotionError, match="READ_TOO_LONG"):
+            stage.measure_load_counts(1.0)
+
+        stage.set_load_error(None)
+        assert stage.status().load == 3.0
+
+    def test_suspend_auto_tare_is_recorded_only_with_a_load_cell(self, clock: _Clock):
+        stage = FakeMotionStage(LIMITS, MAX_VELOCITY, clock=clock, load_cell=True)
+        without = _stage(clock)
+
+        for each in (stage, without):
+            each.suspend_auto_tare(True)
+            each.suspend_auto_tare(False)
+
+        assert stage.commands == ["suspend_auto_tare", "resume_auto_tare"]
+        assert without.commands == []
 
 
 class TestFakeMotionStageContact:

@@ -29,7 +29,12 @@ from web.api.jobs.pasting import (
     paste_volume_refit,
     toolhead_offset,
 )
-from web.api.jobs.pnp import gamepad_control, gamepad_motion, servo_setup
+from web.api.jobs.pnp import (
+    gamepad_control,
+    gamepad_motion,
+    load_cell_calibrate,
+    servo_setup,
+)
 from web.api.jobs.runtime.catalog import JobCatalog
 
 
@@ -43,7 +48,8 @@ def default_catalog(
     """機体の機能に応じたジョブを登録したカタログを返す（これがジョブの一覧）.
 
     位置合わせ・カメラ・基板生成・装置診断はどの機体にも登録し、塗布のジョブは solder 機能の機体にだけ、部品実装のジョブは pnp 機能の機体にだけ登録する。
-    XYZ のコントローラ操作は、XYZ を新ファームで動かす部品実装機にだけ登録する。
+    XYZ のコントローラ操作とロードセルの校正は、XYZ を新ファームで動かす部品実装機にだけ登録する
+    （ロードセルは新ファームの MCU につなぐ。ロードセルの無い機体では、校正のジョブは理由を出して失敗する）。
 
     Args:
         capabilities: 機体の機能
@@ -67,6 +73,7 @@ def default_catalog(
         gamepad_control.register(catalog)
         if motion_stage:
             gamepad_motion.register(catalog)
+            load_cell_calibrate.register(catalog)
     reference_point_setup.register(catalog)
     camera_calibration.register(catalog)
     board_tour.register(catalog)

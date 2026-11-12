@@ -344,6 +344,31 @@ class TestLoad:
         wait_until(lambda: "Z が動いていた" in caplog.text, what="区間のログ")
         wait_until(lambda: load_stage.status().load == 0.0, what="自動の風袋引き")
 
+    def test_suspended_auto_tare_keeps_a_quiet_load_until_resumed(
+        self, mcu: WireMcu, load_stage: McuMotionStage
+    ):
+        wait_until(lambda: load_stage.status().load == 0.0, what="風袋引き")
+        load_stage.suspend_auto_tare(True)
+        mcu.control("load", counts=100)
+        end = time.monotonic() + 2.5
+
+        def kept() -> bool:
+            # Z が止まって安定した 1 g でも、止めている間は風袋に取り込まない
+            assert load_stage.status().load in (0.0, 1.0)
+            return time.monotonic() >= end
+
+        wait_until(kept, what="2.5 s")
+        assert load_stage.status().load == 1.0
+
+        load_stage.suspend_auto_tare(False)
+        wait_until(lambda: load_stage.status().load == 0.0, what="自動の風袋引き")
+
+    def test_suspend_auto_tare_without_a_load_cell_does_nothing(
+        self, stage: McuMotionStage
+    ):
+        stage.suspend_auto_tare(True)
+        stage.suspend_auto_tare(False)
+
     def test_a_bad_sample_is_reported_instead_of_the_load(
         self, mcu: WireMcu, load_stage: McuMotionStage
     ):
@@ -368,6 +393,29 @@ class TestLoad:
         assert load_stage.status().load is None
         with pytest.raises(MotionError):
             load_stage.tare()
+
+    def test_measure_load_counts_is_the_mean_from_the_tare(
+        self, mcu: WireMcu, load_stage: McuMotionStage
+    ):
+        wait_until(lambda: load_stage.status().load == 0.0, what="風袋引き")
+        mcu.control("load", counts=-250)
+        wait_until(lambda: load_stage.status().load == -2.5, what="-2.5 g")
+
+        assert load_stage.measure_load_counts(0.25) == -250.0
+
+    def test_measure_without_a_load_cell_is_a_motion_error(self, stage: McuMotionStage):
+        with pytest.raises(MotionError, match="ロードセル"):
+            stage.measure_load_counts(0.25)
+
+    def test_measure_with_a_bad_sample_is_a_motion_error(
+        self, mcu: WireMcu, load_stage: McuMotionStage
+    ):
+        wait_until(lambda: load_stage.status().load == 0.0, what="風袋引き")
+        mcu.control("drop_blocks", count=1000)
+        mcu.control("hx71x_error")
+
+        with pytest.raises(MotionError):
+            load_stage.measure_load_counts(1.0)
 
 
 # 接触停止（load_stage は 100 counts/g、しきい値は既定の 50 g、戻るのは 15 g 未満。Z− で押し当たる）

@@ -132,9 +132,10 @@ def fake_motion_stage(
     homed: bool = False,
     load_cell: bool = False,
     contact: ContactSettings | None = None,
+    counts_per_gram: float = 1000.0,
 ) -> FakeMotionStage:
     """``motion_table()`` の可動域と最高速度の FakeMotionStage（時計は実時間。``load_cell``
-    ならロードセルも、``contact`` も与えれば接触停止も）."""
+    ならロードセル（``counts_per_gram`` counts/g）も、``contact`` も与えれば接触停止も）."""
     table = motion_table()
     x, y, z = table["x"], table["y"], table["z"]
     return FakeMotionStage(
@@ -150,6 +151,7 @@ def fake_motion_stage(
         homed=homed,
         load_cell=load_cell,
         contact=contact,
+        counts_per_gram=counts_per_gram,
     )
 
 

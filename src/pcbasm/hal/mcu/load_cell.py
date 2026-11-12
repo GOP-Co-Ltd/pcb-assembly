@@ -44,6 +44,12 @@ pnp-motion ファームの ``hx71x`` が送る ``sensor_bulk_data`` を受け、
 - **接触保持の間:** 自動の風袋引きをしない（:meth:`LoadCell.pause_auto_tare`。押し当てた荷重を取り込まない）。
   離したかは、保持に入ってから後の連続 100 ms（80 SPS で 8 個）のサンプルが、すべて ``release_force`` を
   下回ったかで見る（:meth:`LoadTracker.released`）
+- **校正の間:** 自動の風袋引きをしない（:meth:`LoadCell.suspend_auto_tare`。接触保持の止め方とは別に持ち、
+  保持から戻っても校正の間は止めたまま）。drift の上限は今の ``counts_per_gram`` で g に直すので、今の値が実際
+  より大きい機体では、載せたおもりが 2 g 以下に見えて風袋に取り込まれてしまう
+- **校正の平均:** :meth:`LoadCell.mean_counts` は、呼んでから届いた正しいサンプルを ``seconds × sample_rate``
+  個（切り上げ）そろえ、その平均と今の風袋の差 [counts] を返す（押す向きが正。グラムと同じ sign を掛ける）。
+  そろうまでに誤りのサンプルが来たら受けない。待つのは ``seconds`` と古いとみなす時間の和まで
 - **区間の荷重の幅:** Z が止まっている区間と動いている区間（Z の指令から 1 s まで）の、荷重の最小と最大を
   区間が終わるたびに info ログに出す。操作パネルは最後の 1 サンプルを間をおいて出すだけなので、加速で出る
   一瞬の見かけの荷重は、このログで読む（受け入れ試験 A34）。誤りのサンプルや読み直しでは、その区間を捨てる
@@ -174,6 +180,14 @@ class LoadTracker:
         self._error: SampleError | None = None
         self._section: _Section | None = None
         self._finished: LoadSection | None = None
+        self._mean_count = 0
+        self._mean_samples: list[int] = []
+        self._mean_error: SampleError | None = None
+
+    @property
+    def stale_after(self) -> float:
+        """最後のサンプルからこれだけたつと、値が来ないとみなす [s]."""
+        return self._stale_after
 
     def note_start(self, at: float) -> None:
         """読み始めた（``query_hx71x`` を送った）.
@@ -211,6 +225,7 @@ class LoadTracker:
         for index, sample in enumerate(samples):
             self._recent.append((at - (count - 1 - index) * period, sample))
         self._last_at = at
+        self._mean_samples.extend(samples[: self._mean_count - len(self._mean_samples)])
         while self._recent and self._recent[0][0] < at - self._stale_after:
             self._recent.popleft()
         if self._tare is None:
@@ -263,6 +278,8 @@ class LoadTracker:
         """誤りのサンプルを受けた。正しいサンプルが来るまで荷重を出さない."""
         self._error = error
         self._last_at = at
+        if len(self._mean_samples) < self._mean_count:
+            self._mean_error = error
         self._quiet.clear()
         self._recent.clear()
         self._section = None
@@ -288,6 +305,24 @@ class LoadTracker:
         self._initial.clear()
         self._quiet.clear()
         return round(self._tare)
+
+    def begin_mean(self, count: int) -> None:
+        """これから届く正しいサンプルを ``count`` 個数え始める（前に数えていたものは捨てる）."""
+        self._mean_count = count
+        self._mean_samples = []
+        self._mean_error = None
+
+    def mean(self) -> float | None:
+        """数えたサンプルの平均と今の風袋の差 [counts]（押す向きが正）。まだそろっていなければ None.
+
+        Raises:
+            ValueError: そろうまでに誤りのサンプルが来た
+        """
+        if self._mean_error is not None:
+            raise ValueError(f"ロードセルが読めない: {self._mean_error.message}")
+        if len(self._mean_samples) < self._mean_count or self._tare is None:
+            return None
+        return self._sign * (_mean(self._mean_samples) - self._tare)
 
     def ready(self, now: float) -> bool:
         """風袋を取ってあり、誤りが無く、最後の正しいサンプルが古くない."""
@@ -368,7 +403,8 @@ class LoadCell:
     """MCU の ``hx71x`` を動かし、受けたサンプルを :class:`LoadTracker` に渡す.
 
     :meth:`reading`・:meth:`tare`・:meth:`note_z_motion`・:attr:`ready`・:meth:`released`・
-    :meth:`pause_auto_tare` はどのスレッドからでも呼べる。
+    :meth:`pause_auto_tare`・:meth:`suspend_auto_tare`・:meth:`mean_counts` はどのスレッドからでも呼べる。
+    ただし :meth:`mean_counts` は同時に 1 つまで（後から呼んだ側が、先の側の数えている途中を捨てる）。
 
     Args:
         transport: MCU との接続
@@ -393,8 +429,11 @@ class LoadCell:
         self._oid = oid
         self._on_tare = on_tare
         self._paused = False
+        self._suspended = False
         self._rest_ticks = clock_freq // (settings.sample_rate * _REST_DIVISOR)
         self._lock = threading.Lock()
+        # サンプルが届くたびに知らせる（:meth:`mean_counts` が待つ）
+        self._received = threading.Condition(self._lock)
         self._tracker = LoadTracker(settings)
         self._expected_sequence = 0
         self._z_moved_at = -math.inf
@@ -440,6 +479,11 @@ class LoadCell:
         with self._lock:
             self._paused = paused
 
+    def suspend_auto_tare(self, suspended: bool) -> None:
+        """校正の間、自動の風袋引きを止める・再び許す（:meth:`pause_auto_tare` とは別に持つ）."""
+        with self._lock:
+            self._suspended = suspended
+
     def tare(self) -> None:
         """今の荷重を 0 にする.
 
@@ -450,6 +494,25 @@ class LoadCell:
             counts = self._tracker.tare(time.monotonic())
             self._on_tare(counts)
         _logger.info("ロードセルの風袋を取った: %d counts", counts)
+
+    def mean_counts(self, seconds: float) -> float:
+        """呼んでから届いたサンプル ``seconds`` 秒ぶんの平均を、今の風袋からの差 [counts] で返す（押す向きが正）.
+
+        ``hx71x`` は 12 サンプルためてから送るので、呼ぶ前に測られたサンプルも入る（80 SPS で最大約 150 ms）。
+
+        Raises:
+            ValueError: 値が来ない、または途中で誤りのサンプルが来た
+        """
+        count = max(1, math.ceil(seconds * self._settings.sample_rate))
+        with self._lock:
+            deadline = time.monotonic() + seconds + self._tracker.stale_after
+            self._tracker.begin_mean(count)
+            while (mean := self._tracker.mean()) is None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ValueError(_NOT_ARRIVING)
+                self._received.wait(remaining)
+            return mean
 
     def note_z_motion(self) -> None:
         """Z を動かす指令を送った（ここから 1 s は自動の風袋引きをしない）."""
@@ -492,7 +555,10 @@ class LoadCell:
                 first = last - (len(valid) - 1) / self._settings.sample_rate
                 quiet = first - self._z_moved_at >= _QUIET_AFTER_MOTION
                 counts = self._tracker.feed(
-                    valid, last, quiet=quiet, auto_tare=not self._paused
+                    valid,
+                    last,
+                    quiet=quiet,
+                    auto_tare=not (self._paused or self._suspended),
                 )
                 if counts is not None:
                     self._on_tare(counts)
@@ -514,6 +580,7 @@ class LoadCell:
                     _logger.warning("%s。HX711 を読み直す", error.message)
                     self._requeried_at = received
                     self._query()
+            self._received.notify_all()
 
 
 def _mean(values: Sequence[int]) -> float:

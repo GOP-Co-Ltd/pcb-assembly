@@ -191,7 +191,9 @@ class MotionStage(ABC):
     """速度指令で動かす XYZ ステージ.
 
     スレッドの約束:
-        - :meth:`emergency_stop`・:meth:`status`・:meth:`tare` は、どのスレッドからでも即座に呼べる。
+        - :meth:`emergency_stop`・:meth:`status`・:meth:`tare`・:meth:`measure_load_counts`・
+          :meth:`suspend_auto_tare` は、どのスレッドからでも
+          呼べる。
           ほかの操作（:meth:`home` や :meth:`move_to` の待ち）の終わりを待たない
         - ほかの操作は 1 つずつ実行する（同時に呼ばれたら、先の操作が終わるまで待つ）
     """
@@ -313,6 +315,26 @@ class MotionStage(ABC):
         Raises:
             ValueError: ロードセルが無い、値が来ていない、または接触保持の間
             MotionError: shutdown している、またはステージと話せない
+        """
+
+    @abstractmethod
+    def measure_load_counts(self, seconds: float) -> float:
+        """呼んでから届いたロードセルの値 ``seconds`` 秒ぶんの平均を、風袋からの差 [counts] で返す（校正に使う）.
+
+        押す向きが正（``sensor_orientation`` を反映する。荷重 [g] と同じ符号）。:meth:`tare` と同じく、
+        どのスレッドからでも呼べ、ほかの操作の終わりを待たない（``seconds`` 秒ほど待つ）。
+
+        Raises:
+            MotionError: ロードセルが無い、値が来ない、途中で誤りのサンプルが来た、shutdown している、
+                またはステージと話せない
+        """
+
+    @abstractmethod
+    def suspend_auto_tare(self, suspended: bool) -> None:
+        """自動の風袋引きを止める・再び許す（校正の間、載せたおもりを風袋に取り込まない）.
+
+        接触保持の間に止めるのとは別に持つ（保持から戻っても止めたまま）。:meth:`tare` と同じく、どのスレッドからでも
+        呼べる。shutdown や接続が切れた後でも例外を出さない（校正の後始末で呼ぶため）。ロードセルが無ければ何もしない。
         """
 
     @abstractmethod

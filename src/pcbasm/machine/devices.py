@@ -660,6 +660,9 @@ def _fake_motion_stage(config_path: Path) -> FakeMotionStage | None:
         contact=(
             None if motion.load_cell is None else _contact_settings(motion.load_cell)
         ),
+        counts_per_gram=(
+            1000.0 if motion.load_cell is None else motion.load_cell.counts_per_gram
+        ),
     )
 
 

@@ -18,6 +18,10 @@
     この表があれば `[klipper]` は無くてよい。書き方は部品実装機 kurousagi の雛形（`deploy/templates/kurousagi/machine.toml`）を見る。
     照明の LED の `led_pin` と、ピンセットのロードセル（HX711）の `[pnp.motion.load_cell]` は省略できる
 
+例外として、`[pnp.motion.load_cell]` の `counts_per_gram` だけは設定ページ（部品実装の「ロードセル」のカード）に出る。
+ロードセルの校正のジョブ（`load_cell_calibrate`）の Apply がここへ書くため。`[pnp.motion.load_cell]` の無い機体で書くと、
+ほかの必須のキー（`sclk_pin`、`dout_pin`）が無いので設定エラーになり、書き込みは拒否される
+
 値の範囲は書込時と起動時に確かめ、範囲外なら設定エラーになる（[保守ガイド](../maintenance.md) の設定エラーからの復旧）。
 
 このファイルは設定のスキーマから生成する。手で直さず、`uv run python -m tests.support.config_reference > docs/reference/config.md` の後に `make format` を実行する。
@@ -148,14 +152,15 @@
 
 ## 部品実装（`[pnp]`）
 
-| カード             | キー                       | 表示名            | 単位 | 値             |
-| ------------------ | -------------------------- | ----------------- | ---- | -------------- |
-| ピンセットのサーボ | `pnp.servo.port`           | シリアルポート    |      | 文字列         |
-| ピンセットのサーボ | `pnp.servo.baudrate`       | 通信速度          | bps  | 整数           |
-| ピンセットのサーボ | `pnp.servo.rotation_id`    | Rotation の ID    |      | 整数（0 以上） |
-| ピンセットのサーボ | `pnp.servo.open_close_id`  | Open Close の ID  |      | 整数（0 以上） |
-| ピンセットのサーボ | `pnp.servo.closed_angle`   | 閉じ切りの角度    | °    | 数値（0 以上） |
-| ピンセットのサーボ | `pnp.servo.open_angle`     | 開き切りの角度    | °    | 数値（0 以上） |
-| ピンセットのサーボ | `pnp.servo.rotation_speed` | Rotation の速さ   | °/s  | 数値（0 以上） |
-| コントローラ       | `pnp.gamepad.deadzone_xy`  | XY のデッドゾーン |      | 数値（0 以上） |
-| コントローラ       | `pnp.gamepad.deadzone_z`   | Z のデッドゾーン  |      | 数値（0 以上） |
+| カード             | キー                                   | 表示名            | 単位     | 値             |
+| ------------------ | -------------------------------------- | ----------------- | -------- | -------------- |
+| ピンセットのサーボ | `pnp.servo.port`                       | シリアルポート    |          | 文字列         |
+| ピンセットのサーボ | `pnp.servo.baudrate`                   | 通信速度          | bps      | 整数           |
+| ピンセットのサーボ | `pnp.servo.rotation_id`                | Rotation の ID    |          | 整数（0 以上） |
+| ピンセットのサーボ | `pnp.servo.open_close_id`              | Open Close の ID  |          | 整数（0 以上） |
+| ピンセットのサーボ | `pnp.servo.closed_angle`               | 閉じ切りの角度    | °        | 数値（0 以上） |
+| ピンセットのサーボ | `pnp.servo.open_angle`                 | 開き切りの角度    | °        | 数値（0 以上） |
+| ピンセットのサーボ | `pnp.servo.rotation_speed`             | Rotation の速さ   | °/s      | 数値（0 以上） |
+| コントローラ       | `pnp.gamepad.deadzone_xy`              | XY のデッドゾーン |          | 数値（0 以上） |
+| コントローラ       | `pnp.gamepad.deadzone_z`               | Z のデッドゾーン  |          | 数値（0 以上） |
+| ロードセル         | `pnp.motion.load_cell.counts_per_gram` | ロードセルの感度  | counts/g | 数値           |
