@@ -50,7 +50,7 @@ web
 | `src/pcbasm/board/`                 | 基板データ（外形・部品・パッド・銅箔）と CSV / JSON の書き出し、全体図の描画                                                               |
 | `src/pcbasm/kicad/`                 | KiCad 読込・生成、footprint、単位変換（pcbnew はここだけ）                                                                                 |
 | `src/pcbasm/vision/`                | カメラ校正、画像・銅箔・塗布点の検出                                                                                                       |
-| `src/pcbasm/hal/`                   | カメラ、Klipper、ステージ、ディスペンサー、音声の抽象と実装、fake                                                                          |
+| `src/pcbasm/hal/`                   | カメラ、Klipper、ステージ、ディスペンサー、音声の抽象と実装、fake、MCU（pnp-motion ファーム）と話すクライアント（`mcu/`）                  |
 | `src/pcbasm/machine/`               | 装置の組み立て、G-code ジャーナル、操作パネルの命令、駐機、装置診断                                                                        |
 | `src/pcbasm/align/`                 | 基板の位置合わせ、基準点、補正、カメラと装置の座標対応                                                                                     |
 | `src/pcbasm/pasting/`               | 塗布の設定解決、経路、高さ面、機械手順、画像収集、塗布量校正                                                                               |
