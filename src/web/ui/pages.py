@@ -47,6 +47,7 @@ from web.contract.models import (
     StateResponse,
 )
 from web.ui.features import (
+    CONTROLLER_JOBS,
     FEATURES_BY_SLUG,
     LEGACY,
     LEGACY_TABS,
@@ -272,6 +273,8 @@ def _base_context(
         mainsail_url=info.mainsail_url,
         # XYZ を動かす仕組み（"motion" の機体では、マシン操作パネルの Klipper だけの項目を出さない）
         stage=info.stage,
+        # マシン操作パネルの「コントローラ操作」で始めるジョブ（部品実装機だけ）
+        controller_job=CONTROLLER_JOBS[info.stage] if "pnp" in capabilities else None,
         focus_z=state.focus_z,
         config_error=state.config_error,
         pcb_notice=state.pcb_notice,

@@ -133,7 +133,7 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 - 「エージェントチームで進めて」「並列で」と明示されたときだけ skill `agent-team-startup` に従い、自分が `orchestrator` の役割（統括・委譲・レビュー裁定・合流検証。`src/` `tests/` は下位 agent に任せる）を担う
 - agent 定義は `.claude/agents/*.md`。構成は `implementation-planner` →（任意 `spec-test-author`）→ `plan-implementer` → `code-reviewer` ⇄ `code-simplifier`（docstring / README の同期を兼務）
 - 文書改善用に `doc-teacher`（執筆・出題・採点）と `doc-student`（解答のみ、`model: haiku`・`tools: Read`）を置く。skill `doc-teacher-student` から使う
-- `doc-student` を除く全 agent が `model: inherit`。速度・コスト・深さは `effort` で差別化する（`code-reviewer` は high、他は medium。セッション既定は `settings.json` の `effortLevel: medium`）
+- `plan-implementer` は `model: sonnet`、`doc-student` は `model: haiku`、他の全 agent は `model: inherit`。速度・コスト・深さは `effort` で差別化する（`code-reviewer` は high、他は medium。セッション既定は `settings.json` の `effortLevel: medium`）
 - **ユーザーに質問できるのはメインエージェントだけ**。サブエージェントは `AskUserQuestion` を持たないため、質問は報告に含めて返しメインが中継する
 - 中間メモはファイルに残さず各 agent の報告で受け渡し、残すべき判断は PR 本文に書く。並列 agent は書き込み範囲を分離し、同じファイルを同時編集しない
 

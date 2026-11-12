@@ -60,7 +60,6 @@ _GATED_TEMPLATES = {
     "pasting/paste_solder.html",
     "align/copper_detection.html",
     "align/reference_point_setup.html",
-    "pnp/gamepad_motion.html",
 }
 
 
