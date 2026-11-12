@@ -5,8 +5,9 @@
   - 仮想スティックは、届いてから ``VIRTUAL_TIMEOUT`` を過ぎると 0 になる（送信が途切れたら止まる）
   - 一度に届いた stick は最後の 1 件だけを使う
   - マシン操作パネルの命令と一緒に届いた stick は捨てる（原点出しや移動の間に溜まった古い入力で動かない）
-- 同じジョブの中で、マシン操作パネルの命令（原点出し・ジョグ・移動・脱力）を届いた順に実行する
-  - Klipper の機体だけの命令と、形の誤った stick と、知らない command はログに出して続ける
+- 同じジョブの中で、マシン操作パネルの命令（原点出し・ジョグ・移動・脱力・風袋引き）を届いた順に実行する
+  - Klipper の機体だけの命令と、ロードセルの無い機体の風袋引きと、形の誤った stick と、知らない command は
+    ログに出して続ける
 - コントローラのスティックには machine.toml の [pnp.gamepad] のデッドゾーンを掛ける
 - コントローラが外れても、ジョブを落とさず仮想スティックで続ける
 - [pnp.servo] が無くても動く（ピンセットは使わない）
@@ -240,10 +241,34 @@ class TestPanelCommands:
         wait_until(lambda: "この機体では使えません" in _log(record))
         assert record.status == JobStatus.RUNNING
 
+    def test_tare_without_a_load_cell_is_logged_and_the_job_goes_on(
+        self, manager: JobManager, record: JobRecord
+    ):
+        _send(manager, record, {"type": "tare"})
+
+        wait_until(lambda: "ロードセル" in _log(record))
+        assert record.status == JobStatus.RUNNING
+
     def test_unknown_command_is_logged(self, manager: JobManager, record: JobRecord):
         _send(manager, record, {"type": "bogus"})
 
         wait_until(lambda: "bogus" in _log(record))
+        assert record.status == JobStatus.RUNNING
+
+
+class TestTare:
+    @pytest.fixture
+    def stage(self) -> FakeMotionStage:
+        return fake_motion_stage(homed=True, load_cell=True)
+
+    def test_zeroes_the_load(
+        self, manager: JobManager, record: JobRecord, stage: FakeMotionStage
+    ):
+        stage.set_load(3.0)
+
+        _send(manager, record, {"type": "tare"})
+
+        wait_until(lambda: stage.status().load == 0.0, what="風袋引き")
         assert record.status == JobStatus.RUNNING
 
 

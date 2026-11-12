@@ -938,6 +938,7 @@ class FakeMotionStage(MotionStage):
     加速度は無視し、位置は可動域でクランプする。期限（``ttl``）を過ぎた速度は 0 にする（状態は ``MOVING`` のまま）。
     :meth:`home` は軸を 0（可動域の外なら近い端）へ、:meth:`move_to` は行き先へ、即座に置く。
     :meth:`shutdown` で MCU の shutdown を、:meth:`disconnect` で USB が外れたことを模擬する。
+    ``load_cell`` なら、ロードセルの荷重を :meth:`set_load` で外から与える（:meth:`tare` がその時点の値を 0 にする）。
     時計は注入する（テストは手で進める時計を渡す）。
     """
 
@@ -949,6 +950,7 @@ class FakeMotionStage(MotionStage):
         ttl: float = 0.2,
         homed: bool = False,
         clock: Callable[[], float] = time.monotonic,
+        load_cell: bool = False,
     ) -> None:
         """Fake のステージを作る.
 
@@ -958,6 +960,7 @@ class FakeMotionStage(MotionStage):
             ttl: 速度指令の期限 [s]
             homed: 初めから全軸の原点出しを済ませたことにするか
             clock: 時刻 [s] を返す時計
+            load_cell: ロードセルを持つか（持てば荷重は 0 g で始まる）
         """
         self._limits = limits
         self._max_velocity = max_velocity
@@ -976,6 +979,9 @@ class FakeMotionStage(MotionStage):
         self._closed = False
         self._velocities: list[tuple[float, Velocity]] = []
         self._commands: list[str] = []
+        self._load_cell = load_cell
+        self._load = 0.0
+        self._tare = 0.0
         self._lock = threading.Lock()
 
     @property
@@ -986,8 +992,10 @@ class FakeMotionStage(MotionStage):
 
     @property
     def commands(self) -> list[str]:
-        """速度指令以外の操作（``home
-        z``・``move_to``・``stop``・``relax``・``restart``・``emergency_stop``）."""
+        """速度指令以外の操作（送った順）.
+
+        ``home z``・``move_to``・``stop``・``relax``・``restart``・``emergency_stop``・``tare``。
+        """
         with self._lock:
             return list(self._commands)
 
@@ -1008,6 +1016,11 @@ class FakeMotionStage(MotionStage):
         with self._lock:
             self._connected = False
 
+    def set_load(self, grams: float) -> None:
+        """ロードセルに掛かる荷重 [g] を与える（風袋を引く前の値）."""
+        with self._lock:
+            self._load = grams
+
     @property
     @override
     def limits(self) -> Limits:
@@ -1023,12 +1036,14 @@ class FakeMotionStage(MotionStage):
         with self._lock:
             self._check_connected()
             self._advance()
+            reads_load = self._load_cell and self._state is not MotionState.SHUTDOWN
             return MotionStatus(
                 position=self._position,
                 velocity=self._velocity,
                 state=self._state,
                 homed=self._homed,
                 shutdown_reason=self._shutdown_reason,
+                load=self._load - self._tare if reads_load else None,
             )
 
     @override
@@ -1126,6 +1141,15 @@ class FakeMotionStage(MotionStage):
             self._halt(MotionState.SHUTDOWN)
             self._shutdown_reason = "Command request"
             self._commands.append("emergency_stop")
+
+    @override
+    def tare(self) -> None:
+        with self._lock:
+            self._check_ready()
+            if not self._load_cell:
+                raise ValueError("この機体にはロードセルがありません")
+            self._tare = self._load
+            self._commands.append("tare")
 
     @override
     def close(self) -> None:

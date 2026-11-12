@@ -1,7 +1,7 @@
 """速度指令で動かす XYZ ステージ（pnp-motion ファーム）の抽象.
 
 塗布機の Klipper 経路（:class:`~pcbasm.hal.stage.XYZStage`）とは別の HAL。速度を期限付きで送り続けて動かし、
-原点出し・座標指定の移動・脱力・再起動を持つ。実装は ``pcbasm.hal.mcu`` の MCU 版と
+原点出し・座標指定の移動・脱力・再起動と、ピンセットのロードセルの荷重の読み取りと風袋引きを持つ。実装は ``pcbasm.hal.mcu`` の MCU 版と
 ``pcbasm.hal.fake.FakeMotionStage``。
 """
 
@@ -60,6 +60,9 @@ class MotionStatus:
         state: 状態
         homed: 原点出しを済ませた軸
         shutdown_reason: shutdown した理由（shutdown していなければ None）
+        load: ピンセットに掛かる荷重 [g]（押される向きが正）。ロードセルが無いか、まだ読めていないか、
+            読めないか、shutdown していれば None
+        load_error: ロードセルが読めない理由（読めているか、ロードセルが無ければ None）
     """
 
     position: Point3d
@@ -67,6 +70,8 @@ class MotionStatus:
     state: MotionState
     homed: frozenset[Axis]
     shutdown_reason: str | None = None
+    load: float | None = None
+    load_error: str | None = None
 
 
 class MotionError(DeviceError):
@@ -95,7 +100,7 @@ class MotionStage(ABC):
     """速度指令で動かす XYZ ステージ.
 
     スレッドの約束:
-        - :meth:`emergency_stop` と :meth:`status` は、どのスレッドからでも即座に呼べる。
+        - :meth:`emergency_stop`・:meth:`status`・:meth:`tare` は、どのスレッドからでも即座に呼べる。
           ほかの操作（:meth:`home` や :meth:`move_to` の待ち）の終わりを待たない
         - ほかの操作は 1 つずつ実行する（同時に呼ばれたら、先の操作が終わるまで待つ）
     """
@@ -201,6 +206,17 @@ class MotionStage(ABC):
 
         Raises:
             MotionError: ステージと話せない
+        """
+
+    @abstractmethod
+    def tare(self) -> None:
+        """ロードセルの今の荷重を 0 にする（風袋引き）.
+
+        :meth:`status` と同じく、どのスレッドからでも呼べ、ほかの操作の終わりを待たない。
+
+        Raises:
+            ValueError: ロードセルが無い、または値が来ていない
+            MotionError: shutdown している、またはステージと話せない
         """
 
     @abstractmethod

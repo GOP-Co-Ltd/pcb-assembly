@@ -6,7 +6,7 @@ tests の中で組み立て、zlib で圧縮して使う。標準ライブラリ
 
 コマンドと応答の書式は、ファームの C ソースの ``DECL_COMMAND`` と ``sendf`` の書式どおりに書く
 （``src/firmware/pnp-motion/module/velocity_stream.c`` と ``klipper/src`` の ``basecmd.c``・``sched.c``・
-``stepper.c``・``endstop.c``・``trsync.c``・``tmcuart.c``）。ID は辞書ごとにビルドが振るものなので、ここでは
+``stepper.c``・``endstop.c``・``trsync.c``・``tmcuart.c``・``gpiocmds.c``・``sensor_hx71x.c``・``sensor_bulk.c``）。ID は辞書ごとにビルドが振るものなので、ここでは
 負の ID と 128 以上の ID を含むように選んだ。``identify`` と ``identify_response`` の ID（1 と 0）だけは
 プロトコルで固定（``klipper/docs/Protocol.md``）。
 
@@ -68,6 +68,8 @@ COMMANDS: dict[str, int] = {
     "tmcuart_send oid=%c write=%*s read=%c": 58,
     "config_digital_out oid=%c pin=%u value=%c default_value=%c max_duration=%u": 40,
     "update_digital_out oid=%c value=%c": 41,
+    "config_hx71x oid=%c gain_channel=%c dout_pin=%u sclk_pin=%u": 66,
+    "query_hx71x oid=%c rest_ticks=%u": 67,
 }
 
 # 応答の書式 → ID
@@ -88,6 +90,7 @@ RESPONSES: dict[str, int] = {
     "endstop_state oid=%c homing=%c next_clock=%u pin_value=%c": 136,
     "trsync_state oid=%c can_trigger=%c trigger_reason=%c clock=%u": 137,
     "tmcuart_response oid=%c read=%*s": 142,
+    "sensor_bulk_data oid=%c sequence=%hu data=%*s": 145,
 }
 
 # 列挙の名前 → (列挙子 → 値)

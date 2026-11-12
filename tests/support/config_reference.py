@@ -23,7 +23,8 @@ _HEADER = """\
 - `[klipper]`: Moonraker の `host` と `port`。Klipper で XYZ を動かす機体が書く。既定値は無い（テンプレートは `localhost` と `7125`）
 - `[pnp.motion]`: XYZ を新ファーム（pnp-motion）で動かす部品実装機の MCU（`serial`、`kinematics`、TMC2209 の UART のピン）と、
     軸ごとの `[pnp.motion.x]`・`[pnp.motion.y]`・`[pnp.motion.z]`。項目の名前と意味は Klipper の printer.cfg と同じ。
-    この表があれば `[klipper]` は無くてよい。書き方は部品実装機 kurousagi の雛形（`deploy/templates/kurousagi/machine.toml`）を見る
+    この表があれば `[klipper]` は無くてよい。書き方は部品実装機 kurousagi の雛形（`deploy/templates/kurousagi/machine.toml`）を見る。
+    照明の LED の `led_pin` と、ピンセットのロードセル（HX711）の `[pnp.motion.load_cell]` は省略できる
 
 値の範囲は書込時と起動時に確かめ、範囲外なら設定エラーになる（[保守ガイド](../maintenance.md) の設定エラーからの復旧）。
 

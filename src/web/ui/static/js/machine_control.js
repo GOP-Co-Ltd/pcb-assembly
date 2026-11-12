@@ -16,6 +16,9 @@
 
   const positionEl = document.getElementById("mc-position");
   const homedEl = document.getElementById("mc-homed");
+  // ロードセルの荷重の行（新ファームの機体だけテンプレートが出す）
+  const loadRow = document.getElementById("mc-load-row");
+  const loadEl = document.getElementById("mc-load");
   const absInputs = [...panel.querySelectorAll("[data-mc-abs]")];
   const COLLAPSE_KEY = "mc-sidebar-collapsed";
 
@@ -60,7 +63,14 @@
     });
   }
 
+  function renderLoad(label) {
+    if (!loadRow) return;
+    loadRow.hidden = !label;
+    loadEl.textContent = label || "";
+  }
+
   function renderStatus(status) {
+    renderLoad(status.load_label);
     if (!status.connected) {
       positionEl.textContent = "位置: 接続エラー";
       homedEl.textContent = status.error ? `(${status.error})` : "";
@@ -196,6 +206,14 @@
   document.getElementById("mc-relax").addEventListener("click", () => {
     sendControl({ type: "relax" });
   });
+
+  // 新ファームの機体だけテンプレート側でボタンを出す（null ガード）
+  const tareButton = document.getElementById("mc-tare");
+  if (tareButton) {
+    tareButton.addEventListener("click", () => {
+      sendControl({ type: "tare" });
+    });
+  }
 
   // 新ファームの機体ではテンプレート側でボタンを出さない（null ガード）
   const focusZButton = document.getElementById("mc-focus-z");

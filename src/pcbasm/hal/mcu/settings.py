@@ -24,6 +24,7 @@ _MIN_PERIOD = 0.0005  # [s]
 _MAX_LEAD = 0.1  # [s]
 _MAX_SEGMENTS_AHEAD = 64
 _MAX_TTL = 1.0  # [s]
+_HX711_GAIN_CHANNELS = 3  # HX711 の gain は A-128・B-32・A-64 の 3 つ
 
 
 @attrs.frozen(kw_only=True)
@@ -120,6 +121,39 @@ class AxisSettings:
 
 
 @attrs.frozen(kw_only=True)
+class LoadCellSettings:
+    """ロードセルの HX711 の設定.
+
+    Attributes:
+        sclk_pin: SCK のピン
+        dout_pin: データ出力のピン（ファームがプルアップを掛ける）
+        gain_channel: ``config_hx71x`` の ``gain_channel``（読み出しの 24 bit の後に足すパルスの数。
+            HX711 データシートで 1 が A-128、2 が B-32、3 が A-64）
+        sample_rate: 出力レート [SPS]
+        counts_per_gram: 1 g あたりの値
+        inverted: 荷重が掛かると値が減る（グラムに直すときに符号を反す）
+    """
+
+    sclk_pin: str
+    dout_pin: str
+    gain_channel: int
+    sample_rate: int
+    counts_per_gram: float
+    inverted: bool = False
+
+    def __attrs_post_init__(self) -> None:
+        # sensor_hx71x.c は 1〜4 を受け付ける（4 は HX717 だけ）。外れると shutdown する
+        if not 1 <= self.gain_channel <= _HX711_GAIN_CHANNELS:
+            raise ValueError(
+                f"gain_channel は 1〜{_HX711_GAIN_CHANNELS} にする: {self.gain_channel}"
+            )
+        if not self.sample_rate > 0:
+            raise ValueError(f"sample_rate は正にする: {self.sample_rate}")
+        if not self.counts_per_gram > 0:
+            raise ValueError(f"counts_per_gram は正にする: {self.counts_per_gram}")
+
+
+@attrs.frozen(kw_only=True)
 class McuMotionSettings:
     """MCU と 3 軸の設定.
 
@@ -137,6 +171,8 @@ class McuMotionSettings:
         stream_lead: 先読みの長さ [s]
         stream_ttl: 速度指令の期限 [s]
         report_interval: 動いている間に状態を報告させる間隔 [s]
+        led_pin: 常に点ける LED のピン（None なら無い）
+        load_cell: ロードセルの HX711（None なら無い）
     """
 
     device: str
@@ -152,6 +188,8 @@ class McuMotionSettings:
     stream_lead: float = 0.010
     stream_ttl: float = 0.200
     report_interval: float = 0.100
+    led_pin: str | None = None
+    load_cell: LoadCellSettings | None = None
 
     def __attrs_post_init__(self) -> None:
         if self.stream_period < _MIN_PERIOD:

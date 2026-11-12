@@ -371,3 +371,43 @@ class TestFakeMotionStageDisconnect:
         stage.close()
 
         assert stage.closed
+
+
+class TestFakeMotionStageLoad:
+    """ロードセルの荷重は外から与え、:meth:`tare` がその時点の値を 0 にする."""
+
+    def _load_stage(self, clock: _Clock) -> FakeMotionStage:
+        return FakeMotionStage(LIMITS, MAX_VELOCITY, clock=clock, load_cell=True)
+
+    def test_without_a_load_cell_there_is_no_load(self, clock: _Clock):
+        assert _stage(clock).status().load is None
+
+    def test_starts_at_zero_and_reports_the_given_load(self, clock: _Clock):
+        stage = self._load_stage(clock)
+        assert stage.status().load == 0.0
+
+        stage.set_load(12.5)
+
+        assert stage.status().load == 12.5
+
+    def test_tare_zeroes_the_current_load(self, clock: _Clock):
+        stage = self._load_stage(clock)
+        stage.set_load(3.0)
+
+        stage.tare()
+        stage.set_load(5.0)
+
+        assert stage.status().load == 2.0
+        assert stage.commands == ["tare"]
+
+    def test_tare_without_a_load_cell_is_rejected(self, clock: _Clock):
+        with pytest.raises(ValueError):
+            _stage(clock).tare()
+
+    def test_shutdown_hides_the_load_and_refuses_tare(self, clock: _Clock):
+        stage = self._load_stage(clock)
+        stage.shutdown("Command request")
+
+        assert stage.status().load is None
+        with pytest.raises(MotionError):
+            stage.tare()

@@ -4,14 +4,16 @@
 MCU 役の軸は 80 steps/mm で、X・Y の可動域は 0〜20 mm、Z は -10〜0 mm（``tests/support/motion_mcu.py``）。
 """
 
+import logging
 import threading
+import time
 from collections.abc import Iterator
 
 import attrs
 import pytest
 
 from pcbasm.hal import MotionError, MotionState, Velocity
-from pcbasm.hal.mcu.settings import McuMotionSettings
+from pcbasm.hal.mcu.settings import LoadCellSettings, McuMotionSettings
 from pcbasm.hal.mcu.stage import McuMotionStage
 from tests.support.polling import before_deadline, wait_until
 from tests.support.wire_mcu import WireMcu
@@ -271,3 +273,97 @@ class TestRelax:
         assert stage.status().homed == frozenset()
         with pytest.raises(ValueError):
             stage.set_velocity(Velocity(z=-1.0))
+
+
+@pytest.fixture
+def load_stage(settings: McuMotionSettings) -> Iterator[McuMotionStage]:
+    """ロードセル（100 counts/g）を持つステージ."""
+    opened = McuMotionStage(
+        attrs.evolve(
+            settings,
+            load_cell=LoadCellSettings(
+                sclk_pin="gpio0",
+                dout_pin="gpio1",
+                gain_channel=1,
+                sample_rate=80,
+                counts_per_gram=100.0,
+            ),
+        )
+    )
+    yield opened
+    opened.close()
+
+
+class TestLoad:
+    def test_without_a_load_cell_there_is_no_load(self, stage: McuMotionStage):
+        status = stage.status()
+
+        assert (status.load, status.load_error) == (None, None)
+
+    def test_tare_without_a_load_cell_is_rejected(self, stage: McuMotionStage):
+        with pytest.raises(ValueError, match="ロードセル"):
+            stage.tare()
+
+    def test_status_reports_the_load_in_grams(
+        self, mcu: WireMcu, load_stage: McuMotionStage
+    ):
+        wait_until(lambda: load_stage.status().load == 0.0, what="風袋引き")
+
+        mcu.control("load", counts=-250)
+
+        wait_until(lambda: load_stage.status().load == -2.5, what="-2.5 g")
+
+    def test_tare_zeroes_the_load(self, mcu: WireMcu, load_stage: McuMotionStage):
+        wait_until(lambda: load_stage.status().load == 0.0, what="風袋引き")
+
+        load_stage.tare()
+
+        assert load_stage.status().load == 0.0
+
+    def test_moving_z_keeps_the_auto_tare_from_taking_in_the_load(
+        self, mcu: WireMcu, load_stage: McuMotionStage, caplog: pytest.LogCaptureFixture
+    ):
+        load_stage.home(["z"])
+        wait_until(lambda: load_stage.status().load == 0.0, what="風袋引き")
+        mcu.control("load", counts=100)
+        end = time.monotonic() + 2.5
+
+        def kept_moving() -> bool:
+            # Z を動かしている間は、止まって安定した 1 g でも風袋に取り込まない
+            load_stage.set_velocity(Velocity(z=-0.5))
+            assert load_stage.status().load in (0.0, 1.0)
+            return time.monotonic() >= end
+
+        wait_until(kept_moving, what="2.5 s")
+        assert load_stage.status().load == 1.0
+
+        caplog.set_level(logging.INFO, logger="pcbasm.hal.mcu.load_cell")
+        load_stage.stop()
+        # 止めると、動いていた区間の荷重の幅をログに出し、やがて 1 g を風袋に取り込む
+        wait_until(lambda: "Z が動いていた" in caplog.text, what="区間のログ")
+        wait_until(lambda: load_stage.status().load == 0.0, what="自動の風袋引き")
+
+    def test_a_bad_sample_is_reported_instead_of_the_load(
+        self, mcu: WireMcu, load_stage: McuMotionStage
+    ):
+        wait_until(lambda: load_stage.status().load == 0.0, what="風袋引き")
+        # 送り直した query_hx71x で回復しないよう、MCU 役の応答を止めてから乱す
+        mcu.control("drop_blocks", count=1000)
+        mcu.control("hx71x_error")
+
+        wait_until(
+            lambda: load_stage.status().load_error is not None, what="誤りの表示"
+        )
+        assert load_stage.status().load is None
+
+    def test_shutdown_hides_the_load(self, mcu: WireMcu, load_stage: McuMotionStage):
+        wait_until(lambda: load_stage.status().load == 0.0, what="風袋引き")
+
+        load_stage.emergency_stop()
+        wait_until(
+            lambda: load_stage.status().state is MotionState.SHUTDOWN, what="shutdown"
+        )
+
+        assert load_stage.status().load is None
+        with pytest.raises(MotionError):
+            load_stage.tare()

@@ -10,7 +10,9 @@
 - ファームの C ソース ``klipper/src`` の ``basecmd.c``（``allocate_oids``、``get_config`` と ``finalize_config`` の
   crc）、``stepper.c``（``config_stepper`` の ``invert_step=-1`` は両エッジで step を出す）、``endstop.c``
   （``endstop_home`` の ``sample_count=0`` で外す）、``trsync.c``（``trsync_start`` で登録を消してから張り直す）、
-  ``gpiocmds.c``（``config_digital_out`` の ``default_value`` は shutdown のときの値）、``tmcuart.c``
+  ``gpiocmds.c``（``config_digital_out`` の ``value`` は設定したときの値、``default_value`` は shutdown のときの値、
+  ``max_duration=0`` は期限なし）、``tmcuart.c``、``sensor_hx71x.c``（``config_hx71x`` と ``query_hx71x``。読み取りは
+  :mod:`pcbasm.hal.mcu.load_cell`）
 - TMC2209 Datasheet Rev 1.09 の「IFCNT」（UART の書き込みが正しく届くたびに 1 進む 8 bit の数）
 
 ``tools/bench.py``（GPLv3）は、ホストがどのコマンドをどの順に送るかを確かめるためにだけ読んだ。
@@ -18,7 +20,14 @@
 
 決めたこと:
 
-- **oid:** ``velocity_stream`` が 0、stepper が 1〜3、endstop が 4〜6、enable が 7〜9、trsync が 10、tmcuart が 11
+- **oid:** ``velocity_stream`` が 0、stepper が 1〜3、endstop が 4〜6、enable が 7〜9、trsync が 10、tmcuart が 11、
+  LED が 12、hx71x が 13。LED とロードセルが無い機体でも 14 個を割り当てる（使わない oid は空のまま）。
+  oid の数を 12 から 14 に変えたので crc も変わり、この版で最初に接続したときに 1 回 reset する
+- **LED:** 設定の列で ``config_digital_out`` の ``value`` と ``default_value`` を 1 にする（設定したときから点け、
+  shutdown しても消さない）。ホストから点け消しはしない。MCU を reset すると（再起動、設定が変わったとき、
+  この版で最初に接続したとき）、設定し直すまでの間はピンが既定の状態に戻って消える（ファームの外の話）
+- **ロードセル:** 接続の最後（設定し直したときも、使い回したときも）に ``query_hx71x`` で読み始め、:meth:`close`
+  で止める。Z の速度が 0 でない指令を送るたびに、自動の風袋引きを 1 s 止める
 - **step:** TMC2209 を dedge=1（両エッジで 1 microstep）で書くので、stepper は両エッジで step を出す
   （``invert_step=-1``、``step_pulse_ticks=0``）
 - **crc:** ``finalize_config`` には、設定の列を符号化したバイト列の CRC32 を入れる。接続したとき、MCU が
@@ -57,6 +66,7 @@ import attrs
 from pcbasm.hal.mcu.clock import ClockSync, to_clock32
 from pcbasm.hal.mcu.dictionary import Message, ParamValue
 from pcbasm.hal.mcu.errors import McuError
+from pcbasm.hal.mcu.load_cell import LoadCell
 from pcbasm.hal.mcu.settings import AxisSettings, McuMotionSettings
 from pcbasm.hal.mcu.tmc2209 import (
     IFCNT,
@@ -93,7 +103,9 @@ _ENDSTOPS = (4, 5, 6)
 _ENABLES = (7, 8, 9)
 _TRSYNC = 10
 _TMCUART = 11
-_OID_COUNT = 12
+_LED = 12
+_HX71X = 13
+_OID_COUNT = 14
 
 # endstop_home の trigger_reason。trsync_state がこの値を返すので、止めたスイッチの軸が分かる
 _SWITCH_REASON: dict[Axis, int] = {
@@ -195,6 +207,13 @@ class PnpMotionFirmware:
         self._shutdown_reason: str | None = None
         self._bounds: dict[Axis, tuple[int, int]] = {}
         self._trigger_reason: int | None = None
+        self._load_cell = (
+            None
+            if settings.load_cell is None
+            else LoadCell(
+                transport, settings.load_cell, oid=_HX71X, clock_freq=frequency
+            )
+        )
         transport.subscribe("velocity_stream_state", self._on_state, oid=_STREAM)
         transport.subscribe("trsync_state", self._on_trsync, oid=_TRSYNC)
         transport.subscribe("shutdown", self._on_shutdown)
@@ -224,6 +243,11 @@ class PnpMotionFirmware:
     def latest(self) -> StreamReport | None:
         """最後に受けた報告（定期の報告か、問い合わせの応答）."""
         return self._latest
+
+    @property
+    def load_cell(self) -> LoadCell | None:
+        """ロードセル（設定に無ければ None）."""
+        return self._load_cell
 
     @property
     def shutdown_reason(self) -> str | None:
@@ -314,6 +338,8 @@ class PnpMotionFirmware:
         self._seq = (self._seq + 1) & 0xFFFF
         expire = self._clock.now() + self._clock.ticks(self._settings.stream_ttl)
         vx, vy, vz = velocity
+        if vz and self._load_cell is not None:
+            self._load_cell.note_z_motion()
         self._send(
             "velocity_stream_set_velocity",
             oid=_STREAM,
@@ -543,7 +569,10 @@ class PnpMotionFirmware:
         self._transport.send("emergency_stop")
 
     def close(self) -> None:
-        """時刻の同期を止めて接続を閉じる."""
+        """ロードセルを止め（送れなければ諦める）、時刻の同期を止めて接続を閉じる."""
+        if self._load_cell is not None:
+            with contextlib.suppress(McuError):
+                self._load_cell.stop()
         self._clock.close()
         self._transport.close()
 
@@ -560,6 +589,8 @@ class PnpMotionFirmware:
         self._program_drivers()
         self.forget_origin(*AXES)
         self.query()
+        if self._load_cell is not None:
+            self._load_cell.start()
 
     def _configure(self, crc: int) -> None:
         for name, params in _config_commands(self._transport, self._settings):
@@ -808,6 +839,27 @@ def _config_commands(
             },
         )
     yield "config_trsync", {"oid": _TRSYNC}
+    if settings.led_pin is not None:
+        yield (
+            "config_digital_out",
+            {
+                "oid": _LED,
+                "pin": settings.led_pin,
+                "value": 1,
+                "default_value": 1,
+                "max_duration": 0,
+            },
+        )
+    if settings.load_cell is not None:
+        yield (
+            "config_hx71x",
+            {
+                "oid": _HX71X,
+                "gain_channel": settings.load_cell.gain_channel,
+                "dout_pin": settings.load_cell.dout_pin,
+                "sclk_pin": settings.load_cell.sclk_pin,
+            },
+        )
     frequency = transport.dictionary.constant("CLOCK_FREQ")
     assert isinstance(frequency, int)
     yield (

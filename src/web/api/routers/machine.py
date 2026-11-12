@@ -25,6 +25,7 @@ from pcbasm.machine.labels import position_label
 from pcbasm.machine.motion_commands import (
     execute_motion_command,
     motion_homed_axes,
+    motion_load_label,
     motion_position_label,
 )
 from web.api.deps import (
@@ -74,7 +75,8 @@ def fetch_status(klipper: KlipperClient) -> KlipperStatus:
 
 
 def fetch_motion_status(stage: MotionStage | None) -> KlipperStatus:
-    """新ファームのステージの位置と原点出しの済んだ軸を返す（開いていない・話せない・shutdown は connected=False）."""
+    """新ファームのステージの位置と原点出しの済んだ軸と荷重を返す（開いていない・話せない・shutdown は
+    connected=False）."""
     if stage is None:
         return KlipperStatus(connected=False, error=MOTION_NOT_OPENED)
     try:
@@ -91,6 +93,7 @@ def fetch_motion_status(stage: MotionStage | None) -> KlipperStatus:
         position=Position.model_validate(status.position, from_attributes=True),
         position_label=motion_position_label(status),
         homed_axes=motion_homed_axes(status),
+        load_label=motion_load_label(status),
     )
 
 
@@ -114,10 +117,11 @@ def post_command(
 ) -> KlipperStatus:
     """命令の G-code を Klipper へ送り、完了後の位置と homed_axes を返す.
 
-    400: 可動域外・フォーカス Z 未設定・キャップ位置未記録 / 409: 装置が使用中 / 422: 命令の形の誤り /
+    400: 可動域外・フォーカス Z 未設定・キャップ位置未記録・風袋引き（新ファームの機体だけ） / 409: 装置が使用中 / 422: 命令の形の誤り /
     502: Klipper 通信エラー・printer.cfg の不備。
 
-    新ファームの機体ではステージで実行する（焦点 Z・キャップ位置・任意 G-code は 400。
+    新ファームの機体ではステージで実行する（焦点 Z・キャップ位置・任意 G-code と、ロードセルが無いか値が来ていない
+    ときの風袋引きは 400。
     MCU と話せない・shutdown は 502）。
     """
     with lock.hold("machine-control"):

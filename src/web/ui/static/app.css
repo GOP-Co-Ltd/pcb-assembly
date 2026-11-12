@@ -432,6 +432,16 @@ h2 {
   color: var(--muted);
 }
 
+.mc-load {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.mc-load[hidden] {
+  display: none;
+}
+
 .mc-group {
   display: flex;
   flex-wrap: wrap;

@@ -85,6 +85,15 @@ class TestMachineControlValidation:
         assert response.status_code == 400
 
 
+@pytest.mark.usefixtures("unreachable_klipper")
+class TestTareOnKlipper:
+    def test_tare_is_400_on_a_klipper_machine(self, client: TestClient):
+        response = client.post("/api/machine/command", json={"type": "tare"})
+
+        assert response.status_code == 400
+        assert "この機体では使えません" in response.json()["detail"]
+
+
 class TestKlipperErrors:
     """Klipper へ届かない・断られた操作は 502 で理由を返す."""
 

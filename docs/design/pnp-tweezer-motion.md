@@ -18,7 +18,7 @@ XYZ は、Klipper の MCU ファームに速度指令のモジュールを足し
 | XYZ        | stepper。X・Y は inversed corexy、Z は直動。いまは Klipper で駆動する       |
 | MCU        | BTT SKR Pico（RP2040、TMC2209 × 4）。塗布機と同じボード                     |
 | θ・開閉    | Feetech STS3032 を 1 台ずつ。FEETECH URT-2 経由の UART で Raspberry Pi へ   |
-| 接触の検知 | ロードセル（HX711、80 SPS）。いまは Klipper の `[load_cell_probe]`          |
+| 接触の検知 | ロードセル（HX711、80 SPS）。荷重は pcbasm が読む                           |
 | カメラ     | 2 系統。位置合わせ用のトップカメラと、ステージ全体を見渡すフロント RGB 広角 |
 
 吸着ノズル・負圧・ノズル交換といった吸着式の概念は持ち込まない。
@@ -154,7 +154,7 @@ patch（`stepper_oid_lookup`・`stepper_queue_move`・`stepper_set_next_dir`・`
 | `CONTACT`  | 接触で止まった（R2）。エラーではない                    | 設定、位置の設定、開始（明示の再開） |
 | `FAULT`    | Klipper の shutdown                                     | `FIRMWARE_RESTART` 相当の再起動      |
 
-`CONTACT` は停止した位置を報告し、ホストはそこから運転を続けられる（荷重は Klipper の HX711 の報告で読む）。
+`CONTACT` は停止した位置を報告し、ホストはそこから運転を続けられる（荷重は pcbasm が HX711 の `sensor_bulk_data` で読む）。
 どちらへ離れるかは MCU には分からないので、`CONTACT` のあとの速度指令は無視し、ホストが向きを決めて開始し直す。
 `FAULT` は Klipper の shutdown をそのまま使う。
 原点出しと目標位置への移動は、今のファームでは MCU の状態に持たない（原点出しは Pi が行い、位置への移動は Pi 側を作るときに決める）。
@@ -168,7 +168,7 @@ Klipper のプロトコル（`docs/Protocol.md`）をそのまま使い、コマ
     位置指令（台形の加減速つき）は、Pi 側を作るときに足すかを決める
 - **テレメトリ:** 制御周期ごとに、位置（ステップ数）・速度・状態・最後に受け取った指令の連番を返す。
     RL の観測と、遅延の監視に使う。位置は報告時刻の stepper の位置、速度は先読みの分だけ先の計画の速度
-    （揃え方は Pi 側を作るときに決める）。荷重は Klipper の HX711 の報告で別に読む
+    （揃え方は Pi 側を作るときに決める）。荷重は HX711 の `sensor_bulk_data` で別に読む（`pcbasm.hal.mcu.load_cell`）
 
 ### 安全
 

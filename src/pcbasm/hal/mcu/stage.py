@@ -11,7 +11,7 @@ mm と mm/s をステップに直して :class:`~pcbasm.hal.mcu.firmware.PnpMoti
 - **スレッド:** 操作は 1 つのロックで 1 つずつ実行する。:meth:`~McuMotionStage.emergency_stop` はロックを
   取らず（transport の送信のロックだけ）、原点出しや移動の待ちの最中でもすぐ送る。待っている操作は、
   MCU の shutdown を受けて :class:`MotionError` で終わる。:meth:`~McuMotionStage.status` はロックを取らず、
-  最後に受けた報告を読むだけ
+  最後に受けた報告を読むだけ。:meth:`~McuMotionStage.tare` もロックを取らない（MCU に何も送らない）
 - **接触停止:** 原点出しの後、MCU は ``contact`` のまま残るが、止まっている（``IDLE``）として扱う。
   速度指令を受けたら ``velocity_stream_start`` で開始し直す
 - **止まっているときの全軸 0:** 何も送らない（流し始めず、励磁も入れない）。脱力の後に 0 を送り続けても、
@@ -114,6 +114,8 @@ class McuMotionStage(MotionStage):
                 homed=self._homed,
                 shutdown_reason=reason,
             )
+        load_cell = firmware.load_cell
+        reading = load_cell.reading() if load_cell is not None else None
         return MotionStatus(
             position=position,
             velocity=Velocity(
@@ -124,6 +126,8 @@ class McuMotionStage(MotionStage):
             ),
             state=MotionState.MOVING if report.state.running else MotionState.IDLE,
             homed=self._homed,
+            load=reading.grams if reading is not None else None,
+            load_error=reading.error if reading is not None else None,
         )
 
     @override
@@ -232,6 +236,16 @@ class McuMotionStage(MotionStage):
             self._firmware.emergency_stop()
         except McuError as error:
             raise MotionError(f"緊急停止を送れない: {error}") from error
+
+    @override
+    def tare(self) -> None:
+        # 操作のロックを取らない（ロードセルは受信スレッドが読み、MCU には何も送らない）
+        load_cell = self._ready().load_cell
+        if load_cell is None:
+            raise ValueError(
+                "この機体にはロードセルがありません（[pnp.motion.load_cell]）"
+            )
+        load_cell.tare()
 
     @override
     def close(self) -> None:

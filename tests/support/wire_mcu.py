@@ -27,6 +27,9 @@
     - ``{"op": "emit", "name": name, "params": {...}}``: 応答 name を送る
     - ``{"op": "raw", "hex": ...}``: バイト列をそのまま送る
     - ``{"op": "drivers_off"}``: 以後、TMC2209 はどのアドレスも UART に応えない（モーターの電源を切った）
+    - ``{"op": "load", "counts": n}``: HX711 の読む値を n にする
+    - ``{"op": "hx71x_error"}``: HX711 の読み出しが乱れたことにする（``query_hx71x`` を受けるまで誤りの値を送る）
+    - ``{"op": "hx71x_skip"}``: 次の ``sensor_bulk_data`` の sequence を 1 つ飛ばす（1 通が届かなかった）
 
 ステージの模擬（pnp-motion ファームの ``velocity_stream``、``trsync``、``endstop``、``tmcuart``）:
 
@@ -50,6 +53,10 @@
 - 初めの物理的な位置は ``motion.positions``（X・Y・Z のステップ。既定は 0）
 - TMC2209: ``motion.tmc_addresses``（既定は 0〜3）のアドレスが UART に応える。書き込みでレジスタを覚えて
   IFCNT を 1 進め、読み出しにはレジスタの値を返す。応えないアドレスへの読み出しには 1 だけのビット列を返す
+- HX711（``klipper/src/sensor_hx71x.c`` と ``sensor_bulk.c``）: ``query_hx71x`` の ``rest_ticks`` が 0 でない間、
+  ``motion.hx71x_rate``（既定 80）SPS で値（初めは ``motion.load_counts``、既定 0）を作り、12 個たまるたびに
+  ``sensor_bulk_data`` で送る（4 byte の little endian）。sequence は 1 通ごとに 1 進み、``query_hx71x`` で 0 に戻る。
+  shutdown で止まる
 """
 
 from __future__ import annotations
@@ -94,6 +101,8 @@ _TICK = 0.002  # 動いている間に積分とスイッチを見る間隔 [s]
 _TMC_SYNC_REPLY = 0x05
 _TMC_MASTER = 0xFF
 _IFCNT = 0x02
+_HX71X_BATCH = 12  # sensor_bulk の data[51] に入る 4 byte のサンプルの数
+_HX71X_DESYNC = 1 << 31
 
 
 def _crc16(data: bytes) -> int:
@@ -224,6 +233,9 @@ class _Mcu:
         }
         self._tmc_addresses = set(motion.get("tmc_addresses", [0, 1, 2, 3]))
         self._stop_delay = motion.get("stop_delay", 0.03)
+        self._hx71x_rate = motion.get("hx71x_rate", 80)
+        # ロードセルは MCU と別の部品なので、MCU の reset で荷重は変わらない
+        self._load_counts = motion.get("load_counts", 0)
         # TMC2209 は MCU と別の部品なので、MCU の reset でレジスタは消えない
         self._tmc = {address: {_IFCNT: 0} for address in self._tmc_addresses}
         self._reset()
@@ -239,6 +251,9 @@ class _Mcu:
         self._trsyncs: dict[int, dict[str, Any]] = {}
         self._stream: _Stream | None = None
         self._outputs: dict[int, int] = {}
+        self._hx71x: dict[str, Any] | None = (
+            None  # config_hx71x の oid と、読んでいる間の状態
+        )
 
     def serve(self) -> None:
         buffer = b""
@@ -285,6 +300,12 @@ class _Mcu:
             self._write(bytes.fromhex(request["hex"]))
         elif op == "drivers_off":
             self._tmc_addresses = set()
+        elif op == "load":
+            self._load_counts = request["counts"]
+        elif op == "hx71x_error" and self._hx71x is not None:
+            self._hx71x["error"] = True
+        elif op == "hx71x_skip" and self._hx71x is not None:
+            self._hx71x["sequence"] = (self._hx71x["sequence"] + 1) & 0xFFFF
 
     def _receive(self, buffer: bytes) -> bytes:
         while buffer:
@@ -423,6 +444,16 @@ class _Mcu:
             self._outputs[params["oid"]] = params["value"]
         elif name == "update_digital_out":
             self._outputs[params["oid"]] = params["value"]
+        elif name == "config_hx71x":
+            self._hx71x = {"oid": params["oid"], "running": False}
+        elif name == "query_hx71x" and self._hx71x is not None:
+            self._hx71x.update(
+                running=params["rest_ticks"] != 0,
+                sequence=0,
+                buffer=[],
+                error=False,
+                next_at=time.monotonic() + 1 / self._hx71x_rate,
+            )
         elif name == "config_velocity_stream":
             self._stream = _Stream(params["oid"], self._positions)
         elif name == "tmcuart_send":
@@ -549,6 +580,8 @@ class _Mcu:
         stream = self._stream
         if self._armed or (stream is not None and stream.running()):
             return _TICK
+        if self._hx71x is not None and self._hx71x["running"]:
+            return max(0.0, self._hx71x["next_at"] - time.monotonic())
         return None
 
     def _tick(self) -> None:
@@ -559,6 +592,7 @@ class _Mcu:
         if stream is not None and stream.running():
             self._advance(stream, clock)
         self._check_endstops(clock)
+        self._sample_hx71x()
         if stream is not None and stream.running() and stream.report_ticks:
             if clock >= stream.next_report:
                 self._report(stream, clock)
@@ -583,6 +617,27 @@ class _Mcu:
         if stream.state == "stopping" and clock >= stream.stop_at:
             stream.state = "idle"
             stream.velocity = [0.0] * _AXES
+
+    def _sample_hx71x(self) -> None:
+        hx71x = self._hx71x
+        if hx71x is None or not hx71x["running"]:
+            return
+        now = time.monotonic()
+        while now >= hx71x["next_at"]:
+            hx71x["next_at"] += 1 / self._hx71x_rate
+            value = _HX71X_DESYNC if hx71x["error"] else self._load_counts
+            hx71x["buffer"].append(value & _MASK32)
+            if len(hx71x["buffer"]) < _HX71X_BATCH:
+                continue
+            data = b"".join(v.to_bytes(4, "little") for v in hx71x["buffer"])
+            hx71x["buffer"] = []
+            self._respond(
+                "sensor_bulk_data",
+                oid=hx71x["oid"],
+                sequence=hx71x["sequence"],
+                data=data,
+            )
+            hx71x["sequence"] = (hx71x["sequence"] + 1) & 0xFFFF
 
     def _pin_value(self, pin: int) -> int:
         switch = self._switches.get(pin)
@@ -664,6 +719,8 @@ class _Mcu:
             self._stream.state = "idle"
             self._stream.velocity = [0.0] * _AXES
         self._armed.clear()
+        if self._hx71x is not None:
+            self._hx71x["running"] = False
         for trsync in self._trsyncs.values():
             trsync.update(can_trigger=False, signals=[])
         self._respond(
