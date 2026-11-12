@@ -1,12 +1,12 @@
-"""ピンセットのロードセルの校正（既知の重さから ``counts_per_gram`` を求める）.
+"""ロードセルの校正（既知の重さから ``counts_per_gram`` を求める）.
 
-手順はジョブ ``load_cell_calibrate`` が並べる: 何も載せずに風袋引き → 既知の重さを載せる → 風袋からの差 [counts]
+手順はジョブ ``load_cell_calibrate`` が並べる: 何も載せずにタール → ステージに既知の重さのおもりを載せる → タール値との差 [counts]
 の平均を測る → ここで ``counts_per_gram`` を求める。考え方は Klipper の ``klipper/docs/Load_Cell.md`` の
 TARE と CALIBRATE（仕様として読んだだけで、klippy のコードは写していない）。
 
 決めたこと:
 
-- **符号:** 差の絶対値で求める。押す向きと逆に掛けた荷重でも、感度の大きさは同じ
+- **符号:** 差の絶対値で求める。おもりを載せると差は押す向き（正）になるはずだが、負でも感度の大きさは同じ
 - **小さすぎる差:** 1000 counts 未満は受けない（kurousagi の 2667 counts/g で約 0.4 g）。HX711 のノイズと丸めで
   値がぶれるため
 """
@@ -19,7 +19,7 @@ _MIN_COUNTS = 1000.0
 
 
 def counts_per_gram(counts: float, grams: float) -> float:
-    """風袋からの差 ``counts`` と、載せた重さ ``grams`` [g] から 1 g あたりの値を求める.
+    """タール値との差 ``counts`` と、載せた重さ ``grams`` [g] から 1 g あたりの値を求める.
 
     Raises:
         ValueError: 重さが正でない、または差が小さすぎる
@@ -38,7 +38,7 @@ def describe(counts: float, grams: float, current: float | None) -> str:
     """校正の結果の要約（ログに出す）.
 
     Args:
-        counts: 風袋からの差 [counts]（押す向きが正）
+        counts: タール値との差 [counts]（押す向きが正）
         grams: 載せた重さ [g]
         current: 今の ``counts_per_gram``（無ければ None）
 
@@ -54,7 +54,7 @@ def describe(counts: float, grams: float, current: float | None) -> str:
         )
     if counts < 0:
         parts.append(
-            "差が負（押す向きと逆の荷重）。おもりを押す向きと逆に掛けたなら正常。"
-            "押す向きに掛けたなら sensor_orientation を見直す"
+            "差が負（押す向きと逆の荷重）。ステージにおもりを載せたなら、"
+            "sensor_orientation が逆かもしれないので見直す（値は絶対値で求めた）"
         )
     return "。".join(parts)

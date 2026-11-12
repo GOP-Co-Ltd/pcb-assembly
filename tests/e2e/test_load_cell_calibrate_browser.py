@@ -54,7 +54,7 @@ class TestLoadCellCalibrate:
         page.get_by_test_id("job-run").click()
 
         ok = page.get_by_test_id("jc-prompt-ok")
-        expect(ok).to_have_text("風袋引き")
+        expect(ok).to_have_text("タール")
         ok.click()
         expect(ok).to_have_text("測る")
         stage.set_load(100.0)

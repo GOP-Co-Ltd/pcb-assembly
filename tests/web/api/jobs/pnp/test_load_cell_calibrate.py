@@ -1,10 +1,10 @@
 """load_cell_calibrate ジョブの仕様テスト（新ファームの機体、FakeMotionStage）.
 
-- 何も載せずに風袋引き → 既知の重さを載せて「測る」→ 重さ [g] を入力 → counts_per_gram を出す
+- 何も載せずにタール → 既知の重さを載せて「測る」→ 重さ [g] を入力 → counts_per_gram を出す
 - 結果の Apply の値は [pnp.motion.load_cell] の counts_per_gram で、設定ページと同じ書き込みで machine.toml に入る
 - 重さの差が小さすぎれば、理由をログに出して載せるところからやり直す
 - 差が負（押す向きと逆の荷重）でも絶対値で求め、ログに符号の意味を出す
-- ジョブの間は自動の風袋引きを止め、終われば（失敗でも）戻す
+- ジョブの間は自動のタールを止め、終われば（失敗でも）戻す
 - 測る途中でロードセルが読めなければ、理由をログに出して載せるところからやり直す（shutdown なら失敗）
 - ロードセルの無い機体と、接触保持の間は、理由を出して失敗で終わる
 - 実機での確認は受け入れ試験（docs/acceptance.md の A36）
@@ -95,7 +95,7 @@ class _Operator:
         return pending[1]
 
     def tare(self, stage: FakeMotionStage) -> PromptSpec:
-        """何も載せずに「風袋引き」を押し、ジョブが風袋を取るまで待つ."""
+        """何も載せずに「タール」を押し、ジョブがタールを取るまで待つ."""
         spec = self.answer(True)
         wait_until(lambda: "tare" in stage.commands)
         return spec
@@ -121,12 +121,12 @@ class TestLoadCellCalibrateJob:
     def test_tare_then_measure_yields_counts_per_gram_and_apply_writes_it(
         self, manager: JobManager, backend: Backend, stage: FakeMotionStage
     ):
-        stage.set_load(7.0)  # 風袋（ピンセットの自重など）
+        stage.set_load(7.0)  # タール（ステージの自重など）
         record = manager.start("load_cell_calibrate", {})
         operator = _Operator(record, manager)
 
         tare = operator.tare(stage)
-        assert tare.true_label == "風袋引き"
+        assert tare.true_label == "タール"
         operator.measure(stage, 107.0, 100.0)
         _finish(record)
 

@@ -322,7 +322,7 @@ class MotionStage(ABC):
 
     @abstractmethod
     def measure_load_counts(self, seconds: float) -> float:
-        """呼んでから届いたロードセルの値 ``seconds`` 秒ぶんの平均を、風袋からの差 [counts] で返す（校正に使う）.
+        """呼んでから届いたロードセルの値 ``seconds`` 秒ぶんの平均を、タール値との差 [counts] で返す（校正に使う）.
 
         押す向きが正（``sensor_orientation`` を反映する。荷重 [g] と同じ符号）。:meth:`tare` と同じく、
         どのスレッドからでも呼べ、ほかの操作の終わりを待たない（``seconds`` 秒ほど待つ）。
@@ -334,7 +334,7 @@ class MotionStage(ABC):
 
     @abstractmethod
     def suspend_auto_tare(self, suspended: bool) -> None:
-        """自動の風袋引きを止める・再び許す（校正の間、載せたおもりを風袋に取り込まない）.
+        """自動のタールを止める・再び許す（校正の間、載せたおもりをタールに取り込まない）.
 
         接触保持の間に止めるのとは別に持つ（保持から戻っても止めたまま）。:meth:`tare` と同じく、どのスレッドからでも
         呼べる。shutdown や接続が切れた後でも例外を出さない（校正の後始末で呼ぶため）。ロードセルが無ければ何もしない。

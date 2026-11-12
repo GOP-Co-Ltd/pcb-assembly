@@ -98,7 +98,7 @@ tmc_rx_pin = "gpio9" # TMC2209 の UART（printer.cfg の uart_pin）
 tmc_tx_pin = "gpio8" # printer.cfg の tx_pin
 led_pin = "gpio17"   # 照明の LED。起動から常に点け、緊急停止でも消さない（MCU の reset の間だけ消える）
 
-# ピンセットの荷重を測るロードセルの HX711。省略すると荷重を読まない
+# ステージに掛かる荷重を測るロードセルの HX711。省略すると荷重を読まない
 [pnp.motion.load_cell]
 sclk_pin = "gpio0"
 dout_pin = "gpio1"

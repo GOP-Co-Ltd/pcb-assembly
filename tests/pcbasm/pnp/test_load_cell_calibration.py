@@ -1,6 +1,6 @@
 """`pcbasm.pnp.load_cell_calibration` の仕様テスト.
 
-- counts_per_gram は、風袋からの差 [counts] の絶対値を載せた重さ [g] で割ったもの
+- counts_per_gram は、タール値との差 [counts] の絶対値を載せた重さ [g] で割ったもの
 - 重さが正でないか、差が小さすぎれば（1000 counts 未満）校正しない
 - 要約は、今の値との比と、差が負（押す向きと逆の荷重）のときの意味を出す
 """

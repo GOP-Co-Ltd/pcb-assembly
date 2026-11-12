@@ -944,7 +944,7 @@ class FakeMotionStage(MotionStage):
     :meth:`home` は軸を 0（可動域の外なら近い端）へ、:meth:`move_to` は行き先へ、即座に置く。
     :meth:`shutdown` で MCU の shutdown を、:meth:`disconnect` で USB が外れたことを模擬する。
     ``load_cell`` なら、ロードセルの荷重を :meth:`set_load` で外から与える（:meth:`tare` がその時点の値を 0 にする）。
-    :meth:`measure_load_counts` は待たずに、風袋からの荷重に ``counts_per_gram`` を掛けて返す。自動の風袋引きは
+    :meth:`measure_load_counts` は待たずに、タール値からの荷重に ``counts_per_gram`` を掛けて返す。自動のタールは
     模擬しないので、:meth:`suspend_auto_tare` は :attr:`commands` に ``suspend_auto_tare`` / ``resume_auto_tare``
     を残すだけ。
     ``contact`` も与えると接触停止を模擬する（:mod:`pcbasm.hal.motion` の「接触停止と接触保持」）: 動いている間に

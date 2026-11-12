@@ -348,13 +348,13 @@ class TestLoad:
     def test_suspended_auto_tare_keeps_a_quiet_load_until_resumed(
         self, mcu: WireMcu, load_stage: McuMotionStage
     ):
-        wait_until(lambda: load_stage.status().load == 0.0, what="風袋引き")
+        wait_until(lambda: load_stage.status().load == 0.0, what="タール")
         load_stage.suspend_auto_tare(True)
         mcu.control("load", counts=100)
         end = time.monotonic() + 2.5
 
         def kept() -> bool:
-            # Z が止まって安定した 1 g でも、止めている間は風袋に取り込まない
+            # Z が止まって安定した 1 g でも、止めている間はタールに取り込まない
             assert load_stage.status().load in (0.0, 1.0)
             return time.monotonic() >= end
 
@@ -362,7 +362,7 @@ class TestLoad:
         assert load_stage.status().load == 1.0
 
         load_stage.suspend_auto_tare(False)
-        wait_until(lambda: load_stage.status().load == 0.0, what="自動の風袋引き")
+        wait_until(lambda: load_stage.status().load == 0.0, what="自動のタール")
 
     def test_suspend_auto_tare_without_a_load_cell_does_nothing(
         self, stage: McuMotionStage
@@ -398,7 +398,7 @@ class TestLoad:
     def test_measure_load_counts_is_the_mean_from_the_tare(
         self, mcu: WireMcu, load_stage: McuMotionStage
     ):
-        wait_until(lambda: load_stage.status().load == 0.0, what="風袋引き")
+        wait_until(lambda: load_stage.status().load == 0.0, what="タール")
         mcu.control("load", counts=-250)
         wait_until(lambda: load_stage.status().load == -2.5, what="-2.5 g")
 
@@ -411,7 +411,7 @@ class TestLoad:
     def test_measure_with_a_bad_sample_is_a_motion_error(
         self, mcu: WireMcu, load_stage: McuMotionStage
     ):
-        wait_until(lambda: load_stage.status().load == 0.0, what="風袋引き")
+        wait_until(lambda: load_stage.status().load == 0.0, what="タール")
         mcu.control("drop_blocks", count=1000)
         mcu.control("hx71x_error")
 
@@ -754,6 +754,22 @@ class TestFreeTareZone:
             mcu.control("load", counts=_BOARD)
 
             wait_until(lambda: stage.status().load == 30.0, what="30 g")
+            wait_until(lambda: stage.status().load == 0.0, what="自動のタール")
+
+    def test_does_not_take_in_a_weight_in_the_zone_while_calibrating(
+        self, mcu: WireMcu, settings: McuMotionSettings
+    ):
+        with _free_zone_stage(settings, 2.0) as stage:
+            _tared(stage)
+            stage.home(["z"])
+            stage.suspend_auto_tare(True)
+
+            mcu.control("load", counts=_BOARD)
+            _stays_for(3.5)
+
+            assert stage.status().load == 30.0
+
+            stage.suspend_auto_tare(False)
             wait_until(lambda: stage.status().load == 0.0, what="自動のタール")
 
     def test_does_not_take_in_a_board_outside_the_zone(

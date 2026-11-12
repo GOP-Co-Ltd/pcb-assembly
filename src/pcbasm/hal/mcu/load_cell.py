@@ -50,11 +50,11 @@ pnp-motion ファームの ``hx71x`` が送る ``sensor_bulk_data`` を受け、
 - **接触保持の間:** 自動のタールをしない（:meth:`LoadCell.pause_auto_tare`。押し当てた荷重を取り込まない）。
   離したかは、保持に入ってから後の連続 100 ms（80 SPS で 8 個）のサンプルが、すべて ``release_force`` を
   下回ったかで見る（:meth:`LoadTracker.released`）
-- **校正の間:** 自動の風袋引きをしない（:meth:`LoadCell.suspend_auto_tare`。接触保持の止め方とは別に持ち、
+- **校正の間:** 自動のタールをしない（:meth:`LoadCell.suspend_auto_tare`。接触保持の止め方とは別に持ち、
   保持から戻っても校正の間は止めたまま）。drift の上限は今の ``counts_per_gram`` で g に直すので、今の値が実際
-  より大きい機体では、載せたおもりが 2 g 以下に見えて風袋に取り込まれてしまう
+  より大きい機体では、載せたおもりが 2 g 以下に見えてタールに取り込まれてしまう
 - **校正の平均:** :meth:`LoadCell.mean_counts` は、呼んでから届いた正しいサンプルを ``seconds × sample_rate``
-  個（切り上げ）そろえ、その平均と今の風袋の差 [counts] を返す（押す向きが正。グラムと同じ sign を掛ける）。
+  個（切り上げ）そろえ、その平均と今のタール値との差 [counts] を返す（押す向きが正。グラムと同じ sign を掛ける）。
   そろうまでに誤りのサンプルが来たら受けない。待つのは ``seconds`` と古いとみなす時間の和まで
 - **区間の荷重の幅:** Z が止まっている区間と動いている区間（Z の指令から 1 s まで）の、荷重の最小と最大を
   区間が終わるたびに info ログに出す。操作パネルは最後の 1 サンプルを間をおいて出すだけなので、加速で出る
@@ -321,7 +321,7 @@ class LoadTracker:
         self._mean_error = None
 
     def mean(self) -> float | None:
-        """数えたサンプルの平均と今の風袋の差 [counts]（押す向きが正）。まだそろっていなければ None.
+        """数えたサンプルの平均と今のタール値との差 [counts]（押す向きが正）。まだそろっていなければ None.
 
         Raises:
             ValueError: そろうまでに誤りのサンプルが来た
@@ -513,7 +513,7 @@ class LoadCell:
         _logger.info("ロードセルをタールした: %d counts", counts)
 
     def mean_counts(self, seconds: float) -> float:
-        """呼んでから届いたサンプル ``seconds`` 秒ぶんの平均を、今の風袋からの差 [counts] で返す（押す向きが正）.
+        """呼んでから届いたサンプル ``seconds`` 秒ぶんの平均を、今のタール値との差 [counts] で返す（押す向きが正）.
 
         ``hx71x`` は 12 サンプルためてから送るので、呼ぶ前に測られたサンプルも入る（80 SPS で最大約 150 ms）。
 

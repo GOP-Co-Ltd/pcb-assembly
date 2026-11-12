@@ -1,4 +1,4 @@
-"""ピンセットのロードセルの校正ジョブ（新ファームの機体。既知の重さから counts_per_gram を求める）."""
+"""ロードセルの校正ジョブ（新ファームの機体。既知の重さから counts_per_gram を求める）."""
 
 from __future__ import annotations
 
@@ -31,13 +31,14 @@ def register(catalog: JobCatalog) -> None:
 
 
 def _run_load_cell_calibrate(ctx: JobContext) -> JobResult:
-    """風袋引き → 既知の重さを掛けて測る → counts_per_gram を [pnp.motion.load_cell] への保存候補にする.
+    """タール → ステージにおもりを載せて測る → counts_per_gram を [pnp.motion.load_cell]
+    への保存候補にする.
 
     押し当てて校正するときは、動かしている間に trigger_force を超えると接触停止で止まるので、止めたまま押すか、
     おもりを載せる。
 
-    ジョブの間は自動の風袋引きを止める。止めないと、今の counts_per_gram が実際より大きい機体では、載せたおもりが
-    小さく見えて風袋に取り込まれ、差が 0 に寄る。
+    ジョブの間は自動のタールを止める。止めないと、今の counts_per_gram が実際より大きい機体では、載せたおもりが
+    小さく見えてタールに取り込まれ、差が 0 に寄る。
     """
     load_cell = _load_cell(ctx.machine)
     stage = ctx.devices.motion_stage()
@@ -68,18 +69,18 @@ def _run_load_cell_calibrate(ctx: JobContext) -> JobResult:
 
 
 def _calibrate(ctx: JobContext, stage: MotionStage) -> tuple[float, float, float]:
-    """風袋引きから測るまで（風袋からの差 [counts]、載せた重さ [g]、counts_per_gram）."""
-    ctx.progress("風袋引き")
+    """タールから測るまで（タール値との差 [counts]、載せた重さ [g]、counts_per_gram）."""
+    ctx.progress("タール")
     ctx.require(
-        "ピンセットに何も載せず、触れずに「風袋引き」を押してください",
-        true_label="風袋引き",
+        "ステージに何も載せず、ピンセットにも触れさせずに「タール」を押してください",
+        true_label="タール",
     )
     stage.tare()
 
     ctx.progress("測る")
     while True:
         ctx.require(
-            "重さの分かるおもり（10 g 以上）をピンセットに掛けてください（押す向きでも逆向きでも測れます）。"
+            "重さの分かるおもり（10 g 以上）をステージに載せてください。"
             "揺れが収まったら「測る」を押してください",
             true_label="測る",
         )
@@ -88,8 +89,8 @@ def _calibrate(ctx: JobContext, stage: MotionStage) -> tuple[float, float, float
             counts = stage.measure_load_counts(_MEASURE_SECONDS)
         except MotionError as exc:
             if stage.status().state is MotionState.SHUTDOWN:
-                raise  # 再起動すると風袋が変わるので、風袋引きからやり直す
-            # 一時的な誤りのサンプル（ファームは読み直して戻る）でも、風袋引きからやり直させない
+                raise  # 再起動するとタール値が変わるので、タールからやり直す
+            # 一時的な誤りのサンプル（ファームは読み直して戻る）でも、タールからやり直させない
             ctx.log(f"測れませんでした（{exc}）。載せるところからやり直します")
             continue
         grams = ctx.ask_positive("載せた重さ [g]")
