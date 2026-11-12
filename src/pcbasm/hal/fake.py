@@ -41,6 +41,7 @@ from .motion import (
     contact_move_error,
     contact_velocity,
     homing_order,
+    release_direction,
 )
 from .servo import (
     BROADCAST_ID,
@@ -1072,7 +1073,9 @@ class FakeMotionStage(MotionStage):
             self._check_ready()
             self._settle()
             if self._holding:
-                raise ValueError("接触中は原点出しできません。離してください")
+                raise ValueError(
+                    f"接触中は原点出しできません。{self._release_direction()} で離してください"
+                )
             self._advance()
             self._halt(MotionState.IDLE)
             order = homing_order(axes, self._homed)
@@ -1099,7 +1102,12 @@ class FakeMotionStage(MotionStage):
             if unhomed := sorted(moving - self._homed):
                 msg = f"原点出しをしていない軸は動かせません: {', '.join(unhomed)}"
                 raise ValueError(msg)
-            if self._state is MotionState.IDLE and not moving:
+            if not moving:
+                # MCU 版と同じく、流していれば止める（止まっている間は接触停止を見ない）
+                if self._state is MotionState.MOVING:
+                    self._advance()
+                    self._velocities.append((self._clock(), velocity))
+                    self._halt(MotionState.IDLE)
                 return
             self._advance()
             now = self._clock()
@@ -1192,7 +1200,9 @@ class FakeMotionStage(MotionStage):
             if not self._load_cell:
                 raise ValueError("この機体にはロードセルがありません")
             if self._holding:
-                raise ValueError("接触中は風袋引きできません。離してください")
+                raise ValueError(
+                    f"接触中は風袋引きできません。{self._release_direction()} で離してください"
+                )
             self._tare = self._load
             self._commands.append("tare")
 
@@ -1214,6 +1224,12 @@ class FakeMotionStage(MotionStage):
         """接触停止を模擬していて、風袋からの荷重が ``trigger_force`` 以上."""
         contact = self._contact
         return contact is not None and self._load - self._tare >= contact.trigger_force
+
+    def _release_direction(self) -> str:
+        contact = self._contact
+        return release_direction(
+            press_positive=contact is not None and contact.press_positive
+        )
 
     def _released(self) -> bool:
         contact = self._contact

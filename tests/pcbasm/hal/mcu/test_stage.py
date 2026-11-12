@@ -494,6 +494,29 @@ class TestContactStop:
 
         assert not load_stage.status().contact
 
+    def test_releasing_the_stick_stops_and_disarms(
+        self, mcu: WireMcu, load_stage: McuMotionStage
+    ):
+        _tared(load_stage)
+        load_stage.home(["z"])
+        since = len(mcu.accepted())
+
+        def moving() -> bool:
+            load_stage.set_velocity(Velocity(z=-20.0))
+            return load_stage.status().position.z < -1.0
+
+        wait_until(moving, what="Z が動き出すこと")
+        # スティックを離すと全軸 0 を送り続ける。流すのをやめて接触停止を外すので、押されても止めない
+        load_stage.set_velocity(Velocity())
+        assert load_stage.status().state is MotionState.IDLE
+        mcu.control("load", counts=_PRESS)
+        wait_until(lambda: load_stage.status().load == 60.0, what="60 g")
+        load_stage.set_velocity(Velocity())
+
+        assert not load_stage.status().contact
+        assert _armed(mcu, since) == [1, 0]
+        assert _names(mcu, since).count("velocity_stream_start") == 1
+
     def test_a_move_into_the_load_raises_contact_stopped(
         self, mcu: WireMcu, load_stage: McuMotionStage
     ):

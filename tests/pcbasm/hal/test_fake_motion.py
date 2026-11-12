@@ -141,14 +141,14 @@ class TestFakeMotionStageVelocity:
         assert stage.status().state is MotionState.IDLE
         assert stage.velocities == []
 
-    def test_all_zero_while_moving_is_sent(self, clock: _Clock):
+    def test_all_zero_while_moving_is_sent_and_stops(self, clock: _Clock):
         stage = _stage(clock)
         stage.set_velocity(Velocity(x=1.0))
 
         stage.set_velocity(Velocity())
 
         assert stage.velocities[-1] == (0.0, Velocity())
-        assert stage.status().state is MotionState.MOVING
+        assert stage.status().state is MotionState.IDLE
 
     @pytest.mark.parametrize(
         "velocity", [Velocity(x=1.0), Velocity(y=-1.0), Velocity(z=0.5)]
@@ -449,6 +449,20 @@ class TestFakeMotionStageContact:
         stage.set_load(60.0)
 
         assert not stage.status().contact
+
+    def test_a_load_after_the_stick_returns_to_zero_does_not_hold(self, clock: _Clock):
+        stage = self._contact_stage(clock)
+        stage.set_velocity(Velocity(z=-5.0))
+        clock.now += 0.1
+
+        # スティックを離すと全軸 0 を送り続ける。止まっている間は押されても止めない
+        stage.set_velocity(Velocity())
+        stage.set_load(60.0)
+        stage.set_velocity(Velocity())
+
+        status = stage.status()
+        assert status.state is MotionState.IDLE
+        assert not status.contact
 
     def test_holding_drops_xy_and_the_pressing_direction(self, clock: _Clock):
         stage = self._contact_stage(clock)

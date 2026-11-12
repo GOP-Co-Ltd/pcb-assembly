@@ -542,7 +542,8 @@ class TestContactStop:
             (6, False, "OVERFLOW"),
             (7, False, "MONITOR"),
             (8, False, "SENSOR_SPECIFIC"),
-            (9, False, None),
+            (0, False, "知らない理由 0"),
+            (9, False, "知らない理由 9"),
         ],
     )
     def test_reasons(self, reason: int | None, contact: bool, error: str | None):

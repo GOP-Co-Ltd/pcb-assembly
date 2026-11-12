@@ -122,6 +122,15 @@ class ContactStopped(MotionError):
     """原点出しか座標指定の移動の途中で、ロードセルの接触で止まった（接触保持に入った）."""
 
 
+def release_direction(*, press_positive: bool) -> str:
+    """接触から離す Z の向き（表示用。``Z+`` か ``Z−``）.
+
+    Args:
+        press_positive: Z+ へ動くとピンセットに押し当たる
+    """
+    return "Z−" if press_positive else "Z+"
+
+
 def contact_velocity(velocity: Velocity, *, press_positive: bool) -> Velocity:
     """接触保持の間に送ってよい速度: X・Y は 0、Z は離す向きだけを残す.
 
@@ -155,7 +164,7 @@ def contact_move_error(
     if x is not None or y is not None:
         return "接触中は X・Y を動かせません。先に Z を離す向きに動かしてください"
     if z is not None and (z > here.z if press_positive else z < here.z):
-        release = "Z−" if press_positive else "Z+"
+        release = release_direction(press_positive=press_positive)
         return f"接触中は押す向きに動かせません。{release} で離してください"
     return None
 
@@ -226,7 +235,8 @@ class MotionStage(ABC):
         """速度を期限付きで 1 回送る.
 
         期限までに次の指令が来なければ速度は 0 になる。止まっているときに受けると動き出す。
-        止まっているときに全軸 0 を受けたら、何もしない（動き出さず、励磁も入れない）。
+        止まっているときに全軸 0 を受けたら、何もしない（動き出さず、励磁も入れない）。動いているときに全軸 0 を
+        受けたら、:meth:`stop` と同じく止まるまで待つ（接触停止は動いている間だけ効く）。
         接触保持の間は :func:`contact_velocity` で絞ってから送る。
 
         Args:

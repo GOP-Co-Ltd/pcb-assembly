@@ -428,8 +428,10 @@ class LoadCell:
             return self._tracker.ready(time.monotonic())
 
     def released(self, since: float) -> bool:
-        """``since``（``time.monotonic()`` の時刻）より後、荷重が ``release_force`` を 100
-        ms 下回り続けた."""
+        """荷重が ``release_force`` を 100 ms 下回り続けた.
+
+        ``since``（``time.monotonic()`` の時刻）より後のサンプルで見る.
+        """
         with self._lock:
             return self._tracker.released(since, time.monotonic())
 

@@ -318,7 +318,8 @@ class LoadCellConfig:
     """ピンセットの荷重を測るロードセルの HX711（[pnp.motion.load_cell]）.
 
     HX711 は [pnp.motion] の MCU につなぐ。項目の名前と意味は Klipper の ``[load_cell]`` の hx711 に合わせる
-    （``klipper/docs/Config_Reference.md``）。ピンには ``!`` と ``^`` を付けられない（データ出力のピンのプルアップは
+    （``klipper/docs/Config_Reference.md``）。ただし ``release_force`` と ``press_positive`` は Klipper に無い、
+    接触保持のための自前の項目。ピンには ``!`` と ``^`` を付けられない（データ出力のピンのプルアップは
     ファームが常に掛ける）。
 
     Attributes:

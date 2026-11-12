@@ -75,6 +75,8 @@
         ``RAW_RANGE`` 0・``OVERFLOW`` 1・``MONITOR`` 2・``SENSOR_SPECIFIC`` 3 を足す
   ====  ==============================================================
 
+  そのほかの理由（0 や 9 以上）も、黙って通さないようロードセルの異常として扱う
+
 - **見張り:** ``monitor_ticks`` を 1 サンプルの周期、``monitor_max`` を 3 にする。サンプルが来るたびに数えるのを
   0 に戻し、周期ごとに 1 進め、3 を超えたら ``MONITOR``。約 5 周期（80 SPS で約 60 ms）サンプルが来なければ
   異常で止まる。hx71x は誤りのサンプル（DESYNC、READ_TOO_LONG）を ``trigger_analog`` に渡さないので、
@@ -646,6 +648,11 @@ class PnpMotionFirmware:
         :attr:`streaming` が偽で、:attr:`latest` が止まった位置を持つ）。張っていなければ、前に引いた理由を
         そのまま返す（原点出しのスイッチの理由が残っていることがある）.
 
+        揃わないまま理由が届かなければ、それが残る限り、次の操作も最初の待ちで同じ :class:`ProcedureError` になる
+        （:meth:`McuMotionStage.stop <pcbasm.hal.mcu.stage.McuMotionStage.stop>` も、``velocity_stream_stop`` を送る
+        前に失敗する）。抜ける道は、この待ちを通らない脱力（:meth:`clear_trigger` で理由を忘れる）。transport が
+        送り直すので起こりにくい.
+
         Raises:
             ProcedureError: 待っても揃わない
         """
@@ -680,13 +687,21 @@ class PnpMotionFirmware:
 
     @staticmethod
     def sensor_error(reason: int | None) -> str | None:
-        """Trsync を引いた理由がロードセルの異常なら、その名前（``MONITOR`` など。異常でなければ None）."""
-        if reason is None:
+        """Trsync を引いた理由がロードセルの異常なら、その名前（``MONITOR`` など）.
+
+        理由が無いか、接触かリミットスイッチなら None。どれでもない理由（0 や 9 以上）も、止まったまま黙って
+        通さないよう異常とする（fail closed）.
+        """
+        if (
+            reason is None
+            or reason == _CONTACT_REASON
+            or reason in _SWITCH_REASON.values()
+        ):
             return None
         index = reason - _SENSOR_ERROR_REASON
         if 0 <= index < len(_SENSOR_ERRORS):
             return _SENSOR_ERRORS[index]
-        return None
+        return f"知らない理由 {reason}"
 
     @staticmethod
     def switch_axis(reason: int | None) -> Axis | None:
