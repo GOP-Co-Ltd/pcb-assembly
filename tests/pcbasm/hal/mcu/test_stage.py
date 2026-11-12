@@ -525,8 +525,9 @@ class TestContactStop:
         mcu.control("load", counts=_PRESS)
         wait_until(lambda: load_stage.status().load == 60.0, what="60 g")
 
+        # 遅く動かす。速いと、負荷の高いときに模擬 MCU の tick が空き、次のサンプルの前に着いてしまう
         with pytest.raises(ContactStopped):
-            load_stage.move_to(z=-5.0)
+            load_stage.move_to(z=-5.0, speed=1.0)
 
         assert load_stage.status().contact
 
