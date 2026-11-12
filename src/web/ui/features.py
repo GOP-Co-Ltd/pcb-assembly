@@ -88,15 +88,6 @@ FEATURES: tuple[Feature, ...] = (
         label="部品実装（準備中）",
         capability="pnp",
     ),
-    Feature("gamepad_control", "pnp", "コントローラ操作", "job.html", capability="pnp"),
-    Feature(
-        "gamepad_motion",
-        "pnp",
-        "コントローラ操作",
-        "pnp/gamepad_motion.html",
-        capability="pnp",
-        stage="motion",
-    ),
     # 校正タブの入口（タブのリンク先）。段の表は pcbasm.commissioning が持つ
     Feature(
         "commissioning",
@@ -219,6 +210,12 @@ FEATURES: tuple[Feature, ...] = (
 )
 
 FEATURES_BY_SLUG: dict[str, Feature] = {feature.slug: feature for feature in FEATURES}
+
+# ページを持たず、マシン操作パネルの「コントローラ操作」で始めるジョブ（XYZ を動かす仕組み → ジョブ名。部品実装機だけ）
+CONTROLLER_JOBS: dict[StageKind, str] = {
+    "klipper": "gamepad_control",
+    "motion": "gamepad_motion",
+}
 
 # 旧 URL のタブ（/m/{machine_id}/{旧タブ}/{旧 slug}）
 LEGACY_TABS = frozenset({"dev", "pasting", "posctrl"})

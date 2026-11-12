@@ -45,18 +45,26 @@
     }
   }
 
+  // 部品実装機だけ（テンプレート側で出さなければ null）。押すとコントローラ操作のジョブを始め、
+  // 実行中にもう一度押すと中止して終える
+  const controllerToggle = document.getElementById("mc-controller-toggle");
+
   // 対話を受けないジョブの実行中はパネルを disabled 表示にする
-  // （テンプレート由来の disabled（フォーカス Z 未設定）は維持する）
+  // （テンプレート由来の disabled（フォーカス Z 未設定）は維持する）。
+  // コントローラ操作のボタンは別扱い: そのジョブの間は押せ（終えるため）、ほかのジョブの間は押せない
   if (window.webui.jobs) {
     const originallyDisabled = new Set(
       [...panel.querySelectorAll("button, input")].filter((c) => c.disabled)
     );
     window.webui.jobs.onUpdate((job) => {
-      const blocked = window.webui.jobs.isActive(job) && !job.accepts_commands;
+      const active = window.webui.jobs.isActive(job);
+      const blocked = active && !job.accepts_commands;
       panel.classList.toggle("mc-blocked", blocked);
       for (const control of panel.querySelectorAll("button, input")) {
+        if (control === controllerToggle) continue;
         control.disabled = blocked || originallyDisabled.has(control);
       }
+      if (controllerToggle) renderController(job, active);
     });
   }
 
@@ -223,6 +231,52 @@
         toast("サーボを脱力しました");
       } catch (err) {
         toast(err.message, false);
+      }
+    });
+  }
+
+  // ---- コントローラ操作（部品実装機だけ。テンプレート側でボタンを出さなければ何もしない） ----
+  // ジョブのログを出すコンソールはこのボタンの近くに無いので、失敗だけはトーストで知らせる
+
+  // このページで始めたか、実行中を見たコントローラ操作のジョブの id。終わったときに 1 回だけ失敗を知らせる
+  // （ページを開いたときに届く、前に終わったジョブの失敗は知らせない）
+  let controllerJobId = null;
+
+  function renderController(job, active) {
+    const running = active && job.name === controllerToggle.dataset.jobName;
+    controllerToggle.disabled = active && !running;
+    controllerToggle.setAttribute("aria-pressed", String(running));
+    controllerToggle.textContent = running ? "コントローラ操作を終える" : "コントローラ操作";
+    if (running) {
+      controllerJobId = job.id;
+    } else if (job?.id === controllerJobId) {
+      controllerJobId = null;
+      if (job.status === "failed") {
+        toast(`${job.label}に失敗しました: ${job.error || "不明なエラー"}`, false);
+      }
+    }
+  }
+
+  if (controllerToggle && window.webui.jobs) {
+    controllerToggle.addEventListener("click", async () => {
+      const jobs = window.webui.jobs;
+      const name = controllerToggle.dataset.jobName;
+      const job = jobs.currentJob();
+      if (jobs.isActive(job)) {
+        if (job.name === name) await jobs.abort();
+        return;
+      }
+      controllerToggle.disabled = true; // 開始の応答まで二重に押させない（状態は WS の job_status で戻る）
+      try {
+        const data = await api("POST", `/api/jobs/${name}`, { params: {} });
+        // すぐ失敗したジョブは、POST の応答より先に終端の job_status だけが届くことがある。
+        // 応答の id で追い、届き済みの状態でもう一度描いて失敗を見落とさない
+        controllerJobId = data.job.id;
+        const current = jobs.currentJob();
+        renderController(current, jobs.isActive(current));
+      } catch (err) {
+        toast(err.message, false);
+        controllerToggle.disabled = false;
       }
     });
   }
