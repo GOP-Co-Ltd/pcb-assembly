@@ -480,6 +480,48 @@ class TestReleased:
         assert not feeder.tracker.released(since, feeder.now)
 
 
+class TestMean:
+    """校正の平均: 数え始めてから届いたサンプルを ``count`` 個そろえ、今のタール値との差 [counts] を返す."""
+
+    def test_averages_the_samples_after_the_begin_minus_the_tare(self):
+        feeder = _tared(1000)
+        feeder.feed(9000, 12, quiet=False)  # 数え始める前のサンプルは数えない
+
+        feeder.tracker.begin_mean(16)
+        feeder.feed(3000, 8, quiet=False)
+        feeder.feed(5000, 12, quiet=False)  # 16 個を超えた分は数えない
+
+        assert feeder.tracker.mean() == 3000.0
+
+    def test_is_none_until_the_count_is_reached(self):
+        feeder = _tared(0)
+        feeder.tracker.begin_mean(16)
+
+        feeder.feed(3000, 15, quiet=False)
+        assert feeder.tracker.mean() is None
+        feeder.feed(3000, 1, quiet=False)
+        assert feeder.tracker.mean() == 3000.0
+
+    def test_inverted_counts_the_pressing_direction_as_positive(self):
+        feeder = _tared(1000, inverted=True)
+        feeder.tracker.begin_mean(12)
+
+        feeder.feed(-2000, 12, quiet=False)
+
+        assert feeder.tracker.mean() == 3000.0
+
+    def test_an_error_sample_while_counting_is_refused(self):
+        feeder = _tared(0)
+        feeder.tracker.begin_mean(16)
+        feeder.feed(3000, 8, quiet=False)
+
+        feeder.tracker.note_error(SampleError.READ_TOO_LONG, feeder.now)
+        feeder.feed(3000, 12, quiet=False)
+
+        with pytest.raises(ValueError, match="READ_TOO_LONG"):
+            feeder.tracker.mean()
+
+
 # --- MCU 役と話す ---
 
 
@@ -593,3 +635,35 @@ class TestLoadCellOverTheWire:
 
         with pytest.raises(ValueError):
             load_cell.tare()
+
+    def test_mean_counts_is_the_mean_from_the_tare(
+        self, mcu: WireMcu, firmware: PnpMotionFirmware
+    ):
+        load_cell = _load_cell(firmware)
+        wait_until(lambda: load_cell.reading() == LoadReading(0.0), what="タール")
+        mcu.control("load", counts=1250)
+        wait_until(lambda: load_cell.reading() == LoadReading(12.5), what="12.5 g")
+
+        assert load_cell.mean_counts(0.25) == 1250.0
+
+    def test_mean_counts_without_samples_is_refused(
+        self, mcu: WireMcu, firmware: PnpMotionFirmware
+    ):
+        load_cell = _load_cell(firmware)
+        wait_until(lambda: load_cell.reading() == LoadReading(0.0), what="タール")
+        mcu.control("shutdown", reason=5)
+
+        with pytest.raises(ValueError, match="来ない"):
+            load_cell.mean_counts(0.1)
+
+    def test_mean_counts_with_an_error_sample_is_refused(
+        self, mcu: WireMcu, firmware: PnpMotionFirmware
+    ):
+        load_cell = _load_cell(firmware)
+        wait_until(lambda: load_cell.reading() == LoadReading(0.0), what="タール")
+        # 送り直した query_hx71x で回復しないよう、MCU 役の応答を止めてから乱す
+        mcu.control("drop_blocks", count=1000)
+        mcu.control("hx71x_error")
+
+        with pytest.raises(ValueError):
+            load_cell.mean_counts(1.0)

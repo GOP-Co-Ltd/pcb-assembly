@@ -5,7 +5,7 @@
 
 - ``servo``: ピンセットのサーボ（Feetech STS3032 ×2）のポートと役割
 - ``motion``: XYZ ステージを動かす新ファーム（pnp-motion）の MCU。あれば Klipper を使わずに XYZ を動かす。
-  下位表 ``motion.load_cell`` はピンセットの荷重を測るロードセル（HX711）
+  下位表 ``motion.load_cell`` はステージに掛かる荷重を測るロードセル（HX711）
 - ``gamepad``: コントローラのスティックのデッドゾーン
 """
 
@@ -25,6 +25,7 @@ from pcbasm.validators import (
 
 _SERVO = "ピンセットのサーボ"
 _GAMEPAD = "コントローラ"
+_LOAD_CELL = "ロードセル"
 
 _MAX_SERVO_ID = 253
 _FULL_TURN = 360.0
@@ -316,7 +317,7 @@ def _validate_sample_rate(name: str, value: object) -> str | None:
 
 @attrs.frozen(kw_only=True)
 class LoadCellConfig:
-    """ピンセットの荷重を測るロードセルの HX711（[pnp.motion.load_cell]）.
+    """ステージに掛かる荷重を測るロードセルの HX711（[pnp.motion.load_cell]）.
 
     HX711 は [pnp.motion] の MCU につなぐ。項目の名前と意味は Klipper の ``[load_cell]`` の hx711 に合わせる
     （``klipper/docs/Config_Reference.md``）。ただし ``release_force`` と ``press_positive`` は Klipper に無い、
@@ -345,7 +346,13 @@ class LoadCellConfig:
     sample_rate: int = attrs.field(
         default=80, validator=as_validator(_validate_sample_rate)
     )
-    counts_per_gram: float = attrs.field(validator=_positive)
+    # 設定ページには感度だけを出す（校正のジョブ load_cell_calibrate の Apply が書くため。ほかの [pnp.motion] は出さない）
+    counts_per_gram: float = attrs.field(
+        validator=_positive,
+        metadata=setting(
+            label="ロードセルの感度", group=_LOAD_CELL, order=10, unit="counts/g"
+        ),
+    )
     sensor_orientation: SensorOrientation = "normal"
     trigger_force: float = attrs.field(default=50.0, validator=_positive)
     release_force: float = attrs.field(default=15.0, validator=_positive)
@@ -381,7 +388,7 @@ class MotionConfig:
         y: Y 軸
         z: Z 軸
         led_pin: 照明の LED のピン（MCU が設定したときから常に点け、shutdown しても消さない。MCU の reset の間だけ消える）。None なら無い
-        load_cell: ピンセットの荷重を測るロードセル（[pnp.motion.load_cell] が無ければ None）
+        load_cell: ステージに掛かる荷重を測るロードセル（[pnp.motion.load_cell] が無ければ None）
     """
 
     serial: str

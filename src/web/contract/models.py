@@ -72,7 +72,7 @@ class KlipperStatus(BaseModel):
     position_label: str | None = None
     homed_axes: str | None = None
     error: str | None = None
-    # ピンセットの荷重の表示用文字列（ロードセルのある新ファームの機体だけ。サーバーが組む）
+    # ステージに掛かる荷重の表示用文字列（ロードセルのある新ファームの機体だけ。サーバーが組む）
     load_label: str | None = None
 
 

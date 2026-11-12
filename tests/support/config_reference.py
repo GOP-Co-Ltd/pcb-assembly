@@ -26,6 +26,10 @@ _HEADER = """\
     この表があれば `[klipper]` は無くてよい。書き方は部品実装機 kurousagi の雛形（`deploy/templates/kurousagi/machine.toml`）を見る。
     照明の LED の `led_pin` と、ピンセットのロードセル（HX711）の `[pnp.motion.load_cell]` は省略できる
 
+例外として、`[pnp.motion.load_cell]` の `counts_per_gram` だけは設定ページ（部品実装の「ロードセル」のカード）に出る。
+ロードセルの校正のジョブ（`load_cell_calibrate`）の Apply がここへ書くため。`[pnp.motion.load_cell]` の無い機体で書くと、
+ほかの必須のキー（`sclk_pin`、`dout_pin`）が無いので設定エラーになり、書き込みは拒否される
+
 値の範囲は書込時と起動時に確かめ、範囲外なら設定エラーになる（[保守ガイド](../maintenance.md) の設定エラーからの復旧）。
 
 このファイルは設定のスキーマから生成する。手で直さず、`uv run python -m tests.support.config_reference > docs/reference/config.md` の後に `make format` を実行する。
