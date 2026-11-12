@@ -41,6 +41,15 @@ mm と mm/s をステップに直して :class:`~pcbasm.hal.mcu.firmware.PnpMoti
   荷重（ステージに手で触れたときなど）でも接触停止になり、XY が固まるため。次に倒したときは
   流し始め直して張り直す（``velocity_stream_start`` の開始の時刻の分、動き出しが遅れる）。脱力の後に 0 を送り
   続けても、脱力が取り消されない
+- **ファームの脱力:** 励磁したまま ``idle_timeout`` のあいだ止めておくと、ファームが自分で脱力して報告する。
+  脱力したかは、報告の脱力の回数（``relaxes``）が接続したときから変わったかで見る（``enabled`` で見ると、
+  脱力の報告が届く前に励磁し直したときに見落とす）。変わっていれば、:meth:`~McuMotionStage.status` は
+  すぐに原点を「未」として返し、次の操作の前に、:meth:`~McuMotionStage.relax` と同じく止めて接触保持を捨ててから
+  :meth:`~pcbasm.hal.mcu.firmware.PnpMotionFirmware.forget_origin` する（脱力の間に軸が動いたかもしれない）
+- **脱力させない間:** :meth:`~McuMotionStage.keep_energized` の入れ子の深さを数え、いちばん外側で入るときに
+  ``idle_timeout`` を 0 にし、抜けるときに設定の秒数に戻す。中で :meth:`~McuMotionStage.restart` したら 0 を
+  送り直す。抜けるときに MCU が shutdown しているか接続が切れていれば、送らずに抜ける（restart で設定の秒数に戻る）。
+  中で backend が落ちると 0 のまま残るが、起動し直して接続すると設定の秒数を送る
 - **座標指定の移動:** mm をステップに直して :meth:`PnpMotionFirmware.travel` に任せる（直線に動き、
   速さを省けばどの軸も ``max_velocity`` を超えない最も速い動き。1 ステップ以内の差は動かさない）
 - **緊急停止が届かない間:** 次の間の :meth:`~McuMotionStage.emergency_stop` は :class:`MotionError` になる。
@@ -116,6 +125,7 @@ class McuMotionStage(MotionStage):
         self._settings = settings
         self._lock = threading.Lock()
         self._homed: frozenset[Axis] = frozenset()
+        self._keep_energized = 0  # keep_energized の入れ子の深さ
         self._failure: str | None = None
         self._hold: _Hold | None = None
         self._limits = Limits(
@@ -129,6 +139,7 @@ class McuMotionStage(MotionStage):
         )
         with self._translate():
             self._firmware = open_firmware(settings)
+        self._relaxes = self._latest_relaxes()
         self._watch_free_zone(self._firmware)
 
     @property
@@ -157,12 +168,13 @@ class McuMotionStage(MotionStage):
                 for axis, steps in zip(axes, report.position, strict=True)
             )
         )
+        homed = self._homed if report.relaxes == self._relaxes else frozenset()
         if reason is not None:
             return MotionStatus(
                 position=position,
                 velocity=Velocity(),
                 state=MotionState.SHUTDOWN,
-                homed=self._homed,
+                homed=homed,
                 shutdown_reason=reason,
             )
         load_cell = firmware.load_cell
@@ -182,7 +194,7 @@ class McuMotionStage(MotionStage):
                 )
             ),
             state=MotionState.MOVING if report.state.running else MotionState.IDLE,
-            homed=self._homed,
+            homed=homed,
             load=reading.grams if reading is not None else None,
             load_error=reading.error if reading is not None else None,
             contact=contact,
@@ -310,6 +322,30 @@ class McuMotionStage(MotionStage):
             firmware.query()
 
     @override
+    @contextlib.contextmanager
+    def keep_energized(self) -> Iterator[None]:
+        with self._lock, self._translate():
+            firmware = self._ready()
+            if not self._keep_energized:
+                firmware.set_idle_timeout(0)
+            self._keep_energized += 1
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._keep_energized -= 1
+                firmware = self._firmware
+                if (
+                    not self._keep_energized
+                    and self._failure is None
+                    and firmware.shutdown_reason is None
+                ):
+                    # 送れなくても投げない（本体の例外を隠さない）。切れたことは _translate が覚え、
+                    # restart で設定の秒数に戻る
+                    with contextlib.suppress(MotionError), self._translate():
+                        firmware.set_idle_timeout(self._settings.idle_timeout)
+
+    @override
     def restart(self) -> None:
         with self._lock:
             self._firmware.close()
@@ -320,6 +356,9 @@ class McuMotionStage(MotionStage):
             try:
                 with self._translate():
                     self._firmware = open_firmware(self._settings, reset=True)
+                    if self._keep_energized:
+                        self._firmware.set_idle_timeout(0)
+                self._relaxes = self._latest_relaxes()
                 self._watch_free_zone(self._firmware)
             except MotionError as error:
                 self._failure = (
@@ -398,7 +437,23 @@ class McuMotionStage(MotionStage):
             raise MotionError(
                 f"MCU が shutdown している: {firmware.shutdown_reason}（ファームの再起動が要る）"
             )
+        report = firmware.latest
+        if report is not None and report.relaxes != self._relaxes:
+            # ファームが自分で脱力した（モジュールの docstring）。relax と同じく接触保持も捨てる
+            self._relaxes = report.relaxes
+            self._homed = frozenset()
+            if firmware.streaming:
+                firmware.stop()
+            firmware.clear_trigger()
+            self._drop_hold(firmware)
+            firmware.forget_origin(*AXES)
         return firmware
+
+    def _latest_relaxes(self) -> int:
+        """接続したときの、ファームが自分で脱力した回数."""
+        report = self._firmware.latest
+        assert report is not None  # 接続したときに問い合わせている
+        return report.relaxes
 
     @property
     def _press_positive(self) -> bool:
@@ -413,11 +468,17 @@ class McuMotionStage(MotionStage):
     def _in_free_zone(self, firmware: PnpMotionFirmware) -> bool:
         """Z が、ピンセットから離す向きの端から ``free_tare_zone`` 以内か（受信スレッドから、ロックを取らずに呼ばれる）.
 
-        原点を出していない Z や、まだ報告が来ていないときは偽（安全側）。
+        原点を出していない Z や、ファームが脱力した後や、まだ報告が来ていないときは偽（安全側）。
         """
         load_cell = self._settings.load_cell
         report = firmware.latest
-        if load_cell is None or report is None or "z" not in self._homed:
+        if (
+            load_cell is None
+            or report is None
+            or "z" not in self._homed
+            or report.relaxes
+            != self._relaxes  # ファームが脱力し、原点はもう当てにならない
+        ):
             return False
         z = self._settings.z
         position = z.to_mm(report.position[AXES.index("z")])

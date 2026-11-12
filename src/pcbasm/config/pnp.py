@@ -28,6 +28,7 @@ _GAMEPAD = "コントローラ"
 _LOAD_CELL = "ロードセル"
 
 _MAX_SERVO_ID = 253
+_MAX_IDLE_TIMEOUT = 2**32 - 1  # [s]
 _FULL_TURN = 360.0
 # 閉じ〜開きが半回転を超えるなら 360°/0° の境目をまたいでいる
 _MAX_OPEN_CLOSE_SPAN = 180.0
@@ -200,6 +201,20 @@ def _validate_deadzone(name: str, value: object) -> str | None:
         or not 0 <= value <= _MAX_DEADZONE
     ):
         return f"{name}は0以上{_MAX_DEADZONE:g}以下である必要があります: {value!r}"
+    return None
+
+
+def _validate_idle_timeout(name: str, value: object) -> str | None:
+    # ファームは 1 秒ごとに、32 bit の秒数で数える。0 は脱力しない
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int | float)
+        or (value != 0 and not 1 <= value <= _MAX_IDLE_TIMEOUT)
+    ):
+        return (
+            f"{name}は0（脱力しない）か1以上{_MAX_IDLE_TIMEOUT}以下の秒数である"
+            f"必要があります: {value!r}"
+        )
     return None
 
 
@@ -384,6 +399,8 @@ class MotionConfig:
         kinematics: 運動学（``cartesian`` / ``corexy`` / ``inversed_corexy``。printer.cfg の ``[printer]``）
         tmc_rx_pin: TMC2209 の UART の受信ピン（printer.cfg の ``uart_pin``）
         tmc_tx_pin: TMC2209 の UART の送信ピン（printer.cfg の ``tx_pin``）
+        idle_timeout: 励磁したまま止まっていたら、ファームが脱力するまでの時間 [s]。0 なら脱力しない
+            （printer.cfg の ``[idle_timeout] timeout`` にあたる。脱力すると原点は「未」になる）
         x: X 軸
         y: Y 軸
         z: Z 軸
@@ -395,6 +412,9 @@ class MotionConfig:
     kinematics: Kinematics
     tmc_rx_pin: str
     tmc_tx_pin: str
+    idle_timeout: float = attrs.field(
+        default=300.0, validator=as_validator(_validate_idle_timeout)
+    )
     x: MotionAxisConfig
     y: MotionAxisConfig
     z: MotionAxisConfig

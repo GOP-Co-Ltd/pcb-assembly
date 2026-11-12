@@ -6,12 +6,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import math
 import threading
 import time
 from collections import defaultdict
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from concurrent.futures import Future
 from typing import Any, Literal, override
 
@@ -996,6 +997,7 @@ class FakeMotionStage(MotionStage):
         self._closed = False
         self._velocities: list[tuple[float, Velocity]] = []
         self._commands: list[str] = []
+        self._keep_energized = 0  # keep_energized の入れ子の深さ
         self._load_cell = load_cell
         self._load = 0.0
         self._tare = 0.0
@@ -1016,7 +1018,8 @@ class FakeMotionStage(MotionStage):
         """速度指令以外の操作（送った順）.
 
         ``home z``・``move_to``・``stop``・``relax``・``restart``・``emergency_stop``・``tare``・
-        ``suspend_auto_tare``・``resume_auto_tare``。
+        ``suspend_auto_tare``・``resume_auto_tare``。``keep_energized`` と ``end_keep_energized`` は、
+        いちばん外側の入りと出。
         """
         with self._lock:
             return list(self._commands)
@@ -1192,6 +1195,23 @@ class FakeMotionStage(MotionStage):
             self._homed = frozenset()
             self._holding = False
             self._commands.append("relax")
+
+    @override
+    @contextlib.contextmanager
+    def keep_energized(self) -> Iterator[None]:
+        # fake は自動で脱力しないので、いちばん外側の入りと出を記録するだけ
+        with self._lock:
+            self._check_ready()
+            if not self._keep_energized:
+                self._commands.append("keep_energized")
+            self._keep_energized += 1
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._keep_energized -= 1
+                if not self._keep_energized:
+                    self._commands.append("end_keep_energized")
 
     @override
     def restart(self) -> None:

@@ -27,7 +27,7 @@ _READS = frozenset(
         "velocity_stream_query",
         "endstop_query_state",
         "tmcuart_send",
-        "update_digital_out",
+        "velocity_stream_set_enable",
     }
 )
 

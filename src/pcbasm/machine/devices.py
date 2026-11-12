@@ -549,6 +549,7 @@ def motion_settings(config: MotionConfig) -> McuMotionSettings:
         tmc_rx_pin=tmc_rx_pin,
         tmc_tx_pin=tmc_tx_pin,
         tmc_rx_pull_up=tmc_rx_pull_up,
+        idle_timeout=config.idle_timeout,
         led_pin=led_pin,
         load_cell=(
             None if config.load_cell is None else _load_cell_settings(config.load_cell)

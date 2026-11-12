@@ -317,6 +317,33 @@ class TestPnpMotion:
             z=_KUROUSAGI_Z,
         )
 
+    def test_idle_timeout_defaults_to_five_minutes(self, tmp_path: Path):
+        machine = load_machine(_motion_machine(tmp_path))
+
+        assert machine.pnp is not None and machine.pnp.motion is not None
+        assert machine.pnp.motion.idle_timeout == 300.0
+
+    def test_idle_timeout_is_read(self, tmp_path: Path):
+        machine = load_machine(_motion_machine(tmp_path, _motion_with(idle_timeout=60)))
+
+        assert machine.pnp is not None and machine.pnp.motion is not None
+        assert machine.pnp.motion.idle_timeout == 60.0
+
+    def test_zero_idle_timeout_turns_the_auto_relax_off(self, tmp_path: Path):
+        machine = load_machine(_motion_machine(tmp_path, _motion_with(idle_timeout=0)))
+
+        assert machine.pnp is not None and machine.pnp.motion is not None
+        assert machine.pnp.motion.idle_timeout == 0
+
+    @pytest.mark.parametrize("value", [0.5, -1, 2**32])
+    def test_idle_timeout_outside_the_firmware_range_is_a_config_error(
+        self, tmp_path: Path, value: float
+    ):
+        path = _motion_machine(tmp_path, _motion_with(idle_timeout=value))
+
+        with pytest.raises(ConfigError, match="idle_timeout.*pnp.motion"):
+            load_machine(path)
+
     def test_steps_per_mm_follows_the_drive_train(self):
         """GT2 16T（32 mm/回転）、200 歩/回転、64 マイクロステップで 400 steps/mm."""
         assert _KUROUSAGI_X.steps_per_mm == 400.0

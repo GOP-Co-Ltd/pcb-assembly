@@ -96,6 +96,7 @@ serial = "/dev/serial/by-id/usb-Klipper_rp2040_<your-mcu-id>-if00" # ls /dev/ser
 kinematics = "inversed_corexy"
 tmc_rx_pin = "gpio9" # TMC2209 の UART（printer.cfg の uart_pin）
 tmc_tx_pin = "gpio8" # printer.cfg の tx_pin
+idle_timeout = 300 # 励磁したまま止めておくと、ファームがこの秒数で脱力する（原点は「未」に戻る）。0 で脱力しない
 led_pin = "gpio17"   # 照明の LED。起動から常に点け、緊急停止でも消さない（MCU の reset の間だけ消える）
 
 # ステージに掛かる荷重を測るロードセルの HX711。省略すると荷重を読まない

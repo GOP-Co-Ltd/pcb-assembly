@@ -167,6 +167,10 @@ class TestEncode:
             "stepper_y_oid": 2,
             "stepper_z_oid": 3,
             "invert_dir": 5,
+            "enable_x_pin": 12,
+            "enable_y_pin": 7,
+            "enable_z_pin": 2,
+            "invert_enable": 7,
         }
         with pytest.raises(ValueError):
             dictionary.encode("config_velocity_stream", **params, kinematics="corexy")
@@ -174,7 +178,7 @@ class TestEncode:
         content = dictionary.encode(
             "config_velocity_stream", **params, kinematics=kinematics
         )
-        assert content == bytes([20, 4, 1, 2, 3, 5, 1])
+        assert content == bytes([20, 4, 1, 2, 3, 5, 1, 12, 7, 2, 7])
 
     def test_negative_byte_value(self, dictionary: DataDictionary):
         # %c は線の上では 32 bit の VLQ。ファームは invert_step を int_fast8_t で受け、-1 で両エッジの step にする
@@ -263,6 +267,7 @@ class TestDecode:
             + encode_vlq(65535)
             + bytes([1])
             + b"".join(encode_vlq(v) for v in (-100, 0, 2**31 - 1, -(2**31), 5, -5))
+            + bytes([1, 3])
         )
         assert dictionary.decode(content) == [
             Message(
@@ -278,6 +283,8 @@ class TestDecode:
                     "vx": -(2**31),
                     "vy": 5,
                     "vz": -5,
+                    "enabled": 1,
+                    "relaxes": 3,
                 },
             )
         ]

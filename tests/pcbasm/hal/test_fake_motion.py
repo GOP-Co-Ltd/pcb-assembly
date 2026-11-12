@@ -287,6 +287,26 @@ class TestFakeMotionStageRelaxRestart:
         assert status.shutdown_reason is None
 
 
+class TestFakeMotionStageKeepEnergized:
+    """自動の脱力を止める間（fake は脱力しないので、入りと出を記録するだけ）."""
+
+    def test_records_only_the_outermost_enter_and_exit(self, clock: _Clock):
+        stage = _stage(clock)
+
+        with stage.keep_energized(), stage.keep_energized():
+            assert stage.commands == ["keep_energized"]
+
+        assert stage.commands == ["keep_energized", "end_keep_energized"]
+
+    def test_exits_even_when_the_body_raises(self, clock: _Clock):
+        stage = _stage(clock)
+
+        with pytest.raises(RuntimeError), stage.keep_energized():
+            raise RuntimeError
+
+        assert stage.commands[-1] == "end_keep_energized"
+
+
 class TestFakeMotionStageShutdown:
     """緊急停止と MCU の shutdown."""
 

@@ -51,6 +51,10 @@
   "above": bool}``。``above`` なら位置が ``at`` 以上、そうでなければ ``at`` 以下で押される（ピンの値は 1）。
   張った ``endstop_home`` の ``pin_value`` と一致したら trsync を引く。登録した ``velocity_stream`` は ``contact``
   になり、引いた軸は ``at`` ちょうどに置く。``trsync_state`` を送る
+- 励磁: ``velocity_stream_set_enable`` で入れ・切る（流している間に切ると shutdown）。``velocity_stream_set_idle_timeout``
+  の秒数を超えて励磁したまま流していなければ、励磁を切って脱力の回数（``relaxes``）を 1 進め、
+  ``velocity_stream_state`` を送る。shutdown でも励磁を切る。模擬の 1 秒の長さは
+  ``motion.second``（実時間の秒。既定 1.0）。テストが待つ時間を縮めるのに使う
 - 初めの物理的な位置は ``motion.positions``（X・Y・Z のステップ。既定は 0）
 - TMC2209: ``motion.tmc_addresses``（既定は 0〜3）のアドレスが UART に応える。書き込みでレジスタを覚えて
   IFCNT を 1 進め、読み出しにはレジスタの値を返す。応えないアドレスへの読み出しには 1 だけのビット列を返す
@@ -209,6 +213,10 @@ class _Stream:
         self.next_report = 0
         self.stop_at = 0
         self.updated = 0
+        self.enabled = False
+        self.idle_timeout = 0  # [s]。0 なら脱力しない
+        self.idle_since = 0  # 励磁したまま止まり始めた clock
+        self.relaxes = 0  # 自分で脱力した回数
 
     def running(self) -> bool:
         return self.state in ("stream", "stopping")
@@ -244,6 +252,7 @@ class _Mcu:
         }
         self._tmc_addresses = set(motion.get("tmc_addresses", [0, 1, 2, 3]))
         self._stop_delay = motion.get("stop_delay", 0.03)
+        self._second = motion.get("second", 1.0)
         self._hx71x_rate = motion.get("hx71x_rate", 80)
         # ロードセルは MCU と別の部品なので、MCU の reset で荷重は変わらない
         self._load_counts = motion.get("load_counts", 0)
@@ -574,6 +583,15 @@ class _Mcu:
                 stream.stop_at = clock + int(self._stop_delay * self._frequency)
         elif name == "velocity_stream_query":
             self._report(stream, clock)
+        elif name == "velocity_stream_set_enable":
+            if not params["enable"] and stream.running():
+                self._fail("Can't disable velocity_stream while running")
+                return
+            stream.enabled = bool(params["enable"])
+            stream.idle_since = clock
+        elif name == "velocity_stream_set_idle_timeout":
+            stream.idle_timeout = params["seconds"]
+            stream.idle_since = clock
 
     def _start(self, stream: _Stream, params: dict[str, Any], clock: int) -> None:
         period, lead, ttl = (
@@ -624,12 +642,21 @@ class _Mcu:
             vx=round(stream.velocity[0]),
             vy=round(stream.velocity[1]),
             vz=round(stream.velocity[2]),
+            enabled=int(stream.enabled),
+            relaxes=stream.relaxes,
         )
 
     def _wait(self) -> float | None:
         stream = self._stream
         homing = any(t["home"] is not None for t in self._trigger_analogs.values())
-        if self._armed or homing or (stream is not None and stream.running()):
+        if (
+            self._armed
+            or homing
+            or (
+                stream is not None
+                and (stream.running() or stream.enabled and stream.idle_timeout)
+            )
+        ):
             return _TICK
         if self._hx71x is not None and self._hx71x["running"]:
             return max(0.0, self._hx71x["next_at"] - time.monotonic())
@@ -643,6 +670,8 @@ class _Mcu:
         if stream is not None and stream.running():
             self._advance(stream, clock)
         self._check_endstops(clock)
+        if stream is not None:
+            self._check_idle(stream, clock)
         self._sample_hx71x()
         self._monitor_trigger_analogs(clock)
         if stream is not None and stream.running() and stream.report_ticks:
@@ -669,6 +698,17 @@ class _Mcu:
         if stream.state == "stopping" and clock >= stream.stop_at:
             stream.state = "idle"
             stream.velocity = [0.0] * _AXES
+
+    def _check_idle(self, stream: _Stream, clock: int) -> None:
+        """励磁したまま流していない時間が ``idle_timeout`` を超えたら、励磁を切って知らせる."""
+        if stream.running() or not stream.enabled:
+            stream.idle_since = clock
+            return
+        timeout = stream.idle_timeout * self._second * self._frequency
+        if stream.idle_timeout and clock - stream.idle_since > timeout:
+            stream.enabled = False
+            stream.relaxes = (stream.relaxes + 1) % 256
+            self._report(stream, clock)
 
     def _sample_hx71x(self) -> None:
         hx71x = self._hx71x
@@ -815,6 +855,9 @@ class _Mcu:
         if self._stream is not None:
             self._stream.state = "idle"
             self._stream.velocity = [0.0] * _AXES
+            # ファームは shutdown で脱力し、数えるタイマも消える
+            self._stream.enabled = False
+            self._stream.idle_timeout = 0
         self._armed.clear()
         for trigger in self._trigger_analogs.values():
             trigger["home"] = None
