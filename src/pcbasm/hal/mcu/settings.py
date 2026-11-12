@@ -134,6 +134,8 @@ class LoadCellSettings:
         counts_per_gram: 1 g あたりの値
         inverted: 荷重が掛かると値が減る（グラムに直すときに符号を反す）
         contact: 接触停止のしきい値と、押す向き
+        free_tare_zone: ピンセットから離す向きの端から、ここまでの範囲 [mm] の Z が止まっていれば、荷重が安定しているかぎり
+            差の大きさを問わずタールに取り込む（0 で無効。:mod:`pcbasm.hal.mcu.load_cell`）
     """
 
     sclk_pin: str
@@ -143,6 +145,7 @@ class LoadCellSettings:
     counts_per_gram: float
     inverted: bool = False
     contact: ContactSettings = ContactSettings()
+    free_tare_zone: float = 0.0
 
     def __attrs_post_init__(self) -> None:
         # sensor_hx71x.c は 1〜4 を受け付ける（4 は HX717 だけ）。外れると shutdown する
@@ -154,6 +157,8 @@ class LoadCellSettings:
             raise ValueError(f"sample_rate は正にする: {self.sample_rate}")
         if not self.counts_per_gram > 0:
             raise ValueError(f"counts_per_gram は正にする: {self.counts_per_gram}")
+        if not self.free_tare_zone >= 0:
+            raise ValueError(f"free_tare_zone は 0 以上にする: {self.free_tare_zone}")
 
 
 @attrs.frozen(kw_only=True)

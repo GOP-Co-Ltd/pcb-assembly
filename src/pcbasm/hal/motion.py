@@ -15,6 +15,9 @@
 - **接触保持:** 荷重が ``release_force`` 以上の間は、Z の離す向きにだけ動かせる（:func:`contact_velocity`、
   :func:`contact_move_error`）。X・Y と押す向き、原点出し、タールは受け付けない。荷重が ``release_force`` を
   下回ったら、次の操作で通常に戻る
+- **離れた範囲のタール:** MCU 版は、Z がピンセットから離す向きの端から ``free_tare_zone`` [mm] 以内で止まっていれば、
+  ステージに載せた基板などの荷重を差の大きさを問わず自動のタールに取り込む（原点を出していない Z と、接触保持の間は
+  取り込まない）。範囲の外では ±2 g 以内だけ。fake は自動のタールをしないので持たない
 """
 
 from __future__ import annotations

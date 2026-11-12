@@ -204,6 +204,7 @@ def _validate_deadzone(name: str, value: object) -> str | None:
 
 _positive = as_validator(validate_positive_number)
 _optional_positive = attrs.validators.optional(_positive)
+_non_negative = as_validator(validate_non_negative_number)
 
 
 @attrs.frozen(kw_only=True)
@@ -331,6 +332,9 @@ class LoadCellConfig:
         sensor_orientation: 荷重が掛かると値が減る向きにつないだなら ``inverted``
         trigger_force: 動いている間に、これを超える荷重 [g] で止める（接触停止）
         release_force: 接触して止まった後、荷重がこれを下回ったら離したとみなす [g]（``trigger_force`` より小さい）
+        free_tare_zone: ピンセットから離す向きの端から、ここまでの範囲 [mm] で Z が止まっていて荷重が安定していれば、
+            ステージに載せた基板やトレイの荷重も、差の大きさを問わずタールに取り込む（0 で無効。それ以外の位置では、
+            タール値との差が 2 g 以内のときだけ取り込む）。離す向きの端は ``press_positive`` で決まる
         press_positive: Z+ へ動くとピンセットに押し当たる。kurousagi はステージが上がる Z− で押し当たるので
             false（:mod:`pcbasm.hal.motion` の「向き」）
     """
@@ -346,6 +350,7 @@ class LoadCellConfig:
     trigger_force: float = attrs.field(default=50.0, validator=_positive)
     release_force: float = attrs.field(default=15.0, validator=_positive)
     press_positive: bool = False
+    free_tare_zone: float = attrs.field(default=5.0, validator=_non_negative)
 
     def __attrs_post_init__(self) -> None:
         if error := self._validate_relations():

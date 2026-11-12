@@ -35,8 +35,14 @@ pnp-motion ファームの ``hx71x`` が送る ``sensor_bulk_data`` を受け、
 - **自動のタール:** Z が止まっている（Z を動かす指令から 1 s たった）間のサンプルが 1 s ぶん続き、その幅
   （最大 − 最小）が 0.5 g 以下で、平均と今のタール値の差が 2 g 以下なら、平均を新しいタールにして窓を空にする。
   止まっている間はおよそ 1 秒ごとに取り直す（Z の指令からは約 2 s）。差の上限は「接触していない」の近似で、
-  押し続けた荷重や載せたものをタールに取り込まないためのもの。温度などのゆっくりしたずれだけを追う。
+  押し続けた荷重をタールに取り込まないためのもの。温度などのゆっくりしたずれだけを追う。
   上限を超えてずれたら（たとえば起動したときに何かが当たっていた）、手でタールする
+- **ピンセットから離れた範囲のタール:** Z が、ピンセットから離す向きの端から ``free_tare_zone`` [mm] 以内（kurousagi は
+  Z ≥ 上端 − N）で止まっていれば、ステージに載せた基板やトレイは押す向きの荷重になっても接触ではないので、
+  差の上限を外して（安定の幅 0.5 g の条件は残す）タールに取り込む。そうしないと、載せた荷重が ``trigger_force`` を
+  超えたとき、次に動いたときに接触停止して保持から抜けられない。Z の位置は :class:`LoadCell` の ``free_zone`` が
+  ホストの最新の報告から答える（原点を出していない Z は離れた範囲とみなさない）。範囲の外では ±2 g の上限が残る。
+  ``free_tare_zone`` が 0 なら使わない
 - **手でタール:** 最後のサンプルから 0.25 s の間の正しいサンプルの平均。最後のサンプルが古いか、
   誤りが出ていれば受けない。安定かどうかは問わない
 - **MCU のタール値:** タール値が変わるたびに（最初、自動、手で）``on_tare`` に丸めた counts を渡す。ファームはそれを
@@ -191,6 +197,7 @@ class LoadTracker:
         *,
         quiet: bool,
         auto_tare: bool = True,
+        free: bool = False,
     ) -> int | None:
         """正しいサンプルを足す.
 
@@ -199,6 +206,7 @@ class LoadTracker:
             at: 最後のサンプルの時刻 [s]
             quiet: Z が止まっている間のサンプルか
             auto_tare: 自動のタールをしてよいか（接触保持の間は False）
+            free: Z がピンセットから離れた範囲にあるか。そうなら自動のタールで、今のタール値との差を問わない
 
         Returns:
             タールが変わったら、新しいタール値（丸めた counts）。変わらなければ None
@@ -239,7 +247,7 @@ class LoadTracker:
             ) / self._settings.counts_per_gram
             mean = _mean(self._quiet)
             drift = abs(mean - self._tare) / self._settings.counts_per_gram
-            if spread <= _TARE_SPREAD and drift <= _TARE_DRIFT:
+            if spread <= _TARE_SPREAD and (free or drift <= _TARE_DRIFT):
                 changed = mean
                 self._quiet.clear()
         if changed is None:
@@ -393,6 +401,7 @@ class LoadCell:
         self._oid = oid
         self._on_tare = on_tare
         self._paused = False
+        self._free_zone: Callable[[], bool] = _never
         self._rest_ticks = clock_freq // (settings.sample_rate * _REST_DIVISOR)
         self._lock = threading.Lock()
         self._tracker = LoadTracker(settings)
@@ -439,6 +448,14 @@ class LoadCell:
         """自動のタールを止める・再び許す（接触保持の間は止める）."""
         with self._lock:
             self._paused = paused
+
+    def watch_free_zone(self, free_zone: Callable[[], bool]) -> None:
+        """Z がピンセットから離れた範囲にあるかを答える関数を設定する（既定は常に偽）.
+
+        受信スレッドが :class:`LoadCell` のロックの中で呼ぶので、ロックを取らず、すぐ返すこと。
+        """
+        with self._lock:
+            self._free_zone = free_zone
 
     def tare(self) -> None:
         """今の荷重を 0 にする.
@@ -492,7 +509,11 @@ class LoadCell:
                 first = last - (len(valid) - 1) / self._settings.sample_rate
                 quiet = first - self._z_moved_at >= _QUIET_AFTER_MOTION
                 counts = self._tracker.feed(
-                    valid, last, quiet=quiet, auto_tare=not self._paused
+                    valid,
+                    last,
+                    quiet=quiet,
+                    auto_tare=not self._paused,
+                    free=self._settings.free_tare_zone > 0 and self._free_zone(),
                 )
                 if counts is not None:
                     self._on_tare(counts)
@@ -514,6 +535,10 @@ class LoadCell:
                     _logger.warning("%s。HX711 を読み直す", error.message)
                     self._requeried_at = received
                     self._query()
+
+
+def _never() -> bool:
+    return False
 
 
 def _mean(values: Sequence[int]) -> float:

@@ -52,13 +52,16 @@ class _Feeder:
         self.now = 0.0
         self._period = 1 / rate
 
-    def feed(self, value: int, count: int, *, quiet: bool = True) -> list[int]:
+    def feed(
+        self, value: int, count: int, *, quiet: bool = True, free: bool = False
+    ) -> list[int]:
         """``value`` を ``count`` 個送り、取り直したタール値を返す."""
         changes = []
         for start in range(0, count, 12):
             batch = [value] * min(12, count - start)
             self.now += len(batch) * self._period
-            if (changed := self.tracker.feed(batch, self.now, quiet=quiet)) is not None:
+            changed = self.tracker.feed(batch, self.now, quiet=quiet, free=free)
+            if changed is not None:
                 changes.append(changed)
         return changes
 
@@ -106,6 +109,7 @@ class TestLoadCellSettings:
             {"sample_rate": 0},
             {"counts_per_gram": 0.0},
             {"counts_per_gram": -1.0},
+            {"free_tare_zone": -0.1},
         ],
         ids=repr,
     )
@@ -352,6 +356,50 @@ class TestReadingErrors:
 
         assert tracker.reading(10.4) == LoadReading(None)
         assert tracker.reading(10.6).error == "ロードセルの値が来ない"
+
+
+class TestFreeTare:
+    """Z がピンセットから離れた範囲にあるときは、差の大きさを問わずタールに取り込む."""
+
+    def test_takes_in_a_load_far_over_the_drift_limit(self):
+        feeder = _tared(0)
+
+        assert feeder.feed(30_000, 80, free=True) == [30_000]
+
+        assert feeder.reading() == LoadReading(0.0)
+
+    def test_outside_the_zone_the_drift_limit_stays(self):
+        feeder = _tared(0)
+
+        assert feeder.feed(30_000, 240, free=False) == []
+
+        assert feeder.reading() == LoadReading(30.0)
+
+    def test_still_needs_a_quiet_and_steady_second(self):
+        feeder = _tared(0)
+
+        assert feeder.feed(30_000, 240, quiet=False, free=True) == []
+        for _ in range(14):
+            feeder.now += 12 * _PERIOD
+            # 0.6 g の幅で揺れる
+            assert (
+                feeder.tracker.feed(
+                    [30_000, 30_600] * 6, feeder.now, quiet=True, free=True
+                )
+                is None
+            )
+
+    def test_does_not_tare_while_paused(self):
+        feeder = _tared(0)
+
+        for _ in range(20):
+            feeder.now += 12 * _PERIOD
+            assert (
+                feeder.tracker.feed(
+                    [30_000] * 12, feeder.now, quiet=True, auto_tare=False, free=True
+                )
+                is None
+            )
 
 
 class TestPausedAutoTare:

@@ -28,6 +28,9 @@ mm と mm/s をステップに直して :class:`~pcbasm.hal.mcu.firmware.PnpMoti
   ロックの外のスレッドから ``set_limits`` を送ると操作の順が崩れるため。:meth:`~McuMotionStage.status` の
   ``contact`` は、保持の間で荷重がまだ下回っていなければ、または MCU が接触で止めてまだ保持に入っていなければ真。
   タール値が押す側にずれていて下回らなければ、:meth:`~McuMotionStage.relax` で抜ける（保持を捨て、原点は「未」になる）
+- **離れた範囲のタール:** ``free_tare_zone`` が正なら、:meth:`_in_free_zone` が Z の最新の報告（ロックを取らない）と
+  原点の有無から、ピンセットから離す向きの端から ``free_tare_zone`` 以内かを :class:`~pcbasm.hal.mcu.load_cell.LoadCell` に
+  答える。原点が「未」の Z は範囲の外（安全側）
 - **原点出しの途中の接触:** その軸は「未」のまま保持に入り、:class:`~pcbasm.hal.motion.ContactStopped`。Z を先に
   出すので、X・Y の途中なら Z+（離す向き）で離せる。Z の途中なら Z は「未」で動かせないので、脱力で抜ける
 - **ロードセルの異常:** 動かしている間に MCU が異常で止めたら、その操作か次の操作が :class:`MotionError` になる
@@ -125,6 +128,7 @@ class McuMotionStage(MotionStage):
         )
         with self._translate():
             self._firmware = open_firmware(settings)
+        self._watch_free_zone(self._firmware)
 
     @property
     @override
@@ -315,6 +319,7 @@ class McuMotionStage(MotionStage):
             try:
                 with self._translate():
                     self._firmware = open_firmware(self._settings, reset=True)
+                self._watch_free_zone(self._firmware)
             except MotionError as error:
                 self._failure = (
                     f"ファームを立て直せなかった（{error}）。再起動をやり直してください"
@@ -378,6 +383,27 @@ class McuMotionStage(MotionStage):
     def _press_positive(self) -> bool:
         load_cell = self._settings.load_cell
         return load_cell is not None and load_cell.contact.press_positive
+
+    def _watch_free_zone(self, firmware: PnpMotionFirmware) -> None:
+        """Z がピンセットから離れた範囲にあるかを、ロードセルの自動のタールに答えさせる."""
+        if firmware.load_cell is not None:
+            firmware.load_cell.watch_free_zone(lambda: self._in_free_zone(firmware))
+
+    def _in_free_zone(self, firmware: PnpMotionFirmware) -> bool:
+        """Z が、ピンセットから離す向きの端から ``free_tare_zone`` 以内か（受信スレッドから、ロックを取らずに呼ばれる）.
+
+        原点を出していない Z や、まだ報告が来ていないときは偽（安全側）。
+        """
+        load_cell = self._settings.load_cell
+        report = firmware.latest
+        if load_cell is None or report is None or "z" not in self._homed:
+            return False
+        z = self._settings.z
+        position = z.to_mm(report.position[AXES.index("z")])
+        zone = load_cell.free_tare_zone
+        if self._press_positive:
+            return position <= z.position_min + zone
+        return position >= z.position_max - zone
 
     def _release_direction(self) -> str:
         """離す向き（表示用）."""

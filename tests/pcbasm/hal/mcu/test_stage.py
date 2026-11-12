@@ -4,6 +4,7 @@
 MCU 役の軸は 80 steps/mm で、X・Y の可動域は 0〜20 mm、Z は -10〜0 mm（``tests/support/motion_mcu.py``）。
 """
 
+import contextlib
 import logging
 import threading
 import time
@@ -658,3 +659,97 @@ class TestLoadCellFault:
 
         wait_until(failed, what=f"{name} の異常")
         assert not load_stage.status().contact
+
+
+_BOARD = 3000  # 30 g（trigger_force の 50 g 未満。ステージに載せた基板やトレイ）
+
+
+@contextlib.contextmanager
+def _free_zone_stage(
+    settings: McuMotionSettings, free_tare_zone: float
+) -> Iterator[McuMotionStage]:
+    """ロードセル（100 counts/g）と、ピンセットから離れた範囲 ``free_tare_zone`` [mm] を持つステージ（Z は 0
+    が離れた端）."""
+    opened = McuMotionStage(
+        attrs.evolve(
+            settings,
+            load_cell=LoadCellSettings(
+                sclk_pin="gpio0",
+                dout_pin="gpio1",
+                gain_channel=1,
+                sample_rate=80,
+                counts_per_gram=100.0,
+                free_tare_zone=free_tare_zone,
+            ),
+        )
+    )
+    try:
+        yield opened
+    finally:
+        opened.close()
+
+
+def _stays_for(seconds: float) -> None:
+    """自動のタールの 1 s の窓と Z の 1 s の静定が、十分に過ぎるまで待つ."""
+    end = time.monotonic() + seconds
+    wait_until(lambda: time.monotonic() >= end, what=f"{seconds} s")
+
+
+class TestFreeTareZone:
+    def test_takes_in_a_board_loaded_near_the_free_end(
+        self, mcu: WireMcu, settings: McuMotionSettings
+    ):
+        with _free_zone_stage(settings, 2.0) as stage:
+            _tared(stage)
+            stage.home(["z"])
+
+            mcu.control("load", counts=_BOARD)
+
+            wait_until(lambda: stage.status().load == 30.0, what="30 g")
+            wait_until(lambda: stage.status().load == 0.0, what="自動のタール")
+
+    def test_does_not_take_in_a_board_outside_the_zone(
+        self, mcu: WireMcu, settings: McuMotionSettings
+    ):
+        with _free_zone_stage(settings, 2.0) as stage:
+            _tared(stage)
+            stage.home(["z"])
+            stage.move_to(z=-5.0)
+
+            mcu.control("load", counts=_BOARD)
+            _stays_for(3.5)
+
+            assert stage.status().load == 30.0
+
+    def test_does_not_take_in_a_board_while_z_is_not_homed(
+        self, mcu: WireMcu, settings: McuMotionSettings
+    ):
+        with _free_zone_stage(settings, 2.0) as stage:
+            _tared(stage)
+
+            mcu.control("load", counts=_BOARD)
+            _stays_for(3.5)
+
+            assert stage.status().load == 30.0
+
+    def test_does_not_take_in_the_load_of_a_contact_hold(
+        self, mcu: WireMcu, settings: McuMotionSettings
+    ):
+        # 範囲を Z の全域にして、接触した位置がどこでも範囲の中にする
+        with _free_zone_stage(settings, 10.0) as stage:
+            _press_with_the_stick(mcu, stage)
+
+            _stays_for(3.5)
+
+            assert stage.status().load == 60.0
+            assert stage.status().contact
+
+    def test_zero_turns_it_off(self, mcu: WireMcu, settings: McuMotionSettings):
+        with _free_zone_stage(settings, 0.0) as stage:
+            _tared(stage)
+            stage.home(["z"])
+
+            mcu.control("load", counts=_BOARD)
+            _stays_for(3.5)
+
+            assert stage.status().load == 30.0

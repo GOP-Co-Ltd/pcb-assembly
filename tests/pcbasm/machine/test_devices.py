@@ -1050,6 +1050,7 @@ class TestMotionSettingsLedAndLoadCell:
             contact=ContactSettings(
                 trigger_force=50.0, release_force=15.0, press_positive=False
             ),
+            free_tare_zone=5.0,
         )
 
     def test_contact_forces_and_direction(self, tmp_path: Path):
