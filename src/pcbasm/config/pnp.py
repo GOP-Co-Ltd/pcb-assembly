@@ -4,7 +4,8 @@
 空の表も受け付ける。下位表は装置の部品で分ける。
 
 - ``servo``: ピンセットのサーボ（Feetech STS3032 ×2）のポートと役割
-- ``motion``: XYZ ステージを動かす新ファーム（pnp-motion）の MCU。あれば Klipper を使わずに XYZ を動かす
+- ``motion``: XYZ ステージを動かす新ファーム（pnp-motion）の MCU。あれば Klipper を使わずに XYZ を動かす。
+  下位表 ``motion.load_cell`` はピンセットの荷重を測るロードセル（HX711）
 - ``gamepad``: コントローラのスティックのデッドゾーン
 """
 
@@ -298,6 +299,47 @@ class MotionAxisConfig:
         return None
 
 
+type LoadCellGain = Literal["A-128", "A-64", "B-32"]
+type SensorOrientation = Literal["normal", "inverted"]
+
+# HX711 の出力レートは RATE ピンで 10 か 80 SPS（HX711 データシート）
+_HX711_RATES = (10, 80)
+
+
+def _validate_sample_rate(name: str, value: object) -> str | None:
+    if isinstance(value, bool) or value not in _HX711_RATES:
+        rates = " か ".join(str(rate) for rate in _HX711_RATES)
+        return f"{name}は{rates}（HX711 の RATE ピンに合わせる）である必要があります: {value!r}"
+    return None
+
+
+@attrs.frozen(kw_only=True)
+class LoadCellConfig:
+    """ピンセットの荷重を測るロードセルの HX711（[pnp.motion.load_cell]）.
+
+    HX711 は [pnp.motion] の MCU につなぐ。項目の名前と意味は Klipper の ``[load_cell]`` の hx711 に合わせる
+    （``klipper/docs/Config_Reference.md``）。ピンには ``!`` と ``^`` を付けられない（データ出力のピンのプルアップは
+    ファームが常に掛ける）。
+
+    Attributes:
+        sclk_pin: HX711 の SCK のピン
+        dout_pin: HX711 のデータ出力のピン
+        gain: 入力と増幅率（``A-128`` / ``A-64`` / ``B-32``）
+        sample_rate: 出力レート [SPS]（HX711 の RATE ピンで決まる 10 か 80）
+        counts_per_gram: 1 g あたりの HX711 の値（機体ごとに校正する）
+        sensor_orientation: 荷重が掛かると値が減る向きにつないだなら ``inverted``
+    """
+
+    sclk_pin: str
+    dout_pin: str
+    gain: LoadCellGain = "A-128"
+    sample_rate: int = attrs.field(
+        default=80, validator=as_validator(_validate_sample_rate)
+    )
+    counts_per_gram: float = attrs.field(validator=_positive)
+    sensor_orientation: SensorOrientation = "normal"
+
+
 @attrs.frozen(kw_only=True)
 class MotionConfig:
     """XYZ ステージを動かす新ファーム（pnp-motion）の MCU（[pnp.motion]）.
@@ -313,6 +355,8 @@ class MotionConfig:
         x: X 軸
         y: Y 軸
         z: Z 軸
+        led_pin: 照明の LED のピン（MCU が設定したときから常に点け、shutdown しても消さない。MCU の reset の間だけ消える）。None なら無い
+        load_cell: ピンセットの荷重を測るロードセル（[pnp.motion.load_cell] が無ければ None）
     """
 
     serial: str
@@ -322,6 +366,8 @@ class MotionConfig:
     x: MotionAxisConfig
     y: MotionAxisConfig
     z: MotionAxisConfig
+    led_pin: str | None = None
+    load_cell: LoadCellConfig | None = None
 
     def __attrs_post_init__(self) -> None:
         if error := self._validate_relations():

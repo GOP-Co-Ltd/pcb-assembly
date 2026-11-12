@@ -18,7 +18,7 @@ from pcbasm.hal.mcu.firmware import (
     open_firmware,
     send_emergency_stop,
 )
-from pcbasm.hal.mcu.settings import McuMotionSettings
+from pcbasm.hal.mcu.settings import LoadCellSettings, McuMotionSettings
 from tests.support.mcu_dictionary import dictionary_json
 from tests.support.motion_mcu import motion_settings, open_wire
 from tests.support.polling import wait_until
@@ -28,9 +28,9 @@ from tests.support.wire_mcu import WireMcu
 _TICKS_PER_SECOND = 12_000_000
 
 # 設定の列（golden）。oid は velocity_stream が 0、stepper が 1〜3、endstop が 4〜6、enable が 7〜9、trsync が 10、
-# tmcuart が 11。enable_pin は反転（!）なので、励磁を切った値は 1
+# tmcuart が 11（LED の 12 と hx71x の 13 は、無い機体でも数に入る）。enable_pin は反転（!）なので、励磁を切った値は 1
 _CONFIG: list[tuple[str, dict[str, Any]]] = [
-    ("allocate_oids", {"count": 12}),
+    ("allocate_oids", {"count": 14}),
     (
         "config_stepper",
         {
@@ -228,6 +228,102 @@ class TestConfigure:
 
         assert report.state is StreamState.IDLE
         assert report.position == (0, 0, 0)
+
+
+# LED（gpio17）を常に点け、HX711（SCK gpio0、データ出力 gpio1、A-128）を読む機体の、trsync の後に足す設定
+_LED_AND_LOAD_CELL = [
+    (
+        "config_digital_out",
+        {"oid": 12, "pin": 17, "value": 1, "default_value": 1, "max_duration": 0},
+    ),
+    ("config_hx71x", {"oid": 13, "gain_channel": 1, "dout_pin": 1, "sclk_pin": 0}),
+]
+
+
+def _with_led_and_load_cell(settings: McuMotionSettings) -> McuMotionSettings:
+    return attrs.evolve(
+        settings,
+        led_pin="gpio17",
+        load_cell=LoadCellSettings(
+            sclk_pin="gpio0",
+            dout_pin="gpio1",
+            gain_channel=1,
+            sample_rate=80,
+            counts_per_gram=2666.98,
+        ),
+    )
+
+
+class TestLedAndLoadCell:
+    def test_configures_them_after_the_trsync(
+        self, mcu: WireMcu, settings: McuMotionSettings
+    ):
+        firmware = open_firmware(_with_led_and_load_cell(settings))
+        try:
+            commands = _commands(mcu)
+            finalize = [name for name, _ in commands].index("finalize_config")
+            trsync = _CONFIG.index(("config_trsync", {"oid": 10})) + 1
+
+            assert commands[:finalize] == [
+                *_CONFIG[:trsync],
+                *_LED_AND_LOAD_CELL,
+                *_CONFIG[trsync:],
+            ]
+        finally:
+            firmware.close()
+
+    def test_without_them_the_config_does_not_mention_them(
+        self, mcu: WireMcu, firmware: PnpMotionFirmware
+    ):
+        names = _names(mcu)
+
+        assert firmware.load_cell is None
+        assert "config_hx71x" not in names
+        assert "query_hx71x" not in names
+
+    def test_starts_reading_after_connecting_and_stops_on_close(
+        self, mcu: WireMcu, settings: McuMotionSettings
+    ):
+        firmware = open_firmware(_with_led_and_load_cell(settings))
+        assert firmware.load_cell is not None
+        firmware.close()
+
+        def queries() -> list[dict[str, Any]]:
+            return [params for name, params in mcu.accepted() if name == "query_hx71x"]
+
+        wait_until(lambda: len(queries()) == 2, what="query_hx71x を 2 回")
+        # 12 MHz を 80 SPS の 16 倍で割った間隔でデータ出力のピンを見させ、閉じるときは 0 で止める
+        assert queries() == [
+            {"oid": 13, "rest_ticks": 12_000_000 // (80 * 16)},
+            {"oid": 13, "rest_ticks": 0},
+        ]
+
+    def test_a_failed_open_does_not_stop_a_load_cell_it_never_started(self):
+        # 読み始める前に失敗したら、止める命令も送らない（設定の列の途中で失敗したときは、hx71x の oid が
+        # MCU に無く、送れば MCU が shutdown する）。ここでは Y のドライバーが応えずに失敗させる
+        wire = open_wire(tmc_addresses=[0, 1])
+        try:
+            with pytest.raises(McuError):
+                open_firmware(_with_led_and_load_cell(motion_settings(wire.path)))
+
+            assert "query_hx71x" not in _names(wire)
+        finally:
+            wire.close()
+
+    def test_starts_reading_again_when_the_config_is_reused(
+        self, mcu: WireMcu, settings: McuMotionSettings
+    ):
+        settings = _with_led_and_load_cell(settings)
+        open_firmware(settings).close()
+        since = len(mcu.accepted())
+
+        second = open_firmware(settings)
+        try:
+            assert not second.reconfigured
+            # 送るだけで応答を待たないので、MCU 役が受けたのを待つ
+            wait_until(lambda: "query_hx71x" in _names(mcu, since), what="query_hx71x")
+        finally:
+            second.close()
 
 
 class TestReuse:

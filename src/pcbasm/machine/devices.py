@@ -18,7 +18,12 @@ from shapely import Polygon
 from pcbasm import hal
 from pcbasm.config import ConfigError, load_klipper, load_machine, load_motion
 from pcbasm.config.klipper import KlipperConfig
-from pcbasm.config.pnp import MotionAxisConfig, MotionConfig, ServoConfig
+from pcbasm.config.pnp import (
+    LoadCellConfig,
+    MotionAxisConfig,
+    MotionConfig,
+    ServoConfig,
+)
 from pcbasm.errors import DeviceError
 from pcbasm.geometry import Point2d
 from pcbasm.hal import (
@@ -47,7 +52,12 @@ from pcbasm.hal.fake import (
     FakeServoBus,
     SceneCamera,
 )
-from pcbasm.hal.mcu import AxisSettings, McuMotionSettings, TmcSettings
+from pcbasm.hal.mcu import (
+    AxisSettings,
+    LoadCellSettings,
+    McuMotionSettings,
+    TmcSettings,
+)
 from pcbasm.machine.journal import Journal
 from pcbasm.vision import CameraModel, Image
 
@@ -486,7 +496,8 @@ def open_devices(
             サーボは ID 1 がステップモード、ID 2 が位置モードの FakeServoBus にし、サーボ設定ジョブを済ませた
             角度制限（ID 1 は制限なし、ID 2 は [pnp.servo] の閉じ切り〜開き切り）を持たせる。
             コントローラは何も押していない FakeGamepad にする。
-            [pnp.motion] があれば、その可動域と最高速度の FakeMotionStage（原点は「未」）を持たせる
+            [pnp.motion] があれば、その可動域と最高速度の FakeMotionStage（原点は「未」。
+            [pnp.motion.load_cell] があればロードセルも）を持たせる
             （ここで [pnp.motion] が無いか読めなければ持たせない）
         scene: fake のカメラに映す図形（機械座標 [mm]）を返す関数（カメラを開くたびに呼ぶ）
         camera_image: 与えると、カメラをこの画像を返し続ける FakeCamera にする（fake より優先する）
@@ -518,12 +529,16 @@ def motion_settings(config: MotionConfig) -> McuMotionSettings:
 
     付けられる記号はピンごとに決まっていて、それ以外（``~`` のプルダウンなど）は設定エラーにする。
     ``^`` はリミットスイッチと TMC2209 の受信ピンに、``!`` は dir・enable・リミットスイッチのピンに付けられる。
+    LED とロードセルのピンには付けられない。
 
     Raises:
         ConfigError: ピンの書き方が不正な場合
     """
     tmc_rx_pin, tmc_rx_pull_up, _ = _pin(config.tmc_rx_pin, "tmc_rx_pin", pull_up=True)
     tmc_tx_pin, _, _ = _pin(config.tmc_tx_pin, "tmc_tx_pin")
+    led_pin = None
+    if config.led_pin is not None:
+        led_pin, _, _ = _pin(config.led_pin, "led_pin")
     return McuMotionSettings(
         device=config.serial,
         kinematics=config.kinematics,
@@ -533,6 +548,28 @@ def motion_settings(config: MotionConfig) -> McuMotionSettings:
         tmc_rx_pin=tmc_rx_pin,
         tmc_tx_pin=tmc_tx_pin,
         tmc_rx_pull_up=tmc_rx_pull_up,
+        led_pin=led_pin,
+        load_cell=(
+            None if config.load_cell is None else _load_cell_settings(config.load_cell)
+        ),
+    )
+
+
+# config_hx71x の gain_channel（HX711 データシート: 読み出しの 24 bit の後に足すパルスが 1 なら A-128、
+# 2 なら B-32、3 なら A-64）
+_GAIN_CHANNELS = {"A-128": 1, "B-32": 2, "A-64": 3}
+
+
+def _load_cell_settings(config: LoadCellConfig) -> LoadCellSettings:
+    sclk_pin, _, _ = _pin(config.sclk_pin, "load_cell.sclk_pin")
+    dout_pin, _, _ = _pin(config.dout_pin, "load_cell.dout_pin")
+    return LoadCellSettings(
+        sclk_pin=sclk_pin,
+        dout_pin=dout_pin,
+        gain_channel=_GAIN_CHANNELS[config.gain],
+        sample_rate=config.sample_rate,
+        counts_per_gram=config.counts_per_gram,
+        inverted=config.sensor_orientation == "inverted",
     )
 
 
@@ -607,7 +644,9 @@ def _fake_motion_stage(config_path: Path) -> FakeMotionStage | None:
         return None
     x, y, z = motion.x, motion.y, motion.z
     return FakeMotionStage(
-        _motion_limits(motion), Velocity(x.max_velocity, y.max_velocity, z.max_velocity)
+        _motion_limits(motion),
+        Velocity(x.max_velocity, y.max_velocity, z.max_velocity),
+        load_cell=motion.load_cell is not None,
     )
 
 

@@ -15,6 +15,7 @@ from pcbasm.config import ConfigError, load_machine, load_motion
 from pcbasm.config.klipper import KlipperConfig
 from pcbasm.config.pnp import (
     GamepadConfig,
+    LoadCellConfig,
     MotionAxisConfig,
     MotionConfig,
     PnpConfig,
@@ -562,6 +563,87 @@ class TestPnpMotion:
                 load_machine(path)
 
 
+def _load_cell(**values: object) -> dict:
+    """Kurousagi の [pnp.motion.load_cell] の値を置き換えた表."""
+    return {
+        "sclk_pin": "gpio0",
+        "dout_pin": "gpio1",
+        "counts_per_gram": 2666.98,
+        **values,
+    }
+
+
+class TestPnpMotionLedAndLoadCell:
+    """[pnp.motion] の led_pin と [pnp.motion.load_cell]（どちらも省略でき、省けば無い）."""
+
+    def test_both_are_absent_by_default(self, tmp_path: Path):
+        motion = load_motion(_motion_machine(tmp_path))
+
+        assert motion is not None
+        assert (motion.led_pin, motion.load_cell) == (None, None)
+
+    def test_reads_the_kurousagi_values_with_the_defaults(self, tmp_path: Path):
+        path = _motion_machine(
+            tmp_path, _motion_with(led_pin="gpio17", load_cell=_load_cell())
+        )
+
+        motion = load_motion(path)
+
+        assert motion is not None
+        assert motion.led_pin == "gpio17"
+        assert motion.load_cell == LoadCellConfig(
+            sclk_pin="gpio0",
+            dout_pin="gpio1",
+            gain="A-128",
+            sample_rate=80,
+            counts_per_gram=2666.98,
+            sensor_orientation="normal",
+        )
+
+    def test_reads_every_key(self, tmp_path: Path):
+        table = _load_cell(gain="B-32", sample_rate=10, sensor_orientation="inverted")
+
+        motion = load_motion(_motion_machine(tmp_path, _motion_with(load_cell=table)))
+
+        assert motion is not None and motion.load_cell is not None
+        assert motion.load_cell.gain == "B-32"
+        assert motion.load_cell.sample_rate == 10
+        assert motion.load_cell.sensor_orientation == "inverted"
+
+    @pytest.mark.parametrize("key", ["sclk_pin", "dout_pin", "counts_per_gram"])
+    def test_keys_without_a_default_are_required(self, tmp_path: Path, key: str):
+        table = _load_cell()
+        del table[key]
+        path = _motion_machine(tmp_path, _motion_with(load_cell=table))
+
+        with pytest.raises(ConfigError, match=f"pnp.motion.load_cell.{key}"):
+            load_machine(path)
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("gain", "A-32"),
+            ("sample_rate", 40),
+            ("sample_rate", True),
+            ("counts_per_gram", 0),
+            ("counts_per_gram", -2666.98),
+            ("sensor_orientation", "reversed"),
+        ],
+    )
+    def test_values_out_of_range_are_config_errors(
+        self, tmp_path: Path, key: str, value: object
+    ):
+        path = _motion_machine(
+            tmp_path, _motion_with(load_cell=_load_cell(**{key: value}))
+        )
+
+        with pytest.raises(ConfigError) as raised:
+            load_machine(path)
+
+        assert key in str(raised.value)
+        assert raised.value.sections == {"pnp"}
+
+
 class TestPnpGamepad:
     """[pnp.gamepad] はコントローラのスティックのデッドゾーン（設定ページに出る）."""
 
@@ -711,4 +793,8 @@ class TestKurousagiTemplate:
             x=_KUROUSAGI_X,
             y=_KUROUSAGI_Y,
             z=_KUROUSAGI_Z,
+            led_pin="gpio17",
+            load_cell=LoadCellConfig(
+                sclk_pin="gpio0", dout_pin="gpio1", counts_per_gram=2666.98
+            ),
         )

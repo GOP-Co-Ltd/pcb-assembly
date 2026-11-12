@@ -1,5 +1,6 @@
 """`pcbasm.machine.motion_commands` の仕様テスト（新ファームの機体の操作パネルの命令）."""
 
+import attrs
 import pytest
 
 from pcbasm.geometry import Point3d
@@ -14,10 +15,12 @@ from pcbasm.machine.commands import (
     MoveToCap,
     RawGCode,
     Relax,
+    Tare,
 )
 from pcbasm.machine.motion_commands import (
     execute_motion_command,
     motion_homed_axes,
+    motion_load_label,
     motion_position_label,
 )
 
@@ -120,6 +123,20 @@ class TestRelax:
         assert stage.status().homed == frozenset()
 
 
+class TestTare:
+    def test_zeroes_the_load(self):
+        stage = FakeMotionStage(LIMITS, MAX_VELOCITY, load_cell=True)
+        stage.set_load(4.0)
+
+        execute_motion_command(Tare(), stage)
+
+        assert stage.status().load == 0.0
+
+    def test_without_a_load_cell_is_rejected(self):
+        with pytest.raises(ValueError, match="ロードセル"):
+            execute_motion_command(Tare(), _stage())
+
+
 class TestUnavailable:
     @pytest.mark.parametrize(
         "command", [FocusZ(), MoveToCap(), RawGCode(text="G28")], ids=repr
@@ -151,3 +168,25 @@ class TestLabels:
         status = _status(Point3d(0.0, 0.0, 0.0), homed)
 
         assert motion_homed_axes(status) == expected
+
+
+class TestLoadLabel:
+    def _status(self, load: float | None, error: str | None = None) -> MotionStatus:
+        return attrs.evolve(
+            _status(Point3d(0.0, 0.0, 0.0), ""), load=load, load_error=error
+        )
+
+    @pytest.mark.parametrize(
+        ("load", "expected"),
+        [(12.34, "荷重 12.3 g"), (-0.04, "荷重 0.0 g"), (-5.0, "荷重 -5.0 g")],
+    )
+    def test_load_has_one_decimal(self, load: float, expected: str):
+        assert motion_load_label(self._status(load)) == expected
+
+    def test_error_is_shown_instead_of_the_load(self):
+        status = self._status(None, "ロードセルの値が来ない")
+
+        assert motion_load_label(status) == "ロードセル: ロードセルの値が来ない"
+
+    def test_no_load_cell_has_no_label(self):
+        assert motion_load_label(self._status(None)) is None

@@ -96,6 +96,16 @@ serial = "/dev/serial/by-id/usb-Klipper_rp2040_<your-mcu-id>-if00" # ls /dev/ser
 kinematics = "inversed_corexy"
 tmc_rx_pin = "gpio9" # TMC2209 の UART（printer.cfg の uart_pin）
 tmc_tx_pin = "gpio8" # printer.cfg の tx_pin
+led_pin = "gpio17"   # 照明の LED。起動から常に点け、緊急停止でも消さない（MCU の reset の間だけ消える）
+
+# ピンセットの荷重を測るロードセルの HX711。省略すると荷重を読まない
+[pnp.motion.load_cell]
+sclk_pin = "gpio0"
+dout_pin = "gpio1"
+# gain = "A-128"              # A-128 / A-64 / B-32
+# sample_rate = 80            # [SPS]。HX711 の RATE ピンに合わせて 10 か 80
+counts_per_gram = 2666.98     # 1 g あたりの値。機体ごとに校正する（この値は kurousagi の Klipper で求めたもの）
+# sensor_orientation = "normal" # ピンセットを押すと荷重が負になるなら "inverted"
 
 # X 軸 - GT2 16T プーリー（16 × 2 mm = 32 mm/回転）
 [pnp.motion.x]

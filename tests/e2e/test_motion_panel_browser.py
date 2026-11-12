@@ -2,6 +2,7 @@
 
 - 全軸の原点出しのあと座標欄に値を入れて確定すると、その座標へ動き、パネルの位置表示に出る
 - 焦点 Z とキャップ位置のボタンは出さない（押せるものが無いので、JS もそれで止まらない）
+- ロードセルのある機体では荷重の行と TARE ボタンが出て、押すと 0 g になる。無い機体では出さない
 """
 
 from collections.abc import Iterator
@@ -56,3 +57,32 @@ class TestMotionPanel:
         wait_until(lambda: stage.status().position.x == 12.5)
         expect(page.locator("#mc-position")).to_have_text("位置: X12.500 Y0.000 Z0.000")
         expect(page.locator("#mc-homed")).to_have_text("homed: xyz")
+
+
+class TestLoadCellPanel:
+    @pytest.fixture
+    def stage(self) -> FakeMotionStage:
+        return fake_motion_stage(load_cell=True)
+
+    def test_tare_zeroes_the_shown_load(
+        self, live_ui: LiveUi, browser_page: Page, stage: FakeMotionStage
+    ):
+        page = browser_page
+        stage.set_load(12.34)
+        page.goto(f"{live_ui.base_url}/klipper_status")
+        acquire_control(page)
+        expect(page.locator("#mc-load")).to_have_text("荷重 12.3 g")
+
+        page.locator("#mc-tare").click()
+
+        wait_until(lambda: stage.status().load == 0.0)
+        expect(page.locator("#mc-load")).to_have_text("荷重 0.0 g")
+
+
+class TestNoLoadCellPanel:
+    def test_load_row_stays_hidden(self, live_ui: LiveUi, browser_page: Page):
+        page = browser_page
+        page.goto(f"{live_ui.base_url}/klipper_status")
+        expect(page.locator("#mc-position")).to_have_text("位置: X? Y? Z?")
+
+        expect(page.locator("#mc-load-row")).to_be_hidden()
