@@ -271,3 +271,15 @@ class TestMotionStageMachine:
         assert definition.requires_pcb is False
         assert definition.uses_machine is True
         assert definition.accepts_commands is True
+
+    def test_only_the_motion_machine_has_load_cell_calibrate(
+        self, catalog: JobCatalog, motion_backend: Backend
+    ):
+        """ロードセルは新ファームの MCU につなぐので、校正のジョブも新ファームの機体にだけ登録する."""
+        definition = motion_backend.catalog.get("load_cell_calibrate")
+
+        # 荷重を読むだけで XYZ を動かさない（終了時の駐機と完了音の対象にしない）
+        assert definition.uses_machine is False
+        assert definition.accepts_commands is False
+        assert "load_cell_calibrate" not in {d.name for d in catalog.list()}
+        assert (JOBS_DIR / "pnp" / "load_cell_calibrate.py").is_file()

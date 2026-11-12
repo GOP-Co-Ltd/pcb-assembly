@@ -4,6 +4,8 @@ import pytest
 
 from pcbasm.geometry import Point3d
 from pcbasm.hal import (
+    ContactSettings,
+    ContactStopped,
     Limits,
     MotionError,
     MotionStage,
@@ -139,14 +141,14 @@ class TestFakeMotionStageVelocity:
         assert stage.status().state is MotionState.IDLE
         assert stage.velocities == []
 
-    def test_all_zero_while_moving_is_sent(self, clock: _Clock):
+    def test_all_zero_while_moving_is_sent_and_stops(self, clock: _Clock):
         stage = _stage(clock)
         stage.set_velocity(Velocity(x=1.0))
 
         stage.set_velocity(Velocity())
 
         assert stage.velocities[-1] == (0.0, Velocity())
-        assert stage.status().state is MotionState.MOVING
+        assert stage.status().state is MotionState.IDLE
 
     @pytest.mark.parametrize(
         "velocity", [Velocity(x=1.0), Velocity(y=-1.0), Velocity(z=0.5)]
@@ -391,3 +393,194 @@ class TestFakeMotionStageDisconnect:
         stage.close()
 
         assert stage.closed
+
+
+class TestFakeMotionStageLoad:
+    """ロードセルの荷重は外から与え、:meth:`tare` がその時点の値を 0 にする."""
+
+    def _load_stage(self, clock: _Clock) -> FakeMotionStage:
+        return FakeMotionStage(LIMITS, MAX_VELOCITY, clock=clock, load_cell=True)
+
+    def test_without_a_load_cell_there_is_no_load(self, clock: _Clock):
+        assert _stage(clock).status().load is None
+
+    def test_starts_at_zero_and_reports_the_given_load(self, clock: _Clock):
+        stage = self._load_stage(clock)
+        assert stage.status().load == 0.0
+
+        stage.set_load(12.5)
+
+        assert stage.status().load == 12.5
+
+    def test_tare_zeroes_the_current_load(self, clock: _Clock):
+        stage = self._load_stage(clock)
+        stage.set_load(3.0)
+
+        stage.tare()
+        stage.set_load(5.0)
+
+        assert stage.status().load == 2.0
+        assert stage.commands == ["tare"]
+
+    def test_tare_without_a_load_cell_is_rejected(self, clock: _Clock):
+        with pytest.raises(ValueError):
+            _stage(clock).tare()
+
+    def test_shutdown_hides_the_load_and_refuses_tare(self, clock: _Clock):
+        stage = self._load_stage(clock)
+        stage.shutdown("Command request")
+
+        assert stage.status().load is None
+        with pytest.raises(MotionError):
+            stage.tare()
+        with pytest.raises(MotionError):
+            stage.measure_load_counts(1.0)
+
+    def test_measure_load_counts_is_the_load_from_the_tare_in_counts(
+        self, clock: _Clock
+    ):
+        stage = FakeMotionStage(
+            LIMITS, MAX_VELOCITY, clock=clock, load_cell=True, counts_per_gram=2000.0
+        )
+        stage.set_load(3.0)
+        stage.tare()
+
+        stage.set_load(-2.0)
+
+        assert stage.measure_load_counts(1.0) == -10000.0
+
+    def test_measure_without_a_load_cell_is_a_motion_error(self, clock: _Clock):
+        with pytest.raises(MotionError):
+            _stage(clock).measure_load_counts(1.0)
+
+    def test_a_load_error_hides_the_load_and_refuses_measuring(self, clock: _Clock):
+        stage = FakeMotionStage(LIMITS, MAX_VELOCITY, clock=clock, load_cell=True)
+        stage.set_load(3.0)
+
+        stage.set_load_error("READ_TOO_LONG")
+        status = stage.status()
+        assert (status.load, status.load_error) == (None, "READ_TOO_LONG")
+        with pytest.raises(MotionError, match="READ_TOO_LONG"):
+            stage.measure_load_counts(1.0)
+
+        stage.set_load_error(None)
+        assert stage.status().load == 3.0
+
+    def test_suspend_auto_tare_is_recorded_only_with_a_load_cell(self, clock: _Clock):
+        stage = FakeMotionStage(LIMITS, MAX_VELOCITY, clock=clock, load_cell=True)
+        without = _stage(clock)
+
+        for each in (stage, without):
+            each.suspend_auto_tare(True)
+            each.suspend_auto_tare(False)
+
+        assert stage.commands == ["suspend_auto_tare", "resume_auto_tare"]
+        assert without.commands == []
+
+
+class TestFakeMotionStageContact:
+    """接触停止（タール値からの荷重が trigger_force 以上で止める）と接触保持（kurousagi と同じく Z− で押し当たる）."""
+
+    def _contact_stage(self, clock: _Clock) -> FakeMotionStage:
+        return FakeMotionStage(
+            LIMITS,
+            MAX_VELOCITY,
+            homed=True,
+            clock=clock,
+            load_cell=True,
+            contact=ContactSettings(trigger_force=50.0, release_force=15.0),
+        )
+
+    def _press(self, stage: FakeMotionStage, clock: _Clock) -> None:
+        stage.set_velocity(Velocity(z=-5.0))
+        clock.now += 0.1
+        stage.set_load(60.0)
+
+    def test_stops_and_holds_when_pressed_while_moving(self, clock: _Clock):
+        stage = self._contact_stage(clock)
+
+        self._press(stage, clock)
+
+        status = stage.status()
+        assert status.state is MotionState.IDLE
+        assert status.contact
+        assert status.position.z == pytest.approx(-0.5)
+
+    def test_a_load_while_idle_does_not_hold(self, clock: _Clock):
+        stage = self._contact_stage(clock)
+
+        stage.set_load(60.0)
+
+        assert not stage.status().contact
+
+    def test_a_load_after_the_stick_returns_to_zero_does_not_hold(self, clock: _Clock):
+        stage = self._contact_stage(clock)
+        stage.set_velocity(Velocity(z=-5.0))
+        clock.now += 0.1
+
+        # スティックを離すと全軸 0 を送り続ける。止まっている間は押されても止めない
+        stage.set_velocity(Velocity())
+        stage.set_load(60.0)
+        stage.set_velocity(Velocity())
+
+        status = stage.status()
+        assert status.state is MotionState.IDLE
+        assert not status.contact
+
+    def test_holding_drops_xy_and_the_pressing_direction(self, clock: _Clock):
+        stage = self._contact_stage(clock)
+        self._press(stage, clock)
+        sent = len(stage.velocities)
+
+        stage.set_velocity(Velocity(x=10.0, y=10.0, z=-5.0))
+        stage.set_velocity(Velocity(x=10.0, z=5.0))
+
+        # 捨てて全軸 0 になった指令は、止まっているので送らない
+        assert [velocity for _, velocity in stage.velocities[sent:]] == [
+            Velocity(z=5.0)
+        ]
+
+    def test_holding_refuses_home_tare_and_moves_toward_the_tweezers(
+        self, clock: _Clock
+    ):
+        stage = self._contact_stage(clock)
+        self._press(stage, clock)
+
+        with pytest.raises(ValueError, match="接触中"):
+            stage.home()
+        with pytest.raises(ValueError, match="接触中"):
+            stage.tare()
+        with pytest.raises(ValueError, match="X・Y"):
+            stage.move_to(x=1.0)
+        with pytest.raises(ValueError, match="Z+"):
+            stage.move_to(z=-1.0)
+        stage.move_to(z=0.0)
+        assert stage.status().position.z == 0.0
+
+    def test_releases_on_the_next_operation_after_the_load_drops(self, clock: _Clock):
+        stage = self._contact_stage(clock)
+        self._press(stage, clock)
+
+        stage.set_load(10.0)
+
+        assert not stage.status().contact
+        stage.set_velocity(Velocity(x=10.0))
+        assert stage.velocities[-1][1] == Velocity(x=10.0)
+
+    def test_moving_into_a_load_raises_contact_stopped(self, clock: _Clock):
+        stage = self._contact_stage(clock)
+        stage.set_load(60.0)
+
+        with pytest.raises(ContactStopped):
+            stage.move_to(z=-10.0)
+
+        assert stage.status().contact
+        assert stage.status().position.z == 0.0
+
+    def test_relax_drops_the_hold(self, clock: _Clock):
+        stage = self._contact_stage(clock)
+        self._press(stage, clock)
+
+        stage.relax()
+
+        assert not stage.status().contact

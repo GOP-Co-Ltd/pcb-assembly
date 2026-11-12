@@ -72,6 +72,8 @@ class KlipperStatus(BaseModel):
     position_label: str | None = None
     homed_axes: str | None = None
     error: str | None = None
+    # ステージに掛かる荷重の表示用文字列（ロードセルのある新ファームの機体だけ。サーバーが組む）
+    load_label: str | None = None
 
 
 type Axis = Literal["x", "y", "z"]
@@ -107,6 +109,12 @@ class MoveToCapCommand(BaseModel):
     type: Literal["move_to_cap"]
 
 
+class TareCommand(BaseModel):
+    """ロードセルの今の荷重を 0 にする（新ファームの機体だけ）."""
+
+    type: Literal["tare"]
+
+
 class GCodeCommand(BaseModel):
     type: Literal["gcode"]
     gcode: str = Field(pattern=r"\S")  # 空白だけの G-code は送らない
@@ -121,6 +129,7 @@ class MachineCommandRequest(
             | RelaxCommand
             | FocusZCommand
             | MoveToCapCommand
+            | TareCommand
             | GCodeCommand,
             Field(discriminator="type"),
         ]

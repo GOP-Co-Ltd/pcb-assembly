@@ -14,6 +14,7 @@ from typing import Literal
 import attrs
 
 from pcbasm.hal.mcu.tmc2209 import TmcSettings
+from pcbasm.hal.motion import ContactSettings
 
 type Kinematics = Literal["cartesian", "corexy", "inversed_corexy"]
 
@@ -25,6 +26,7 @@ _MAX_LEAD = 0.1  # [s]
 _MAX_SEGMENTS_AHEAD = 64
 _MAX_TTL = 1.0  # [s]
 _MAX_IDLE_TIMEOUT = 2**32 - 1  # [s]。ファームは 32 bit の秒数で数える
+_HX711_GAIN_CHANNELS = 3  # HX711 の gain は A-128・B-32・A-64 の 3 つ
 
 
 @attrs.frozen(kw_only=True)
@@ -121,6 +123,46 @@ class AxisSettings:
 
 
 @attrs.frozen(kw_only=True)
+class LoadCellSettings:
+    """ロードセルの HX711 の設定.
+
+    Attributes:
+        sclk_pin: SCK のピン
+        dout_pin: データ出力のピン（ファームがプルアップを掛ける）
+        gain_channel: ``config_hx71x`` の ``gain_channel``（読み出しの 24 bit の後に足すパルスの数。
+            HX711 データシートで 1 が A-128、2 が B-32、3 が A-64）
+        sample_rate: 出力レート [SPS]
+        counts_per_gram: 1 g あたりの値
+        inverted: 荷重が掛かると値が減る（グラムに直すときに符号を反す）
+        contact: 接触停止のしきい値と、押す向き
+        free_tare_zone: ピンセットから離す向きの端から、ここまでの範囲 [mm] の Z が止まっていれば、荷重が安定しているかぎり
+            差の大きさを問わずタールに取り込む（0 で無効。:mod:`pcbasm.hal.mcu.load_cell`）
+    """
+
+    sclk_pin: str
+    dout_pin: str
+    gain_channel: int
+    sample_rate: int
+    counts_per_gram: float
+    inverted: bool = False
+    contact: ContactSettings = ContactSettings()
+    free_tare_zone: float = 0.0
+
+    def __attrs_post_init__(self) -> None:
+        # sensor_hx71x.c は 1〜4 を受け付ける（4 は HX717 だけ）。外れると shutdown する
+        if not 1 <= self.gain_channel <= _HX711_GAIN_CHANNELS:
+            raise ValueError(
+                f"gain_channel は 1〜{_HX711_GAIN_CHANNELS} にする: {self.gain_channel}"
+            )
+        if not self.sample_rate > 0:
+            raise ValueError(f"sample_rate は正にする: {self.sample_rate}")
+        if not self.counts_per_gram > 0:
+            raise ValueError(f"counts_per_gram は正にする: {self.counts_per_gram}")
+        if not self.free_tare_zone >= 0:
+            raise ValueError(f"free_tare_zone は 0 以上にする: {self.free_tare_zone}")
+
+
+@attrs.frozen(kw_only=True)
 class McuMotionSettings:
     """MCU と 3 軸の設定.
 
@@ -139,6 +181,8 @@ class McuMotionSettings:
         stream_ttl: 速度指令の期限 [s]
         report_interval: 動いている間に状態を報告させる間隔 [s]
         idle_timeout: 励磁したまま止まっていたら、ファームが脱力するまでの時間 [s]（秒に丸めて送る。0 なら脱力しない）
+        led_pin: 常に点ける LED のピン（None なら無い）
+        load_cell: ロードセルの HX711（None なら無い）
     """
 
     device: str
@@ -155,6 +199,8 @@ class McuMotionSettings:
     stream_ttl: float = 0.200
     report_interval: float = 0.100
     idle_timeout: float = 300.0
+    led_pin: str | None = None
+    load_cell: LoadCellSettings | None = None
 
     def __attrs_post_init__(self) -> None:
         if self.stream_period < _MIN_PERIOD:

@@ -32,12 +32,17 @@ from .gamepad import Gamepad, GamepadError, GamepadState
 from .klipper import GCodeJournal, KlipperError
 from .motion import (
     Axis,
+    ContactSettings,
+    ContactStopped,
     MotionError,
     MotionStage,
     MotionState,
     MotionStatus,
     Velocity,
+    contact_move_error,
+    contact_velocity,
     homing_order,
+    release_direction,
 )
 from .servo import (
     BROADCAST_ID,
@@ -939,6 +944,15 @@ class FakeMotionStage(MotionStage):
     加速度は無視し、位置は可動域でクランプする。期限（``ttl``）を過ぎた速度は 0 にする（状態は ``MOVING`` のまま）。
     :meth:`home` は軸を 0（可動域の外なら近い端）へ、:meth:`move_to` は行き先へ、即座に置く。
     :meth:`shutdown` で MCU の shutdown を、:meth:`disconnect` で USB が外れたことを模擬する。
+    ``load_cell`` なら、ロードセルの荷重を :meth:`set_load` で外から与える（:meth:`tare` がその時点の値を 0 にする）。
+    :meth:`measure_load_counts` は待たずに、タール値からの荷重に ``counts_per_gram`` を掛けて返す。自動のタールは
+    模擬しないので、:meth:`suspend_auto_tare` は :attr:`commands` に ``suspend_auto_tare`` / ``resume_auto_tare``
+    を残すだけ。
+    ``contact`` も与えると接触停止を模擬する（:mod:`pcbasm.hal.motion` の「接触停止と接触保持」）: 動いている間に
+    タール値からの荷重が ``trigger_force`` 以上になったら（:meth:`set_load` か、その荷重のまま動き出したとき）止めて
+    接触保持に入る。保持の間は、速度指令を :func:`~pcbasm.hal.motion.contact_velocity` で絞り、座標指定の移動は
+    :func:`~pcbasm.hal.motion.contact_move_error` に従い、原点出しとタールを拒む。次の操作の最初に荷重が
+    ``release_force`` を下回っていれば戻る（MCU 版と違い、100 ms 下回り続けるのを待たない）。
     時計は注入する（テストは手で進める時計を渡す）。
     """
 
@@ -950,6 +964,9 @@ class FakeMotionStage(MotionStage):
         ttl: float = 0.2,
         homed: bool = False,
         clock: Callable[[], float] = time.monotonic,
+        load_cell: bool = False,
+        contact: ContactSettings | None = None,
+        counts_per_gram: float = 1000.0,
     ) -> None:
         """Fake のステージを作る.
 
@@ -959,6 +976,9 @@ class FakeMotionStage(MotionStage):
             ttl: 速度指令の期限 [s]
             homed: 初めから全軸の原点出しを済ませたことにするか
             clock: 時刻 [s] を返す時計
+            load_cell: ロードセルを持つか（持てば荷重は 0 g で始まる）
+            contact: 接触停止の設定（None なら接触で止めない。``load_cell`` のときだけ効く）
+            counts_per_gram: :meth:`measure_load_counts` が 1 g を何 counts とするか
         """
         self._limits = limits
         self._max_velocity = max_velocity
@@ -978,6 +998,13 @@ class FakeMotionStage(MotionStage):
         self._velocities: list[tuple[float, Velocity]] = []
         self._commands: list[str] = []
         self._keep_energized = 0  # keep_energized の入れ子の深さ
+        self._load_cell = load_cell
+        self._load = 0.0
+        self._tare = 0.0
+        self._contact = contact if load_cell else None
+        self._counts_per_gram = counts_per_gram
+        self._load_error: str | None = None
+        self._holding = False
         self._lock = threading.Lock()
 
     @property
@@ -988,9 +1015,12 @@ class FakeMotionStage(MotionStage):
 
     @property
     def commands(self) -> list[str]:
-        """速度指令以外の操作（``home
-        z``・``move_to``・``stop``・``relax``・``restart``・``emergency_stop``。
-        ``keep_energized`` と ``end_keep_energized`` は、いちばん外側の入りと出）."""
+        """速度指令以外の操作（送った順）.
+
+        ``home z``・``move_to``・``stop``・``relax``・``restart``・``emergency_stop``・``tare``・
+        ``suspend_auto_tare``・``resume_auto_tare``。``keep_energized`` と ``end_keep_energized`` は、
+        いちばん外側の入りと出。
+        """
         with self._lock:
             return list(self._commands)
 
@@ -1011,6 +1041,26 @@ class FakeMotionStage(MotionStage):
         with self._lock:
             self._connected = False
 
+    def set_load(self, grams: float) -> None:
+        """ロードセルに掛かる荷重 [g] を与える（タールする前の値）.
+
+        接触停止を模擬していて、動いている間に ``trigger_force`` 以上になれば、止めて接触保持に入る。
+        """
+        with self._lock:
+            self._advance()
+            self._load = grams
+            if self._state is MotionState.MOVING:
+                self._check_contact()
+
+    def set_load_error(self, error: str | None) -> None:
+        """ロードセルの誤りのサンプルを模擬する（None で戻す）.
+
+        誤りの間は :meth:`status` の荷重が None で ``load_error`` に理由が出て、:meth:`measure_load_counts` は
+        :class:`MotionError` になる。
+        """
+        with self._lock:
+            self._load_error = error
+
     @property
     @override
     def limits(self) -> Limits:
@@ -1026,18 +1076,29 @@ class FakeMotionStage(MotionStage):
         with self._lock:
             self._check_connected()
             self._advance()
+            reads_load = self._load_cell and self._state is not MotionState.SHUTDOWN
             return MotionStatus(
                 position=self._position,
                 velocity=self._velocity,
                 state=self._state,
                 homed=self._homed,
                 shutdown_reason=self._shutdown_reason,
+                load=self._load - self._tare
+                if reads_load and self._load_error is None
+                else None,
+                load_error=self._load_error if reads_load else None,
+                contact=self._holding and not self._released(),
             )
 
     @override
     def home(self, axes: Collection[Axis] = ()) -> None:
         with self._lock:
             self._check_ready()
+            self._settle()
+            if self._holding:
+                raise ValueError(
+                    f"接触中は原点出しできません。{self._release_direction()} で離してください"
+                )
             self._advance()
             self._halt(MotionState.IDLE)
             order = homing_order(axes, self._homed)
@@ -1053,13 +1114,23 @@ class FakeMotionStage(MotionStage):
     def set_velocity(self, velocity: Velocity) -> None:
         with self._lock:
             self._check_ready()
+            self._settle()
+            if self._holding and self._contact is not None:
+                velocity = contact_velocity(
+                    velocity, press_positive=self._contact.press_positive
+                )
             moving = {
                 axis for axis in ("x", "y", "z") if getattr(velocity, axis) != 0.0
             }
             if unhomed := sorted(moving - self._homed):
                 msg = f"原点出しをしていない軸は動かせません: {', '.join(unhomed)}"
                 raise ValueError(msg)
-            if self._state is MotionState.IDLE and not moving:
+            if not moving:
+                # MCU 版と同じく、流していれば止める（止まっている間は接触停止を見ない）
+                if self._state is MotionState.MOVING:
+                    self._advance()
+                    self._velocities.append((self._clock(), velocity))
+                    self._halt(MotionState.IDLE)
                 return
             self._advance()
             now = self._clock()
@@ -1067,11 +1138,13 @@ class FakeMotionStage(MotionStage):
             self._expires_at = now + self._ttl
             self._state = MotionState.MOVING
             self._velocities.append((now, velocity))
+            self._check_contact()
 
     @override
     def stop(self) -> None:
         with self._lock:
             self._check_ready()
+            self._settle()
             self._advance()
             self._halt(MotionState.IDLE)
             self._commands.append("stop")
@@ -1095,7 +1168,18 @@ class FakeMotionStage(MotionStage):
             if unhomed := sorted(wanted - self._homed):
                 msg = f"原点出しをしていない軸は動かせません: {', '.join(unhomed)}"
                 raise ValueError(msg)
+            self._settle()
             self._advance()
+            if self._holding and self._contact is not None:
+                reason = contact_move_error(
+                    self._position, x, y, z, press_positive=self._contact.press_positive
+                )
+                if reason is not None:
+                    raise ValueError(reason)
+            elif self._pressed():
+                self._holding = True
+                self._halt(MotionState.IDLE)
+                raise ContactStopped("移動の途中で接触して止まった")
             self._halt(MotionState.IDLE)
             self._position = attrs.evolve(
                 self._position, **{axis: targets[axis] for axis in wanted}
@@ -1109,6 +1193,7 @@ class FakeMotionStage(MotionStage):
             self._advance()
             self._halt(MotionState.IDLE)
             self._homed = frozenset()
+            self._holding = False
             self._commands.append("relax")
 
     @override
@@ -1135,6 +1220,7 @@ class FakeMotionStage(MotionStage):
             self._advance()
             self._halt(MotionState.IDLE)
             self._homed = frozenset()
+            self._holding = False
             self._shutdown_reason = None
             self._commands.append("restart")
 
@@ -1146,6 +1232,37 @@ class FakeMotionStage(MotionStage):
             self._halt(MotionState.SHUTDOWN)
             self._shutdown_reason = "Command request"
             self._commands.append("emergency_stop")
+
+    @override
+    def tare(self) -> None:
+        with self._lock:
+            self._check_ready()
+            if not self._load_cell:
+                raise ValueError("この機体にはロードセルがありません")
+            if self._holding:
+                raise ValueError(
+                    f"接触中はタールできません。{self._release_direction()} で離してください"
+                )
+            self._tare = self._load
+            self._commands.append("tare")
+
+    @override
+    def measure_load_counts(self, seconds: float) -> float:
+        with self._lock:
+            self._check_ready()
+            if not self._load_cell:
+                raise MotionError("この機体にはロードセルがありません")
+            if self._load_error is not None:
+                raise MotionError(f"ロードセルが読めない: {self._load_error}")
+            return (self._load - self._tare) * self._counts_per_gram
+
+    @override
+    def suspend_auto_tare(self, suspended: bool) -> None:
+        with self._lock:
+            if self._load_cell:
+                self._commands.append(
+                    "suspend_auto_tare" if suspended else "resume_auto_tare"
+                )
 
     @override
     def close(self) -> None:
@@ -1160,6 +1277,32 @@ class FakeMotionStage(MotionStage):
         if self._state is MotionState.SHUTDOWN:
             msg = f"MCU が shutdown しています: {self._shutdown_reason}"
             raise MotionError(msg)
+
+    def _pressed(self) -> bool:
+        """接触停止を模擬していて、タール値からの荷重が ``trigger_force`` 以上."""
+        contact = self._contact
+        return contact is not None and self._load - self._tare >= contact.trigger_force
+
+    def _release_direction(self) -> str:
+        contact = self._contact
+        return release_direction(
+            press_positive=contact is not None and contact.press_positive
+        )
+
+    def _released(self) -> bool:
+        contact = self._contact
+        return contact is None or self._load - self._tare < contact.release_force
+
+    def _check_contact(self) -> None:
+        """動いている間に押されていれば、止めて接触保持に入る（保持の間は見ない）."""
+        if not self._holding and self._pressed():
+            self._halt(MotionState.IDLE)
+            self._holding = True
+
+    def _settle(self) -> None:
+        """接触保持の間に荷重が ``release_force`` を下回っていれば戻る."""
+        if self._holding and self._released():
+            self._holding = False
 
     def _halt(self, state: MotionState) -> None:
         self._velocity = Velocity()

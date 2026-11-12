@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from pcbasm.hal import MotionState
+from pcbasm.hal import ContactSettings, MotionState, Velocity
 from pcbasm.hal.fake import FakeAudioPlayer, FakeMotionStage
 from tests.support.polling import wait_until
 from tests.support.selfupdate import UpdateSandbox, make_update_sandbox
@@ -80,6 +80,7 @@ class TestMotionCommand:
             "position_label": "X0.000 Y0.000 Z0.000",
             "homed_axes": "xyz",
             "error": None,
+            "load_label": None,
         }
         assert stage.commands == ["home z", "home x", "home y"]
 
@@ -175,6 +176,57 @@ class TestMotionCommand:
         assert "Timer too close" in response.json()["detail"]
 
 
+class TestMotionTare:
+    """タール（ロードセルのある新ファームの機体だけ）."""
+
+    @pytest.fixture
+    def stage(self) -> FakeMotionStage:
+        return fake_motion_stage(load_cell=True)
+
+    def test_zeroes_the_load_and_returns_it(
+        self, motion_client: TestClient, stage: FakeMotionStage
+    ):
+        stage.set_load(7.25)
+        assert motion_client.get(STATUS).json()["load_label"] == "荷重 7.2 g"
+
+        response = motion_client.post(COMMAND, json={"type": "tare"})
+
+        assert response.status_code == 200, response.text
+        assert response.json()["load_label"] == "荷重 0.0 g"
+        assert stage.status().load == 0.0
+
+
+class TestMotionContact:
+    """接触保持の間（ロードセルの接触で止まり、まだ離していない）."""
+
+    @pytest.fixture
+    def stage(self) -> FakeMotionStage:
+        return fake_motion_stage(homed=True, load_cell=True, contact=ContactSettings())
+
+    def _press(self, stage: FakeMotionStage) -> None:
+        stage.set_velocity(Velocity(z=-1.0))
+        stage.set_load(60.0)
+
+    def test_status_shows_the_contact(
+        self, motion_client: TestClient, stage: FakeMotionStage
+    ):
+        self._press(stage)
+
+        assert motion_client.get(STATUS).json()["load_label"] == "荷重 60.0 g（接触中）"
+
+    def test_xy_jog_is_refused_with_the_reason(
+        self, motion_client: TestClient, stage: FakeMotionStage
+    ):
+        self._press(stage)
+
+        response = motion_client.post(
+            COMMAND, json={"type": "jog", "axis": "x", "distance": 1.0}
+        )
+
+        assert response.status_code == 400
+        assert "接触中" in response.json()["detail"]
+
+
 class TestMotionStatus:
     def test_unhomed_axes_are_shown_as_unknown(self, motion_client: TestClient):
         response = motion_client.get(STATUS)
@@ -196,6 +248,18 @@ class TestMotionStatus:
         assert data["position"] == {"x": 3.0, "y": 4.0, "z": -5.0}
         assert data["position_label"] == "X3.000 Y4.000 Z-5.000"
         assert data["homed_axes"] == "xyz"
+
+    def test_without_a_load_cell_has_no_load_label(self, motion_client: TestClient):
+        assert motion_client.get(STATUS).json()["load_label"] is None
+
+    def test_tare_without_a_load_cell_is_400(
+        self, motion_client: TestClient, stage: FakeMotionStage
+    ):
+        response = motion_client.post(COMMAND, json={"type": "tare"})
+
+        assert response.status_code == 400
+        assert "ロードセル" in response.json()["detail"]
+        assert stage.commands == []
 
     def test_shutdown_is_not_connected_with_the_reason(
         self, motion_client: TestClient, stage: FakeMotionStage

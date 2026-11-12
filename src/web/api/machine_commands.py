@@ -11,6 +11,7 @@ from pcbasm.machine.commands import (
     MoveToCap,
     RawGCode,
     Relax,
+    Tare,
 )
 from web.contract.models import (
     FocusZCommand,
@@ -21,6 +22,7 @@ from web.contract.models import (
     MoveCommand,
     MoveToCapCommand,
     RelaxCommand,
+    TareCommand,
 )
 
 
@@ -39,5 +41,7 @@ def to_command(request: MachineCommandRequest) -> MachineCommand:
             return FocusZ()
         case MoveToCapCommand():
             return MoveToCap()
+        case TareCommand():
+            return Tare()
         case GCodeCommand(gcode=gcode):
             return RawGCode(gcode)

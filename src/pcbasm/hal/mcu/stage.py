@@ -11,15 +11,40 @@ mm と mm/s をステップに直して :class:`~pcbasm.hal.mcu.firmware.PnpMoti
 - **スレッド:** 操作は 1 つのロックで 1 つずつ実行する。:meth:`~McuMotionStage.emergency_stop` はロックを
   取らず（transport の送信のロックだけ）、原点出しや移動の待ちの最中でもすぐ送る。待っている操作は、
   MCU の shutdown を受けて :class:`MotionError` で終わる。:meth:`~McuMotionStage.status` はロックを取らず、
-  最後に受けた報告を読むだけ
-- **接触停止:** 原点出しの後、MCU は ``contact`` のまま残るが、止まっている（``IDLE``）として扱う。
+  最後に受けた報告を読むだけ。:meth:`~McuMotionStage.tare` と :meth:`~McuMotionStage.measure_load_counts` もロックを
+  取らない（タール値の offset のほかは MCU に何も送らない）
+- **原点出しの後:** MCU は ``contact`` のまま残るが、止まっている（``IDLE``）として扱う。
   速度指令を受けたら ``velocity_stream_start`` で開始し直す
-- **止まっているときの全軸 0:** 何も送らない（流し始めず、励磁も入れない）。脱力の後に 0 を送り続けても、
-  脱力が取り消されない
+- **接触停止（ロードセルがある機体）:** 動かし始めるたびに（原点出し、座標指定の移動、ジョグ、速度指令）、
+  :meth:`PnpMotionFirmware.start` でロードセルの接触停止を張る。MCU が自分で止める（ファームの docstring の
+  「接触停止」）。タールがまだか値が来ていなければ動かさない（:class:`MotionError`）
+- **接触保持:** 止まったことには、次の操作の最初（ロックの中）で気づき、保持に入る。保持に入るときに、
+  MCU の可動域を X・Y は今の位置の ±1 step、Z は接触した位置より押す側へ行けない範囲に縮める（ホストが指令を
+  捨てるのと二重に守る。±1 step は corexy で位置が 1 step ずれて見える分と、``set_limits`` が要る下限 < 上限の
+  ため）。Z が端にあって空になるなら 1 step 内側に寄せる。保持の間は接触停止を張らない（荷重がしきい値の
+  近くにあり、張るとすぐに引かれる）。速度指令は :func:`~pcbasm.hal.motion.contact_velocity` で、座標指定の
+  移動は :func:`~pcbasm.hal.motion.contact_move_error` で絞り、原点出しとタールは受け付けない
+- **保持から戻る:** 保持に入ってから後の荷重が ``release_force`` を 100 ms 下回り続けたら、次の操作の最初で、
+  流していれば止めてから可動域を戻す。次に動かすときに接触停止を張り直す。判定を次の操作まで遅らせるのは、
+  ロックの外のスレッドから ``set_limits`` を送ると操作の順が崩れるため。:meth:`~McuMotionStage.status` の
+  ``contact`` は、保持の間で荷重がまだ下回っていなければ、または MCU が接触で止めてまだ保持に入っていなければ真。
+  タール値が押す側にずれていて下回らなければ、:meth:`~McuMotionStage.relax` で抜ける（保持を捨て、原点は「未」になる）
+- **離れた範囲のタール:** ``free_tare_zone`` が正なら、:meth:`_in_free_zone` が Z の最新の報告（ロックを取らない）と
+  原点の有無から、ピンセットから離す向きの端から ``free_tare_zone`` 以内かを :class:`~pcbasm.hal.mcu.load_cell.LoadCell` に
+  答える。原点が「未」の Z は範囲の外（安全側）
+- **原点出しの途中の接触:** その軸は「未」のまま保持に入り、:class:`~pcbasm.hal.motion.ContactStopped`。Z を先に
+  出すので、X・Y の途中なら Z+（離す向き）で離せる。Z の途中なら Z は「未」で動かせないので、脱力で抜ける
+- **ロードセルの異常:** 動かしている間に MCU が異常で止めたら、その操作か次の操作が :class:`MotionError` になる
+  （保持には入らない。次に動かすときに張り直す）
+- **全軸 0:** 流していれば止め（:meth:`PnpMotionFirmware.stop`。接触停止も外れる）、止まっていれば何も送らない
+  （流し始めず、励磁も入れない）。スティックを離すと 0 を送り続けるので、張ったままにすると、止まっている間の
+  荷重（ステージに手で触れたときなど）でも接触停止になり、XY が固まるため。次に倒したときは
+  流し始め直して張り直す（``velocity_stream_start`` の開始の時刻の分、動き出しが遅れる）。脱力の後に 0 を送り
+  続けても、脱力が取り消されない
 - **ファームの脱力:** 励磁したまま ``idle_timeout`` のあいだ止めておくと、ファームが自分で脱力して報告する。
   脱力したかは、報告の脱力の回数（``relaxes``）が接続したときから変わったかで見る（``enabled`` で見ると、
   脱力の報告が届く前に励磁し直したときに見落とす）。変わっていれば、:meth:`~McuMotionStage.status` は
-  すぐに原点を「未」として返し、次の操作の前に止めてから
+  すぐに原点を「未」として返し、次の操作の前に、:meth:`~McuMotionStage.relax` と同じく止めて接触保持を捨ててから
   :meth:`~pcbasm.hal.mcu.firmware.PnpMotionFirmware.forget_origin` する（脱力の間に軸が動いたかもしれない）
 - **脱力させない間:** :meth:`~McuMotionStage.keep_energized` の入れ子の深さを数え、いちばん外側で入るときに
   ``idle_timeout`` を 0 にし、抜けるときに設定の秒数に戻す。中で :meth:`~McuMotionStage.restart` したら 0 を
@@ -37,14 +62,19 @@ mm と mm/s をステップに直して :class:`~pcbasm.hal.mcu.firmware.PnpMoti
 from __future__ import annotations
 
 import contextlib
+import logging
 import threading
+import time
 from collections.abc import Collection, Iterator
 from typing import override
+
+import attrs
 
 from pcbasm.geometry import Point3d
 from pcbasm.hal.mcu.errors import McuError, McuShutdown
 from pcbasm.hal.mcu.firmware import (
     AXES,
+    ContactStop,
     PnpMotionFirmware,
     ProcedureError,
     open_firmware,
@@ -53,14 +83,33 @@ from pcbasm.hal.mcu.homing import home_axis
 from pcbasm.hal.mcu.settings import McuMotionSettings
 from pcbasm.hal.motion import (
     Axis,
+    ContactStopped,
     MotionError,
     MotionStage,
     MotionState,
     MotionStatus,
     Velocity,
+    contact_move_error,
+    contact_velocity,
     homing_order,
+    release_direction,
 )
 from pcbasm.hal.stage import Limits, ScalarLimits
+
+_logger = logging.getLogger(__name__)
+
+
+@attrs.frozen
+class _Hold:
+    """接触保持（モジュールの docstring）.
+
+    Attributes:
+        bounds: 保持に入る前の 3 軸の可動域 [steps]
+        since: 保持に入った時刻（``time.monotonic()``）
+    """
+
+    bounds: dict[Axis, tuple[int, int]]
+    since: float
 
 
 class McuMotionStage(MotionStage):
@@ -78,6 +127,7 @@ class McuMotionStage(MotionStage):
         self._homed: frozenset[Axis] = frozenset()
         self._keep_energized = 0  # keep_energized の入れ子の深さ
         self._failure: str | None = None
+        self._hold: _Hold | None = None
         self._limits = Limits(
             x=ScalarLimits(settings.x.position_min, settings.x.position_max),
             y=ScalarLimits(settings.y.position_min, settings.y.position_max),
@@ -90,6 +140,7 @@ class McuMotionStage(MotionStage):
         with self._translate():
             self._firmware = open_firmware(settings)
         self._relaxes = self._latest_relaxes()
+        self._watch_free_zone(self._firmware)
 
     @property
     @override
@@ -126,6 +177,14 @@ class McuMotionStage(MotionStage):
                 homed=homed,
                 shutdown_reason=reason,
             )
+        load_cell = firmware.load_cell
+        reading = load_cell.reading() if load_cell is not None else None
+        hold = self._hold
+        contact = firmware.is_contact(firmware.trigger_reason) or (
+            hold is not None
+            and load_cell is not None
+            and not load_cell.released(hold.since)
+        )
         return MotionStatus(
             position=position,
             velocity=Velocity(
@@ -136,33 +195,55 @@ class McuMotionStage(MotionStage):
             ),
             state=MotionState.MOVING if report.state.running else MotionState.IDLE,
             homed=homed,
+            load=reading.grams if reading is not None else None,
+            load_error=reading.error if reading is not None else None,
+            contact=contact,
         )
 
     @override
     def home(self, axes: Collection[Axis] = ()) -> None:
         with self._lock, self._translate():
             firmware = self._ready()
+            self._settle(firmware)
+            if self._hold is not None:
+                raise ValueError(
+                    f"接触中は原点出しできません。{self._release_direction()} で離してください"
+                )
             firmware.set_enabled(True)
             for axis in homing_order(axes, self._homed):
                 single: frozenset[Axis] = frozenset((axis,))
                 self._homed = self._homed - single
-                home_axis(firmware, axis)
+                try:
+                    home_axis(firmware, axis, contact=self._contact(firmware))
+                except ContactStop as stop:
+                    self._enter_hold(firmware)
+                    raise ContactStopped(
+                        f"原点出しの途中で接触して止まった（{axis.upper()}）"
+                    ) from stop
                 self._homed = self._homed | single
 
     @override
     def set_velocity(self, velocity: Velocity) -> None:
-        values = (velocity.x, velocity.y, velocity.z)
         with self._lock, self._translate():
             firmware = self._ready()
+            self._settle(firmware)
+            if self._hold is not None:
+                velocity = contact_velocity(
+                    velocity, press_positive=self._press_positive
+                )
+            values = (velocity.x, velocity.y, velocity.z)
             moving: set[Axis] = {
                 axis for axis, value in zip(AXES, values, strict=True) if value
             }
             self._require_homed(moving)
+            if not moving:
+                # 流していれば止める（接触停止は動かしている間だけ張り、止めたら外す）
+                if firmware.streaming:
+                    firmware.stop()
+                return
             if not firmware.streaming:
-                if not moving:
-                    return
                 firmware.set_enabled(True)
-                firmware.start()
+                firmware.start(contact=self._contact(firmware))
             steps = [
                 axis.to_steps(value)
                 for axis, value in zip(self._settings.axes, values, strict=True)
@@ -173,6 +254,7 @@ class McuMotionStage(MotionStage):
     def stop(self) -> None:
         with self._lock, self._translate():
             firmware = self._ready()
+            self._settle(firmware)
             if firmware.streaming:
                 firmware.stop()
 
@@ -196,17 +278,33 @@ class McuMotionStage(MotionStage):
         }
         with self._lock, self._translate():
             firmware = self._ready()
+            self._settle(firmware)
             self._require_homed(set(wanted))
+            if self._hold is not None and (
+                reason := contact_move_error(
+                    self._position(firmware),
+                    x,
+                    y,
+                    z,
+                    press_positive=self._press_positive,
+                )
+            ):
+                raise ValueError(reason)
             if firmware.streaming:
                 firmware.stop()
             firmware.set_enabled(True)
-            firmware.travel(
-                {
-                    axis: firmware.axis(axis).to_steps(value)
-                    for axis, value in wanted.items()
-                },
-                speed,
-            )
+            try:
+                firmware.travel(
+                    {
+                        axis: firmware.axis(axis).to_steps(value)
+                        for axis, value in wanted.items()
+                    },
+                    speed,
+                    contact=self._contact(firmware),
+                )
+            except ContactStop as stop:
+                self._enter_hold(firmware)
+                raise ContactStopped("移動の途中で接触して止まった") from stop
             firmware.query()
 
     @override
@@ -215,6 +313,9 @@ class McuMotionStage(MotionStage):
             firmware = self._ready()
             if firmware.streaming:
                 firmware.stop()
+            # 接触保持も、まだ気づいていない接触や異常も捨てる（可動域は下で広げ直す）
+            firmware.clear_trigger()
+            self._drop_hold(firmware)
             firmware.set_enabled(False)
             self._homed = frozenset()
             firmware.forget_origin(*AXES)
@@ -249,6 +350,7 @@ class McuMotionStage(MotionStage):
         with self._lock:
             self._firmware.close()
             self._homed = frozenset()
+            self._hold = None
             # 立て直す間と、立て直せなかった後は、閉じた前の接続の古い状態を返さない
             self._failure = "ファームを立て直している"
             try:
@@ -257,6 +359,7 @@ class McuMotionStage(MotionStage):
                     if self._keep_energized:
                         self._firmware.set_idle_timeout(0)
                 self._relaxes = self._latest_relaxes()
+                self._watch_free_zone(self._firmware)
             except MotionError as error:
                 self._failure = (
                     f"ファームを立て直せなかった（{error}）。再起動をやり直してください"
@@ -271,6 +374,41 @@ class McuMotionStage(MotionStage):
             self._firmware.emergency_stop()
         except McuError as error:
             raise MotionError(f"緊急停止を送れない: {error}") from error
+
+    @override
+    def tare(self) -> None:
+        # 操作のロックを取らない（ロードセルは受信スレッドが読む。MCU へはタール値の offset を送るだけ）
+        firmware = self._ready()
+        load_cell = firmware.load_cell
+        if load_cell is None:
+            raise ValueError(
+                "この機体にはロードセルがありません（[pnp.motion.load_cell]）"
+            )
+        if self._hold is not None or firmware.is_contact(firmware.trigger_reason):
+            raise ValueError(
+                f"接触中はタールできません。{self._release_direction()} で離してください"
+            )
+        load_cell.tare()
+
+    @override
+    def measure_load_counts(self, seconds: float) -> float:
+        # tare と同じくロックを取らない（受信スレッドが届けるサンプルを待つだけ）
+        load_cell = self._ready().load_cell
+        if load_cell is None:
+            raise MotionError(
+                "この機体にはロードセルがありません（[pnp.motion.load_cell]）"
+            )
+        try:
+            return load_cell.mean_counts(seconds)
+        except ValueError as error:
+            raise MotionError(str(error)) from error
+
+    @override
+    def suspend_auto_tare(self, suspended: bool) -> None:
+        # 後始末で呼ぶので _ready を見ない（フラグを立てるだけで MCU へは送らない）
+        load_cell = self._firmware.load_cell
+        if load_cell is not None:
+            load_cell.suspend_auto_tare(suspended)
 
     @override
     def close(self) -> None:
@@ -301,11 +439,13 @@ class McuMotionStage(MotionStage):
             )
         report = firmware.latest
         if report is not None and report.relaxes != self._relaxes:
-            # ファームが自分で脱力した（モジュールの docstring）
+            # ファームが自分で脱力した（モジュールの docstring）。relax と同じく接触保持も捨てる
             self._relaxes = report.relaxes
             self._homed = frozenset()
             if firmware.streaming:
                 firmware.stop()
+            firmware.clear_trigger()
+            self._drop_hold(firmware)
             firmware.forget_origin(*AXES)
         return firmware
 
@@ -314,6 +454,124 @@ class McuMotionStage(MotionStage):
         report = self._firmware.latest
         assert report is not None  # 接続したときに問い合わせている
         return report.relaxes
+
+    @property
+    def _press_positive(self) -> bool:
+        load_cell = self._settings.load_cell
+        return load_cell is not None and load_cell.contact.press_positive
+
+    def _watch_free_zone(self, firmware: PnpMotionFirmware) -> None:
+        """Z がピンセットから離れた範囲にあるかを、ロードセルの自動のタールに答えさせる."""
+        if firmware.load_cell is not None:
+            firmware.load_cell.watch_free_zone(lambda: self._in_free_zone(firmware))
+
+    def _in_free_zone(self, firmware: PnpMotionFirmware) -> bool:
+        """Z が、ピンセットから離す向きの端から ``free_tare_zone`` 以内か（受信スレッドから、ロックを取らずに呼ばれる）.
+
+        原点を出していない Z や、ファームが脱力した後や、まだ報告が来ていないときは偽（安全側）。
+        """
+        load_cell = self._settings.load_cell
+        report = firmware.latest
+        if (
+            load_cell is None
+            or report is None
+            or "z" not in self._homed
+            or report.relaxes
+            != self._relaxes  # ファームが脱力し、原点はもう当てにならない
+        ):
+            return False
+        z = self._settings.z
+        position = z.to_mm(report.position[AXES.index("z")])
+        zone = load_cell.free_tare_zone
+        if self._press_positive:
+            return position <= z.position_min + zone
+        return position >= z.position_max - zone
+
+    def _release_direction(self) -> str:
+        """離す向き（表示用）."""
+        return release_direction(press_positive=self._press_positive)
+
+    def _position(self, firmware: PnpMotionFirmware) -> Point3d:
+        """今の位置 [mm]（問い合わせる）."""
+        steps = firmware.query().position
+        return Point3d(
+            *(
+                axis.to_mm(value)
+                for axis, value in zip(self._settings.axes, steps, strict=True)
+            )
+        )
+
+    def _contact(self, firmware: PnpMotionFirmware) -> bool:
+        """動かし始めるときに接触停止を張るか（ロードセルがあり、保持の間でない）."""
+        return firmware.load_cell is not None and self._hold is None
+
+    def _settle(self, firmware: PnpMotionFirmware) -> None:
+        """MCU が接触か異常で止めていれば保持に入るか異常を知らせ、保持から戻れるなら戻す（ロックの中で）.
+
+        Raises:
+            MotionError: ロードセルの異常で止まっていた
+        """
+        reason = firmware.settle_trigger()
+        if firmware.is_contact(reason):
+            self._enter_hold(firmware)
+        elif (error := firmware.sensor_error(reason)) is not None:
+            firmware.clear_trigger()
+            raise MotionError(f"ロードセルの異常で止めた（{error}）")
+        hold = self._hold
+        load_cell = firmware.load_cell
+        if (
+            hold is not None
+            and load_cell is not None
+            and load_cell.released(hold.since)
+        ):
+            self._release_hold(firmware, hold)
+
+    def _enter_hold(self, firmware: PnpMotionFirmware) -> None:
+        """接触保持に入る: 張ったものを外し、可動域を縮める（MCU は ``contact`` で止まっている）.
+
+        X・Y は今の位置の ±1 step にするので、ソフトの可動域の端で止まっていると、元の可動域を 1 step はみ出す。
+        """
+        firmware.clear_trigger()
+        load_cell = firmware.load_cell
+        if load_cell is not None:
+            load_cell.pause_auto_tare(True)
+        if self._hold is not None:
+            return
+        here = firmware.query().position
+        saved: dict[Axis, tuple[int, int]] = {
+            axis: firmware.bounds(axis) for axis in AXES
+        }
+        for axis in ("x", "y"):
+            position = here[AXES.index(axis)]
+            firmware.set_limits(axis, position - 1, position + 1)
+        z = here[AXES.index("z")]
+        low, high = saved["z"]
+        if self._press_positive:
+            high = max(z, low + 1)
+        else:
+            low = min(z, high - 1)
+        firmware.set_limits("z", low, high)
+        self._hold = _Hold(saved, time.monotonic())
+        _logger.info(
+            "ロードセルの接触で止めた（位置 %s steps）。荷重が下がるまで %s だけ動かせる",
+            here,
+            self._release_direction(),
+        )
+
+    def _release_hold(self, firmware: PnpMotionFirmware, hold: _Hold) -> None:
+        """接触保持から戻る: 流していれば止め、可動域を戻す."""
+        if firmware.streaming:
+            firmware.stop()
+        self._drop_hold(firmware)
+        for axis, (low, high) in hold.bounds.items():
+            firmware.set_limits(axis, low, high)
+        _logger.info("ロードセルの荷重が下がったので、接触保持から戻した")
+
+    def _drop_hold(self, firmware: PnpMotionFirmware) -> None:
+        """保持を忘れ、自動のタールを再び許す（可動域は戻さない）."""
+        self._hold = None
+        if firmware.load_cell is not None:
+            firmware.load_cell.pause_auto_tare(False)
 
     def _require_homed(self, axes: Collection[Axis]) -> None:
         if unhomed := sorted(set(axes) - self._homed):

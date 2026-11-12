@@ -11,6 +11,13 @@
       <span id="mc-position">位置: ---</span>
       <span id="mc-homed">homed: ---</span>
     </div>
+    {% if stage == "motion" %}
+    {# ステージのロードセルの荷重とタール。backend が load_label を返す機体（[pnp.motion.load_cell]）だけ JS が出す #}
+    <div id="mc-load-row" class="mc-load" data-testid="mc-load-row" hidden>
+      <span id="mc-load" data-testid="mc-load"></span>
+      <button id="mc-tare" type="button" title="今の荷重を 0 g にする（タール）">TARE</button>
+    </div>
+    {% endif %}
     <div class="mc-group">
       <button data-mc-home="" class="mc-home-all" title="全軸ホーミング">&#8962; 全軸</button>
       <button data-mc-home="x" title="X軸ホーミング">&#8962; X</button>
@@ -21,8 +28,8 @@
       <div id="mc-jogpad" class="mc-jogpad"></div>
       <div class="mc-zbar">
         {% if stage == "motion" %}
-        <span class="mc-zbar-label" title="上が Z プラス（新ファームの機体は、上昇で Z 増加）">Z</span>
-        {# 新ファームの機体は Z の原点が上で、上昇＝Z プラス。上端を正（上昇）・下端を負（下降）に並べる #}
+        <span class="mc-zbar-label" title="上が Z プラス（Z+ でステージが下がる＝ピンセットから離れる）">Z</span>
+        {# 新ファームの機体（kurousagi）は動くのがステージで、Z+ でステージが下がりピンセットから離れる。上端を正・下端を負に並べる #}
         {% set z_distances = [10, 1, 0.1, -0.1, -1, -10] %}
         {% else %}
         <span class="mc-zbar-label" title="上が Z マイナス（マシン設計上、上昇で Z 減少）">Z</span>

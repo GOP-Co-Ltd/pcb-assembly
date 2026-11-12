@@ -20,6 +20,7 @@ from pcbasm.config.klipper import KlipperConfig
 from pcbasm.config.pnp import MotionConfig
 from pcbasm.errors import DeviceError
 from pcbasm.hal import (
+    ContactSettings,
     FrameHub,
     GamepadState,
     Limits,
@@ -38,7 +39,7 @@ from pcbasm.hal.fake import (
     FakeServoBus,
     ServoCommand,
 )
-from pcbasm.hal.mcu import McuMotionSettings, TmcSettings
+from pcbasm.hal.mcu import LoadCellSettings, McuMotionSettings, TmcSettings
 from pcbasm.machine.devices import Devices, motion_settings, open_devices
 from pcbasm.machine.journal import Journal
 from pcbasm.vision import Image
@@ -1027,6 +1028,114 @@ class TestMotionSettings:
         assert raised.value.sections == {"pnp"}
 
 
+class TestMotionSettingsLedAndLoadCell:
+    """[pnp.motion] の led_pin と [pnp.motion.load_cell] を MCU の設定に直す."""
+
+    def test_absent_stays_absent(self, tmp_path: Path):
+        settings = motion_settings(_load_motion(tmp_path, motion_table()))
+
+        assert (settings.led_pin, settings.load_cell) == (None, None)
+
+    def test_kurousagi_values(self, tmp_path: Path):
+        motion = motion_table()
+        motion["led_pin"] = "gpio17"
+        motion["load_cell"] = {
+            "sclk_pin": "gpio0",
+            "dout_pin": "gpio1",
+            "counts_per_gram": 2666.98,
+        }
+
+        settings = motion_settings(_load_motion(tmp_path, motion))
+
+        assert settings.led_pin == "gpio17"
+        assert settings.load_cell == LoadCellSettings(
+            sclk_pin="gpio0",
+            dout_pin="gpio1",
+            gain_channel=1,
+            sample_rate=80,
+            counts_per_gram=2666.98,
+            inverted=False,
+            contact=ContactSettings(
+                trigger_force=50.0, release_force=15.0, press_positive=False
+            ),
+            free_tare_zone=5.0,
+        )
+
+    def test_contact_forces_and_direction(self, tmp_path: Path):
+        motion = motion_table()
+        motion["load_cell"] = {
+            "sclk_pin": "gpio0",
+            "dout_pin": "gpio1",
+            "counts_per_gram": 2666.98,
+            "trigger_force": 80.0,
+            "release_force": 20.0,
+            "press_positive": True,
+        }
+
+        load_cell = motion_settings(_load_motion(tmp_path, motion)).load_cell
+
+        assert load_cell is not None
+        assert load_cell.contact == ContactSettings(
+            trigger_force=80.0, release_force=20.0, press_positive=True
+        )
+
+    @pytest.mark.parametrize(
+        ("gain", "channel"), [("A-128", 1), ("B-32", 2), ("A-64", 3)]
+    )
+    def test_gain_is_the_hx711_gain_channel(
+        self, tmp_path: Path, gain: str, channel: int
+    ):
+        motion = motion_table()
+        motion["load_cell"] = {
+            "sclk_pin": "gpio0",
+            "dout_pin": "gpio1",
+            "counts_per_gram": 1.0,
+            "gain": gain,
+        }
+
+        load_cell = motion_settings(_load_motion(tmp_path, motion)).load_cell
+
+        assert load_cell is not None
+        assert load_cell.gain_channel == channel
+
+    def test_inverted_orientation(self, tmp_path: Path):
+        motion = motion_table()
+        motion["load_cell"] = {
+            "sclk_pin": "gpio0",
+            "dout_pin": "gpio1",
+            "counts_per_gram": 1.0,
+            "sensor_orientation": "inverted",
+        }
+
+        load_cell = motion_settings(_load_motion(tmp_path, motion)).load_cell
+
+        assert load_cell is not None and load_cell.inverted
+
+    @pytest.mark.parametrize(
+        ("key", "pin"),
+        [
+            ("led_pin", "!gpio17"),
+            ("load_cell.sclk_pin", "^gpio0"),
+            ("load_cell.dout_pin", "!gpio1"),
+        ],
+    )
+    def test_pins_take_no_marks(self, tmp_path: Path, key: str, pin: str):
+        motion = motion_table()
+        motion["load_cell"] = {
+            "sclk_pin": "gpio0",
+            "dout_pin": "gpio1",
+            "counts_per_gram": 1.0,
+        }
+        table, _, name = key.rpartition(".")
+        (motion[table] if table else motion)[name] = pin
+        config = _load_motion(tmp_path, motion)
+
+        with pytest.raises(ConfigError, match=key) as raised:
+            motion_settings(config)
+
+        assert raised.value.sections == {"pnp"}
+
+
 def _use_motion_text(config_path: Path, motion: dict[str, Any]) -> None:
     """[pnp.motion] の表を差し替える."""
     document = tomlkit.parse(config_path.read_text(encoding="utf-8"))
@@ -1068,6 +1177,30 @@ class TestFakeMotion:
         assert stage.max_velocity == Velocity(100.0, 100.0, 50.0)
         assert stage.status().homed == frozenset()
         assert stage.status().shutdown_reason is not None
+
+    def test_open_devices_fake_reads_the_load_when_the_load_cell_is_written(
+        self, config_path: Path, journal_dir: Path
+    ):
+        motion = motion_table()
+        motion["load_cell"] = {
+            "sclk_pin": "gpio0",
+            "dout_pin": "gpio1",
+            "counts_per_gram": 2666.98,
+        }
+        _use_motion(config_path, motion)
+
+        stage = open_devices(config_path, journal_dir, fake=True).motion_stage()
+
+        assert stage.status().load == 0.0
+
+    def test_open_devices_fake_without_the_load_cell_has_no_load(
+        self, config_path: Path, journal_dir: Path
+    ):
+        _use_motion(config_path)
+
+        stage = open_devices(config_path, journal_dir, fake=True).motion_stage()
+
+        assert stage.status().load is None
 
     def test_open_devices_fake_on_klipper_machine_has_no_motion_stage(
         self, config_path: Path, journal_dir: Path

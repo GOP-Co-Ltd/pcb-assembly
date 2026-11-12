@@ -4,7 +4,8 @@
 空の表も受け付ける。下位表は装置の部品で分ける。
 
 - ``servo``: ピンセットのサーボ（Feetech STS3032 ×2）のポートと役割
-- ``motion``: XYZ ステージを動かす新ファーム（pnp-motion）の MCU。あれば Klipper を使わずに XYZ を動かす
+- ``motion``: XYZ ステージを動かす新ファーム（pnp-motion）の MCU。あれば Klipper を使わずに XYZ を動かす。
+  下位表 ``motion.load_cell`` はステージに掛かる荷重を測るロードセル（HX711）
 - ``gamepad``: コントローラのスティックのデッドゾーン
 """
 
@@ -24,6 +25,7 @@ from pcbasm.validators import (
 
 _SERVO = "ピンセットのサーボ"
 _GAMEPAD = "コントローラ"
+_LOAD_CELL = "ロードセル"
 
 _MAX_SERVO_ID = 253
 _MAX_IDLE_TIMEOUT = 2**32 - 1  # [s]
@@ -218,6 +220,7 @@ def _validate_idle_timeout(name: str, value: object) -> str | None:
 
 _positive = as_validator(validate_positive_number)
 _optional_positive = attrs.validators.optional(_positive)
+_non_negative = as_validator(validate_non_negative_number)
 
 
 @attrs.frozen(kw_only=True)
@@ -313,6 +316,77 @@ class MotionAxisConfig:
         return None
 
 
+type LoadCellGain = Literal["A-128", "A-64", "B-32"]
+type SensorOrientation = Literal["normal", "inverted"]
+
+# HX711 の出力レートは RATE ピンで 10 か 80 SPS（HX711 データシート）
+_HX711_RATES = (10, 80)
+
+
+def _validate_sample_rate(name: str, value: object) -> str | None:
+    if isinstance(value, bool) or value not in _HX711_RATES:
+        rates = " か ".join(str(rate) for rate in _HX711_RATES)
+        return f"{name}は{rates}（HX711 の RATE ピンに合わせる）である必要があります: {value!r}"
+    return None
+
+
+@attrs.frozen(kw_only=True)
+class LoadCellConfig:
+    """ステージに掛かる荷重を測るロードセルの HX711（[pnp.motion.load_cell]）.
+
+    HX711 は [pnp.motion] の MCU につなぐ。項目の名前と意味は Klipper の ``[load_cell]`` の hx711 に合わせる
+    （``klipper/docs/Config_Reference.md``）。ただし ``release_force`` と ``press_positive`` は Klipper に無い、
+    接触保持のための自前の項目。ピンには ``!`` と ``^`` を付けられない（データ出力のピンのプルアップは
+    ファームが常に掛ける）。
+
+    Attributes:
+        sclk_pin: HX711 の SCK のピン
+        dout_pin: HX711 のデータ出力のピン
+        gain: 入力と増幅率（``A-128`` / ``A-64`` / ``B-32``）
+        sample_rate: 出力レート [SPS]（HX711 の RATE ピンで決まる 10 か 80）
+        counts_per_gram: 1 g あたりの HX711 の値（機体ごとに校正する）
+        sensor_orientation: 荷重が掛かると値が減る向きにつないだなら ``inverted``
+        trigger_force: 動いている間に、これを超える荷重 [g] で止める（接触停止）
+        release_force: 接触して止まった後、荷重がこれを下回ったら離したとみなす [g]（``trigger_force`` より小さい）
+        free_tare_zone: ピンセットから離す向きの端から、ここまでの範囲 [mm] で Z が止まっていて荷重が安定していれば、
+            ステージに載せた基板やトレイの荷重も、差の大きさを問わずタールに取り込む（0 で無効。それ以外の位置では、
+            タール値との差が 2 g 以内のときだけ取り込む）。離す向きの端は ``press_positive`` で決まる
+        press_positive: Z+ へ動くとピンセットに押し当たる。kurousagi はステージが上がる Z− で押し当たるので
+            false（:mod:`pcbasm.hal.motion` の「向き」）
+    """
+
+    sclk_pin: str
+    dout_pin: str
+    gain: LoadCellGain = "A-128"
+    sample_rate: int = attrs.field(
+        default=80, validator=as_validator(_validate_sample_rate)
+    )
+    # 設定ページには感度だけを出す（校正のジョブ load_cell_calibrate の Apply が書くため。ほかの [pnp.motion] は出さない）
+    counts_per_gram: float = attrs.field(
+        validator=_positive,
+        metadata=setting(
+            label="ロードセルの感度", group=_LOAD_CELL, order=10, unit="counts/g"
+        ),
+    )
+    sensor_orientation: SensorOrientation = "normal"
+    trigger_force: float = attrs.field(default=50.0, validator=_positive)
+    release_force: float = attrs.field(default=15.0, validator=_positive)
+    press_positive: bool = False
+    free_tare_zone: float = attrs.field(default=5.0, validator=_non_negative)
+
+    def __attrs_post_init__(self) -> None:
+        if error := self._validate_relations():
+            raise ValueError(error)
+
+    def _validate_relations(self) -> str | None:
+        if not self.release_force < self.trigger_force:
+            return (
+                f"release_force（{self.release_force:g} g）は trigger_force"
+                f"（{self.trigger_force:g} g）より小さい必要があります"
+            )
+        return None
+
+
 @attrs.frozen(kw_only=True)
 class MotionConfig:
     """XYZ ステージを動かす新ファーム（pnp-motion）の MCU（[pnp.motion]）.
@@ -330,6 +404,8 @@ class MotionConfig:
         x: X 軸
         y: Y 軸
         z: Z 軸
+        led_pin: 照明の LED のピン（MCU が設定したときから常に点け、shutdown しても消さない。MCU の reset の間だけ消える）。None なら無い
+        load_cell: ステージに掛かる荷重を測るロードセル（[pnp.motion.load_cell] が無ければ None）
     """
 
     serial: str
@@ -342,6 +418,8 @@ class MotionConfig:
     x: MotionAxisConfig
     y: MotionAxisConfig
     z: MotionAxisConfig
+    led_pin: str | None = None
+    load_cell: LoadCellConfig | None = None
 
     def __attrs_post_init__(self) -> None:
         if error := self._validate_relations():

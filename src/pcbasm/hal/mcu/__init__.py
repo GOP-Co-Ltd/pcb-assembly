@@ -9,6 +9,7 @@
 - :mod:`pcbasm.hal.mcu.settings`: ステージの設定（hal の値型）
 - :mod:`pcbasm.hal.mcu.firmware`: 設定の列、TMC2209 の設定、``velocity_stream`` の型付きの操作
 - :mod:`pcbasm.hal.mcu.homing`: 1 軸の原点出し
+- :mod:`pcbasm.hal.mcu.load_cell`: ロードセル（HX711）の値の読み取り、グラムへの換算、タール
 - :mod:`pcbasm.hal.mcu.stage`: :class:`~pcbasm.hal.motion.MotionStage` の MCU 版
 
 外から MCU を開く口は :func:`open_motion_stage` と :func:`send_emergency_stop` だけ（テストは root conftest の
@@ -22,7 +23,7 @@ from .clock import ClockEstimator, ClockSync, to_clock32
 from .dictionary import DataDictionary, Message, ParamValue
 from .errors import McuError, McuShutdown
 from .firmware import send_emergency_stop
-from .settings import AxisSettings, Kinematics, McuMotionSettings
+from .settings import AxisSettings, Kinematics, LoadCellSettings, McuMotionSettings
 from .stage import McuMotionStage, open_motion_stage
 from .tmc2209 import (
     TmcSettings,
@@ -52,6 +53,7 @@ __all__ = [
     # settings
     "AxisSettings",
     "Kinematics",
+    "LoadCellSettings",
     "McuMotionSettings",
     # stage
     "McuMotionStage",

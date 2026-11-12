@@ -6,6 +6,7 @@ shutdown するので、送る順番の誤り（止まりきる前の ``set_limi
 """
 
 import math
+import time
 from collections.abc import Iterator
 from typing import Any
 
@@ -14,12 +15,14 @@ import pytest
 
 from pcbasm.hal.mcu.errors import McuError
 from pcbasm.hal.mcu.firmware import (
+    ContactStop,
+    LoadCellFault,
     PnpMotionFirmware,
     StreamState,
     open_firmware,
     send_emergency_stop,
 )
-from pcbasm.hal.mcu.settings import McuMotionSettings
+from pcbasm.hal.mcu.settings import LoadCellSettings, McuMotionSettings
 from tests.support.mcu_dictionary import dictionary_json
 from tests.support.motion_mcu import motion_settings, open_wire
 from tests.support.polling import wait_until
@@ -29,9 +32,10 @@ from tests.support.wire_mcu import WireMcu
 _TICKS_PER_SECOND = 12_000_000
 
 # 設定の列（golden）。oid は velocity_stream が 0、stepper が 1〜3、endstop が 4〜6、trsync が 10、tmcuart が 11
-# （7〜9 は空き）。enable のピンは velocity_stream が持ち、3 軸とも反転（!）
+# （7〜9 は空き。LED の 12、hx71x の 13、sos_filter の 14、trigger_analog の 15 は、無い機体でも数に入る）。
+# enable のピンは velocity_stream が持ち、3 軸とも反転（!）
 _CONFIG: list[tuple[str, dict[str, Any]]] = [
-    ("allocate_oids", {"count": 12}),
+    ("allocate_oids", {"count": 16}),
     (
         "config_stepper",
         {
@@ -226,6 +230,324 @@ class TestConfigure:
         assert report.position == (0, 0, 0)
 
 
+# LED（gpio17）を常に点け、HX711（SCK gpio0、データ出力 gpio1、A-128）を読む機体の、trsync の後に足す設定。
+# 接触停止: フィルタの断面は 0 個、HX711 の張り付いた ±2^23 の端は範囲の外、50 g × 2666.98 counts/g を gt（1）で
+_LED_AND_LOAD_CELL = [
+    (
+        "config_digital_out",
+        {"oid": 12, "pin": 17, "value": 1, "default_value": 1, "max_duration": 0},
+    ),
+    ("config_hx71x", {"oid": 13, "gain_channel": 1, "dout_pin": 1, "sclk_pin": 0}),
+    ("config_sos_filter", {"oid": 14, "max_sections": 0}),
+    ("config_trigger_analog", {"oid": 15, "sos_filter_oid": 14}),
+    (
+        "trigger_analog_set_raw_range",
+        {"oid": 15, "raw_min": -8388607, "raw_max": 8388606},
+    ),
+    (
+        "trigger_analog_set_trigger",
+        {"oid": 15, "trigger_analog_type": 1, "trigger_value": 133349},
+    ),
+    ("hx71x_attach_trigger_analog", {"oid": 13, "trigger_analog_oid": 15}),
+]
+
+
+def _with_led_and_load_cell(settings: McuMotionSettings) -> McuMotionSettings:
+    return attrs.evolve(
+        settings,
+        led_pin="gpio17",
+        load_cell=LoadCellSettings(
+            sclk_pin="gpio0",
+            dout_pin="gpio1",
+            gain_channel=1,
+            sample_rate=80,
+            counts_per_gram=2666.98,
+        ),
+    )
+
+
+class TestLedAndLoadCell:
+    def test_configures_them_after_the_trsync(
+        self, mcu: WireMcu, settings: McuMotionSettings
+    ):
+        firmware = open_firmware(_with_led_and_load_cell(settings))
+        try:
+            commands = _commands(mcu)
+            finalize = [name for name, _ in commands].index("finalize_config")
+            trsync = _CONFIG.index(("config_trsync", {"oid": 10})) + 1
+
+            assert commands[:finalize] == [
+                *_CONFIG[:trsync],
+                *_LED_AND_LOAD_CELL,
+                *_CONFIG[trsync:],
+            ]
+        finally:
+            firmware.close()
+
+    def test_without_them_the_config_does_not_mention_them(
+        self, mcu: WireMcu, firmware: PnpMotionFirmware
+    ):
+        names = _names(mcu)
+
+        assert firmware.load_cell is None
+        assert "config_hx71x" not in names
+        assert "query_hx71x" not in names
+
+    def test_starts_reading_after_connecting_and_stops_on_close(
+        self, mcu: WireMcu, settings: McuMotionSettings
+    ):
+        firmware = open_firmware(_with_led_and_load_cell(settings))
+        assert firmware.load_cell is not None
+        firmware.close()
+
+        def queries() -> list[dict[str, Any]]:
+            return [params for name, params in mcu.accepted() if name == "query_hx71x"]
+
+        wait_until(lambda: len(queries()) == 2, what="query_hx71x を 2 回")
+        # 12 MHz を 80 SPS の 16 倍で割った間隔でデータ出力のピンを見させ、閉じるときは 0 で止める
+        assert queries() == [
+            {"oid": 13, "rest_ticks": 12_000_000 // (80 * 16)},
+            {"oid": 13, "rest_ticks": 0},
+        ]
+
+    def test_a_failed_open_does_not_stop_a_load_cell_it_never_started(self):
+        # 読み始める前に失敗したら、止める命令も送らない（設定の列の途中で失敗したときは、hx71x の oid が
+        # MCU に無く、送れば MCU が shutdown する）。ここでは Y のドライバーが応えずに失敗させる
+        wire = open_wire(tmc_addresses=[0, 1])
+        try:
+            with pytest.raises(McuError):
+                open_firmware(_with_led_and_load_cell(motion_settings(wire.path)))
+
+            assert "query_hx71x" not in _names(wire)
+        finally:
+            wire.close()
+
+    def test_starts_reading_again_when_the_config_is_reused(
+        self, mcu: WireMcu, settings: McuMotionSettings
+    ):
+        settings = _with_led_and_load_cell(settings)
+        open_firmware(settings).close()
+        since = len(mcu.accepted())
+
+        second = open_firmware(settings)
+        try:
+            assert not second.reconfigured
+            # 送るだけで応答を待たないので、MCU 役が受けたのを待つ
+            wait_until(lambda: "query_hx71x" in _names(mcu, since), what="query_hx71x")
+        finally:
+            second.close()
+
+
+@pytest.fixture
+def load_firmware(settings: McuMotionSettings) -> Iterator[PnpMotionFirmware]:
+    """ロードセル（2666.98 counts/g、しきい値 50 g）を持つファーム。タールするまで待つ."""
+    opened = open_firmware(_with_led_and_load_cell(settings))
+    load_cell = opened.load_cell
+    assert load_cell is not None
+    wait_until(lambda: load_cell.ready, what="タール")
+    yield opened
+    opened.close()
+
+
+def _offsets(mcu: WireMcu, since: int = 0) -> list[dict[str, Any]]:
+    return [
+        params
+        for name, params in mcu.accepted()[since:]
+        if name == "sos_filter_set_offset_scale"
+    ]
+
+
+class TestContactStop:
+    """ロードセルの接触停止: hx71x → trigger_analog（sos_filter）→ 原点出しと同じ trsync."""
+
+    def test_sends_the_tare_as_the_filter_offset(
+        self, mcu: WireMcu, load_firmware: PnpMotionFirmware
+    ):
+        mcu.control("load", counts=1234)
+        load_cell = load_firmware.load_cell
+        assert load_cell is not None
+        wait_until(lambda: load_cell.reading().grams != 0.0, what="荷重の変化")
+        time.sleep(0.3)  # 手のタールの 0.25 s の窓を、新しい値だけにする
+        since = len(mcu.accepted())
+
+        load_cell.tare()
+
+        wait_until(lambda: bool(_offsets(mcu, since)), what="offset の送信")
+        assert _offsets(mcu)[0] == {
+            "oid": 14,
+            "offset": 0,
+            "scale": 1,
+            "scale_frac_bits": 0,
+            "auto_offset": 0,
+        }
+        assert _offsets(mcu, since) == [
+            {
+                "oid": 14,
+                "offset": -1234,
+                "scale": 1,
+                "scale_frac_bits": 0,
+                "auto_offset": 0,
+            }
+        ]
+
+    def test_inverted_sends_a_negative_scale(
+        self, mcu: WireMcu, settings: McuMotionSettings
+    ):
+        with_load_cell = _with_led_and_load_cell(settings)
+        assert with_load_cell.load_cell is not None
+        firmware = open_firmware(
+            attrs.evolve(
+                with_load_cell,
+                load_cell=attrs.evolve(with_load_cell.load_cell, inverted=True),
+            )
+        )
+        try:
+            wait_until(lambda: bool(_offsets(mcu)), what="offset の送信")
+            assert _offsets(mcu)[0]["scale"] == -1
+        finally:
+            firmware.close()
+
+    def test_arms_the_load_cell_on_the_trsync_before_starting(
+        self, mcu: WireMcu, load_firmware: PnpMotionFirmware
+    ):
+        since = len(mcu.accepted())
+
+        load_firmware.start(contact=True)
+        load_firmware.stop()
+        load_firmware.query()  # 応答を待ち、送ったものが MCU 役の記録に載ってから読む
+
+        commands = _commands(mcu, since)
+        names = [name for name, _ in commands]
+        assert names[:6] == [
+            "trsync_start",
+            "stepper_stop_on_trigger",
+            "stepper_stop_on_trigger",
+            "stepper_stop_on_trigger",
+            "velocity_stream_stop_on_trigger",
+            "trigger_analog_home",
+        ]
+        home = commands[5][1]
+        start = commands[6][1]
+        assert names[6] == "velocity_stream_start"
+        # 接触は 4、異常は 5 + RAW_RANGE 0・OVERFLOW 1・MONITOR 2。見張りは 1 サンプルの周期（80 SPS）を 3 回まで
+        assert (home["oid"], home["trsync_oid"]) == (15, 10)
+        assert (home["trigger_reason"], home["error_reason"]) == (4, 5)
+        assert (home["monitor_ticks"], home["monitor_max"]) == (150_000, 3)
+        assert 0 < (start["clock"] - home["clock"]) % 2**32 < _TICKS_PER_SECOND
+        # 止めたら外す
+        assert commands[-1] == (
+            "trigger_analog_home",
+            {
+                "oid": 15,
+                "trsync_oid": 10,
+                "trigger_reason": 0,
+                "error_reason": 0,
+                "clock": 0,
+                "monitor_ticks": 0,
+                "monitor_max": 0,
+            },
+        )
+
+    def test_refuses_to_arm_before_the_tare(
+        self, mcu: WireMcu, settings: McuMotionSettings
+    ):
+        # 値が来ない（タールできない）ロードセル
+        mcu.control("hx71x_stall")
+        firmware = open_firmware(_with_led_and_load_cell(settings))
+        try:
+            firmware.query()
+            since = len(mcu.accepted())
+
+            with pytest.raises(LoadCellFault):
+                firmware.start(contact=True)
+
+            assert _commands(mcu, since) == []
+            assert not firmware.streaming
+        finally:
+            firmware.close()
+
+    def test_a_press_stops_the_stream_as_contact(
+        self, mcu: WireMcu, load_firmware: PnpMotionFirmware
+    ):
+        load_firmware.start(contact=True)
+        load_firmware.set_velocity((0, 0, -800))
+        wait_until(lambda: load_firmware.query().position[2] < -40, what="Z が動くこと")
+
+        mcu.control("load", counts=200_000)  # 75 g
+
+        wait_until(
+            lambda: load_firmware.settle_trigger() is not None, what="接触の理由"
+        )
+        assert PnpMotionFirmware.is_contact(load_firmware.trigger_reason)
+        assert load_firmware.query().state is StreamState.CONTACT
+        assert not load_firmware.streaming
+
+    def test_drive_raises_contact_stop(
+        self, mcu: WireMcu, load_firmware: PnpMotionFirmware
+    ):
+        load_firmware.start(contact=True)
+        mcu.control("load", counts=200_000)
+
+        with pytest.raises(ContactStop):
+            load_firmware.drive((0, 0, -800), lambda _report: False, 5.0)
+
+    def test_drive_raises_a_fault_when_the_samples_stop(
+        self, mcu: WireMcu, load_firmware: PnpMotionFirmware
+    ):
+        load_firmware.start(contact=True)
+        mcu.control("hx71x_stall")
+
+        with pytest.raises(LoadCellFault, match="MONITOR"):
+            load_firmware.drive((0, 0, -800), lambda _report: False, 5.0)
+
+        # 異常を知らせたら、理由を忘れて外してある
+        assert load_firmware.trigger_reason is None
+        assert load_firmware.query().state is StreamState.CONTACT
+
+    def test_a_stuck_sample_is_a_raw_range_fault(
+        self, mcu: WireMcu, load_firmware: PnpMotionFirmware
+    ):
+        load_firmware.start(contact=True)
+        mcu.control("load", counts=-(1 << 23))
+
+        with pytest.raises(LoadCellFault, match="RAW_RANGE"):
+            load_firmware.drive((0, 0, -800), lambda _report: False, 5.0)
+
+    def test_disarm_also_releases_the_load_cell(
+        self, mcu: WireMcu, load_firmware: PnpMotionFirmware
+    ):
+        since = len(mcu.accepted())
+
+        load_firmware.disarm()
+        load_firmware.query()
+
+        assert [name for name, _ in _commands(mcu, since)] == [
+            "endstop_home",
+            "endstop_home",
+            "endstop_home",
+            "trigger_analog_home",
+        ]
+
+    @pytest.mark.parametrize(
+        ("reason", "contact", "error"),
+        [
+            (None, False, None),
+            (1, False, None),
+            (3, False, None),
+            (4, True, None),
+            (5, False, "RAW_RANGE"),
+            (6, False, "OVERFLOW"),
+            (7, False, "MONITOR"),
+            (8, False, "SENSOR_SPECIFIC"),
+            (0, False, "知らない理由 0"),
+            (9, False, "知らない理由 9"),
+        ],
+    )
+    def test_reasons(self, reason: int | None, contact: bool, error: str | None):
+        assert PnpMotionFirmware.is_contact(reason) is contact
+        assert PnpMotionFirmware.sensor_error(reason) == error
+
+
 class TestReuse:
     def test_reuses_the_config_when_the_crc_matches(
         self, mcu: WireMcu, settings: McuMotionSettings
@@ -247,8 +569,7 @@ class TestReuse:
     ):
         # 前のプロセスが、endstop を張ったまま流している途中で落ちた
         first = open_firmware(settings)
-        first.arm_homing("x")
-        first.start()
+        first.start(switch="x")
         first.set_velocity((0, 0, 800))
         wait_until(lambda: first.query().position[2] > 0, what="Z が動き出すこと")
         first.close()

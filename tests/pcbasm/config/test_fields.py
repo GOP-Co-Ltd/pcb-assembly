@@ -124,6 +124,8 @@ class TestSettingFields:
             "pnp.servo.rotation_speed",
             "pnp.gamepad.deadzone_xy",
             "pnp.gamepad.deadzone_z",
+            # [pnp.motion] のほかの項目は出さず、校正のジョブが書く感度だけを出す
+            "pnp.motion.load_cell.counts_per_gram",
         ]
 
     def test_servo_setup_writes_only_setting_keys(self):

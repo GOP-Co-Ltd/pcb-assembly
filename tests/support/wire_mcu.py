@@ -27,6 +27,10 @@
     - ``{"op": "emit", "name": name, "params": {...}}``: 応答 name を送る
     - ``{"op": "raw", "hex": ...}``: バイト列をそのまま送る
     - ``{"op": "drivers_off"}``: 以後、TMC2209 はどのアドレスも UART に応えない（モーターの電源を切った）
+    - ``{"op": "load", "counts": n}``: HX711 の読む値を n にする
+    - ``{"op": "hx71x_error"}``: HX711 の読み出しが乱れたことにする（``query_hx71x`` を受けるまで誤りの値を送る）
+    - ``{"op": "hx71x_skip"}``: 次の ``sensor_bulk_data`` の sequence を 1 つ飛ばす（1 通が届かなかった）
+    - ``{"op": "hx71x_stall"}``: HX711 がサンプルを出さなくなる（``query_hx71x`` を受けても戻らない。配線が外れた）
 
 ステージの模擬（pnp-motion ファームの ``velocity_stream``、``trsync``、``endstop``、``tmcuart``）:
 
@@ -54,6 +58,18 @@
 - 初めの物理的な位置は ``motion.positions``（X・Y・Z のステップ。既定は 0）
 - TMC2209: ``motion.tmc_addresses``（既定は 0〜3）のアドレスが UART に応える。書き込みでレジスタを覚えて
   IFCNT を 1 進め、読み出しにはレジスタの値を返す。応えないアドレスへの読み出しには 1 だけのビット列を返す
+- HX711（``klipper/src/sensor_hx71x.c`` と ``sensor_bulk.c``）: ``query_hx71x`` の ``rest_ticks`` が 0 でない間、
+  ``motion.hx71x_rate``（既定 80）SPS で値（初めは ``motion.load_counts``、既定 0）を作り、12 個たまるたびに
+  ``sensor_bulk_data`` で送る（4 byte の little endian）。sequence は 1 通ごとに 1 進み、``query_hx71x`` で 0 に戻る。
+  shutdown で止まる
+- 接触停止（``klipper/src/trigger_analog.c``・``sos_filter.c``）: ``hx71x_attach_trigger_analog`` した ``trigger_analog``
+  を ``trigger_analog_home`` で張ると、``clock`` を過ぎた正しいサンプルごとに、範囲（``set_raw_range``）の外なら
+  ``error_reason + 0`` で、``(値 + offset) × scale`` を ``scale_frac_bits`` ずらした値が ``gt`` の ``trigger_value``
+  を超えたら ``trigger_reason`` で trsync を引く（引いた位置は、その時点の積分した位置）。サンプルが来るたびに
+  見張りの数を 0 に戻し、``monitor_ticks`` ごとに 1 進め、``monitor_max`` を超えたら ``error_reason + 2``（MONITOR）
+  で引く。誤りのサンプルは渡さない。断面（``sos_filter_set_section``）は模擬しない
+- trsync が引かれたとき、登録した ``velocity_stream`` は流している間だけ ``contact`` になる（止まっていれば
+  そのまま。ファームも流していない間は印を付けるだけ）
 """
 
 from __future__ import annotations
@@ -98,6 +114,10 @@ _TICK = 0.002  # 動いている間に積分とスイッチを見る間隔 [s]
 _TMC_SYNC_REPLY = 0x05
 _TMC_MASTER = 0xFF
 _IFCNT = 0x02
+_HX71X_BATCH = 12  # sensor_bulk の data[51] に入る 4 byte のサンプルの数
+_HX71X_DESYNC = 1 << 31
+_TE_RAW_RANGE = 0
+_TE_MONITOR = 2
 
 
 def _crc16(data: bytes) -> int:
@@ -233,6 +253,10 @@ class _Mcu:
         self._tmc_addresses = set(motion.get("tmc_addresses", [0, 1, 2, 3]))
         self._stop_delay = motion.get("stop_delay", 0.03)
         self._second = motion.get("second", 1.0)
+        self._hx71x_rate = motion.get("hx71x_rate", 80)
+        # ロードセルは MCU と別の部品なので、MCU の reset で荷重は変わらない
+        self._load_counts = motion.get("load_counts", 0)
+        self._hx71x_stalled = False
         # TMC2209 は MCU と別の部品なので、MCU の reset でレジスタは消えない
         self._tmc = {address: {_IFCNT: 0} for address in self._tmc_addresses}
         self._reset()
@@ -247,6 +271,12 @@ class _Mcu:
         self._armed: dict[int, dict[str, int]] = {}  # endstop の oid → 張った値
         self._trsyncs: dict[int, dict[str, Any]] = {}
         self._stream: _Stream | None = None
+        self._outputs: dict[int, int] = {}
+        self._hx71x: dict[str, Any] | None = (
+            None  # config_hx71x の oid と、読んでいる間の状態
+        )
+        self._sos_filters: dict[int, dict[str, int]] = {}
+        self._trigger_analogs: dict[int, dict[str, Any]] = {}
 
     def serve(self) -> None:
         buffer = b""
@@ -293,6 +323,14 @@ class _Mcu:
             self._write(bytes.fromhex(request["hex"]))
         elif op == "drivers_off":
             self._tmc_addresses = set()
+        elif op == "load":
+            self._load_counts = request["counts"]
+        elif op == "hx71x_error" and self._hx71x is not None:
+            self._hx71x["error"] = True
+        elif op == "hx71x_skip" and self._hx71x is not None:
+            self._hx71x["sequence"] = (self._hx71x["sequence"] + 1) & 0xFFFF
+        elif op == "hx71x_stall":
+            self._hx71x_stalled = True
 
     def _receive(self, buffer: bytes) -> bytes:
         while buffer:
@@ -427,6 +465,54 @@ class _Mcu:
             self._endstops[params["oid"]] = params["pin"]
         elif name == "config_trsync":
             self._trsyncs[params["oid"]] = {"can_trigger": False, "signals": []}
+        elif name == "config_digital_out":
+            self._outputs[params["oid"]] = params["value"]
+        elif name == "update_digital_out":
+            self._outputs[params["oid"]] = params["value"]
+        elif name == "config_hx71x":
+            self._hx71x = {"oid": params["oid"], "running": False, "trigger": None}
+        elif name == "hx71x_attach_trigger_analog" and self._hx71x is not None:
+            self._hx71x["trigger"] = params["trigger_analog_oid"]
+        elif name == "config_sos_filter":
+            self._sos_filters[params["oid"]] = {"offset": 0, "scale": 0, "frac": 0}
+        elif name == "sos_filter_set_offset_scale":
+            self._sos_filters[params["oid"]].update(
+                offset=params["offset"],
+                scale=params["scale"],
+                frac=params["scale_frac_bits"],
+            )
+        elif name == "config_trigger_analog":
+            self._trigger_analogs[params["oid"]] = {
+                "sos": params["sos_filter_oid"],
+                "raw_min": 0,
+                "raw_max": 0,
+                "type": 0,
+                "value": 0,
+                "home": None,
+            }
+        elif name == "trigger_analog_set_raw_range":
+            self._trigger_analogs[params["oid"]].update(
+                raw_min=params["raw_min"], raw_max=params["raw_max"]
+            )
+        elif name == "trigger_analog_set_trigger":
+            self._trigger_analogs[params["oid"]].update(
+                type=params["trigger_analog_type"], value=params["trigger_value"]
+            )
+        elif name == "trigger_analog_home":
+            trigger = self._trigger_analogs[params["oid"]]
+            trigger["home"] = (
+                None
+                if params["monitor_ticks"] == 0
+                else {**params, "count": 0, "next": params["clock"]}
+            )
+        elif name == "query_hx71x" and self._hx71x is not None:
+            self._hx71x.update(
+                running=params["rest_ticks"] != 0,
+                sequence=0,
+                buffer=[],
+                error=False,
+                next_at=time.monotonic() + 1 / self._hx71x_rate,
+            )
         elif name == "config_velocity_stream":
             self._stream = _Stream(params["oid"], self._positions)
         elif name == "tmcuart_send":
@@ -562,11 +648,18 @@ class _Mcu:
 
     def _wait(self) -> float | None:
         stream = self._stream
-        if self._armed or (
-            stream is not None
-            and (stream.running() or stream.enabled and stream.idle_timeout)
+        homing = any(t["home"] is not None for t in self._trigger_analogs.values())
+        if (
+            self._armed
+            or homing
+            or (
+                stream is not None
+                and (stream.running() or stream.enabled and stream.idle_timeout)
+            )
         ):
             return _TICK
+        if self._hx71x is not None and self._hx71x["running"]:
+            return max(0.0, self._hx71x["next_at"] - time.monotonic())
         return None
 
     def _tick(self) -> None:
@@ -579,6 +672,8 @@ class _Mcu:
         self._check_endstops(clock)
         if stream is not None:
             self._check_idle(stream, clock)
+        self._sample_hx71x()
+        self._monitor_trigger_analogs(clock)
         if stream is not None and stream.running() and stream.report_ticks:
             if clock >= stream.next_report:
                 self._report(stream, clock)
@@ -615,6 +710,68 @@ class _Mcu:
             stream.relaxes = (stream.relaxes + 1) % 256
             self._report(stream, clock)
 
+    def _sample_hx71x(self) -> None:
+        hx71x = self._hx71x
+        if hx71x is None or not hx71x["running"]:
+            return
+        now = time.monotonic()
+        while now >= hx71x["next_at"]:
+            hx71x["next_at"] += 1 / self._hx71x_rate
+            if self._hx71x_stalled:
+                continue
+            value = _HX71X_DESYNC if hx71x["error"] else self._load_counts
+            if not hx71x["error"] and hx71x["trigger"] is not None:
+                self._update_trigger_analog(hx71x["trigger"], value)
+            hx71x["buffer"].append(value & _MASK32)
+            if len(hx71x["buffer"]) < _HX71X_BATCH:
+                continue
+            data = b"".join(v.to_bytes(4, "little") for v in hx71x["buffer"])
+            hx71x["buffer"] = []
+            self._respond(
+                "sensor_bulk_data",
+                oid=hx71x["oid"],
+                sequence=hx71x["sequence"],
+                data=data,
+            )
+            hx71x["sequence"] = (hx71x["sequence"] + 1) & 0xFFFF
+
+    def _update_trigger_analog(self, oid: int, sample: int) -> None:
+        trigger = self._trigger_analogs[oid]
+        home = trigger["home"]
+        clock = self._clock()
+        if home is None or _before(clock & _MASK32, home["clock"]):
+            return
+        home["count"] = 0
+        if not trigger["raw_min"] <= sample <= trigger["raw_max"]:
+            trigger["home"] = None
+            self._trigger(
+                home["trsync_oid"], home["error_reason"] + _TE_RAW_RANGE, -1, clock
+            )
+            return
+        sos = self._sos_filters[trigger["sos"]]
+        value = (sample + sos["offset"]) * sos["scale"]
+        if sos["frac"]:
+            value = (value + (1 << (sos["frac"] - 1))) >> sos["frac"]
+        if value > trigger["value"]:  # gt（このテストが張るのは gt だけ）
+            trigger["home"] = None
+            self._trigger(home["trsync_oid"], home["trigger_reason"], -1, clock)
+
+    def _monitor_trigger_analogs(self, clock: int) -> None:
+        for trigger in self._trigger_analogs.values():
+            home = trigger["home"]
+            while home is not None and not _before(clock & _MASK32, home["next"]):
+                if home["count"] > home["monitor_max"]:
+                    trigger["home"] = None
+                    self._trigger(
+                        home["trsync_oid"],
+                        home["error_reason"] + _TE_MONITOR,
+                        -1,
+                        clock,
+                    )
+                    break
+                home["count"] += 1
+                home["next"] = (home["next"] + home["monitor_ticks"]) & _MASK32
+
     def _pin_value(self, pin: int) -> int:
         switch = self._switches.get(pin)
         stream = self._stream
@@ -647,7 +804,11 @@ class _Mcu:
             axis = switch["axis"]
             stream.position[axis] = switch["at"] - stream.offset[axis]
         for name, _ in trsync["signals"]:
-            if name == "velocity_stream_stop_on_trigger" and stream is not None:
+            if (
+                name == "velocity_stream_stop_on_trigger"
+                and stream is not None
+                and stream.running()
+            ):
                 stream.state = "contact"
                 stream.velocity = [0.0] * _AXES
                 stream.target = [0] * _AXES
@@ -698,6 +859,10 @@ class _Mcu:
             self._stream.enabled = False
             self._stream.idle_timeout = 0
         self._armed.clear()
+        for trigger in self._trigger_analogs.values():
+            trigger["home"] = None
+        if self._hx71x is not None:
+            self._hx71x["running"] = False
         for trsync in self._trsyncs.values():
             trsync.update(can_trigger=False, signals=[])
         self._respond(

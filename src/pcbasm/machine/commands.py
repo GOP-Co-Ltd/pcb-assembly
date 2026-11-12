@@ -61,13 +61,18 @@ class MoveToCap:
 
 
 @attrs.frozen
+class Tare:
+    """ステージのロードセルの今の荷重を 0 にする（新ファームの機体だけ）."""
+
+
+@attrs.frozen
 class RawGCode:
     """任意の G-code を送る."""
 
     text: str
 
 
-type MachineCommand = Home | Jog | Move | Relax | FocusZ | MoveToCap | RawGCode
+type MachineCommand = Home | Jog | Move | Relax | FocusZ | MoveToCap | Tare | RawGCode
 
 
 def to_gcode(
@@ -78,7 +83,7 @@ def to_gcode(
     設定は焦点 Z とキャップ位置のときだけ読む。設定エラーでもホーミング・ジョグ・脱力はできる。
 
     Raises:
-        ValueError: 可動域外、焦点 Z が無い、キャップ位置が未記録の場合
+        ValueError: 可動域外、焦点 Z が無い、キャップ位置が未記録、Klipper の機体で使えない命令（Tare）の場合
     """
     match command:
         case Home(axes=axes):
@@ -106,6 +111,10 @@ def to_gcode(
             if cap is None:
                 raise ValueError("ノズルキャップ位置が未記録です")
             commands = stage.travel_to(cap)
+        case Tare():
+            raise ValueError(
+                "タール（TARE）はこの機体では使えません（ロードセルのある新ファームの機体だけの操作です）"
+            )
         case RawGCode(text=text):
             commands = GCode(text)
     return commands + GCode.wait_for_done()

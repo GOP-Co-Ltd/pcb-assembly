@@ -15,11 +15,15 @@ from .manual_stepper import ManualStepper
 from .motion import (
     HOMING_ORDER,
     Axis,
+    ContactSettings,
+    ContactStopped,
     MotionError,
     MotionStage,
     MotionState,
     MotionStatus,
     Velocity,
+    contact_move_error,
+    contact_velocity,
     homing_order,
 )
 from .paste_dispenser import PasteDispenser
@@ -72,11 +76,15 @@ __all__ = [
     # motion
     "HOMING_ORDER",
     "Axis",
+    "ContactSettings",
+    "ContactStopped",
     "MotionError",
     "MotionStage",
     "MotionState",
     "MotionStatus",
     "Velocity",
+    "contact_move_error",
+    "contact_velocity",
     "homing_order",
     # stage
     "ScalarLimits",

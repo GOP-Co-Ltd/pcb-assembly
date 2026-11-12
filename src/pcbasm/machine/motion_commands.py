@@ -1,4 +1,4 @@
-"""新ファームの機体（``[pnp.motion]``）の操作パネルの命令と、位置の表示文字列.
+"""新ファームの機体（``[pnp.motion]``）の操作パネルの命令と、位置と荷重の表示文字列.
 
 命令の型は Klipper の機体と同じ :data:`~pcbasm.machine.commands.MachineCommand` を使い、
 G-code にせず :class:`~pcbasm.hal.motion.MotionStage` で実行する。
@@ -19,6 +19,7 @@ from pcbasm.machine.commands import (
     MoveToCap,
     RawGCode,
     Relax,
+    Tare,
 )
 
 _AXES = ("x", "y", "z")
@@ -30,7 +31,8 @@ def execute_motion_command(command: MachineCommand, stage: MotionStage) -> None:
     原点出しと移動は、途中でジョブを中止しても止まらない（止めるのは緊急停止だけ）。
 
     Raises:
-        ValueError: 可動域の外、原点出しをしていない軸、またはこの機体で使えない命令の場合
+        ValueError: 可動域の外、原点出しをしていない軸、ロードセルが無いか値が来ていない（Tare）、
+            またはこの機体で使えない命令の場合
         MotionError: ステージが shutdown している、または話せない場合
     """
     match command:
@@ -50,6 +52,8 @@ def execute_motion_command(command: MachineCommand, stage: MotionStage) -> None:
             stage.move_to(x=x, y=y, z=z)
         case Relax():
             stage.relax()
+        case Tare():
+            stage.tare()
         case FocusZ() | MoveToCap() | RawGCode():
             raise ValueError(
                 f"{type(command).__name__} はこの機体では使えません（Klipper の機体だけの操作です）"
@@ -69,3 +73,20 @@ def motion_position_label(status: MotionStatus) -> str:
 def motion_homed_axes(status: MotionStatus) -> str:
     """原点出しを済ませた軸を ``xyz`` の順に並べる（Klipper の ``toolhead.homed_axes`` と同じ書き方）."""
     return "".join(axis for axis in _AXES if axis in status.homed)
+
+
+def motion_load_label(status: MotionStatus) -> str | None:
+    """荷重を小数 1 桁で書く（``荷重 12.3 g``）。読めなければ理由を書き、ロードセルが無いか読み始めなら None.
+
+    接触保持の間は「（接触中）」を付ける。
+    """
+    if status.load_error is not None:
+        label = f"ロードセル: {status.load_error}"
+    elif status.load is None:
+        label = None
+    else:
+        # -0.04 を「-0.0」と書かない
+        label = f"荷重 {round(status.load, 1) + 0.0:.1f} g"
+    if status.contact:
+        return "接触中" if label is None else f"{label}（接触中）"
+    return label

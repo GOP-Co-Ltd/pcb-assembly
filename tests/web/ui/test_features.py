@@ -209,6 +209,17 @@ class TestMotionStage:
         assert set(CONTROLLER_JOBS.values()).isdisjoint(FEATURES_BY_SLUG)
         assert [f.slug for f in tab_features("pnp", PNP, "motion")] == ["placement"]
 
+    def test_load_cell_calibrate_is_only_on_the_motion_machine(self):
+        def tweezer_group(stage: StageKind) -> list[str]:
+            return [
+                feature.slug
+                for feature in tab_features("calibration", PNP, stage)
+                if feature.group == "ピンセット"
+            ]
+
+        assert tweezer_group("motion") == ["servo_setup", "load_cell_calibrate"]
+        assert tweezer_group("klipper") == ["servo_setup"]
+
     def test_motion_machine_lands_on_the_placement_page(self):
         assert landing(PNP, "motion") == "placement"
 
