@@ -1,4 +1,6 @@
-"""画面の仮想スティック（コントローラ操作のジョブ、新ファームの機体）: frontend の中継と WS を通ってステージへ速度が届く.
+"""画面の仮想スティック（マシン操作パネルのコントローラ操作、新ファームの機体）: frontend の中継と WS を通ってステージへ速度が届く.
+
+- パネルの「コントローラ操作」で始め、もう一度押すと終わる
 
 - XY パッドを押して倒している間は速度を送り、離すと 0 になる（右 = X+、上 = Y−）
 - 押したまま送信が途切れると、backend は届いてから VIRTUAL_TIMEOUT を過ぎたところで 0 にする。
@@ -57,11 +59,12 @@ def _last(stage: FakeMotionStage) -> Velocity:
 
 
 def _start(page: Page, live_ui: LiveUi) -> None:
-    """ジョブを始め、XY パッドの中心を押して右上へ倒す（押したまま返る）."""
-    page.goto(f"{live_ui.base_url}/gamepad_motion")
+    """パネルからジョブを始め、XY パッドの中心を押して右上へ倒す（押したまま返る）."""
+    page.goto(f"{live_ui.base_url}/placement")
     acquire_control(page)
-    page.get_by_test_id("job-run").click()
-    expect(page.get_by_test_id("jc-status")).to_have_attribute("data-status", "running")
+    toggle = page.get_by_test_id("mc-controller-toggle")
+    toggle.click()
+    expect(toggle).to_have_attribute("aria-pressed", "true")
     box = page.get_by_test_id("vs-pad").bounding_box()
     assert box is not None
     cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
@@ -99,3 +102,18 @@ class TestVirtualStick:
             t for t, v in stage.velocities if t > stalled_at and v == Velocity()
         )
         assert stopped_at - stalled_at >= VIRTUAL_TIMEOUT - 0.1
+
+    def test_pressing_the_button_again_ends_the_job(
+        self, live_ui: LiveUi, live_server: LiveServer, browser_page: Page
+    ):
+        page = browser_page
+        _start(page, live_ui)
+        page.mouse.up()
+        toggle = page.get_by_test_id("mc-controller-toggle")
+
+        toggle.click()
+
+        expect(toggle).to_have_attribute("aria-pressed", "false")
+        job = httpx.get(f"{live_server.base_url}/api/jobs/current").json()["job"]
+        assert job["name"] == "gamepad_motion"
+        assert job["status"] == "aborted"

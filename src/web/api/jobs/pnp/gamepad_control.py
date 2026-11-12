@@ -30,7 +30,7 @@ def _run_gamepad_control(ctx: JobContext) -> NoReturn:
     tweezer = ctx.devices.tweezer()
     gamepad = ctx.devices.connect_gamepad()
     try:
-        ctx.progress("操作中（終えるときは中止を押す）")
+        ctx.progress("操作中（終えるときは「コントローラ操作を終える」を押す）")
         ctx.log("LT: 開閉（押し込むほど開く） / LB・RB: 回転（押している間回る）")
         GamepadControl(gamepad, tweezer).run(ctx.checkpoint)
     finally:

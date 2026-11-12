@@ -48,7 +48,8 @@ def default_catalog(
     """機体の機能に応じたジョブを登録したカタログを返す（これがジョブの一覧）.
 
     位置合わせ・カメラ・基板生成・装置診断はどの機体にも登録し、塗布のジョブは solder 機能の機体にだけ、部品実装のジョブは pnp 機能の機体にだけ登録する。
-    XYZ のコントローラ操作とロードセルの校正は、XYZ を新ファームで動かす部品実装機にだけ登録する
+    コントローラ操作は部品実装機に 1 つだけ登録する。XYZ を新ファームで動かす機体は XYZ とピンセット（gamepad_motion）、
+    それ以外はピンセットだけ（gamepad_control）。ロードセルの校正は、XYZ を新ファームで動かす部品実装機にだけ登録する
     （ロードセルは新ファームの MCU につなぐ。ロードセルの無い機体では、校正のジョブは理由を出して失敗する）。
 
     Args:
@@ -70,10 +71,11 @@ def default_catalog(
         paste_dataset_finalize.register(catalog, stores)
     if "pnp" in capabilities:
         servo_setup.register(catalog)
-        gamepad_control.register(catalog)
         if motion_stage:
             gamepad_motion.register(catalog)
             load_cell_calibrate.register(catalog)
+        else:
+            gamepad_control.register(catalog)
     reference_point_setup.register(catalog)
     camera_calibration.register(catalog)
     board_tour.register(catalog)

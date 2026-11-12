@@ -1,6 +1,6 @@
 ---
 name: agent-team-startup
-description: orchestrator（メインエージェント）が implementation-planner →（任意 spec-test-author）→ plan-implementer → code-reviewer ⇄ code-simplifier を統括する標準フロー、モデル構成（全 agent inherit + effort で差別化）、委譲と並列化の判断基準。ユーザーが「エージェントチームで進めて」「並列で」と明示したときだけ参照する。指定がない場合の既定は skill solo-dev-cycle。
+description: orchestrator（メインエージェント）が implementation-planner →（任意 spec-test-author）→ plan-implementer → code-reviewer ⇄ code-simplifier を統括する標準フロー、モデル構成（plan-implementer だけ sonnet、他は inherit + effort で差別化）、委譲と並列化の判断基準。ユーザーが「エージェントチームで進めて」「並列で」と明示したときだけ参照する。指定がない場合の既定は skill solo-dev-cycle。
 ---
 
 # エージェントチーム起動手順
@@ -18,7 +18,7 @@ description: orchestrator（メインエージェント）が implementation-pla
 
 ## 役割とモデル / effort 構成
 
-全 agent がセッションのモデルを継承する（`model: inherit`）。速度・コスト・深さの差別化は **`effort` 一本**で行う。呼び出し時に Agent tool の `model` / `effort` パラメータで一時的に上書きもできる（frontmatter より優先）。
+plan-implementer は確定済みの計画を実装するだけなので `model: sonnet` を既定にする。他の agent はセッションのモデルを継承する（`model: inherit`）。速度・コスト・深さの差別化は **`effort` 一本**で行う。呼び出し時に Agent tool の `model` / `effort` パラメータで一時的に上書きもできる（frontmatter より優先）。
 
 | agent                  | effort       | 役割                                                                     |
 | ---------------------- | ------------ | ------------------------------------------------------------------------ |
