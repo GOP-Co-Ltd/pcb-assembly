@@ -1017,7 +1017,7 @@ class FakeMotionStage(MotionStage):
             self._connected = False
 
     def set_load(self, grams: float) -> None:
-        """ロードセルに掛かる荷重 [g] を与える（風袋を引く前の値）."""
+        """ロードセルに掛かる荷重 [g] を与える（タールする前の値）."""
         with self._lock:
             self._load = grams
 

@@ -5,8 +5,8 @@
   - 仮想スティックは、届いてから ``VIRTUAL_TIMEOUT`` を過ぎると 0 になる（送信が途切れたら止まる）
   - 一度に届いた stick は最後の 1 件だけを使う
   - マシン操作パネルの命令と一緒に届いた stick は捨てる（原点出しや移動の間に溜まった古い入力で動かない）
-- 同じジョブの中で、マシン操作パネルの命令（原点出し・ジョグ・移動・脱力・風袋引き）を届いた順に実行する
-  - Klipper の機体だけの命令と、ロードセルの無い機体の風袋引きと、形の誤った stick と、知らない command は
+- 同じジョブの中で、マシン操作パネルの命令（原点出し・ジョグ・移動・脱力・タール）を届いた順に実行する
+  - Klipper の機体だけの命令と、ロードセルの無い機体のタールと、形の誤った stick と、知らない command は
     ログに出して続ける
 - コントローラのスティックには machine.toml の [pnp.gamepad] のデッドゾーンを掛ける
 - コントローラが外れても、ジョブを落とさず仮想スティックで続ける
@@ -268,7 +268,7 @@ class TestTare:
 
         _send(manager, record, {"type": "tare"})
 
-        wait_until(lambda: stage.status().load == 0.0, what="風袋引き")
+        wait_until(lambda: stage.status().load == 0.0, what="タール")
         assert record.status == JobStatus.RUNNING
 
 

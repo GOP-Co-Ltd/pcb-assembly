@@ -1,6 +1,6 @@
-"""ロードセル（HX711）の値の読み取り、グラムへの換算、風袋引き.
+"""ロードセル（HX711）の値の読み取り、グラムへの換算、タール.
 
-pnp-motion ファームの ``hx71x`` が送る ``sensor_bulk_data`` を受け、ピンセットに掛かる荷重 [g] にする。
+pnp-motion ファームの ``hx71x`` が送る ``sensor_bulk_data`` を受け、ステージに掛かる荷重 [g] にする。
 :class:`LoadTracker` は時刻を引数で受ける純粋なロジック、:class:`LoadCell` は MCU との I/O の包み。
 
 仕様として読んだもの（コードは写していない。pcbasm は MIT、出典は GPLv3）:
@@ -30,14 +30,14 @@ pnp-motion ファームの ``hx71x`` が送る ``sensor_bulk_data`` を受け、
   正しいサンプルが来たら誤りを消す
 - **値が来ない:** 最後のサンプル（か読み始め）から「古いとみなす時間」来なければ「値が来ない」とする。
   古いとみなす時間は 0.5 s と、1 通の間隔（12 サンプル）の 2 倍の長いほう（80 SPS で 0.5 s、10 SPS で 2.4 s）
-- **グラム:** ``sign × (値 − 風袋) / counts_per_gram``。sign は normal が +1、inverted が −1
-- **最初の風袋引き:** 読み始めて最初の 16 サンプルの平均（安定かどうかは問わない）。それまでは None
-- **自動の風袋引き:** Z が止まっている（Z を動かす指令から 1 s たった）間のサンプルが 1 s ぶん続き、その幅
-  （最大 − 最小）が 0.5 g 以下で、平均と今の風袋の差が 2 g 以下なら、平均を新しい風袋にして窓を空にする。
+- **グラム:** ``sign × (値 − タール値) / counts_per_gram``。sign は normal が +1、inverted が −1
+- **最初のタール:** 読み始めて最初の 16 サンプルの平均（安定かどうかは問わない）。それまでは None
+- **自動のタール:** Z が止まっている（Z を動かす指令から 1 s たった）間のサンプルが 1 s ぶん続き、その幅
+  （最大 − 最小）が 0.5 g 以下で、平均と今のタール値の差が 2 g 以下なら、平均を新しいタールにして窓を空にする。
   止まっている間はおよそ 1 秒ごとに取り直す（Z の指令からは約 2 s）。差の上限は「接触していない」の近似で、
-  押し続けた荷重や載せたものを風袋に取り込まないためのもの。温度などのゆっくりしたずれだけを追う。
-  上限を超えてずれたら（たとえば起動したときに何かが当たっていた）、手で風袋を取る
-- **手で風袋引き:** 最後のサンプルから 0.25 s の間の正しいサンプルの平均。最後のサンプルが古いか、
+  押し続けた荷重や載せたものをタールに取り込まないためのもの。温度などのゆっくりしたずれだけを追う。
+  上限を超えてずれたら（たとえば起動したときに何かが当たっていた）、手でタールする
+- **手でタール:** 最後のサンプルから 0.25 s の間の正しいサンプルの平均。最後のサンプルが古いか、
   誤りが出ていれば受けない。安定かどうかは問わない
 - **区間の荷重の幅:** Z が止まっている区間と動いている区間（Z の指令から 1 s まで）の、荷重の最小と最大を
   区間が終わるたびに info ログに出す。操作パネルは最後の 1 サンプルを間をおいて出すだけなので、加速で出る
@@ -69,16 +69,16 @@ _BYTES_PER_SAMPLE = 4
 _SEQUENCE_MASK = 0xFFFF
 _REST_DIVISOR = 16  # rest_ticks = 1 サンプルの周期の 16 分の 1
 _INITIAL_TARE_SAMPLES = 16
-_QUIET_SPAN = 1.0  # 自動の風袋引きに要る、止まっている長さ [s]
+_QUIET_SPAN = 1.0  # 自動のタールに要る、止まっている長さ [s]
 _QUIET_AFTER_MOTION = 1.0  # Z を動かす指令のあと、止まったとみなすまで [s]
 _MANUAL_TARE_SPAN = 0.25  # [s]
 _STALE_AFTER = 0.5  # 古いとみなす時間の下限 [s]
 _SAMPLES_PER_MESSAGE = 12  # sensor_bulk.h の data[51] に入るサンプルの数
 _REQUERY_INTERVAL = 1.0  # [s]
 _NOT_ARRIVING = "ロードセルの値が来ない"
-# 自動の風袋引きで、安定とみなす 1 s の間の荷重の幅 [g]（仮の値。受け入れ試験 A34 で測って直す）
+# 自動のタールで、安定とみなす 1 s の間の荷重の幅 [g]（仮の値。受け入れ試験 A34 で測って直す）
 _TARE_SPREAD = 0.5
-# 自動の風袋引きで追う、今の風袋からの差の上限 [g]（仮の値。受け入れ試験 A34 で測って直す）
+# 自動のタールで追う、今のタール値からの差の上限 [g]（仮の値。受け入れ試験 A34 で測って直す）
 _TARE_DRIFT = 2.0
 
 
@@ -146,7 +146,7 @@ class LoadReading:
 
 
 class LoadTracker:
-    """HX711 のサンプルから荷重を出し、風袋を取る（時刻は引数で受ける。スレッドを守らない）.
+    """HX711 のサンプルから荷重を出し、タールする（時刻は引数で受ける。スレッドを守らない）.
 
     進め方はモジュールの docstring の「決めたこと」。
     """
@@ -186,7 +186,7 @@ class LoadTracker:
             quiet: Z が止まっている間のサンプルか
 
         Returns:
-            風袋が変わったら、新しい風袋の値（丸めた counts）。変わらなければ None
+            タールが変わったら、新しいタール値（丸めた counts）。変わらなければ None
         """
         if not samples:
             return None
@@ -253,10 +253,10 @@ class LoadTracker:
         self._section = None
 
     def tare(self, now: float) -> int:
-        """最後のサンプルから 0.25 s の間の平均を風袋にする.
+        """最後のサンプルから 0.25 s の間の平均をタールにする.
 
         Returns:
-            新しい風袋の値（丸めた counts）
+            新しいタール値（丸めた counts）
 
         Raises:
             ValueError: 誤りが出ている、または最後の正しいサンプルが古い
@@ -289,7 +289,7 @@ class LoadTracker:
         return LoadReading(self._grams(self._recent[-1][1]))
 
     def _grams(self, sample: int) -> float:
-        """今の風袋からの荷重 [g]（風袋を取ってから呼ぶ）."""
+        """今のタール値からの荷重 [g]（タールしてから呼ぶ）."""
         assert self._tare is not None
         return self._sign * (sample - self._tare) / self._settings.counts_per_gram
 
@@ -378,10 +378,10 @@ class LoadCell:
         """
         with self._lock:
             counts = self._tracker.tare(time.monotonic())
-        _logger.info("ロードセルの風袋を取った: %d counts", counts)
+        _logger.info("ロードセルをタールした: %d counts", counts)
 
     def note_z_motion(self) -> None:
-        """Z を動かす指令を送った（ここから 1 s は自動の風袋引きをしない）."""
+        """Z を動かす指令を送った（ここから 1 s は自動のタールをしない）."""
         with self._lock:
             self._z_moved_at = time.monotonic()
 
@@ -422,7 +422,7 @@ class LoadCell:
                 quiet = first - self._z_moved_at >= _QUIET_AFTER_MOTION
                 counts = self._tracker.feed(valid, last, quiet=quiet)
                 if counts is not None:
-                    _logger.debug("ロードセルの風袋を取った: %d counts", counts)
+                    _logger.debug("ロードセルをタールした: %d counts", counts)
                 section = self._tracker.take_section()
                 if section is not None:
                     _logger.info(
