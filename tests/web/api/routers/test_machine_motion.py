@@ -177,7 +177,7 @@ class TestMotionCommand:
 
 
 class TestMotionTare:
-    """風袋引き（ロードセルのある新ファームの機体だけ）."""
+    """タール（ロードセルのある新ファームの機体だけ）."""
 
     @pytest.fixture
     def stage(self) -> FakeMotionStage:

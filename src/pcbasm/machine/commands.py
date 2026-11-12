@@ -62,7 +62,7 @@ class MoveToCap:
 
 @attrs.frozen
 class Tare:
-    """ピンセットのロードセルの今の荷重を 0 にする（新ファームの機体だけ）."""
+    """ステージのロードセルの今の荷重を 0 にする（新ファームの機体だけ）."""
 
 
 @attrs.frozen
@@ -113,7 +113,7 @@ def to_gcode(
             commands = stage.travel_to(cap)
         case Tare():
             raise ValueError(
-                "風袋引き（TARE）はこの機体では使えません（ロードセルのある新ファームの機体だけの操作です）"
+                "タール（TARE）はこの機体では使えません（ロードセルのある新ファームの機体だけの操作です）"
             )
         case RawGCode(text=text):
             commands = GCode(text)

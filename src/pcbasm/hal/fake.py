@@ -945,9 +945,9 @@ class FakeMotionStage(MotionStage):
     :meth:`shutdown` で MCU の shutdown を、:meth:`disconnect` で USB が外れたことを模擬する。
     ``load_cell`` なら、ロードセルの荷重を :meth:`set_load` で外から与える（:meth:`tare` がその時点の値を 0 にする）。
     ``contact`` も与えると接触停止を模擬する（:mod:`pcbasm.hal.motion` の「接触停止と接触保持」）: 動いている間に
-    風袋からの荷重が ``trigger_force`` 以上になったら（:meth:`set_load` か、その荷重のまま動き出したとき）止めて
+    タール値からの荷重が ``trigger_force`` 以上になったら（:meth:`set_load` か、その荷重のまま動き出したとき）止めて
     接触保持に入る。保持の間は、速度指令を :func:`~pcbasm.hal.motion.contact_velocity` で絞り、座標指定の移動は
-    :func:`~pcbasm.hal.motion.contact_move_error` に従い、原点出しと風袋引きを拒む。次の操作の最初に荷重が
+    :func:`~pcbasm.hal.motion.contact_move_error` に従い、原点出しとタールを拒む。次の操作の最初に荷重が
     ``release_force`` を下回っていれば戻る（MCU 版と違い、100 ms 下回り続けるのを待たない）。
     時計は注入する（テストは手で進める時計を渡す）。
     """
@@ -1031,7 +1031,7 @@ class FakeMotionStage(MotionStage):
             self._connected = False
 
     def set_load(self, grams: float) -> None:
-        """ロードセルに掛かる荷重 [g] を与える（風袋を引く前の値）.
+        """ロードセルに掛かる荷重 [g] を与える（タールする前の値）.
 
         接触停止を模擬していて、動いている間に ``trigger_force`` 以上になれば、止めて接触保持に入る。
         """
@@ -1201,7 +1201,7 @@ class FakeMotionStage(MotionStage):
                 raise ValueError("この機体にはロードセルがありません")
             if self._holding:
                 raise ValueError(
-                    f"接触中は風袋引きできません。{self._release_direction()} で離してください"
+                    f"接触中はタールできません。{self._release_direction()} で離してください"
                 )
             self._tare = self._load
             self._commands.append("tare")
@@ -1221,7 +1221,7 @@ class FakeMotionStage(MotionStage):
             raise MotionError(msg)
 
     def _pressed(self) -> bool:
-        """接触停止を模擬していて、風袋からの荷重が ``trigger_force`` 以上."""
+        """接触停止を模擬していて、タール値からの荷重が ``trigger_force`` 以上."""
         contact = self._contact
         return contact is not None and self._load - self._tare >= contact.trigger_force
 

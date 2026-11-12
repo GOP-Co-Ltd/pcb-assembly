@@ -307,14 +307,14 @@ class TestLoad:
     def test_status_reports_the_load_in_grams(
         self, mcu: WireMcu, load_stage: McuMotionStage
     ):
-        wait_until(lambda: load_stage.status().load == 0.0, what="風袋引き")
+        wait_until(lambda: load_stage.status().load == 0.0, what="タール")
 
         mcu.control("load", counts=-250)
 
         wait_until(lambda: load_stage.status().load == -2.5, what="-2.5 g")
 
     def test_tare_zeroes_the_load(self, mcu: WireMcu, load_stage: McuMotionStage):
-        wait_until(lambda: load_stage.status().load == 0.0, what="風袋引き")
+        wait_until(lambda: load_stage.status().load == 0.0, what="タール")
 
         load_stage.tare()
 
@@ -323,14 +323,14 @@ class TestLoad:
     def test_moving_z_keeps_the_auto_tare_from_taking_in_the_load(
         self, mcu: WireMcu, load_stage: McuMotionStage, caplog: pytest.LogCaptureFixture
     ):
-        # 風袋を取るまでは接触停止を張れないので動かさない
-        wait_until(lambda: load_stage.status().load == 0.0, what="風袋引き")
+        # タールするまでは接触停止を張れないので動かさない
+        wait_until(lambda: load_stage.status().load == 0.0, what="タール")
         load_stage.home(["z"])
         mcu.control("load", counts=100)
         end = time.monotonic() + 2.5
 
         def kept_moving() -> bool:
-            # Z を動かしている間は、止まって安定した 1 g でも風袋に取り込まない
+            # Z を動かしている間は、止まって安定した 1 g でもタールに取り込まない
             load_stage.set_velocity(Velocity(z=-0.5))
             assert load_stage.status().load in (0.0, 1.0)
             return time.monotonic() >= end
@@ -340,14 +340,14 @@ class TestLoad:
 
         caplog.set_level(logging.INFO, logger="pcbasm.hal.mcu.load_cell")
         load_stage.stop()
-        # 止めると、動いていた区間の荷重の幅をログに出し、やがて 1 g を風袋に取り込む
+        # 止めると、動いていた区間の荷重の幅をログに出し、やがて 1 g をタールに取り込む
         wait_until(lambda: "Z が動いていた" in caplog.text, what="区間のログ")
-        wait_until(lambda: load_stage.status().load == 0.0, what="自動の風袋引き")
+        wait_until(lambda: load_stage.status().load == 0.0, what="自動のタール")
 
     def test_a_bad_sample_is_reported_instead_of_the_load(
         self, mcu: WireMcu, load_stage: McuMotionStage
     ):
-        wait_until(lambda: load_stage.status().load == 0.0, what="風袋引き")
+        wait_until(lambda: load_stage.status().load == 0.0, what="タール")
         # 送り直した query_hx71x で回復しないよう、MCU 役の応答を止めてから乱す
         mcu.control("drop_blocks", count=1000)
         mcu.control("hx71x_error")
@@ -358,7 +358,7 @@ class TestLoad:
         assert load_stage.status().load is None
 
     def test_shutdown_hides_the_load(self, mcu: WireMcu, load_stage: McuMotionStage):
-        wait_until(lambda: load_stage.status().load == 0.0, what="風袋引き")
+        wait_until(lambda: load_stage.status().load == 0.0, what="タール")
 
         load_stage.emergency_stop()
         wait_until(
@@ -376,7 +376,7 @@ _LIGHT = 1000  # 10 g
 
 
 def _tared(stage: McuMotionStage) -> None:
-    wait_until(lambda: stage.status().load == 0.0, what="風袋引き")
+    wait_until(lambda: stage.status().load == 0.0, what="タール")
 
 
 def _limits(mcu: WireMcu, since: int) -> list[tuple[int, int, int]]:
@@ -560,7 +560,7 @@ class TestContactStop:
 
         with pytest.raises(ValueError, match="接触中は原点出し"):
             load_stage.home(["z"])
-        with pytest.raises(ValueError, match="接触中は風袋引き"):
+        with pytest.raises(ValueError, match="接触中はタール"):
             load_stage.tare()
         with pytest.raises(ValueError, match="Z\\+"):
             load_stage.move_to(z=z - 1.0)

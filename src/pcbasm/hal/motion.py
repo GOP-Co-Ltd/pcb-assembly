@@ -1,7 +1,7 @@
 """速度指令で動かす XYZ ステージ（pnp-motion ファーム）の抽象.
 
 塗布機の Klipper 経路（:class:`~pcbasm.hal.stage.XYZStage`）とは別の HAL。速度を期限付きで送り続けて動かし、
-原点出し・座標指定の移動・脱力・再起動と、ピンセットのロードセルの荷重の読み取りと風袋引き、接触停止を持つ。実装は ``pcbasm.hal.mcu`` の MCU 版と
+原点出し・座標指定の移動・脱力・再起動と、ステージのロードセルの荷重の読み取りとタール、接触停止を持つ。実装は ``pcbasm.hal.mcu`` の MCU 版と
 ``pcbasm.hal.fake.FakeMotionStage``。
 
 接触停止と接触保持（ロードセルがある機体）:
@@ -13,7 +13,7 @@
 - **接触停止:** 動いている間に荷重が ``trigger_force`` を超えたら、その場で止める。止まると「接触保持」に入り、
   :attr:`MotionStatus.contact` が真になる
 - **接触保持:** 荷重が ``release_force`` 以上の間は、Z の離す向きにだけ動かせる（:func:`contact_velocity`、
-  :func:`contact_move_error`）。X・Y と押す向き、原点出し、風袋引きは受け付けない。荷重が ``release_force`` を
+  :func:`contact_move_error`）。X・Y と押す向き、原点出し、タールは受け付けない。荷重が ``release_force`` を
   下回ったら、次の操作で通常に戻る
 """
 
@@ -98,7 +98,7 @@ class MotionStatus:
         state: 状態
         homed: 原点出しを済ませた軸
         shutdown_reason: shutdown した理由（shutdown していなければ None）
-        load: ピンセットに掛かる荷重 [g]（押される向きが正）。ロードセルが無いか、まだ読めていないか、
+        load: ステージに掛かる荷重 [g]（押される向きが正）。ロードセルが無いか、まだ読めていないか、
             読めないか、shutdown していれば None
         load_error: ロードセルが読めない理由（読めているか、ロードセルが無ければ None）
         contact: ロードセルの接触で止まり、まだ離していない（接触保持の間。モジュールの docstring）
@@ -306,7 +306,7 @@ class MotionStage(ABC):
 
     @abstractmethod
     def tare(self) -> None:
-        """ロードセルの今の荷重を 0 にする（風袋引き）.
+        """ロードセルの今の荷重を 0 にする（タール）.
 
         :meth:`status` と同じく、どのスレッドからでも呼べ、ほかの操作の終わりを待たない。
 

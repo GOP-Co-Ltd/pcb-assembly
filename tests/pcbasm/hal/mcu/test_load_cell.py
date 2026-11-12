@@ -53,7 +53,7 @@ class _Feeder:
         self._period = 1 / rate
 
     def feed(self, value: int, count: int, *, quiet: bool = True) -> list[int]:
-        """``value`` を ``count`` 個送り、取り直した風袋の値を返す."""
+        """``value`` を ``count`` 個送り、取り直したタール値を返す."""
         changes = []
         for start in range(0, count, 12):
             batch = [value] * min(12, count - start)
@@ -205,7 +205,7 @@ class TestAutoTare:
         assert feeder.feed(2000, 80) == [2000]
 
     def test_does_not_take_in_a_steady_load_over_two_grams(self):
-        # 押し続けた荷重や載せたものは、止まって安定していても風袋にしない
+        # 押し続けた荷重や載せたものは、止まって安定していてもタールにしない
         feeder = _tared(0)
 
         assert feeder.feed(20_000, 400) == []
@@ -458,7 +458,7 @@ def _load_cell(firmware: PnpMotionFirmware) -> LoadCell:
 
 
 def _keep_z_moving(load_cell: LoadCell, seconds: float) -> None:
-    """Z を動かし続けたことにして（自動の風袋引きを止めて）``seconds`` 秒待つ."""
+    """Z を動かし続けたことにして（自動のタールを止めて）``seconds`` 秒待つ."""
     end = time.monotonic() + seconds
 
     def waited() -> bool:
@@ -479,7 +479,7 @@ class TestLoadCellOverTheWire:
         self, mcu: WireMcu, firmware: PnpMotionFirmware
     ):
         load_cell = _load_cell(firmware)
-        wait_until(lambda: load_cell.reading() == LoadReading(0.0), what="風袋引き")
+        wait_until(lambda: load_cell.reading() == LoadReading(0.0), what="タール")
 
         mcu.control("load", counts=1250)
 
@@ -489,9 +489,9 @@ class TestLoadCellOverTheWire:
         self, mcu: WireMcu, firmware: PnpMotionFirmware
     ):
         load_cell = _load_cell(firmware)
-        wait_until(lambda: load_cell.reading() == LoadReading(0.0), what="風袋引き")
+        wait_until(lambda: load_cell.reading() == LoadReading(0.0), what="タール")
         mcu.control("load", counts=1250)
-        # 手の風袋引きは直近 0.25 s の平均なので、押した値だけになるまで待つ（その間、自動では取らせない）
+        # 手のタールは直近 0.25 s の平均なので、押した値だけになるまで待つ（その間、自動では取らせない）
         _keep_z_moving(load_cell, 0.6)
         assert load_cell.reading() == LoadReading(12.5)
 
@@ -503,7 +503,7 @@ class TestLoadCellOverTheWire:
         self, mcu: WireMcu, firmware: PnpMotionFirmware
     ):
         load_cell = _load_cell(firmware)
-        wait_until(lambda: load_cell.reading() == LoadReading(0.0), what="風袋引き")
+        wait_until(lambda: load_cell.reading() == LoadReading(0.0), what="タール")
         before = len(_queries(mcu))
 
         mcu.control("hx71x_error")
@@ -516,7 +516,7 @@ class TestLoadCellOverTheWire:
         self, mcu: WireMcu, firmware: PnpMotionFirmware
     ):
         load_cell = _load_cell(firmware)
-        wait_until(lambda: load_cell.reading() == LoadReading(0.0), what="風袋引き")
+        wait_until(lambda: load_cell.reading() == LoadReading(0.0), what="タール")
 
         mcu.control("hx71x_skip")
         mcu.control("load", counts=-500)
@@ -527,7 +527,7 @@ class TestLoadCellOverTheWire:
         self, mcu: WireMcu, firmware: PnpMotionFirmware
     ):
         load_cell = _load_cell(firmware)
-        wait_until(lambda: load_cell.reading() == LoadReading(0.0), what="風袋引き")
+        wait_until(lambda: load_cell.reading() == LoadReading(0.0), what="タール")
 
         mcu.control("shutdown", reason=5)
 

@@ -416,7 +416,7 @@ class TestFakeMotionStageLoad:
 
 
 class TestFakeMotionStageContact:
-    """接触停止（風袋からの荷重が trigger_force 以上で止める）と接触保持（kurousagi と同じく Z− で押し当たる）."""
+    """接触停止（タール値からの荷重が trigger_force 以上で止める）と接触保持（kurousagi と同じく Z− で押し当たる）."""
 
     def _contact_stage(self, clock: _Clock) -> FakeMotionStage:
         return FakeMotionStage(
