@@ -49,7 +49,7 @@ def _run_gamepad_motion(ctx: JobContext) -> NoReturn:
         settings=pnp.gamepad if pnp is not None else GamepadConfig(),
     )
     try:
-        ctx.progress("操作中（終えるときは中止を押す）")
+        ctx.progress("操作中（終えるときは「コントローラ操作を終える」を押す）")
         ctx.log(
             "左スティック: XY / 右スティックの上下: Z / LT: 開閉 / LB・RB: 回転。"
             "原点出しをしていない軸は動かない"

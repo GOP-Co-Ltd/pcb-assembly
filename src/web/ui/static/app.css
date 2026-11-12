@@ -487,7 +487,9 @@ h2 {
   fill: #ffffff;
 }
 
-.mc-blocked {
+/* 実行中のコントローラ操作を終えるボタンは押せるので薄くしない */
+.mc-blocked > :not(.mc-controller),
+.mc-blocked .mc-controller > :not(#mc-controller-toggle) {
   opacity: 0.58;
 }
 
@@ -1033,16 +1035,25 @@ h2 {
   font-size: 0.9rem;
 }
 
-/* 仮想スティック（コントローラ操作のページ）。つまみの位置は JS が --vs-x / --vs-y（-1〜1）で渡す */
-.virtual-stick {
-  max-width: 42rem;
-  margin: 0 0 0.9rem;
+/* マシン操作パネルのコントローラ操作。実行中はボタンを押し込んだ見た目にする */
+.mc-controller {
+  display: grid;
+  gap: 0.4rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line);
 }
 
+.mc-controller button[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+
+/* 仮想スティック（マシン操作パネルのコントローラ操作）。つまみの位置は JS が --vs-x / --vs-y（-1〜1）で渡す */
 .vs-controls {
   display: flex;
   flex-wrap: wrap;
-  gap: 1.5rem;
+  gap: 0.75rem;
   align-items: flex-start;
 }
 
@@ -1066,23 +1077,23 @@ h2 {
 }
 
 .vs-pad {
-  width: min(16rem, 70vw);
+  width: min(9rem, 50vw);
   aspect-ratio: 1;
   border-radius: 50%;
 }
 
 .vs-z {
-  width: 3.5rem;
-  height: min(16rem, 70vw);
-  border-radius: 1.75rem;
+  width: 2.5rem;
+  height: min(9rem, 50vw);
+  border-radius: 1.25rem;
 }
 
 .vs-knob {
   position: absolute;
   left: calc(50% + var(--vs-x) * 50%);
   top: calc(50% - var(--vs-y) * 50%);
-  width: 3rem;
-  height: 3rem;
+  width: 2rem;
+  height: 2rem;
   border-radius: 50%;
   background: var(--accent);
   box-shadow: var(--shadow);

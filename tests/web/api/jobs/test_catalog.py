@@ -247,17 +247,18 @@ class TestParamGroups:
 
 
 class TestMotionStageMachine:
-    """XYZ を新ファームで動かす機体（[pnp.motion]）にだけ、XYZ のコントローラ操作を登録する."""
+    """XYZ を新ファームで動かす機体（[pnp.motion]）では、コントローラ操作に XYZ も含める.
 
-    def test_only_the_motion_machine_has_gamepad_motion(
+    コントローラ操作はマシン操作パネルのボタン 1 つから始めるので、機体に 1 つだけ登録する。
+    """
+
+    def test_motion_machine_has_gamepad_motion_instead_of_gamepad_control(
         self, catalog: JobCatalog, motion_backend: Backend
     ):
         names = [definition.name for definition in motion_backend.catalog.list()]
 
-        assert names[: len(JOBS_BY_DOMAIN["pnp"]) + 1] == [
-            *JOBS_BY_DOMAIN["pnp"],
-            "gamepad_motion",
-        ]
+        assert names[:2] == ["servo_setup", "gamepad_motion"]
+        assert "gamepad_control" not in names
         assert "gamepad_motion" not in {d.name for d in catalog.list()}
 
     def test_job_lives_in_a_file_named_after_it(self):

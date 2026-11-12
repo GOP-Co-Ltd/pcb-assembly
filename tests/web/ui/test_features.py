@@ -4,7 +4,7 @@
 
 - **表の整合**: slug は URL なので重複させない。タブとテンプレートが実在する
 - **機体の機能**: はんだ塗布機のタブ・サイドバー・着地点は作り直し前と同じ。部品実装だけの機体は部品実装タブに着地する
-- **backend との縫い目**: 機体の機能ごとに、backend が公開する全ジョブにページがあり、ジョブのページには backend のジョブがある
+- **backend との縫い目**: 機体の機能ごとに、backend が公開する全ジョブはページかマシン操作パネル（コントローラ操作）から始められ、ジョブのページには backend のジョブがある
 - **旧 URL**: 作り直し前のブックマーク（``/m/{id}/{旧タブ}/{旧 slug}``）が、すべて新しい行き先を持つ
 
 旧 URL が実際に 307 することは `test_pages.py` が HTTP で見る。
@@ -22,6 +22,7 @@ from web.api.jobs.pasting import PasteStores
 from web.contract.models import Capability, StageKind
 from web.ui import features
 from web.ui.features import (
+    CONTROLLER_JOBS,
     FEATURES,
     FEATURES_BY_SLUG,
     LEGACY,
@@ -190,35 +191,29 @@ class TestCatalogConsistency:
     """Backend のジョブとの縫い目（タブを持つのは frontend だけなので、テスト 1 本で縫う）."""
 
     @pytest.mark.parametrize("capabilities", MACHINES, ids="+".join)
-    def test_job_pages_are_exactly_the_public_jobs(
+    def test_job_entry_points_are_exactly_the_public_jobs(
         self, tmp_path: Path, capabilities: tuple[Capability, ...]
     ):
-        """Backend が公開する全ジョブにページがあり、ジョブのページには backend のジョブがある."""
+        """Backend が公開する全ジョブはページかパネルから始められ、ジョブのページには backend のジョブがある."""
         catalog = standalone_catalog(tmp_path, capabilities)
         jobs = {definition.name for definition in catalog.list()}
 
-        assert {
-            feature.slug
-            for feature in FEATURES
-            if feature.is_job and feature.is_available(capabilities, "klipper")
-        } == jobs
+        assert _job_entry_points(capabilities, "klipper") == jobs
 
 
 class TestMotionStage:
-    """XYZ を新ファームで動かす機体（machine-info の ``stage`` が "motion"）にだけ出すページ."""
+    """XYZ を新ファームで動かす機体（machine-info の ``stage`` が "motion"）."""
 
-    def test_gamepad_motion_is_only_on_the_motion_machine(self):
-        def pnp_tab(stage: StageKind) -> list[str]:
-            return [feature.slug for feature in tab_features("pnp", PNP, stage)]
-
-        assert pnp_tab("motion") == ["placement", "gamepad_control", "gamepad_motion"]
-        assert pnp_tab("klipper") == ["placement", "gamepad_control"]
+    def test_controller_jobs_have_no_page(self):
+        """コントローラ操作はマシン操作パネルから始めるので、部品実装タブにページを出さない."""
+        assert set(CONTROLLER_JOBS.values()).isdisjoint(FEATURES_BY_SLUG)
+        assert [f.slug for f in tab_features("pnp", PNP, "motion")] == ["placement"]
 
     def test_motion_machine_lands_on_the_placement_page(self):
         assert landing(PNP, "motion") == "placement"
 
-    def test_job_pages_are_exactly_the_public_jobs(self, tmp_path: Path):
-        """新ファームの機体でも、backend が公開する全ジョブにページがあり、ジョブのページには backend のジョブがある."""
+    def test_job_entry_points_are_exactly_the_public_jobs(self, tmp_path: Path):
+        """新ファームの機体でも、backend が公開する全ジョブはページかパネルから始められる."""
         catalog = default_catalog(
             PNP,
             PasteStores(
@@ -230,11 +225,22 @@ class TestMotionStage:
             motion_stage=True,
         )
 
-        assert {
-            feature.slug
-            for feature in FEATURES
-            if feature.is_job and feature.is_available(PNP, "motion")
-        } == {definition.name for definition in catalog.list()}
+        assert _job_entry_points(PNP, "motion") == {
+            definition.name for definition in catalog.list()
+        }
+
+
+def _job_entry_points(
+    capabilities: tuple[Capability, ...], stage: StageKind
+) -> set[str]:
+    """機体でジョブを始められるところ（ジョブのページと、部品実装機のパネルのコントローラ操作）."""
+    pages = {
+        feature.slug
+        for feature in FEATURES
+        if feature.is_job and feature.is_available(capabilities, stage)
+    }
+    panel = {CONTROLLER_JOBS[stage]} if "pnp" in capabilities else set()
+    return pages | panel
 
 
 class TestCommissioningSteps:

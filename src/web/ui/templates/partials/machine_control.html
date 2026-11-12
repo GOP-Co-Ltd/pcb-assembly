@@ -73,6 +73,45 @@
       <p id="mc-open-current" class="mc-tweezer-current" data-testid="mc-open-current">現在 ---</p>
     </section>
     {% endif %}
+    {% if controller_job %}
+    {# コントローラ操作のジョブ（controller_job）を押して始め、もう一度押して終える（machine_control.js）。
+       新ファームの機体では、ジョブの間だけ画面の仮想スティックで XYZ を動かせる（virtual_stick.js） #}
+    <section class="mc-controller" data-testid="mc-controller">
+      <button id="mc-controller-toggle" type="button" data-testid="mc-controller-toggle"
+              data-job-name="{{ controller_job }}" aria-pressed="false"
+              title="Xbox コントローラ{% if stage == "motion" %}と仮想スティック{% endif %}での操作を始める・終える">コントローラ操作</button>
+      <p class="mc-abs-hint">
+        {% if stage == "motion" %}左スティック: XY / 右スティックの上下: Z / {% endif %}LT: 開閉 / LB・RB: 回転
+      </p>
+      {% if stage == "motion" %}
+      <div id="virtual-stick" data-testid="virtual-stick" data-job-name="{{ controller_job }}">
+        <p class="mc-abs-hint">
+          仮想スティックは押して倒している間だけ動き、離すと止まります。倒し切ると各軸の最高速度です。原点出しをしていない軸は動きません。
+        </p>
+        <div class="vs-controls">
+          <figure class="vs-control">
+            <div id="vs-pad" class="vs-pad" data-testid="vs-pad">
+              <span class="vs-label vs-label-top">Y−</span>
+              <span class="vs-label vs-label-bottom">Y+</span>
+              <span class="vs-label vs-label-left">X−</span>
+              <span class="vs-label vs-label-right">X+</span>
+              <span class="vs-knob" aria-hidden="true"></span>
+            </div>
+            <figcaption>XY</figcaption>
+          </figure>
+          <figure class="vs-control">
+            <div id="vs-z" class="vs-z" data-testid="vs-z">
+              <span class="vs-label vs-label-top">Z+</span>
+              <span class="vs-label vs-label-bottom">Z−</span>
+              <span class="vs-knob" aria-hidden="true"></span>
+            </div>
+            <figcaption>Z</figcaption>
+          </figure>
+        </div>
+      </div>
+      {% endif %}
+    </section>
+    {% endif %}
     <div class="mc-group">
       {% if stage == "motion" %}
       {# 新ファームの機体は Klipper を使わないので、焦点 Z（カメラ校正の結果）とキャップ位置への移動は出さない #}
