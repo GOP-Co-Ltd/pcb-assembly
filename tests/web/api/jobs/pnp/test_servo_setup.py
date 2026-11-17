@@ -242,6 +242,26 @@ class TestServoSetupJob:
         manager.request_abort()
         _finish(record)
 
+    def test_open_close_outside_the_previous_limits_swings_around_where_it_is(
+        self, manager: JobManager, bus: FakeServoBus
+    ):
+        # 前回の設定の制限（1999〜2377）の外にいる。制限が残ると行き先が端へ引っ張られ大きく振り切る
+        bus.set_angle_limits(2, 1999, 2377)
+        record = manager.start("servo_setup", PARAMS)
+        operator = _Operator(record, manager)
+
+        operator.start()
+        operator.answer(ROTATION)
+        operator.wait()  # ID 2 を振り終えて役割を尋ねている
+
+        # 今の位置（1000）で保持し、5° = 57 step を + と - に振って戻る
+        gotos = [c.value for c in bus.commands if (c.servo_id, c.kind) == (2, "goto")]
+        assert gotos == [1000, 1057, 943, 1000]
+        # 指令は制限があっても同じ。制限が残ると、位置が制限の端（1999）に丸められる
+        assert bus.position(2) == 1000
+        manager.request_abort()
+        _finish(record)
+
     def test_freshly_installed_servos_get_the_mode_of_their_role(
         self, manager: JobManager, bus: FakeServoBus
     ):

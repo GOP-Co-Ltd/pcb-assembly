@@ -17,6 +17,7 @@ from pcbasm.pnp.servo_setup import (
     exercise,
     find_pair,
     release_angle_limits,
+    release_limits_for_wiggle,
     role_of_mode,
     roles_from_answers,
     servo_settings,
@@ -158,6 +159,40 @@ class TestReleaseAngleLimits:
         release_angle_limits(bus, 2)
 
         assert bus.angle_limits(2) == (0, 4095)
+
+
+class TestReleaseLimitsForWiggle:
+    def test_position_mode_outside_its_limits_gets_the_whole_turn(self):
+        # 前回の設定の制限の外にいると、今の位置 ± の行き先が制限の端へ引っ張られる
+        bus = FakeServoBus({2: ServoMode.POSITION}, {2: 988})
+        bus.set_angle_limits(2, 1999, 2377)
+
+        release_limits_for_wiggle(bus, (2,))
+
+        assert bus.angle_limits(2) == (0, 4095)
+
+    @pytest.mark.parametrize("position", [1999, 2188, 2377])
+    def test_position_mode_inside_its_limits_keeps_them(self, position: int):
+        # 制限の内側なら、振りが開き切りを越えないよう制限を残す
+        bus = FakeServoBus({2: ServoMode.POSITION}, {2: position})
+        bus.set_angle_limits(2, 1999, 2377)
+        before = len(bus.commands)
+
+        release_limits_for_wiggle(bus, (2,))
+
+        assert bus.angle_limits(2) == (1999, 2377)
+        assert len(bus.commands) == before
+
+    def test_step_mode_limits_are_left_alone(self):
+        # Rotation の 0 / 0（制限なし）を 0〜4095 にすると、中止したとき多回転できなくなる
+        bus = FakeServoBus({1: ServoMode.STEP})
+        bus.clear_angle_limits(1)
+        before = len(bus.commands)
+
+        release_limits_for_wiggle(bus, (1,))
+
+        assert bus.angle_limits(1) == (0, 0)
+        assert len(bus.commands) == before
 
 
 class TestExercise:

@@ -195,6 +195,24 @@ def release_angle_limits(bus: ServoBus, servo_id: int) -> None:
     bus.set_angle_limits(servo_id, 0, STEPS_PER_REV - 1)
 
 
+def release_limits_for_wiggle(bus: ServoBus, servo_ids: Iterable[int]) -> None:
+    """判別で振る前に、前回の設定の角度制限の外にいる位置モードのサーボだけ、制限を全域（0〜4095）に戻す.
+
+    制限の外にいると、今の位置 ± の行き先が制限の端へ引っ張られて大きく振り切る。内側にいれば
+    制限を残し、振りが開き切りを越えないようにする。ステップモードのサーボには書かない（Rotation の
+    0 / 0 を 0〜4095 にすると、ここで中止したとき多回転できなくなる）。
+
+    Raises:
+        ServoError: 通信に失敗した場合
+    """
+    for servo_id in servo_ids:
+        if bus.mode(servo_id) is not ServoMode.POSITION:
+            continue
+        low, high = bus.angle_limits(servo_id)
+        if not low <= bus.position(servo_id) <= high:
+            release_angle_limits(bus, servo_id)
+
+
 def exercise(
     bus: ServoBus, servo_id: int, span: OpenCloseRange, *, timeout: float = 6.0
 ) -> bool:
