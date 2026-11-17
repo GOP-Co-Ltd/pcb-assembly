@@ -10,6 +10,7 @@ from pcbasm.pnp.servo_setup import (
     exercise,
     find_pair,
     release_angle_limits,
+    release_limits_for_wiggle,
     role_of_mode,
     roles_from_answers,
     servo_settings,
@@ -73,6 +74,7 @@ def _set_up(ctx: JobContext, bus: ServoBus) -> JobResult:
     )
 
     ctx.progress("役割の判別")
+    release_limits_for_wiggle(bus, pair)
     degrees = float(ctx.params["wiggle_degrees"])
     while True:
         answers = {
