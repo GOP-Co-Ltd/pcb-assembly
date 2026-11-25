@@ -6,7 +6,7 @@
 import pytest
 
 from pcbasm.hal import ServoMode
-from pcbasm.hal.fake import FakeServoBus, ServoCommand
+from pcbasm.hal.fake import FakeServo, FakeServoBus, ServoCommand
 from pcbasm.pnp.servo_setup import (
     MIN_SPAN_DEGREES,
     OpenCloseRange,
@@ -18,6 +18,7 @@ from pcbasm.pnp.servo_setup import (
     find_pair,
     release_angle_limits,
     release_limits_for_wiggle,
+    renumber_single,
     role_of_mode,
     roles_from_answers,
     servo_settings,
@@ -62,6 +63,49 @@ class TestFindPair:
 
         with pytest.raises(ServoSetupError):
             find_pair(bus, range(2))
+
+
+class TestRenumberSingle:
+    def test_lone_servo_gets_the_lowest_free_id_other_than_its_own(self):
+        bus = FakeServoBus({1: ServoMode.POSITION})
+
+        assert renumber_single(bus, range(10), ()) == (1, 2)
+        assert bus.ping(2) and not bus.ping(1)
+
+    def test_ids_found_before_are_avoided(self):
+        """最初に見つかった ID は、外したもう 1 台が使っているかもしれない."""
+        bus = FakeServoBus({1: ServoMode.POSITION})
+
+        assert renumber_single(bus, range(10), (2, 3)) == (1, 4)
+
+    def test_id_0_is_not_given(self):
+        bus = FakeServoBus({3: ServoMode.POSITION})
+
+        assert renumber_single(bus, range(10), ()) == (3, 1)
+
+    @pytest.mark.parametrize(
+        "bus",
+        [
+            FakeServoBus({}),
+            FakeServoBus({1: ServoMode.STEP, 2: ServoMode.POSITION}),
+        ],
+        ids=["none", "two"],
+    )
+    def test_other_than_one_servo_writes_nothing(self, bus: FakeServoBus):
+        assert renumber_single(bus, range(10), ()) is None
+        assert bus.commands == []
+
+    def test_two_servos_on_one_id_are_not_one(self):
+        bus = FakeServoBus({1: ServoMode.STEP})
+        bus.plug(FakeServo(1, ServoMode.POSITION))
+
+        assert renumber_single(bus, range(10), ()) is None
+
+    def test_no_free_id_is_an_error(self):
+        bus = FakeServoBus({1: ServoMode.POSITION})
+
+        with pytest.raises(ServoSetupError, match="空いている ID"):
+            renumber_single(bus, range(3), (2,))
 
 
 class TestRolesFromAnswers:
