@@ -245,6 +245,27 @@ class TestServoSetupJob:
         manager.request_abort()
         _finish(record)
 
+        assert record.status == JobStatus.ABORTED
+        assert bus.commands[-1] == ServoCommand(254, "torque", 0)  # 中止でも脱力する
+
+    @pytest.mark.parametrize("bus", [FakeServoBus({})])  # 電源が入っていなかった
+    def test_two_servos_answering_while_renumbering_go_on_without_renumbering(
+        self, manager: JobManager, bus: FakeServoBus
+    ):
+        record = manager.start("servo_setup", PARAMS)
+        operator = _Operator(record, manager)
+
+        operator.wait()
+        bus.plug(FakeServo(1, ServoMode.STEP))
+        bus.plug(FakeServo(2, ServoMode.POSITION, 1000))
+        operator.answer(True)
+        start = operator.answer(True)
+        assert "中ほど" in start.message
+        manager.request_abort()
+        _finish(record)
+
+        assert all(c.kind != "id" for c in bus.commands)
+
     def test_same_role_twice_asks_again(self, manager: JobManager, bus: FakeServoBus):
         record = manager.start("servo_setup", PARAMS)
         operator = _Operator(record, manager)
@@ -467,21 +488,41 @@ class TestServoSetupJob:
         assert record.error is not None and "pnp.servo" in record.error
 
     @pytest.mark.parametrize(
-        "bus", [FakeServoBus({1: ServoMode.STEP})]
-    )  # もう 1 台が無い
-    def test_still_not_two_servos_after_renumbering_fails(
+        "bus",
+        [
+            FakeServoBus({1: ServoMode.STEP}),  # もう 1 台のつなぎ忘れ
+            FakeServoBus(dict.fromkeys((1, 2, 3), ServoMode.POSITION)),
+        ],
+        ids=["one", "three"],
+    )
+    def test_one_or_three_servos_fail_without_renumbering(
         self, manager: JobManager, bus: FakeServoBus
     ):
+        """振り直しても直らない（1 台ならつなぎ忘れ。振り直すと、つないだ後に ID がぶつかり得る）."""
         record = manager.start("servo_setup", PARAMS)
-        operator = _Operator(record, manager)
-
-        operator.answer(True)  # 新しいサーボだけをつないだ
-        operator.answer(True)  # 外したサーボをつなぎ直した（が、つながっていない）
         _finish(record)
 
         assert record.status == JobStatus.FAILED
         assert record.error is not None and "2 台" in record.error
+        assert all(c.kind != "id" for c in bus.commands)
         assert bus.commands[-1] == ServoCommand(254, "torque", 0)  # 失敗でも脱力する
+
+    @pytest.mark.parametrize("bus", [FakeServoBus({1: ServoMode.STEP})])
+    def test_still_not_two_servos_after_renumbering_fails(
+        self, manager: JobManager, bus: FakeServoBus
+    ):
+        bus.plug(FakeServo(1, ServoMode.POSITION, 1000))
+        record = manager.start("servo_setup", PARAMS)
+        operator = _Operator(record, manager)
+
+        operator.wait()
+        bus.unplug(1)  # Rotation を外したまま、つなぎ直し忘れる
+        operator.answer(True)
+        operator.answer(True)
+        _finish(record)
+
+        assert record.status == JobStatus.FAILED
+        assert record.error is not None and "2 台" in record.error
 
     def test_aborted_job_leaves_both_servos_relaxed(
         self, manager: JobManager, bus: FakeServoBus

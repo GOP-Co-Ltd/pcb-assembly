@@ -7,14 +7,14 @@
 人の答えが使えないとき（同じ役割を 2 回選んだ、範囲が狭い）は戻り値で知らせ、ジョブが尋ね直す。
 :class:`ServoSetupError` は、人が答え直しても先へ進めない失敗（2 台見つからない、ID・モードを書けない）に使う。
 
-2 台が見つからないとき（新品のサーボは出荷時の ID が同じで応答がぶつかる）は、1 台だけつないでもらって
+1 台も見つからないとき（新品のサーボは出荷時の ID が同じで応答がぶつかる）は、1 台だけつないでもらって
 :func:`renumber_single` で空いている ID を書く。
 """
 
 from __future__ import annotations
 
 import enum
-from collections.abc import Collection, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 import attrs
 
@@ -77,17 +77,15 @@ def find_pair(bus: ServoBus, ids: Iterable[int]) -> tuple[int, int]:
     return found[0], found[1]
 
 
-def renumber_single(
-    bus: ServoBus, ids: Sequence[int], taken: Collection[int]
-) -> tuple[int, int] | None:
-    """Ids の中で 1 台だけ応答するサーボの ID を、空いている ID に書き換える.
+def renumber_single(bus: ServoBus, ids: Sequence[int]) -> tuple[int, int] | None:
+    """1 台だけつないだサーボの ID を、空いている ID に書き換える.
 
     新品のサーボは出荷時の ID が同じなので、2 台つなぐと応答がぶつかってどちらも見つからない。1 台だけ
-    つないだ状態で呼ぶ。新しい ID は ids のうち 0 を除く最小で、そのサーボの今の ID とも、taken
-    （外したもう 1 台が使っているかもしれない、先に見つかった ID）とも違うもの。
+    つないだ状態で呼ぶ。外したもう 1 台は今の ID と同じ ID にいるので、新しい ID は ids のうち 0 と
+    今の ID を除く最小にする。
 
     Returns:
-        （元の ID、新しい ID）。応答したのが 1 台でなければ何も書かずに None
+        （元の ID、新しい ID）。ids の中で応答したのが 1 台でなければ何も書かずに None
 
     Raises:
         ServoSetupError: 空いている ID が無い、または書いたのに新しい ID で応答しない場合
@@ -96,7 +94,7 @@ def renumber_single(
     if len(found) != 1:
         return None
     (servo_id,) = found
-    spare = next((i for i in ids if i != 0 and i != servo_id and i not in taken), None)
+    spare = next((i for i in ids if i not in {0, servo_id}), None)
     if spare is None:
         raise ServoSetupError(
             f"ID {servo_id} のサーボに書ける空いている ID がありません。探す ID の上限を上げてください"

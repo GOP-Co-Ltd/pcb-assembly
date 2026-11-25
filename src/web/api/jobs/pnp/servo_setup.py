@@ -1,6 +1,6 @@
 """ピンセットのサーボ設定ジョブ（2 台の役割を人が判別し、Open Close の閉じ・開きの位置を読む）.
 
-2 台が見つからなければ、先に ID を振り直す（新品のサーボは出荷時の ID が同じで、応答がぶつかる）。
+1 台も見つからなければ、先に ID を振り直す（新品のサーボは出荷時の ID が同じで、2 台の応答がぶつかる）。
 """
 
 from __future__ import annotations
@@ -69,8 +69,9 @@ def _run_servo_setup(ctx: JobContext) -> JobResult:
 def _set_up(ctx: JobContext, bus: ServoBus) -> JobResult:
     ctx.progress("サーボを探す")
     ids = range(int(ctx.params["max_id"]) + 1)
-    if len(found := scan(bus, ids)) != 2:
-        _renumber(ctx, bus, ids, found)
+    # 2 台の ID が重なると、応答がぶつかってどちらも見つからない（1 台や 3 台なら振り直しても直らない）
+    if not scan(bus, ids):
+        _renumber(ctx, bus, ids)
     pair = find_pair(bus, ids)
     ctx.log(f"応答したサーボ: ID {pair[0]}、ID {pair[1]}")
     # 位置モードのサーボを振るので、ピンセットが当たりにあると押し付けてしまう
@@ -140,26 +141,29 @@ def _set_up(ctx: JobContext, bus: ServoBus) -> JobResult:
     )
 
 
-def _renumber(
-    ctx: JobContext, bus: ServoBus, ids: range, found: tuple[int, ...]
-) -> None:
-    """1 台だけつないでもらって空いている ID を書き、外したサーボをつなぎ直してもらう."""
-    listed = "、".join(map(str, found)) or "なし"
-    ctx.log(f"応答したサーボが 2 台ではありません（{len(found)} 台: {listed}）")
+def _renumber(ctx: JobContext, bus: ServoBus, ids: range) -> None:
+    """1 台だけつないでもらって空いている ID を書き、外したサーボをつなぎ直してもらう.
+
+    途中で 2 台が応答するようになれば（電源の入れ忘れなど）、振り直さずに戻る。
+    """
+    ctx.log("応答したサーボがありません")
     while True:
         ctx.require(
-            "サーボが 2 台見つかりません。2 台が同じ ID だと応答がぶつかります（新品のサーボは ID 1）。"
+            "サーボが 1 台も見つかりません。2 台が同じ ID だと応答がぶつかります（新品のサーボは ID 1）。"
             "ID を振り直すので、新しく付けたサーボだけをつなぎ、もう 1 台のケーブルを外して「探す」を押してください"
-            "（つなぎ忘れなら中止して、2 台をつないでからやり直してください）",
+            "（電源やケーブルの不具合なら、直して 2 台ともつないだまま「探す」を押してください）",
             true_label="探す",
         )
-        if (renumbered := renumber_single(bus, ids, found)) is not None:
+        if len(scan(bus, ids)) == 2:
+            return
+        if (renumbered := renumber_single(bus, ids)) is not None:
             break
         ctx.log("応答したサーボが 1 台ではありません")
     old_id, new_id = renumbered
     ctx.log(f"ID {old_id} を ID {new_id} に書き換えました")
     ctx.require(
-        f"新しく付けたサーボを ID {new_id} にしました。外したサーボをつなぎ直して「探す」を押してください",
+        f"新しく付けたサーボを ID {new_id} にしました（ここで中止しても ID は戻りません。設定ジョブを最後まで"
+        "済ませると、[pnp.servo] の ID も合います）。外したサーボをつなぎ直して「探す」を押してください",
         true_label="探す",
     )
 

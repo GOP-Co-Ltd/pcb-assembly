@@ -366,7 +366,9 @@ class FeetechBus(ServoBus):
         try:
             self._write_slow(servo_id, _ADDR_ID, 1, new_id)
         except ServoError:
-            self._write1(servo_id, _ADDR_LOCK, 1)
+            # ID が書けて応答だけ壊れたなら、元の ID ではもう応答しない。書き込みの失敗の方を伝える
+            with contextlib.suppress(ServoError):
+                self._write1(servo_id, _ADDR_LOCK, 1)
             raise
         self._write1(new_id, _ADDR_LOCK, 1)
 

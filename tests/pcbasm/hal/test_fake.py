@@ -643,6 +643,12 @@ class TestFakeServoBus:
         with pytest.raises(ServoError):
             bus.set_id(9, 5)
 
+    def test_set_id_onto_a_used_id_makes_it_crowded(self, bus: FakeServoBus):
+        bus.set_id(2, 1)
+
+        assert not bus.ping(1)
+        assert not bus.ping(2)
+
     def test_unplugged_servo_stops_answering_and_plugs_back_as_it_was(
         self, bus: FakeServoBus
     ):

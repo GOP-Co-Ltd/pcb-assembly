@@ -799,7 +799,7 @@ class FakeServoBus(ServoBus):
         self._mode(servo_id)
         with self._lock:
             self._commands.append(ServoCommand(servo_id, "id", new_id))
-            self._put(attrs.evolve(self._take(servo_id), servo_id=new_id))
+            self._attach(attrs.evolve(self._take(servo_id), servo_id=new_id))
 
     def unplug(self, servo_id: int) -> FakeServo:
         """そのサーボのケーブルを外す（同じ ID に 2 台いれば先につないだ方を外し、後の方が応答する）.
@@ -820,10 +820,14 @@ class FakeServoBus(ServoBus):
     def plug(self, servo: FakeServo) -> None:
         """サーボをつなぐ（トルクは切れている。同じ ID のサーボがいれば、その ID は応答しなくなる）."""
         with self._lock:
-            if servo.servo_id in self._modes:
-                self._crowded.setdefault(servo.servo_id, []).append(servo)
-            else:
-                self._put(servo)
+            self._attach(servo)
+
+    def _attach(self, servo: FakeServo) -> None:
+        """サーボをバスに載せる（同じ ID がいれば応答がぶつかる側に積む。lock の下で呼ぶ）."""
+        if servo.servo_id in self._modes:
+            self._crowded.setdefault(servo.servo_id, []).append(servo)
+        else:
+            self._put(servo)
 
     def _take(self, servo_id: int) -> FakeServo:
         """そのサーボの状態をバスから取り除いて返す（lock の下で呼ぶ）."""
