@@ -30,6 +30,7 @@ STEPS_PER_REV = 4096
 BROADCAST_ID = 254  # 全サーボ宛て（応答は返らない）
 
 # STS シリーズのコントロールテーブル
+_ADDR_ID = 5  # EEPROM。新品は 1
 _ADDR_MIN_ANGLE_LIMIT = 9  # EEPROM。位置モードの goal はこの範囲に収められる
 _ADDR_MAX_ANGLE_LIMIT = 11  # EEPROM
 _ADDR_MODE = 33  # EEPROM（書くときは LOCK を外す）
@@ -177,6 +178,17 @@ class ServoBus(ABC):
         """動作モードを EEPROM に書く（電源を切っても残る。トルクは呼ぶ側が先に切る）.
 
         Raises:
+            ServoError: 通信に失敗した場合
+        """
+
+    @abstractmethod
+    def set_id(self, servo_id: int, new_id: int) -> None:
+        """サーボの ID を EEPROM に書き換える（以後 new_id でだけ応答する）.
+
+        同じ ID のサーボが 2 台つながっていると両方が書き換わるので、1 台だけつないで呼ぶ。
+
+        Raises:
+            ValueError: new_id が 0〜253 でないか、servo_id と同じ場合（何も送らない）
             ServoError: 通信に失敗した場合
         """
 
@@ -345,6 +357,20 @@ class FeetechBus(ServoBus):
             servo_id,
             ((_ADDR_MIN_ANGLE_LIMIT, 2, low), (_ADDR_MAX_ANGLE_LIMIT, 2, high)),
         )
+
+    @override
+    def set_id(self, servo_id: int, new_id: int) -> None:
+        """EEPROM のロックを外して ID を書き、新しい ID 宛てにロックを戻す."""
+        check_new_id(servo_id, new_id)
+        self._write1(servo_id, _ADDR_LOCK, 0)
+        try:
+            self._write_slow(servo_id, _ADDR_ID, 1, new_id)
+        except ServoError:
+            # ID が書けて応答だけ壊れたなら、元の ID ではもう応答しない。書き込みの失敗の方を伝える
+            with contextlib.suppress(ServoError):
+                self._write1(servo_id, _ADDR_LOCK, 1)
+            raise
+        self._write1(new_id, _ADDR_LOCK, 1)
 
     def _write_eeprom(
         self, servo_id: int, writes: tuple[tuple[int, int, int], ...]
@@ -521,6 +547,18 @@ def open_servo_bus(port: str, baudrate: int = 1_000_000) -> FeetechBus:
     if not opened:
         raise ServoError(f"サーボのポート {port} を {baudrate} bps で開けません")
     return FeetechBus(handler)
+
+
+def check_new_id(servo_id: int, new_id: int) -> None:
+    """サーボに書く新しい ID を確かめる.
+
+    Raises:
+        ValueError: new_id が 0〜253 でないか、servo_id と同じ場合
+    """
+    if not 0 <= new_id < BROADCAST_ID or new_id == servo_id:
+        raise ValueError(
+            f"新しい ID は 0〜{BROADCAST_ID - 1} で、今の ID（{servo_id}）と違う値にします: {new_id}"
+        )
 
 
 def check_angle_limits(low: int, high: int) -> None:

@@ -1,5 +1,7 @@
 """servo_setup ジョブの仕様テスト（部品実装だけの機体、サーボは FakeServoBus）.
 
+- ID の振り直し: 2 台見つからなければ、新しいサーボだけをつないでもらって空いている ID を書き、
+  外したサーボをつなぎ直してもらう（新品のサーボは出荷時の ID が同じで、応答がぶつかる）
 - 始める前: ピンセットを中ほどにしてもらってから振る
 - 役割の判別: 振ってから尋ね、同じ役割を 2 回選ぶと尋ね直す。「もう一度動かす」で振り直す
 - 開閉の範囲: トルクを切って人が手で回した位置を読み、使えない範囲なら読み直す。手を離してもらってから
@@ -16,7 +18,7 @@ import pytest
 import tomlkit
 
 from pcbasm.hal import ServoError, ServoMode
-from pcbasm.hal.fake import FakeAudioPlayer, FakeServoBus, ServoCommand
+from pcbasm.hal.fake import FakeAudioPlayer, FakeServo, FakeServoBus, ServoCommand
 from pcbasm.machine.devices import Devices
 from pcbasm.pnp.servo_setup import ServoRole
 from tests.support.machine_toml import pnp_only
@@ -193,6 +195,76 @@ class TestServoSetupJob:
             servo.open_angle,
         ) == (1, 2, 87.89, 114.26)
         assert servo.port == "/dev/ttyUSB0"
+
+    @pytest.mark.parametrize(
+        "bus", [FakeServoBus({1: ServoMode.STEP})]
+    )  # 新品の Open Close も出荷時の ID 1 のまま、後でつなぐ
+    def test_servos_sharing_an_id_are_renumbered_then_set_up(
+        self, manager: JobManager, bus: FakeServoBus
+    ):
+        bus.plug(FakeServo(1, ServoMode.POSITION, 1000))
+        record = manager.start("servo_setup", PARAMS)
+        operator = _Operator(record, manager)
+
+        alone = operator.wait()
+        assert "新しく付けたサーボだけ" in alone.message
+        rotation = bus.unplug(1)  # 先につないでいた Rotation を外す
+        operator.answer(True)
+        again = operator.wait()
+        assert "つなぎ直して" in again.message
+        bus.plug(rotation)
+        operator.answer(True)
+        operator.start()
+        operator.answer(ROTATION)
+        operator.answer(OPEN_CLOSE)
+        operator.read_and_move(bus, 1000, 1300)
+        operator.answer(True)
+        _finish(record)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert ServoCommand(1, "id", 2) in bus.commands
+        assert "ID 1 を ID 2 に" in "\n".join(record.log_lines)
+        values = manager.apply_payload().values
+        assert (values["pnp.servo.rotation_id"], values["pnp.servo.open_close_id"]) == (
+            1,
+            2,
+        )
+
+    @pytest.mark.parametrize("bus", [FakeServoBus({1: ServoMode.STEP})])
+    def test_renumbering_asks_again_until_one_servo_answers(
+        self, manager: JobManager, bus: FakeServoBus
+    ):
+        bus.plug(FakeServo(1, ServoMode.POSITION, 1000))
+        record = manager.start("servo_setup", PARAMS)
+        operator = _Operator(record, manager)
+
+        first = operator.answer(True)  # 外し忘れて、まだ 2 台が ID 1 にいる
+        second = operator.answer(True)  # 外し忘れたまま、もう一度
+        assert second.message == first.message
+        assert all(c.kind != "id" for c in bus.commands)
+        manager.request_abort()
+        _finish(record)
+
+        assert record.status == JobStatus.ABORTED
+        assert bus.commands[-1] == ServoCommand(254, "torque", 0)  # 中止でも脱力する
+
+    @pytest.mark.parametrize("bus", [FakeServoBus({})])  # 電源が入っていなかった
+    def test_two_servos_answering_while_renumbering_go_on_without_renumbering(
+        self, manager: JobManager, bus: FakeServoBus
+    ):
+        record = manager.start("servo_setup", PARAMS)
+        operator = _Operator(record, manager)
+
+        operator.wait()
+        bus.plug(FakeServo(1, ServoMode.STEP))
+        bus.plug(FakeServo(2, ServoMode.POSITION, 1000))
+        operator.answer(True)
+        start = operator.answer(True)
+        assert "中ほど" in start.message
+        manager.request_abort()
+        _finish(record)
+
+        assert all(c.kind != "id" for c in bus.commands)
 
     def test_same_role_twice_asks_again(self, manager: JobManager, bus: FakeServoBus):
         record = manager.start("servo_setup", PARAMS)
@@ -415,13 +487,42 @@ class TestServoSetupJob:
         assert record.status == JobStatus.FAILED
         assert record.error is not None and "pnp.servo" in record.error
 
-    def test_other_than_two_servos_fails(self, manager: JobManager, bus: FakeServoBus):
-        record = manager.start("servo_setup", {"max_id": 1})
+    @pytest.mark.parametrize(
+        "bus",
+        [
+            FakeServoBus({1: ServoMode.STEP}),  # もう 1 台のつなぎ忘れ
+            FakeServoBus(dict.fromkeys((1, 2, 3), ServoMode.POSITION)),
+        ],
+        ids=["one", "three"],
+    )
+    def test_one_or_three_servos_fail_without_renumbering(
+        self, manager: JobManager, bus: FakeServoBus
+    ):
+        """振り直しても直らない（1 台ならつなぎ忘れ。振り直すと、つないだ後に ID がぶつかり得る）."""
+        record = manager.start("servo_setup", PARAMS)
         _finish(record)
 
         assert record.status == JobStatus.FAILED
         assert record.error is not None and "2 台" in record.error
+        assert all(c.kind != "id" for c in bus.commands)
         assert bus.commands[-1] == ServoCommand(254, "torque", 0)  # 失敗でも脱力する
+
+    @pytest.mark.parametrize("bus", [FakeServoBus({1: ServoMode.STEP})])
+    def test_still_not_two_servos_after_renumbering_fails(
+        self, manager: JobManager, bus: FakeServoBus
+    ):
+        bus.plug(FakeServo(1, ServoMode.POSITION, 1000))
+        record = manager.start("servo_setup", PARAMS)
+        operator = _Operator(record, manager)
+
+        operator.wait()
+        bus.unplug(1)  # Rotation を外したまま、つなぎ直し忘れる
+        operator.answer(True)
+        operator.answer(True)
+        _finish(record)
+
+        assert record.status == JobStatus.FAILED
+        assert record.error is not None and "2 台" in record.error
 
     def test_aborted_job_leaves_both_servos_relaxed(
         self, manager: JobManager, bus: FakeServoBus
