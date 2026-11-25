@@ -55,6 +55,7 @@ from .servo import (
     ServoMode,
     check_acceleration,
     check_angle_limits,
+    check_new_id,
     check_speed,
 )
 from .stage import Limits, ScalarLimits
@@ -625,20 +626,40 @@ class ServoCommand:
     Attributes:
         servo_id: 送り先のサーボ ID
         kind: 指令の種類（``goto`` は絶対位置、``step`` は相対 step、``torque`` はトルクの入切、
-            ``mode`` は動作モードの書き込み、``min_angle`` / ``max_angle`` は角度制限の書き込み）
+            ``mode`` は動作モードの書き込み、``min_angle`` / ``max_angle`` は角度制限の書き込み、
+            ``id`` は ID の書き換え）
         value: goto は位置、step は step 数、torque は 1（入）か 0（切）、mode はモードの値、
-            min_angle / max_angle は制限の位置
+            min_angle / max_angle は制限の位置、id は新しい ID
     """
 
     servo_id: int
-    kind: Literal["goto", "step", "torque", "mode", "min_angle", "max_angle"]
+    kind: Literal["goto", "step", "torque", "mode", "min_angle", "max_angle", "id"]
     value: int
+
+
+@attrs.frozen
+class FakeServo:
+    """FakeServoBus から外した（または、これからつなぐ）サーボ 1 台.
+
+    Attributes:
+        servo_id: ID
+        mode: 動作モード
+        position: 位置（raw 0〜4095）
+        angle_limits: 角度制限（下限、上限）
+    """
+
+    servo_id: int
+    mode: ServoMode
+    position: int = 2048
+    angle_limits: tuple[int, int] = (0, STEPS_PER_REV - 1)
 
 
 class FakeServoBus(ServoBus):
     """指令を記録し、即座に位置へ反映する ``ServoBus``.
 
     ``modes`` にある ID だけが応答する。位置モードの ID は goto だけ、ステップモードの ID は step だけを受け付ける。
+    :meth:`unplug` / :meth:`plug` でサーボを外し・つなげる。同じ ID に 2 台つなぐと、実機と同じく応答が
+    ぶつかり、その ID は ping に応答せず、他の操作は ServoError になる。
     goto / step の後は実機と同じく、``start_delay`` 回の :meth:`moving` が False（まだ動き出していない）、
     次の 1 回が True（動いている途中）、その後は False（止まった）を返す。:meth:`jam` したサーボは True を返し続ける。
     """
@@ -675,6 +696,8 @@ class FakeServoBus(ServoBus):
         self._accelerations = dict.fromkeys(self._modes, DEFAULT_ACCELERATION)
         self._remaining = dict.fromkeys(self._modes, 0)
         self._reads_until_start: dict[int, int] = {}
+        # 同じ ID に後からつないだサーボ（つないだ順）
+        self._crowded: dict[int, list[FakeServo]] = {}
         self._closed = False
         self._lock = threading.Lock()
 
@@ -691,7 +714,7 @@ class FakeServoBus(ServoBus):
 
     @override
     def ping(self, servo_id: int) -> bool:
-        return servo_id in self._modes
+        return servo_id in self._modes and servo_id not in self._crowded
 
     @override
     def mode(self, servo_id: int) -> ServoMode:
@@ -769,6 +792,70 @@ class FakeServoBus(ServoBus):
         with self._lock:
             self._commands.append(ServoCommand(servo_id, "mode", int(mode)))
             self._modes[servo_id] = mode
+
+    @override
+    def set_id(self, servo_id: int, new_id: int) -> None:
+        check_new_id(servo_id, new_id)
+        self._mode(servo_id)
+        with self._lock:
+            self._commands.append(ServoCommand(servo_id, "id", new_id))
+            self._put(attrs.evolve(self._take(servo_id), servo_id=new_id))
+
+    def unplug(self, servo_id: int) -> FakeServo:
+        """そのサーボのケーブルを外す（同じ ID に 2 台いれば先につないだ方を外し、後の方が応答する）.
+
+        Raises:
+            ServoError: その ID のサーボがつながっていない場合
+        """
+        if servo_id not in self._modes:
+            raise ServoError(f"サーボ {servo_id} はつながっていません")
+        with self._lock:
+            servo = self._take(servo_id)
+            if crowded := self._crowded.get(servo_id):
+                self._put(crowded.pop(0))
+                if not crowded:
+                    del self._crowded[servo_id]
+            return servo
+
+    def plug(self, servo: FakeServo) -> None:
+        """サーボをつなぐ（トルクは切れている。同じ ID のサーボがいれば、その ID は応答しなくなる）."""
+        with self._lock:
+            if servo.servo_id in self._modes:
+                self._crowded.setdefault(servo.servo_id, []).append(servo)
+            else:
+                self._put(servo)
+
+    def _take(self, servo_id: int) -> FakeServo:
+        """そのサーボの状態をバスから取り除いて返す（lock の下で呼ぶ）."""
+        servo = FakeServo(
+            servo_id,
+            self._modes.pop(servo_id),
+            self._positions.pop(servo_id),
+            self._limits.pop(servo_id),
+        )
+        for state in (
+            self._torque,
+            self._goals,
+            self._speeds,
+            self._accelerations,
+            self._remaining,
+            self._reads_until_start,
+        ):
+            state.pop(servo_id, None)
+        self._jammed.discard(servo_id)
+        return servo
+
+    def _put(self, servo: FakeServo) -> None:
+        """サーボをトルクの切れた止まった状態でバスに載せる（lock の下で呼ぶ）."""
+        servo_id = servo.servo_id
+        self._modes[servo_id] = servo.mode
+        self._positions[servo_id] = servo.position
+        self._limits[servo_id] = servo.angle_limits
+        self._torque[servo_id] = False
+        self._goals[servo_id] = servo.position
+        self._speeds[servo_id] = DEFAULT_SPEED
+        self._accelerations[servo_id] = DEFAULT_ACCELERATION
+        self._remaining[servo_id] = 0
 
     def speed(self, servo_id: int) -> int:
         """最後の goto / step で送られた goal speed [step/s]（送る前は既定値）."""
@@ -888,6 +975,8 @@ class FakeServoBus(ServoBus):
     def _mode(self, servo_id: int) -> ServoMode:
         if servo_id not in self._modes:
             raise ServoError(f"サーボ {servo_id} が応答しません")
+        if servo_id in self._crowded:
+            raise ServoError(f"サーボ {servo_id} は 2 台以上の応答がぶつかっています")
         return self._modes[servo_id]
 
     def _require(self, servo_id: int, mode: ServoMode) -> None:

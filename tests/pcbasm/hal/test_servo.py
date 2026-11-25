@@ -1046,6 +1046,26 @@ class TestFeetechBus:
 
         assert wire.packets == []
 
+    def test_set_id_writes_the_id_inside_the_eeprom_lock_and_relocks_at_the_new_id(
+        self, wire: _WireServo, feetech: FeetechBus
+    ):
+        feetech.set_id(1, 2)
+
+        assert wire.writes() == [
+            (1, 55, b"\x00"),
+            (1, 5, b"\x02"),
+            (2, 55, b"\x01"),  # 書いた後は新しい ID でしか応答しない
+        ]
+
+    @pytest.mark.parametrize("new_id", [-1, 1, 254])
+    def test_unusable_new_id_is_refused_without_sending(
+        self, wire: _WireServo, feetech: FeetechBus, new_id: int
+    ):
+        with pytest.raises(ValueError):
+            feetech.set_id(1, new_id)
+
+        assert wire.packets == []
+
     def test_release_all_broadcasts_torque_off_without_waiting_for_a_reply(
         self, wire: _WireServo, feetech: FeetechBus
     ):

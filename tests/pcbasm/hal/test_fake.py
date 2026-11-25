@@ -27,6 +27,7 @@ from pcbasm.hal.fake import (
     FakeCamera,
     FakeGamepad,
     FakeKlipper,
+    FakeServo,
     FakeServoBus,
     SceneCamera,
     SentGCode,
@@ -627,6 +628,48 @@ class TestFakeServoBus:
             bus.turn_by_hand(2, 1500)
 
         assert bus.position(2) == 1000
+
+    def test_set_id_moves_the_servo_to_the_new_id_and_is_recorded(
+        self, bus: FakeServoBus
+    ):
+        bus.set_id(2, 5)
+
+        assert not bus.ping(2)
+        assert bus.ping(5)
+        assert (bus.mode(5), bus.position(5)) == (ServoMode.POSITION, 1000)
+        assert bus.commands == [ServoCommand(2, "id", 5)]
+
+    def test_set_id_of_an_unanswered_id_is_a_servo_error(self, bus: FakeServoBus):
+        with pytest.raises(ServoError):
+            bus.set_id(9, 5)
+
+    def test_unplugged_servo_stops_answering_and_plugs_back_as_it_was(
+        self, bus: FakeServoBus
+    ):
+        servo = bus.unplug(2)
+
+        assert servo == FakeServo(2, ServoMode.POSITION, 1000)
+        assert not bus.ping(2)
+        bus.plug(servo)
+        assert (bus.mode(2), bus.position(2)) == (ServoMode.POSITION, 1000)
+
+    def test_two_servos_on_one_id_do_not_answer(self, bus: FakeServoBus):
+        """実機では 2 台の応答がぶつかり、壊れたパケットになる."""
+        bus.plug(FakeServo(1, ServoMode.POSITION))
+
+        assert not bus.ping(1)
+        with pytest.raises(ServoError):
+            bus.mode(1)
+
+    def test_unplugging_one_of_two_on_an_id_leaves_the_later_one(
+        self, bus: FakeServoBus
+    ):
+        bus.plug(FakeServo(1, ServoMode.POSITION, 300))
+
+        first = bus.unplug(1)
+
+        assert first.mode is ServoMode.STEP
+        assert (bus.mode(1), bus.position(1)) == (ServoMode.POSITION, 300)
 
     def test_close_marks_the_bus_closed(self, bus: FakeServoBus):
         assert not bus.closed
